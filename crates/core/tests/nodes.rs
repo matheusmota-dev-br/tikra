@@ -225,3 +225,10 @@ fn baseline_anchors() {
     // the "g" goes below the baseline: the center sits above it by less than the half height
     assert!(ns[0].center.y > 2.0);
 }
+
+#[test]
+fn tex_quotes_in_node_text_are_typographic() {
+    // mathra turns `` '' into “ ” inside text; the label must not warn or fall back to boxes
+    let r = no_warnings(r"\begin{tikzpicture} \node {say ``hi'' and `bye'}; \end{tikzpicture}");
+    assert!(r.svg.contains("<path"));
+}

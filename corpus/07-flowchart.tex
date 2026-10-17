@@ -6,8 +6,8 @@
   \node[box] (start) {Start};
   \node[box, below=of start] (read) {Read a number $n$};
   \node[choice, below=of read] (test) {$n > 0$?};
-  \node[box, right=2cm of test] (neg) {Print \textbf{no}};
-  \node[box, below=of test] (pos) {Print \textbf{yes}};
+  \node[box, right=2cm of test] (neg) {Print ``no''};
+  \node[box, below=of test] (pos) {Print ``yes''};
   \draw[line] (start) -- (read);
   \draw[line] (read) -- (test);
   \draw[line] (test) -- node[above] {no} (neg);
