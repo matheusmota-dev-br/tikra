@@ -66,8 +66,8 @@ One run on an Apple M5 (arm64), 15 runs per figure, median per figure:
 
 | Per figure | Mean | p95 |
 |---|---:|---:|
-| SVG | 0.10 ms | 0.22 ms |
-| SVG + PNG at 300 dpi | 1.72 ms | 4.98 ms |
+| SVG | 0.12 ms | 0.26 ms |
+| SVG + PNG at 300 dpi | 2.13 ms | 5.88 ms |
 
 `tests/corpus.rs` checks on every `cargo test` that all corpus figures convert without warnings.
 
