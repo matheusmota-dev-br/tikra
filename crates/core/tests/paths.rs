@@ -3,7 +3,7 @@
 
 mod common;
 use common::*;
-use tikra::scene::{Element, Segment, Tip};
+use tikra::scene::{Element, Point, Segment, Tip};
 
 #[test]
 fn line_elbows_and_closing() {
@@ -387,7 +387,8 @@ fn node_between_operation_and_target_goes_midway() {
     let n = nodes(&c);
     assert!(close_to((n[0].center.x, n[0].center.y), (2.0, 0.0)), "midway on a line: {:?}", n[0].center);
     assert!(close_to((n[1].center.x, n[1].center.y), (2.0, 0.0)), "at the corner of -|: {:?}", n[1].center);
-    assert!(close(n[2].center.x, 1.0), "an explicit pos wins: {:?}", n[2].center);
+    // pos is the Bézier parameter on the bent curve, as in TikZ: near x = 1, above the chord
+    assert!((n[2].center.x - 1.0).abs() < 0.05 && n[2].center.y > 0.3, "an explicit pos wins, on the curve: {:?}", n[2].center);
     assert!(close_to((n[3].center.x, n[3].center.y), (1.0, 1.0)), "no target: stays where the path is: {:?}", n[3].center);
 }
 
@@ -395,4 +396,22 @@ fn node_between_operation_and_target_goes_midway() {
 fn bend_given_to_the_whole_statement() {
     let t = first_path(r"\draw[bend left=30] (0,0) to (4,0);");
     assert!(t.segments.iter().any(|s| matches!(s, tikra::scene::Segment::CurveTo(..))), "{:?}", t.segments);
+}
+
+#[test]
+fn node_on_a_bent_path_sits_on_the_curve() {
+    // the chord runs along y = 0; bend right pulls the curve below it, and the node follows the curve
+    let c = scene(r"\coordinate (a) at (0,0); \coordinate (b) at (4,0); \draw (a) to[bend right] node {m} (b);");
+    let m = nodes(&c)[0];
+    assert!(close(m.center.x, 2.0), "{:?}", m.center);
+    assert!(m.center.y < -0.3, "on the curve, not on the chord: {:?}", m.center);
+}
+
+#[test]
+fn curve_leaves_from_the_starting_node_border() {
+    let c = scene(r"\node[draw, circle, minimum size=1cm] (t) at (3,0) {}; \node[draw] (s) at (0,0) {}; \draw (t) to[bend left] (s);");
+    let t = paths(&c)[0];
+    let Segment::MoveTo(p) = t.segments[0] else { panic!() };
+    let r = p.minus(Point::new(3.0, 0.0)).norm();
+    assert!(close(r, 0.5), "starts on the circle (radius 0.5), not at its center: {r}");
 }

@@ -263,14 +263,31 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
 
     // legend
     if !legends.is_empty() {
-        let at = get("legend style").and_then(|ls| {
+        // `legend pos` first, then `at` and `anchor` in `legend style` override it
+        let (mut at, mut anchor) = match get("legend pos").as_deref().map(str::trim) {
+            Some("north west") => ((0.03, 0.97), "north west".to_string()),
+            Some("south west") => ((0.03, 0.03), "south west".to_string()),
+            Some("south east") => ((0.97, 0.03), "south east".to_string()),
+            Some("outer north east") => ((1.03, 1.0), "north west".to_string()),
+            _ => ((0.97, 0.97), "north east".to_string()),
+        };
+        if let Some(ls) = get("legend style") {
             let o = options::parse(&ls);
-            let a = o.iter().find(|x| x.key == "at")?.value.clone()?;
-            let t = options::strip_braces(&a).trim().trim_start_matches('(').trim_end_matches(')').to_string();
-            let p = options::split_top_level(&t);
-            Some((env.number(&p[0]).ok()?, env.number(p.get(1)?).ok()?))
-        });
-        let (ax, ay) = at.unwrap_or((0.97, 0.97));
+            let point = o.iter().find(|x| x.key == "at").and_then(|x| x.value.clone()).and_then(|a| {
+                let t = options::strip_braces(&a).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+                let p = options::split_top_level(&t);
+                Some((env.number(&p[0]).ok()?, env.number(p.get(1)?).ok()?))
+            });
+            if let Some(p) = point {
+                at = p;
+                // pgfplots keeps its default anchor when only `at` is given
+                anchor = "north east".to_string();
+            }
+            if let Some(a) = o.iter().find(|x| x.key == "anchor").and_then(|x| x.value.clone()) {
+                anchor = a.trim().to_string();
+            }
+        }
+        let (ax, ay) = at;
         let mut y = ay * height - 0.3;
         let x_end = ax * width - 0.15;
         let before = env.scene.elements.len();
@@ -319,6 +336,68 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
                 style: Style { stroke: Some(Color::BLACK), fill: Some(Color::WHITE), ..Style::default() },
             }),
         );
+        // the legend was laid out with its north east corner at `at`: move it so `anchor` lands there instead
+        let (w, h) = (right - x0, top - bottom);
+        let (dx, dy) = match anchor.as_str() {
+            "north west" => (w, 0.0),
+            "north" => (w / 2.0, 0.0),
+            "south west" => (w, h),
+            "south" => (w / 2.0, h),
+            "south east" => (0.0, h),
+            "west" => (w, h / 2.0),
+            "east" => (0.0, h / 2.0),
+            "center" => (w / 2.0, h / 2.0),
+            "north east" => (0.0, 0.0),
+            other => {
+                env.warn(format!("legend anchor {other} not supported: north east used"));
+                (0.0, 0.0)
+            }
+        };
+        for el in &mut env.scene.elements[before..] {
+            shift(el, dx, dy);
+        }
     }
     Ok(())
+}
+
+/// Moves an element by `(dx, dy)`, in cm.
+fn shift(el: &mut Element, dx: f64, dy: f64) {
+    let d = Point::new(dx, dy);
+    match el {
+        Element::Node(n) => n.center = n.center.plus(d),
+        Element::Path(Path { segments, .. }) | Element::Clip(segments) => {
+            for s in segments {
+                match s {
+                    Segment::MoveTo(q) | Segment::LineTo(q) => *q = q.plus(d),
+                    Segment::CurveTo(a, b, c) => {
+                        for q in [a, b, c] {
+                            *q = q.plus(d);
+                        }
+                    }
+                    Segment::Close => {}
+                }
+            }
+        }
+        Element::EndClip => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shift_moves_every_kind_of_element() {
+        let o = Point::new(0.0, 0.0);
+        let mut els = vec![
+            Element::Clip(vec![Segment::MoveTo(o), Segment::CurveTo(o, o, o), Segment::Close]),
+            Element::EndClip,
+        ];
+        for el in &mut els {
+            shift(el, 1.0, 2.0);
+        }
+        let Element::Clip(segs) = &els[0] else { panic!() };
+        assert!(matches!(segs[1], Segment::CurveTo(a, b, c) if [a, b, c].iter().all(|p| p.x == 1.0 && p.y == 2.0)));
+        assert!(matches!(segs[0], Segment::MoveTo(p) if p.x == 1.0 && p.y == 2.0));
+    }
 }

@@ -2,7 +2,7 @@
 
 mod common;
 use common::*;
-use tikra::scene::Element;
+use tikra::scene::{Element, Segment};
 
 fn plot(options: &str, body: &str) -> tikra::Output {
     figure(&format!(r"\begin{{tikzpicture}}\begin{{axis}}[{options}] {body} \end{{axis}}\end{{tikzpicture}}"))
@@ -109,4 +109,33 @@ fn only_marks_draws_points_without_a_line() {
     assert_eq!(nodes(&with).iter().filter(|n| n.label.is_none()).count(), 2);
     let without = scene(r"\begin{axis} \addplot+[no marks] coordinates {(0,0) (1,1)}; \end{axis}");
     assert_eq!(nodes(&without).iter().filter(|n| n.label.is_none()).count(), 0);
+}
+
+/// The legend's white frame: the only closed path filled with white.
+fn legend_frame(c: &tikra::scene::Scene) -> (f64, f64, f64, f64) {
+    let frame = paths(c).into_iter().find(|p| p.style.fill == Some(tikra::color::Color::WHITE)).expect("a legend frame");
+    let xs: Vec<f64> = frame.segments.iter().filter_map(|s| if let Segment::MoveTo(p) | Segment::LineTo(p) = s { Some(p.x) } else { None }).collect();
+    let ys: Vec<f64> = frame.segments.iter().filter_map(|s| if let Segment::MoveTo(p) | Segment::LineTo(p) = s { Some(p.y) } else { None }).collect();
+    let min = |v: &[f64]| v.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = |v: &[f64]| v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    (min(&xs), min(&ys), max(&xs), max(&ys))
+}
+
+#[test]
+fn legend_anchor_and_legend_pos_place_the_frame() {
+    let axis = |opts: &str| scene(&format!(r"\begin{{axis}}[width=10cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=1, {opts}] \addplot coordinates {{(0,0) (1,1)}}; \addlegendentry{{data}} \end{{axis}}"));
+    let (_, _, right, top) = legend_frame(&axis(""));
+    let (left_nw, _, _, top_nw) = legend_frame(&axis("legend style={at={(0.02,0.98)}, anchor=north west}"));
+    let (_, bottom_se, right_se, _) = legend_frame(&axis("legend pos=south east"));
+    let (_, _, right_at, _) = legend_frame(&axis("legend style={at={(0.5,0.98)}}"));
+    let (left_sw, bottom_sw, _, _) = legend_frame(&axis("legend pos=south west"));
+    assert!(right > 4.0 && top > 2.5, "default: north east corner: {right} {top}");
+    assert!(left_nw < 1.0 && top_nw > 2.5, "anchor=north west hangs the legend to the right of `at`: {left_nw}");
+    assert!(close(right_se, right) && bottom_se < 1.0, "legend pos=south east: {right_se} {bottom_se}");
+    assert!((right_at - right / 2.0).abs() < 0.5, "with only `at`, pgfplots keeps the north east anchor: {right_at}");
+    assert!(left_sw < 1.0 && bottom_sw < 1.0);
+    let (left_out, _, _, _) = legend_frame(&axis("legend pos=outer north east"));
+    assert!(left_out > right, "outer north east: outside the axis, to the right: {left_out}");
+    let (_, w) = scene_and_warnings(r"\begin{axis}[legend style={anchor=north by northwest}] \addplot coordinates {(0,0) (1,1)}; \addlegendentry{d} \end{axis}");
+    assert!(w.iter().any(|x| x.contains("legend anchor")), "{w:?}");
 }

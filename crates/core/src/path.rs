@@ -319,16 +319,45 @@ fn calc_expr(env: &Env, text: &str) -> Result<Point, Error> {
     Ok(total)
 }
 
+/// The last segment drawn, for `node[midway]` and friends: a line, or a cubic Bézier with its controls.
+#[derive(Debug, Clone, Copy)]
+struct LastSegment {
+    start: Point,
+    end: Point,
+    controls: Option<(Point, Point)>,
+}
+
+impl LastSegment {
+    fn line(start: Point, end: Point) -> Self {
+        LastSegment { start, end, controls: None }
+    }
+
+    /// The point at `t` along the segment; on a curve, on the curve itself, as TikZ does.
+    fn at(&self, t: f64) -> Point {
+        match self.controls {
+            None => self.start.lerp(self.end, t),
+            Some((c1, c2)) => {
+                let u = 1.0 - t;
+                let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                Point::new(
+                    a * self.start.x + b * c1.x + c * c2.x + d * self.end.x,
+                    a * self.start.y + b * c1.y + c * c2.y + d * self.end.y,
+                )
+            }
+        }
+    }
+}
+
 /// A node read in the middle of a path, created after the path: (options, text, name, position, last segment).
-type PendingNode = (String, String, Option<String>, Point, Option<(Point, Point)>);
+type PendingNode = (String, String, Option<String>, Point, Option<LastSegment>);
 
 struct Builder<'a> {
     env: &'a mut Env,
     segments: Vec<Segment>,
     current: Option<Ref>,
     subpath_start: Option<Point>,
-    /// start and end of the last segment (for `node[midway]`)
-    last: Option<(Point, Point)>,
+    /// the last segment (for `node[midway]`)
+    last: Option<LastSegment>,
     nodes: Vec<PendingNode>,
     plot: (f64, f64, usize, String),
     decoration: Option<(String, f64, f64)>,
@@ -367,7 +396,7 @@ impl Builder<'_> {
             self.segments.push(Segment::MoveTo(pa));
         }
         self.segments.push(Segment::LineTo(pb));
-        self.last = Some((pa, pb));
+        self.last = Some(LastSegment::line(pa, pb));
         self.current = Some(Ref { p: r.p, node: r.node });
     }
 
@@ -376,12 +405,21 @@ impl Builder<'_> {
         if self.current.is_none() {
             self.segments.push(Segment::MoveTo(a));
         }
+        // the curve leaves from the border of the starting node, toward its first control point
+        if let Some(n) = self.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| self.env.nodes.get(n)) {
+            let pa = n.border_toward(c1.minus(n.center));
+            if let Some(Segment::MoveTo(m)) = self.segments.last_mut() {
+                *m = pa;
+            }
+        }
         let mut pb = r.p;
         if let Some(n) = r.node.as_ref().and_then(|n| self.env.nodes.get(n)) {
             pb = n.border_toward(c2.minus(n.center));
         }
+        // the curve starts where the path is now (a node's border, not its center)
+        let start = match self.segments.last() { Some(Segment::MoveTo(q) | Segment::LineTo(q) | Segment::CurveTo(_, _, q)) => *q, _ => a };
         self.segments.push(Segment::CurveTo(c1, c2, pb));
-        self.last = Some((a, pb));
+        self.last = Some(LastSegment { start, end: pb, controls: Some((c1, c2)) });
         self.current = Some(r);
     }
 
@@ -626,7 +664,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             if let Some(p0) = b.subpath_start {
                 if operation.take().is_some() {
                     b.segments.push(Segment::Close);
-                    b.last = Some((b.point(), p0));
+                    b.last = Some(LastSegment::line(b.point(), p0));
                     b.current = Some(Ref { p: p0, node: None });
                 }
             }
@@ -740,7 +778,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             let (s1, c1) = a1.to_radians().sin_cos();
             let end = center.plus(t.linear(Point::new(rx * c1, ry * s1)));
             b.segments.extend(segs);
-            b.last = Some((p, end));
+            b.last = Some(LastSegment::line(p, end));
             b.current = Some(Ref { p: end, node: None });
             operation = None;
         } else if word("grid") {
@@ -882,7 +920,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
                     }
                 }
                 let n = points.len();
-                b.last = Some((points[n.saturating_sub(2)], points[n - 1]));
+                b.last = Some(LastSegment::line(points[n.saturating_sub(2)], points[n - 1]));
                 b.current = Some(Ref { p: points[n - 1], node: None });
             }
         } else if word("node") || word("coordinate") {
@@ -1011,7 +1049,7 @@ fn read_node(c: &[char], mut i: usize) -> Result<(String, Option<String>, Option
 }
 
 /// Creates a node: typesets the text, computes the shape and places it by its anchor.
-fn create_node(env: &mut Env, own: &str, text: &str, name: Option<String>, pos: Point, last: Option<(Point, Point)>) -> Result<(), Error> {
+fn create_node(env: &mut Env, own: &str, text: &str, name: Option<String>, pos: Point, last: Option<LastSegment>) -> Result<(), Error> {
     let options = effective_options(env, own, "every node");
     let mut shape = Shape::Rectangle;
     let mut draws = false;
@@ -1189,7 +1227,7 @@ fn create_node(env: &mut Env, own: &str, text: &str, name: Option<String>, pos: 
     };
     // reference position: on the path, relative to another node, or the given point
     let mut point = match (pos_on_path, last) {
-        (Some(t), Some((a, bb))) => a.lerp(bb, t),
+        (Some(t), Some(seg)) => seg.at(t),
         _ => pos,
     };
     if let Some((_, p, _)) = &reference {
