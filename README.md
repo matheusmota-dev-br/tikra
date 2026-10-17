@@ -23,6 +23,17 @@ for w in &out.warnings { eprintln!("{w}"); }
 
 The banner above is drawn by tikra itself from [`docs/banner.tex`](docs/banner.tex).
 
+## Examples
+
+Each image is an SVG drawn by tikra from the figure in [`corpus/`](corpus) it links to, shown on a white card. `tests/examples.rs` keeps them in sync with the code.
+
+<table>
+<tr><td align="center"><a href="corpus/01-triangle-angles.tex"><img src="docs/examples/01-triangle-angles.svg" alt="Triangle with an angle arc and a height" width="380"></a><br><sub>Triangle with an angle arc and a height</sub></td><td align="center"><a href="corpus/03-unit-circle.tex"><img src="docs/examples/03-unit-circle.svg" alt="Unit circle with polar points" width="380"></a><br><sub>Unit circle with polar points</sub></td></tr>
+<tr><td align="center"><a href="corpus/05-pgfplots-legend.tex"><img src="docs/examples/05-pgfplots-legend.svg" alt="pgfplots: expressions, marks and a legend" width="380"></a><br><sub>pgfplots: expressions, marks and a legend</sub></td><td align="center"><a href="corpus/07-flowchart.tex"><img src="docs/examples/07-flowchart.svg" alt="Flowchart with positioning" width="380"></a><br><sub>Flowchart with positioning</sub></td></tr>
+<tr><td align="center"><a href="corpus/08-graph-nodes.tex"><img src="docs/examples/08-graph-nodes.svg" alt="Graph with a bent edge" width="380"></a><br><sub>Graph with a bent edge</sub></td><td align="center"><a href="corpus/11-spring-decorations.tex"><img src="docs/examples/11-spring-decorations.svg" alt="zigzag, snake and random steps" width="380"></a><br><sub>zigzag, snake and random steps</sub></td></tr>
+<tr><td align="center"><a href="corpus/16-bar-chart.tex"><img src="docs/examples/16-bar-chart.svg" alt="Bar chart from a foreach" width="380"></a><br><sub>Bar chart from a foreach</sub></td><td align="center"><a href="corpus/25-standalone-document.tex"><img src="docs/examples/25-standalone-document.svg" alt="standalone document, bend and labels" width="380"></a><br><sub>standalone document, bend and labels</sub></td></tr>
+</table>
+
 ## Input
 
 A full `standalone` document, a bare `tikzpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset` and `\usetikzlibrary`; the rest is ignored.

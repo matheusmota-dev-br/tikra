@@ -33,6 +33,7 @@ Integration, in `crates/core/tests/`:
 | `corpus.rs` | 1 | Every figure in `corpus/` converts without warnings, with no `NaN`/`inf`, to SVG and PNG. |
 | `problematic.rs` | 17 | Input built to break the interpreter (section below). |
 | `banner.rs` | 1 | The README banner: `docs/banner.svg` must be byte for byte what tikra draws from `docs/banner.tex`, and `docs/banner.png` must be 1280 px wide. |
+| `examples.rs` | 2 | The README gallery: each `docs/examples/*.svg` must be byte for byte what tikra draws from its corpus figure, on a white card. |
 
 Command line, in `crates/cli/tests/cli.rs` (6 tests): help and version, stdin → stdout, file → SVG and PNG, `--dpi`, `--transparent`, `--warnings`, a missing file, a file and a stdin that are not UTF-8, input with no figure, output into a missing folder, a PNG that is too large. The test runs the real binary (`CARGO_BIN_EXE_tikra`), and `cargo llvm-cov` counts that child process's coverage.
 
