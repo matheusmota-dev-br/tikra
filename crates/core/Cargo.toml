@@ -4,6 +4,13 @@ description = "TikZ figures to SVG and PNG with no TeX install; math labels by m
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["tikz", "pgfplots", "svg", "png", "latex"]
+categories = ["rendering", "graphics", "text-processing"]
+
+include = ["src/**", "Cargo.toml"]
 
 [dependencies]
 mathra.workspace = true

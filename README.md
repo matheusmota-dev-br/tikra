@@ -1,15 +1,18 @@
-<p align="center"><img src="docs/banner.svg" alt="tikra: TikZ to SVG and PNG, no TeX install" width="100%"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/banner.svg" alt="tikra: TikZ to SVG and PNG, no TeX install" width="100%"></p>
 
 # tikra
 
-tikra converts TikZ and pgfplots figures to SVG and PNG. It is a single binary and a Rust library: no TeX installation, no fonts on the system, no external processes. Math in labels is typeset by [mathra](../mathra).
+tikra converts TikZ and pgfplots figures to SVG and PNG. It is a single binary and a Rust library: no TeX installation, no fonts on the system, no external processes. Math in labels is typeset by [mathra](https://github.com/matheusmota-dev-br/mathra).
 
 ```console
+$ cargo install tikra-cli
 $ tikra figure.tex -o figure.svg
 $ tikra figure.tex -o figure.png --dpi 300       # white background
 $ tikra figure.tex -o figure.png --transparent
 $ cat figure.tex | tikra --warnings              # SVG on stdout, warnings listed
 ```
+
+As a library, `cargo add tikra`:
 
 ```rust
 let out = tikra::convert(r"\begin{tikzpicture}\draw[->] (0,0) -- (2,1) node[right] {$v$};\end{tikzpicture}")?;
@@ -67,7 +70,12 @@ $ cargo clippy --all-targets -- -D warnings
 
 What each test file covers and the inputs built to break the interpreter are in [docs/tests.md](docs/tests.md).
 
-tikra depends on mathra by local path (`../mathra/crates/core`): the two repositories sit side by side.
+tikra depends on the published `mathra` crate. To work against a local checkout of mathra next to this one, add to `.cargo/config.toml` (ignored by git):
+
+```toml
+[patch.crates-io]
+mathra = { path = "../mathra/crates/core" }
+```
 
 ## Licenses
 
