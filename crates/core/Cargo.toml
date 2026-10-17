@@ -1,0 +1,11 @@
+[package]
+name = "tikra"
+description = "TikZ figures to SVG and PNG with no TeX install; math labels by mathra."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mathra.workspace = true
+resvg = { version = "0.45", default-features = false }
+ttf-parser = "0.25"
