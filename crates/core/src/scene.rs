@@ -274,6 +274,29 @@ pub enum Element {
     EndClip,
 }
 
+impl Element {
+    /// Moves the element by `d`, in cm.
+    pub fn translate(&mut self, d: Point) {
+        match self {
+            Element::Node(n) => n.center = n.center.plus(d),
+            Element::Path(Path { segments, .. }) | Element::Clip(segments) => {
+                for s in segments {
+                    match s {
+                        Segment::MoveTo(q) | Segment::LineTo(q) => *q = q.plus(d),
+                        Segment::CurveTo(a, b, c) => {
+                            for q in [a, b, c] {
+                                *q = q.plus(d);
+                            }
+                        }
+                        Segment::Close => {}
+                    }
+                }
+            }
+            Element::EndClip => {}
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
     pub elements: Vec<Element>,

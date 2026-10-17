@@ -415,3 +415,14 @@ fn curve_leaves_from_the_starting_node_border() {
     let r = p.minus(Point::new(3.0, 0.0)).norm();
     assert!(close(r, 0.5), "starts on the circle (radius 0.5), not at its center: {r}");
 }
+
+#[test]
+fn translate_moves_every_kind_of_element() {
+    let o = Point::new(0.0, 0.0);
+    let mut els = vec![Element::Clip(vec![Segment::MoveTo(o), Segment::CurveTo(o, o, o), Segment::Close]), Element::EndClip];
+    for el in &mut els {
+        el.translate(Point::new(1.0, 2.0));
+    }
+    let moved = |p: &Point| p.x == 1.0 && p.y == 2.0;
+    assert!(matches!(&els[0], Element::Clip(segs) if matches!(segs[0], Segment::MoveTo(p) if moved(&p)) && matches!(segs[1], Segment::CurveTo(a, b, c) if [a, b, c].iter().all(moved))));
+}

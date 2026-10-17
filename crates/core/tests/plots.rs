@@ -139,3 +139,20 @@ fn legend_anchor_and_legend_pos_place_the_frame() {
     let (_, w) = scene_and_warnings(r"\begin{axis}[legend style={anchor=north by northwest}] \addplot coordinates {(0,0) (1,1)}; \addlegendentry{d} \end{axis}");
     assert!(w.iter().any(|x| x.contains("legend anchor")), "{w:?}");
 }
+
+#[test]
+fn title_clears_the_arrow_tips_of_middle_axes() {
+    let title_bottom = |lines: &str| {
+        let c = scene(&format!(r"\begin{{axis}}[axis lines={lines}, width=8cm, height=5cm, xmin=-1, xmax=1, ymin=-1, ymax=1, title={{T}}] \addplot coordinates {{(0,0) (1,1)}}; \end{{axis}}"));
+        // the title is the highest node
+        let n = nodes(&c).into_iter().max_by(|a, b| a.center.y.total_cmp(&b.center.y)).expect("the title");
+        n.center.y - n.half_height
+    };
+    let top_of_tip = |lines: &str| {
+        let c = scene(&format!(r"\begin{{axis}}[axis lines={lines}, width=8cm, height=5cm, xmin=-1, xmax=1, ymin=-1, ymax=1] \end{{axis}}"));
+        paths(&c).iter().flat_map(|p| p.segments.iter()).filter_map(|s| if let Segment::LineTo(p) = s { Some(p.y) } else { None }).fold(f64::MIN, f64::max)
+    };
+    for lines in ["middle", "left", "box"] {
+        assert!(title_bottom(lines) >= top_of_tip(lines) - 1e-9, "{lines}: {} < {}", title_bottom(lines), top_of_tip(lines));
+    }
+}

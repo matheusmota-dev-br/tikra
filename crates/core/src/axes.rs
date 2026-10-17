@@ -229,7 +229,9 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
         path::statement(env, "path", &format!("({},{}) node[left=0.75cm, rotate=90, anchor=south] {{{t}}}", 0.0, height / 2.0))?;
     }
     if let Some(t) = get("title") {
-        path::statement(env, "path", &format!("({},{}) node[above] {{{t}}}", width / 2.0, height))?;
+        // above the window and above the arrow tips of `axis lines=left/middle`, which stick out 0.3 cm
+        let top = if matches!(axis_lines.as_str(), "left" | "middle" | "center") { height + 0.3 } else { height };
+        path::statement(env, "path", &format!("({},{}) node[above] {{{t}}}", width / 2.0, top))?;
     }
 
     // series, clipped to the window
@@ -314,11 +316,7 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
                 x0 = x0.min(n.center.x - n.half_width);
             }
             if let Element::Path(t) = el {
-                for s in &t.segments {
-                    if let Segment::MoveTo(p) | Segment::LineTo(p) = s {
-                        x0 = x0.min(p.x);
-                    }
-                }
+                x0 = t.segments.iter().filter_map(|s| if let Segment::MoveTo(p) | Segment::LineTo(p) = s { Some(p.x) } else { None }).fold(x0, f64::min);
             }
         }
         let (top, bottom, right) = (ay * height - 0.05, y + 0.25, x_end + 0.05);
@@ -354,50 +352,8 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
             }
         };
         for el in &mut env.scene.elements[before..] {
-            shift(el, dx, dy);
+            el.translate(Point::new(dx, dy));
         }
     }
     Ok(())
-}
-
-/// Moves an element by `(dx, dy)`, in cm.
-fn shift(el: &mut Element, dx: f64, dy: f64) {
-    let d = Point::new(dx, dy);
-    match el {
-        Element::Node(n) => n.center = n.center.plus(d),
-        Element::Path(Path { segments, .. }) | Element::Clip(segments) => {
-            for s in segments {
-                match s {
-                    Segment::MoveTo(q) | Segment::LineTo(q) => *q = q.plus(d),
-                    Segment::CurveTo(a, b, c) => {
-                        for q in [a, b, c] {
-                            *q = q.plus(d);
-                        }
-                    }
-                    Segment::Close => {}
-                }
-            }
-        }
-        Element::EndClip => {}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shift_moves_every_kind_of_element() {
-        let o = Point::new(0.0, 0.0);
-        let mut els = vec![
-            Element::Clip(vec![Segment::MoveTo(o), Segment::CurveTo(o, o, o), Segment::Close]),
-            Element::EndClip,
-        ];
-        for el in &mut els {
-            shift(el, 1.0, 2.0);
-        }
-        let Element::Clip(segs) = &els[0] else { panic!() };
-        assert!(matches!(segs[1], Segment::CurveTo(a, b, c) if [a, b, c].iter().all(|p| p.x == 1.0 && p.y == 2.0)));
-        assert!(matches!(segs[0], Segment::MoveTo(p) if p.x == 1.0 && p.y == 2.0));
-    }
 }
