@@ -111,7 +111,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     define(e, "plotnum", &p.index.to_string());
     e.st.mode = Default::default();
     e.st.pending = Transform::default();
-    let mut style = toks("/tikz/draw,");
+    let mut style = toks(if p.fill_between.is_some() { "/tikz/draw,/pgfplots/every fill between plot," } else { "/tikz/draw," });
     style.extend(p.style.clone());
     e.process_keys(style.clone(), Some("/pgfplots"))?;
     e.st.apply_pending();
@@ -333,7 +333,17 @@ fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Fram
         let point = f.at(*l);
         let c = p.coords.get(i).copied().unwrap_or_else(|| super::plot::Coord::new(f64::NAN, f64::NAN, f64::NAN));
         let label = (c.label != super::plot::NO_LABEL).then(|| p.labels.get(c.label as usize).cloned()).flatten();
-        let meta = c.meta;
+        // before compat 1.9 the nodes of stacked plots show the stacked value (f(x) after stacking)
+        let meta = match p.stack {
+            Some(dir) if !stacked && matches!(source.as_str(), "f(x)" | "y" | "x") => {
+                if dir == 'x' {
+                    l[0]
+                } else {
+                    l[1]
+                }
+            }
+            _ => c.meta,
+        };
         let at = if stacked {
             let b = base.get(i).copied().unwrap_or(0.0);
             if handler == "ybar" {

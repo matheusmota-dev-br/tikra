@@ -201,6 +201,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/@legend image/.initial=line,
 	/pgfplots/line legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
 	/pgfplots/area legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{area}},
+	/pgfplots/every fill between plot/.style={/pgfplots/area legend,/tikz/fill},
 	/pgfplots/empty legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{empty}},
 	/pgfplots/ybar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{ybar}},
 	/pgfplots/xbar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{xbar}},

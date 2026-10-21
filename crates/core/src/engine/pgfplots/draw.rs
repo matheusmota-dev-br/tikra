@@ -1038,6 +1038,8 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     }
     // what is clipped does not grow the picture
     let saved_bbox = (e.canvas.min, e.canvas.max);
+    // the layer `pre main`: fill between regions go below the other plots
+    let pre_main = e.canvas.items.len();
     let compat = keys::compat(e);
     f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
     let mut marks = Vec::new();
@@ -1050,7 +1052,13 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 let of_type = plots.iter().filter(|q| q.handler == p.handler && !q.forget).count().max(1);
                 let index_of_type = plots[..k].iter().filter(|q| q.handler == p.handler && !q.forget).count();
                 k += 1;
+                let before = e.canvas.items.len();
                 let r = super::visual::draw_plot(e, p, &pts, &base, &f, of_type, index_of_type);
+                if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main <= before {
+                    let drawn: Vec<Item> = e.canvas.items.drain(before..).collect();
+                    let at = pre_main.min(e.canvas.items.len());
+                    e.canvas.items.splice(at..at, drawn);
+                }
                 match r {
                     Ok(Some(m)) => marks.push(m),
                     Ok(None) => {}
@@ -1414,7 +1422,7 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
                 Token::Char(c, tex::Cat::Other | tex::Cat::Letter) => c.is_ascii_digit() || matches!(c, '-' | '+' | '.') || (!first && matches!(c, 'e' | 'E')),
                 _ => false,
             };
-            if arg.len() == 1 && numeric(&arg[0], true) {
+            if arg.len() == 1 && numeric(&arg[0], true) && numeric(&tokens[j], true) {
                 let mut k = j;
                 while k < tokens.len() && numeric(&tokens[k], k == j) {
                     k += 1;
