@@ -128,6 +128,8 @@ pub struct GState {
     pub plot_handler: String,
     /// the basic layer's plot handler (`\pgfplothandlerlineto`) and a mark handler's code
     pub basic_plot: (String, Vec<Token>),
+    /// `\pgfsetlinetofirstplotpoint`
+    pub plot_first_lineto: bool,
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
@@ -271,6 +273,7 @@ impl Default for GState {
             variable: "x".into(),
             plot_handler: "sharp plot".into(),
             basic_plot: ("sharp plot".into(), Vec::new()),
+            plot_first_lineto: false,
             tension: 0.5,
             plot_mark: None,
             only_marks: false,

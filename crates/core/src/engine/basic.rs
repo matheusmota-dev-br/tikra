@@ -86,6 +86,13 @@ enum B {
     StreamPoint,
     StreamEnd,
     PlotTension,
+    PlotHandlerRecord,
+    PlotFunction,
+    FirstLineTo,
+    FirstMoveTo,
+    UsePlotMark,
+    PlotMarkSize,
+    DeclarePlotMark,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -172,6 +179,19 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfplothandlerjumpmarkleft", B::PlotHandler),
     ("pgfplothandlerjumpmarkright", B::PlotHandler),
     ("pgfplothandlerjumpmarkmid", B::PlotHandler),
+    ("pgfplothandlerxbar", B::PlotHandler),
+    ("pgfplothandlerybar", B::PlotHandler),
+    ("pgfplothandlerxbarinterval", B::PlotHandler),
+    ("pgfplothandlerybarinterval", B::PlotHandler),
+    ("pgfplothandlergaplineto", B::PlotHandler),
+    ("pgfplothandlergapcycle", B::PlotHandler),
+    ("pgfplothandlerrecord", B::PlotHandlerRecord),
+    ("pgfplotfunction", B::PlotFunction),
+    ("pgfsetlinetofirstplotpoint", B::FirstLineTo),
+    ("pgfsetmovetofirstplotpoint", B::FirstMoveTo),
+    ("pgfuseplotmark", B::UsePlotMark),
+    ("pgfsetplotmarksize", B::PlotMarkSize),
+    ("pgfdeclareplotmark", B::DeclarePlotMark),
 ];
 
 /// The basic layer's plot handlers, by command, as TikZ's `plot` names them.
@@ -190,6 +210,12 @@ const PLOT_HANDLERS: &[(&str, &str)] = &[
     ("pgfplothandlerjumpmarkleft", "jump mark left"),
     ("pgfplothandlerjumpmarkright", "jump mark right"),
     ("pgfplothandlerjumpmarkmid", "jump mark mid"),
+    ("pgfplothandlerxbar", "xbar"),
+    ("pgfplothandlerybar", "ybar"),
+    ("pgfplothandlerxbarinterval", "xbar interval"),
+    ("pgfplothandlerybarinterval", "ybar interval"),
+    ("pgfplothandlergaplineto", "gap lineto"),
+    ("pgfplothandlergapcycle", "gap cycle"),
 ];
 
 /// The names a point argument can start with.
@@ -908,6 +934,42 @@ impl Engine {
                 self.plot_stream.push(t.apply(p));
             }
             B::StreamEnd => self.plot_stream_end()?,
+            B::PlotHandlerRecord => {
+                let m = self.argument()?;
+                self.st.basic_plot = ("record".into(), m);
+            }
+            B::FirstLineTo => self.st.plot_first_lineto = true,
+            B::FirstMoveTo => self.st.plot_first_lineto = false,
+            B::PlotFunction => {
+                // \pgfplotfunction{\x}{list}{point}: a stream of the point for each item
+                let var = self.argument()?;
+                let list = self.argument()?;
+                let point = self.argument()?;
+                let list = self.tex.expand_fully(list)?;
+                let name = var.into_iter().find(|t| matches!(t, Token::Cs(_)));
+                self.plot_stream.clear();
+                for item in super::foreach_items(&list) {
+                    if let Some(n) = &name {
+                        self.tex.set_meaning(n, super::macro_tokens(item), false);
+                    }
+                    let p = self.point_of(point.clone())?;
+                    self.plot_stream.push(t.apply(p));
+                }
+                self.plot_stream_end()?;
+            }
+            B::UsePlotMark => {
+                let name = self.argument_string()?;
+                self.use_plot_mark(name.trim())?;
+            }
+            B::PlotMarkSize => {
+                let v = self.argument()?;
+                self.st.mark_size = self.length_of(v)?;
+            }
+            B::DeclarePlotMark => {
+                let name = self.argument_string()?;
+                let code = self.argument()?;
+                self.plot_marks_declared.insert(name.trim().to_string(), code);
+            }
         }
         Ok(())
     }
@@ -921,6 +983,19 @@ impl Engine {
         let (handler, code) = self.st.basic_plot.clone();
         match handler.as_str() {
             "discard" => {}
+            "record" => {
+                // the stream as commands in the macro, its points in the coordinate system
+                let inv = self.st.transform.inverse();
+                let mut v = tikra_tokens("\\pgfplotstreamstart");
+                for p in points {
+                    let q = inv.apply(p);
+                    v.extend(tikra_tokens(&format!("\\pgfplotstreampoint{{\\pgfqpoint{{{}pt}}{{{}pt}}}}", q.x / PT, q.y / PT)));
+                }
+                v.extend(tikra_tokens("\\pgfplotstreamend"));
+                if let Some(m) = code.iter().find(|t| matches!(t, Token::Cs(_))) {
+                    self.tex.set_meaning(m, super::macro_tokens(v), true);
+                }
+            }
             "mark" => {
                 let t = self.st.transform;
                 for p in points {
@@ -937,7 +1012,14 @@ impl Engine {
                 let saved = std::mem::replace(&mut self.st.plot_handler, h.to_string());
                 let r = super::path::plot_segments(self, &points);
                 self.st.plot_handler = saved;
-                for s in r? {
+                let mut segs = r?;
+                // \pgfsetlinetofirstplotpoint: the plot goes on from the path's last point
+                if self.st.plot_first_lineto && self.pgf_path.last.is_some() {
+                    if let Some(Segment::MoveTo(p)) = segs.first().copied() {
+                        segs[0] = Segment::LineTo(p);
+                    }
+                }
+                for s in segs {
                     self.pgf_add(s);
                 }
             }

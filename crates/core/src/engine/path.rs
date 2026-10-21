@@ -1552,6 +1552,49 @@ pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, E
                 ]);
             }
         }
+        "ybar interval" | "xbar interval" => {
+            // a bar for each interval between two points, its height the first's
+            let num = |e: &mut Engine, k: &str, d: f64| -> f64 {
+                let t = e.key_text(k);
+                if t.trim().is_empty() {
+                    d
+                } else {
+                    e.number(&t).unwrap_or(d)
+                }
+            };
+            let (width, shift) = (num(e, "/pgf/bar interval width", 1.0), num(e, "/pgf/bar interval shift", 0.5));
+            for w in q.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                let (lo, size) = if handler == "ybar interval" {
+                    let d = b.x - a.x;
+                    (p(a.x + shift * d - 0.5 * width * d, 0.0), p(width * d, a.y))
+                } else {
+                    let d = b.y - a.y;
+                    (p(0.0, a.y + shift * d - 0.5 * width * d), p(a.x, width * d))
+                };
+                v.extend([
+                    Segment::MoveTo(lo),
+                    Segment::LineTo(p(lo.x + size.x, lo.y)),
+                    Segment::LineTo(p(lo.x + size.x, lo.y + size.y)),
+                    Segment::LineTo(p(lo.x, lo.y + size.y)),
+                    Segment::Close,
+                ]);
+            }
+        }
+        "gap lineto" | "gap cycle" => {
+            // lines from point to point, stopping `gap around stream point` short of each
+            let g = e.key_text("/pgf/gap around stream point");
+            let gap = if g.trim().is_empty() { 1.5 * crate::PT } else { e.length(&g)? };
+            let mut pts = q.clone();
+            if handler == "gap cycle" && n > 1 {
+                pts.push(q[0]);
+            }
+            for w in pts.windows(2) {
+                let d = w[1].minus(w[0]);
+                let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { p(0.0, 0.0) };
+                v.extend([Segment::MoveTo(w[0].plus(u.scale(gap))), Segment::LineTo(w[1].minus(u.scale(gap)))]);
+            }
+        }
         h if h.starts_with("const plot") || h.starts_with("jump mark") => {
             v.push(Segment::MoveTo(q[0]));
             for w in q.windows(2) {

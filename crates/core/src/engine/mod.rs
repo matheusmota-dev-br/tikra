@@ -329,6 +329,8 @@ pub struct Engine {
     pub picture_fadings: HashMap<String, fadings::PictureFading>,
     /// the basic layer's declared shadings
     pub basic_shadings: HashMap<String, shadings::BasicShading>,
+    /// marks declared by `\pgfdeclareplotmark`: their code
+    pub plot_marks_declared: HashMap<String, Vec<Token>>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
@@ -429,6 +431,7 @@ impl Clone for Engine {
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
             basic_shadings: self.basic_shadings.clone(),
+            plot_marks_declared: self.plot_marks_declared.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -496,6 +499,7 @@ impl Engine {
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
             basic_shadings: HashMap::new(),
+            plot_marks_declared: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],

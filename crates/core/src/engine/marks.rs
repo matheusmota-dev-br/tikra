@@ -179,6 +179,24 @@ impl Engine {
             }
             return Ok(items);
         }
+        if let Some(code) = self.plot_marks_declared.get(name).cloned() {
+            // a mark of `\pgfdeclareplotmark`: its code at each point
+            for (k, p) in points.iter().enumerate() {
+                if !p.x.is_finite() || !chosen(k + 1, repeat, phase, &indices) {
+                    continue;
+                }
+                let from = self.canvas.items.len();
+                self.begin_group();
+                self.begin_scope();
+                self.st.transform = Transform::translation(p.x, p.y).compose(&linear);
+                let r = self.run_tokens(code.clone());
+                self.end_scope();
+                self.end_group();
+                r?;
+                items.extend(self.canvas.items.drain(from..));
+            }
+            return Ok(items);
+        }
         let Some(parts) = shape(name, self.st.mark_size) else {
             self.warn(format!("plot mark '{name}' not supported: no marks drawn"));
             return Ok(items);
@@ -216,5 +234,24 @@ impl Engine {
             }
         }
         Ok(items)
+    }
+
+    /// `\pgfuseplotmark{name}`: the mark at the origin of the coordinate system.
+    pub fn use_plot_mark(&mut self, name: &str) -> Result<(), Error> {
+        let origin = self.st.transform.apply(Point::default());
+        let saved = self.st.transform;
+        // the marks take the linear part from the coordinate system here, as at a plot's points
+        let items = self.plot_marks_at(name, &[origin]);
+        self.st.transform = saved;
+        let items = items?;
+        self.canvas.items.extend(items);
+        Ok(())
+    }
+
+    fn plot_marks_at(&mut self, name: &str, points: &[Point]) -> Result<Vec<Item>, Error> {
+        self.begin_group();
+        let r = self.plot_marks_in_group(name, points);
+        self.end_group();
+        r
     }
 }
