@@ -120,7 +120,7 @@ impl Engine {
         r?;
         let on = self.coordinate(spy.on.trim().trim_start_matches('(').trim_end_matches(')'))?.p;
         // the node on the point: the other one's shape through the inverse lens
-        let shrink = crate::reader::invert(&Transform { e: 0.0, f: 0.0, ..lens });
+        let shrink = Transform { e: 0.0, f: 0.0, ..lens }.inverse();
         let on_node = format!(
             "\\node[alias=tikzspyonnode,inner sep=0pt,outer sep=0pt,every spy on node/.try,cm={{{},{},{},{},(0,0)}}] at ({}) {{}};",
             shrink.a,

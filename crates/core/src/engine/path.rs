@@ -545,7 +545,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let r = target(e, b, depth, "rectangle")?;
                         let a = b.point();
                         let t = e.st.transform;
-                        let inv = crate::reader::invert(&t);
+                        let inv = t.inverse();
                         let (la, lb) = (inv.apply(a), inv.apply(r.p));
                         b.segs.push(Segment::MoveTo(a));
                         // in the order of `\tikz@rectB`: first to (a.x, b.y)
@@ -1189,7 +1189,7 @@ fn radii(e: &mut Engine) -> Result<(f64, f64), Error> {
 impl Engine {
     /// A radius: with a unit in cm, without one in the x unit (as TikZ scales circle radii).
     fn radius_length(&mut self, text: &str) -> Result<f64, Error> {
-        let (v, unit) = crate::expr::eval_length(crate::options::strip_braces(text.trim()), &self.vars())?;
+        let (v, unit) = crate::expr::eval_length(crate::keys::strip_braces(text.trim()), &self.vars())?;
         Ok(if unit { v } else { v * self.st.x.norm() })
     }
 }
@@ -1341,7 +1341,7 @@ fn grid(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Err
     let step = res?;
     let r = target(e, b, depth, "grid")?;
     let t = e.st.transform;
-    let inv = crate::reader::invert(&t);
+    let inv = t.inverse();
     let (la, lb) = (inv.apply(b.point()), inv.apply(r.p));
     let (x0, x1) = (la.x.min(lb.x), la.x.max(lb.x));
     let (y0, y1) = (la.y.min(lb.y), la.y.max(lb.y));
@@ -1456,7 +1456,7 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
 /// coordinate system (where the zero level of combs and bars is, and bar widths are measured).
 pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
     let t = e.st.transform;
-    let inv = crate::reader::invert(&t);
+    let inv = t.inverse();
     let q: Vec<Point> = points.iter().map(|p| inv.apply(*p)).collect();
     let n = q.len();
     if n == 0 {

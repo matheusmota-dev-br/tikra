@@ -57,11 +57,11 @@ fn closing_bracket(t: &str) -> Option<usize> {
 
 /// Splits at top-level commas.
 pub fn split_commas(t: &str) -> Vec<String> {
-    crate::options::split_top_level(t)
+    crate::keys::split_top_level(t)
 }
 
 fn strip_braces(t: &str) -> &str {
-    crate::options::strip_braces(t)
+    crate::keys::strip_braces(t)
 }
 
 impl Engine {
@@ -111,7 +111,7 @@ impl Engine {
                 self.st.transform = before;
                 let fixed = self.coordinate(&point)?;
                 if moved.p.minus(fixed.p).norm() < 1e-9 && pending != Transform::default() {
-                    let t = before.compose(&pending).compose(&crate::reader::invert(&before));
+                    let t = before.compose(&pending).compose(&before.inverse());
                     return Ok(Coord { p: t.apply(moved.p), node: None });
                 }
                 Ok(moved)
@@ -130,7 +130,7 @@ impl Engine {
             if let Some(i) = find_perpendicular(t, op) {
                 // in the current coordinate system, as pgf's points are before they are transformed
                 let current = self.st.transform;
-                let inv = crate::reader::invert(&current);
+                let inv = current.inverse();
                 let a = inv.apply(self.coordinate(&t[..i])?.p);
                 let b = inv.apply(self.coordinate(&t[i + 2..])?.p);
                 return Ok(Coord { p: current.apply(if op == "|-" { Point::new(a.x, b.y) } else { Point::new(b.x, a.y) }), node: None });

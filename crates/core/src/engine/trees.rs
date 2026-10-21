@@ -150,7 +150,7 @@ impl Engine {
         let Some(info) = self.nodes.get(parent).cloned() else { return Ok(()) };
         let anchor = self.st.growth_anchor.clone();
         let origin = info.anchor(&anchor).unwrap_or(info.center());
-        let local = crate::reader::invert(&self.st.transform).apply(origin);
+        let local = self.st.transform.inverse().apply(origin);
         self.st.transform = self.st.transform.compose(&Transform::translation(local.x, local.y));
         for (k, child) in children.into_iter().enumerate() {
             self.begin_group();
@@ -265,7 +265,7 @@ impl Engine {
                 let mut p = Vec::new();
                 for q in points.iter().take(3) {
                     let c = self.coordinate(q)?;
-                    p.push(crate::reader::invert(&t).apply(c.p));
+                    p.push(t.inverse().apply(c.p));
                 }
                 let [a, b, c] = p[..] else { return Ok(t) };
                 let (b, c) = (b.minus(a), c.minus(b));

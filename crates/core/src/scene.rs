@@ -81,6 +81,15 @@ impl Transform {
     pub fn factor(&self) -> f64 {
         (self.a * self.d - self.b * self.c).abs().sqrt()
     }
+    /// The inverse transform; the identity when `self` is singular (a zero scale).
+    pub fn inverse(&self) -> Transform {
+        let det = self.a * self.d - self.b * self.c;
+        if det.abs() < 1e-15 {
+            return Transform::default();
+        }
+        let (a, b, c, d) = (self.d / det, -self.b / det, -self.c / det, self.a / det);
+        Transform { a, b, c, d, e: -(a * self.e + c * self.f), f: -(b * self.e + d * self.f) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
