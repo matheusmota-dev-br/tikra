@@ -568,6 +568,9 @@ impl Engine {
     /// postactions. `outer` is the state before the path's options.
     pub fn finish_path(&mut self, segments: Vec<Segment>, outer: &GState, command: &str) -> Result<(), Error> {
         let mut segs = segments;
+        let mut b = crate::canvas::Canvas::default();
+        b.include_path(&segs);
+        self.st.path_box = b.min.zip(b.max);
         if self.st.decorate && !segs.is_empty() && segs.iter().all(super::path::valid_segment) {
             // pgf counts a path in the picture's size as it is built, before it is decorated
             if self.counts_for_size() {
@@ -645,6 +648,17 @@ impl Engine {
         self.begin_scope();
         let r = (|| {
             if let Some(g) = graphics {
+                // the path's own colors stay known as `\tikz@fillcolor` and `\tikz@strokecolor` (the shadows library copies them)
+                let (fill, stroke) = (self.st.mode.fill.then(|| self.st.fill_paint_color()), self.st.mode.draw.then(|| self.st.stroke_color()));
+                for (name, c) in [("fillcolor", fill), ("strokecolor", stroke)] {
+                    match c {
+                        Some(c) => {
+                            self.colors.insert(format!("tikra@{name}"), c);
+                            self.tex.define_string(&format!("tikz@{name}"), &format!("tikra@{name}"), false);
+                        }
+                        None => self.tex.define_string(&format!("tikz@{name}"), "none", false),
+                    }
+                }
                 take_graphics(&mut self.st, g);
             }
             let outer = self.st.clone();

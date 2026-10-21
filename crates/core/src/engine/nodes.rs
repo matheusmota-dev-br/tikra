@@ -34,6 +34,8 @@ pub struct NodeSetup {
     pub labels: Vec<(Vec<Token>, bool)>,
     /// `fit`: the width and height of the fitted area, which become the text box
     pub fit: Option<(f64, f64)>,
+    /// `circle through`: the point on the circle (canvas)
+    pub through: Option<Point>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -427,6 +429,14 @@ impl Engine {
             boxes.push((part.clone(), BoxSize { wd, ht, dp }));
             labels.push((part.clone(), lbl));
         }
+        if let Some(p) = self.st.node.through {
+            // the through library: as wide as twice the distance from the node's position
+            let at = self.st.node.at.or(spec.at).unwrap_or(spec.point);
+            let size = format!("{}pt", 2.0 * p.minus(at).norm() / PT);
+            for key in ["/pgf/minimum width", "/pgf/minimum height"] {
+                self.tex.define_string(&keys::macro_name(key), &size, false);
+            }
+        }
         let xsep = self.key_length("/pgf/inner xsep", 0.3333 * 0.3515);
         let ysep = self.key_length("/pgf/inner ysep", 0.3333 * 0.3515);
         let min_w = self.key_length("/pgf/minimum width", PT);
@@ -562,8 +572,11 @@ impl Engine {
                     segs = super::output::round_corners(&segs, e.st.rounded);
                 }
                 let segs = transform_segments(&segs, &t);
-                if matches!(p.usage, Usage::Node) && (e.st.decorate || e.st.mode.picture.is_some() || !e.st.preactions.is_empty() || !e.st.postactions.is_empty()) {
-                    // the border as a path of its own, decorated, with its actions
+                if matches!(p.usage, Usage::Node)
+                    && p.layer == Layer::Background
+                    && (e.st.decorate || e.st.mode.picture.is_some() || !e.st.preactions.is_empty() || !e.st.postactions.is_empty() || (e.st.double.is_some() && e.st.mode.draw))
+                {
+                    // the background as a path of its own, decorated, with its actions, or double
                     let saved = std::mem::take(&mut e.canvas.items);
                     let r = e.finish_path(segs, scope, "node");
                     items.extend(std::mem::replace(&mut e.canvas.items, saved));

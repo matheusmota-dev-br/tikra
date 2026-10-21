@@ -23,6 +23,10 @@ impl Engine {
             self.warn(format!("{command}: coordinate is not finite or beyond ±{MAX_COORDINATE} cm (division by zero?): path ignored"));
             return Ok(());
         }
+        self.use_path_here(segments)
+    }
+
+    fn use_path_here(&mut self, segments: Vec<Segment>) -> Result<(), Error> {
         let mut segs = segments;
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);

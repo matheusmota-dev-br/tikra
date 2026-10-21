@@ -284,6 +284,9 @@ impl Engine {
         let items =
             self.node(NodeSpec { options, name: name.clone(), at: Some(at), text: Vec::new(), place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         self.forced_box = None;
+        // what comes after the matrix's node (`append after command`, the delimiters), drawn after the cells
+        let after = std::mem::take(&mut self.after_node_path);
+        let matrix_node = self.last_node.clone();
         self.tex.set_meaning(&every_node, cells_every_node, false);
         self.canvas.items.extend(items);
         let placed = match &name {
@@ -297,6 +300,23 @@ impl Engine {
                 let t = placed.compose(&Transform::translation(xs[c], ys[r]));
                 self.draw_cell(name.as_deref(), &settings, r + 1, c + 1, cell, t)?;
             }
+        }
+        if !after.is_empty() {
+            let node = match &name {
+                Some(n) => n.clone(),
+                None => {
+                    let n = format!("tikra@fig@{}", self.steps);
+                    if let Some(info) = matrix_node {
+                        self.nodes.insert(n.clone(), info);
+                    }
+                    n
+                }
+            };
+            self.tex.define_string("tikzlastnode", &node, false);
+            let mut path = tikra_tokens("\\path ");
+            path.extend(after);
+            path.extend(tikra_tokens(";"));
+            self.run_tokens(path)?;
         }
         Ok(())
     }

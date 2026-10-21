@@ -160,6 +160,8 @@ const POINTS: &[&str] = &[
     "pgfpointxyz",
     "pgfqpointxyz",
     "pgfpointpolarxy",
+    "pgfpointcylindrical",
+    "pgfpointspherical",
     "pgfpointadd",
     "pgfpointdiff",
     "pgfpointscale",
@@ -276,6 +278,18 @@ impl Engine {
                 let (angle, radius) = (self.number_of(a)?, self.number_of(r)?);
                 let (s, c) = angle.to_radians().sin_cos();
                 self.st.x.scale(radius * c).plus(self.st.y.scale(radius * s))
+            }
+            "pgfpointcylindrical" | "pgfpointspherical" => {
+                // the 3d points: (angle, radius, z) and (longitude, latitude, radius)
+                let (a, b, c) = (arg(self)?, arg(self)?, arg(self)?);
+                let (a, b, c) = (self.number_of(a)?, self.number_of(b)?, self.number_of(c)?);
+                if name == "pgfpointcylindrical" {
+                    let (s, co) = a.to_radians().sin_cos();
+                    self.st.x.scale(b * co).plus(self.st.y.scale(b * s)).plus(self.st.z.scale(c))
+                } else {
+                    let ((ls, lc), (ts, tc)) = (a.to_radians().sin_cos(), b.to_radians().sin_cos());
+                    self.st.x.scale(ls).plus(self.st.y.scale(lc)).scale(tc).plus(self.st.z.scale(ts)).scale(c)
+                }
             }
             "pgfpointadd" => {
                 let p = arg(self)?;

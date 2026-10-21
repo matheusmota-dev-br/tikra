@@ -236,6 +236,16 @@ impl Engine {
             e.number_of(v)
         };
         let t = self.st.transform;
+        if let Some(f) = self.st.growth_function.clone() {
+            // a growth function of the options (`children are tokens`): it moves the coordinate system itself
+            for (name, v) in [("tikznumberofchildren", n), ("tikznumberofcurrentchild", k)] {
+                if let tex::Meaning::Count(r) = self.tex.meaning_of(name) {
+                    self.tex.set_count(r, v as i64, false);
+                }
+            }
+            self.run_tokens(f)?;
+            return Ok(self.st.transform);
+        }
         let (kind, arg) = growth.trim().split_once(' ').unwrap_or((growth.trim(), ""));
         Ok(match kind {
             // grow cyclic: turned by the sibling angle around the parent, then out by the level

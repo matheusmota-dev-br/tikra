@@ -13,6 +13,7 @@ pub mod decorations;
 pub mod folding;
 pub mod graphs;
 pub mod intersections;
+pub mod libraries;
 pub mod lsystem;
 pub mod marks;
 pub mod matrix;
@@ -24,7 +25,9 @@ pub mod path;
 pub mod pgfplots;
 pub mod pics;
 pub mod shapes;
+pub mod spy;
 pub mod state;
+pub mod three_d;
 pub mod tikzmath;
 pub mod trees;
 pub mod turtle;
@@ -109,6 +112,10 @@ pub enum Cmd {
     DecorationBegin,
     DecorationEnd,
     DecorateCurrentPath,
+    /// the spy library: `\spy`, and what a spy scope does at its start and end
+    Spy,
+    SpyBegin,
+    SpyEnd,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -213,7 +220,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("maketitle", Cmd::FontSeries),
     ("selectfont", Cmd::FontSeries),
     ("datavisualization", Cmd::Unsupported),
-    ("spy", Cmd::Unsupported),
+    ("spy", Cmd::Spy),
+    ("tikra@spybegin", Cmd::SpyBegin),
+    ("tikra@spyend", Cmd::SpyEnd),
 ];
 
 /// Commands that the drawing layer turns into a path statement, with their default options.
@@ -314,6 +323,8 @@ pub struct Engine {
     pub frame: Option<std::rc::Rc<pgfplots::Frame>>,
     /// the graphs being read (`\graph`)
     pub graphs: graphs::State,
+    /// the open spy scopes, innermost last
+    pub spy_scopes: Vec<spy::SpyScope>,
 }
 
 /// A finished picture: its canvas and the height of its baseline in it (cm).
@@ -389,6 +400,7 @@ impl Clone for Engine {
             axis: self.axis.clone(),
             frame: self.frame.clone(),
             graphs: self.graphs.clone(),
+            spy_scopes: self.spy_scopes.clone(),
         }
     }
 }
@@ -449,6 +461,7 @@ impl Engine {
             axis: None,
             frame: None,
             graphs: graphs::State::default(),
+            spy_scopes: Vec::new(),
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
@@ -700,6 +713,10 @@ impl Engine {
                 Meaning::Count(r) if matches!(x, Token::Cs(_)) => s.push_str(&self.tex.counts.get(&r).copied().unwrap_or(0).to_string()),
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
+                    // `2\baselineskip` is a product
+                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                        s.push('*');
+                    }
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
                     // `.5\tikzleveldistance`: a factor before a register multiplies it, as TeX reads it
                     if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
@@ -831,6 +848,12 @@ impl Engine {
             Cmd::DecorationBegin => self.decoration_begin(),
             Cmd::DecorationEnd => self.decoration_end(),
             Cmd::DecorateCurrentPath => self.decorate_current_path(),
+            Cmd::Spy => self.spy_command(),
+            Cmd::SpyBegin => {
+                self.spy_begin();
+                Ok(())
+            }
+            Cmd::SpyEnd => self.spy_end(),
             Cmd::Begin => self.begin_environment(),
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {
@@ -969,10 +992,8 @@ impl Engine {
                 let expr = self.argument()?;
                 let Some(name) = name.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
                 let text = self.math_string(expr)?;
-                let v = match cmd {
-                    Cmd::Pgfmathsetlengthmacro => crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }),
-                    _ => crate::expr::eval(&text, &self.vars()),
-                };
+                // a result with units is in pt, as pgfmath gives it
+                let v = crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v });
                 match v {
                     Ok(v) if v.is_finite() => {
                         let s = match cmd {
@@ -991,7 +1012,7 @@ impl Engine {
             Cmd::Pgfmathparse => {
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                match crate::expr::eval(&text, &self.vars()) {
+                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
                     Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }
@@ -1215,8 +1236,11 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
-        let begin = std::mem::take(&mut self.st.at_begin_picture);
-        let end = std::mem::take(&mut self.st.at_end_picture);
+        // a picture is a scope too: `execute at begin scope` first, its end last
+        let mut begin = std::mem::take(&mut self.st.at_begin_scope);
+        begin.append(&mut self.st.at_begin_picture);
+        let mut end = std::mem::take(&mut self.st.at_end_picture);
+        end.append(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
         self.run_tokens(begin)
     }

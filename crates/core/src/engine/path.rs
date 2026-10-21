@@ -54,6 +54,8 @@ struct Builder {
     origin: Point,
     /// the operation's target was `cycle`: close the subpath once it is done
     close_after: bool,
+    /// the node just made: a `to` or `edge` right after it starts there (`\tikz@to@use@last@fig@name`)
+    to_start: Option<Coord>,
 }
 
 impl Builder {
@@ -197,6 +199,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         relative_base: None,
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
+        to_start: None,
     };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
@@ -354,12 +357,14 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = coordinate(e)?;
                 b.relative_base = None;
+                b.to_start = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('+', _) => {
                 e.turn_from = b.tangent();
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = relative(e, b, depth)?;
+                b.to_start = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('-', _) => match e.tex.get_token() {
@@ -507,6 +512,17 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             let place = b.last.unwrap_or(OnPath::Point(point));
                             let items = e.node(NodeSpec { options, name, at, text, place, point, coordinate, default_pos: None })?;
                             b.node_items.extend(items);
+                            if e.last_node_name.is_none() {
+                                // what follows may refer to the node (an edge, `after node path`): it gets a
+                                // name, as `\tikz@fig@mustbenamed` gives one
+                                if let Some(info) = e.last_node.clone() {
+                                    let n = format!("tikra@fig@{}", e.steps);
+                                    e.nodes.insert(n.clone(), info);
+                                    e.tex.define_string("tikzlastnode", &n, false);
+                                    e.last_node_name = Some(n);
+                                }
+                            }
+                            b.to_start = e.last_node_name.clone().and_then(|n| e.nodes.get(&n).map(|info| Coord { p: info.center(), node: Some(n) }));
                             // `after node path` and the chains' joins continue the path
                             let after = std::mem::take(&mut e.after_node_path);
                             e.tex.push_tokens(after);
@@ -569,11 +585,17 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                     "graph" => e.graph()?,
                     "child" => {
+                        if b.segs.is_empty() {
+                            // a path that only makes nodes: they are drawn before the children (the
+                            // petri library's tokens lie on their place)
+                            e.canvas.items.append(&mut b.node_items);
+                        }
                         let parent = e.last_node_name.clone();
                         e.children(parent)?;
                     }
                     "decorate" => decorate_operation(e, b, depth)?,
                     "lindenmayer" | "l" => lindenmayer_operation(e, b, depth, &w)?,
+                    "foreach" => path_foreach(e, b)?,
                     "svg" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);
@@ -927,6 +949,9 @@ fn run_hook(e: &mut Engine, name: &str) -> Result<(), Error> {
 }
 
 fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(), Error> {
+    if let Some(s) = b.to_start.take() {
+        b.move_to(s);
+    }
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
@@ -959,19 +984,26 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         relative_base: None,
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
+        to_start: None,
     };
-    if let Some(c) = &saved_current {
-        sub.move_to(c.clone());
+    if let Some(c) = b.to_start.clone().or_else(|| saved_current.clone()) {
+        sub.move_to(c);
     }
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
+    let mut opts = opts;
     let res = (|| {
         run_hook(e, "tikz@atbegin@to")?;
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(opts.clone(), Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
             sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+        }
+        // options that start the to path are the edge path's own, as TikZ runs it in `\path[…]`
+        if let Some(leading) = e.st.to.path.as_deref().and_then(leading_options) {
+            opts.push(Token::other(','));
+            opts.extend(leading);
         }
         to_path(e, &mut sub, r.clone())?;
         place_mid_nodes(e, &mut sub, Some(0.5))
@@ -981,6 +1013,24 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
     b.edges.push((sub.segs, opts, sub.node_items));
     b.current = saved_current;
     Ok(())
+}
+
+/// `[options]` at the start of a path, without the brackets.
+fn leading_options(path: &[Token]) -> Option<Vec<Token>> {
+    let path = crate::keys::trim(path);
+    if !path.first()?.is_char('[') {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (i, t) in path.iter().enumerate().skip(1) {
+        match t {
+            Token::Char(_, Cat::Begin) => depth += 1,
+            Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
+            t if depth == 0 && t.is_char(']') => return Some(path[1..i].to_vec()),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Nodes between `edge` and its target.
