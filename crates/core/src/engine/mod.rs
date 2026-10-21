@@ -46,6 +46,7 @@ pub enum Cmd {
     Coordinate,
     Useasboundingbox,
     Matrix,
+    PgfMatrix,
     Chainin,
     Pic,
     Graph,
@@ -116,6 +117,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("coordinate", Cmd::Coordinate),
     ("useasboundingbox", Cmd::Useasboundingbox),
     ("matrix", Cmd::Matrix),
+    ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
@@ -733,6 +735,7 @@ impl Engine {
                 Ok(())
             }
             Cmd::Matrix => self.matrix(),
+            Cmd::PgfMatrix => self.pgf_matrix(),
             Cmd::Chainin => self.chainin(),
             Cmd::Graph => {
                 let rest = self.skip_statement()?;

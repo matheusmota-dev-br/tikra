@@ -1559,15 +1559,11 @@ keyfn!(k_edge_from_parent_path, |e, v| {
 });
 
 keyfn!(k_column_sep, |e, v| {
-    let s = text(e, &v)?;
-    let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
-    e.st.matrix.column_sep = e.length(&first)?;
+    e.st.matrix.column_sep = e.tex.expand_fully(v.unwrap_or_default())?;
     Ok(())
 });
 keyfn!(k_row_sep, |e, v| {
-    let s = text(e, &v)?;
-    let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
-    e.st.matrix.row_sep = e.length(&first)?;
+    e.st.matrix.row_sep = e.tex.expand_fully(v.unwrap_or_default())?;
     Ok(())
 });
 keyfn!(k_matrix_of_nodes, |e, _v| {
@@ -1921,6 +1917,10 @@ const DEFINITIONS: &str = r"
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
+\def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
+\def\pgfmatrixnextcell{\tikra@nextcell}
+\def\pgfmatrixendrow{\tikra@endrow}
 \tikzset{
   on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try}},
     execute at end scope={\endpgfonlayer}},

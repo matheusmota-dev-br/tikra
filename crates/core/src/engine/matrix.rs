@@ -23,64 +23,134 @@ struct Extent {
     empty: bool,
 }
 
-/// The body split into rows of cells; the extra space a `\\[1ex]` asks for after each row.
-/// `ampersand` is the command that stands for `&` (`ampersand replacement=\&`).
-fn split_body(body: &[Token], ampersand: Option<&str>) -> (Vec<Vec<Vec<Token>>>, Vec<Vec<Token>>) {
-    let mut rows = vec![vec![Vec::new()]];
-    let mut extra = vec![Vec::new()];
-    let mut depth = 0usize;
-    let mut i = 0;
-    while i < body.len() {
-        let t = &body[i];
-        match t {
-            Token::Char(_, Cat::Begin) => depth += 1,
-            Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
-            Token::Cs(n) if depth == 0 && Some(&**n) == ampersand => {
-                rows.last_mut().expect("a row").push(Vec::new());
-                i += 1;
-                continue;
-            }
-            Token::Char(_, Cat::Align) if depth == 0 => {
-                rows.last_mut().expect("a row").push(Vec::new());
-                i += 1;
-                continue;
-            }
-            Token::Cs(n) if depth == 0 && (&**n == "\\" || &**n == "pgfmatrixendrow") => {
-                // \\[dist]
-                let mut j = i + 1;
-                while j < body.len() && body[j].is_space() {
-                    j += 1;
-                }
-                let mut dist = Vec::new();
-                if body.get(j).is_some_and(|x| x.is_char('[')) {
-                    let mut k = j + 1;
-                    while k < body.len() && !body[k].is_char(']') {
-                        dist.push(body[k].clone());
-                        k += 1;
-                    }
-                    i = k + 1;
-                } else {
-                    i += 1;
-                }
-                *extra.last_mut().expect("a row") = dist;
-                rows.push(vec![Vec::new()]);
-                extra.push(Vec::new());
-                continue;
-            }
-            _ => {}
-        }
-        rows.last_mut().expect("a row").last_mut().expect("a cell").push(t.clone());
-        i += 1;
-    }
-    // a last row with only empty cells is the end of the body
-    while rows.last().is_some_and(|r| r.iter().all(|c| crate::keys::trim(c).is_empty())) && rows.len() > 1 {
-        rows.pop();
-        extra.pop();
-    }
-    (rows, extra)
+/// A matrix body split into rows of cells, with the separation each `&[spec]` and `\\[spec]`
+/// adds before a cell and after a row.
+struct Body {
+    rows: Vec<Vec<Vec<Token>>>,
+    /// for each cell, the `[spec]` after the `&` before it
+    cell_seps: Vec<Vec<Vec<Token>>>,
+    /// for each row, the `[spec]` after its `\\`
+    row_seps: Vec<Vec<Token>>,
 }
 
+/// pgf's separation list (`1cm,between origins`, `2mm,-1mm`): lengths add up, and whether the
+/// distance is between the cells' origins or (the default) their borders.
+struct Sep {
+    distance: f64,
+    origins: bool,
+}
 impl Engine {
+    /// The body split at `&` (or what `ampersand replacement` or `\pgfmatrixnextcell` stand for)
+    /// and at `\\` (`\pgfmatrixendrow`).
+    fn split_body(&self, body: &[Token], ampersand: Option<&str>) -> Body {
+        let next_cell = self.tex.meaning(&Token::cs("pgfmatrixnextcell"));
+        let end_row = self.tex.meaning(&Token::cs("pgfmatrixendrow"));
+        let mut out = Body { rows: vec![vec![Vec::new()]], cell_seps: vec![vec![Vec::new()]], row_seps: vec![Vec::new()] };
+        let mut depth = 0usize;
+        let mut i = 0;
+        // `[spec]` right after a separator (spaces skipped), and where reading goes on
+        let spec = |i: usize| -> (Vec<Token>, usize) {
+            let mut j = i + 1;
+            while j < body.len() && body[j].is_space() {
+                j += 1;
+            }
+            if !body.get(j).is_some_and(|x| x.is_char('[')) {
+                return (Vec::new(), i + 1);
+            }
+            let mut k = j + 1;
+            let mut v = Vec::new();
+            while k < body.len() && !body[k].is_char(']') {
+                v.push(body[k].clone());
+                k += 1;
+            }
+            (v, k + 1)
+        };
+        while i < body.len() {
+            let t = &body[i];
+            let cs = |name: &str| matches!(t, Token::Cs(n) if &**n == name);
+            let is_cell =
+                matches!(t, Token::Char(_, Cat::Align)) || matches!(t, Token::Cs(n) if Some(&**n) == ampersand) || (matches!(t, Token::Cs(_)) && self.tex.meaning(t) == next_cell);
+            let is_row = cs("\\") || (matches!(t, Token::Cs(_)) && self.tex.meaning(t) == end_row);
+            match t {
+                Token::Char(_, Cat::Begin) => depth += 1,
+                Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
+                _ if depth == 0 && is_cell => {
+                    let (sep, next) = spec(i);
+                    out.rows.last_mut().expect("a row").push(Vec::new());
+                    out.cell_seps.last_mut().expect("a row").push(sep);
+                    i = next;
+                    continue;
+                }
+                _ if depth == 0 && is_row => {
+                    let (sep, next) = spec(i);
+                    *out.row_seps.last_mut().expect("a row") = sep;
+                    out.rows.push(vec![Vec::new()]);
+                    out.cell_seps.push(vec![Vec::new()]);
+                    out.row_seps.push(Vec::new());
+                    i = next;
+                    continue;
+                }
+                _ => {}
+            }
+            out.rows.last_mut().expect("a row").last_mut().expect("a cell").push(t.clone());
+            i += 1;
+        }
+        // a last row with only empty cells is the end of the body
+        while out.rows.len() > 1 && out.rows.last().is_some_and(|r| r.iter().all(|c| crate::keys::trim(c).is_empty())) {
+            out.rows.pop();
+            out.cell_seps.pop();
+            out.row_seps.pop();
+        }
+        out
+    }
+
+    /// The default separation followed by a cell's or row's own.
+    fn sep(&mut self, default: &[Token], extra: &[Token]) -> Sep {
+        let mut sep = Sep { distance: 0.0, origins: false };
+        for list in [default, extra] {
+            for item in crate::keys::split_list(list) {
+                match item.key.as_str() {
+                    "between origins" => sep.origins = true,
+                    "between borders" => sep.origins = false,
+                    "" => {}
+                    k => match self.length(k) {
+                        Ok(d) => sep.distance += d,
+                        Err(_) => self.warn(format!("matrix separation '{k}' not understood: ignored")),
+                    },
+                }
+            }
+        }
+        sep
+    }
+
+    /// `\pgfmatrix{shape}{anchor}{name}{usage}{shift}{pre code}{body}`: the basic layer's matrix,
+    /// laid out as `\matrix` lays it out.
+    pub fn pgf_matrix(&mut self) -> Result<(), Error> {
+        let shape = self.argument_string()?;
+        let anchor = self.argument_string()?;
+        let name = self.argument_string()?;
+        let usage = self.argument_string()?;
+        let shift = self.point_arg()?;
+        let pre = self.argument()?;
+        let body = self.argument()?;
+        self.begin_group();
+        let r = (|| {
+            self.run_tokens(pre)?;
+            let mut options = format!("shape={shape},anchor={anchor}");
+            for (word, key) in [("stroke", "draw"), ("draw", "draw"), ("fill", "fill")] {
+                if usage.contains(word) {
+                    options.push_str(&format!(",{key}"));
+                }
+            }
+            let at = self.st.transform.apply(shift);
+            let body = self.expand_body_macros(body);
+            let name = Some(name.trim().to_string()).filter(|n| !n.is_empty());
+            self.matrix_in_group(tikra_tokens(&options), name, Some(at), body)
+        })();
+        self.end_group();
+        r
+    }
+
     /// `\matrix` (the command already read) and `node[matrix]`.
     pub fn matrix(&mut self) -> Result<(), Error> {
         // options, (name), at (point), then the body in braces
@@ -135,8 +205,9 @@ impl Engine {
         // any node does, and not the one its options set for the cells
         let every_node = Token::cs(&crate::keys::macro_name("/tikz/every node/.@cmd"));
         let outer_every_node = self.tex.meaning(&every_node);
-        let ampersand = self.st.matrix.ampersand.take();
-        self.st.matrix = MatrixSettings { ampersand, ..Default::default() };
+        // what the surroundings set stays (`ampersand replacement`, the separations)
+        let outer = std::mem::take(&mut self.st.matrix);
+        self.st.matrix = MatrixSettings { ampersand: outer.ampersand, column_sep: outer.column_sep, row_sep: outer.row_sep, ..Default::default() };
         let saved_mode = self.st.mode.clone();
         self.process_keys(tikra_tokens("every matrix/.try"), Some("/tikz"))?;
         self.process_keys(options.clone(), Some("/tikz"))?;
@@ -144,7 +215,7 @@ impl Engine {
         let settings = self.st.matrix.clone();
         let name = name.or_else(|| self.st.node.name.clone());
         let at = at.or(self.st.node.at).unwrap_or_else(|| self.st.transform.apply(Point::default()));
-        let (rows, extra) = split_body(&body, settings.ampersand.as_deref());
+        let Body { rows, cell_seps, row_seps } = self.split_body(&body, settings.ampersand.as_deref());
         let nrows = rows.len();
         let ncols = rows.iter().map(Vec::len).max().unwrap_or(0);
 
@@ -168,31 +239,35 @@ impl Engine {
                 }
             }
         }
-        let col_sep = settings.column_sep;
-        let row_sep = settings.row_sep;
         let left: Vec<f64> = (0..ncols).map(|c| extents.iter().map(|row| if row[c].empty { 0.0 } else { row[c].left }).fold(0.0, f64::max)).collect();
         let right: Vec<f64> = (0..ncols).map(|c| extents.iter().map(|row| if row[c].empty { 0.0 } else { row[c].right }).fold(0.0, f64::max)).collect();
         let up: Vec<f64> = extents.iter().map(|row| row.iter().filter(|e| !e.empty).map(|e| e.up).fold(0.0, f64::max)).collect();
         let down: Vec<f64> = extents.iter().map(|row| row.iter().filter(|e| !e.empty).map(|e| e.down).fold(0.0, f64::max)).collect();
         // origins: columns from the left, rows from the top (the first row's baseline at y = 0)
         let mut xs = Vec::with_capacity(ncols);
-        let mut x = 0.0;
         for c in 0..ncols {
-            if c > 0 {
-                x += right[c - 1] + col_sep + left[c];
-            } else {
-                x = left[0];
+            if c == 0 {
+                xs.push(left[0]);
+                continue;
             }
-            xs.push(x);
+            // the widest the rows ask for: between borders, or between origins
+            let mut step: f64 = 0.0;
+            for seps in &cell_seps {
+                let extra = seps.get(c).cloned().unwrap_or_default();
+                let sep = self.sep(&settings.column_sep, &extra);
+                step = step.max(if sep.origins { sep.distance } else { right[c - 1] + sep.distance + left[c] });
+            }
+            xs.push(xs[c - 1] + step);
         }
         let mut ys = Vec::with_capacity(nrows);
-        let mut y = 0.0;
         for r in 0..nrows {
-            if r > 0 {
-                let more = if extra[r - 1].is_empty() { 0.0 } else { self.length_of(extra[r - 1].clone()).unwrap_or(0.0) };
-                y -= down[r - 1] + row_sep + more + up[r];
+            if r == 0 {
+                ys.push(0.0);
+                continue;
             }
-            ys.push(y);
+            let sep = self.sep(&settings.row_sep, &row_seps[r - 1]);
+            let step = if sep.origins { sep.distance } else { down[r - 1] + sep.distance + up[r] };
+            ys.push(ys[r - 1] - step);
         }
         let width = if ncols == 0 { 0.0 } else { xs[ncols - 1] + right[ncols - 1] };
         let height = up.first().copied().unwrap_or(0.0);
@@ -228,9 +303,11 @@ impl Engine {
         let mut out = Vec::new();
         let mut todo: Vec<Token> = body.into_iter().rev().collect();
         let mut budget = 1000;
+        // the separators stay, to be found by what they mean
+        let separators = [self.tex.meaning(&Token::cs("pgfmatrixnextcell")), self.tex.meaning(&Token::cs("pgfmatrixendrow"))];
         while let Some(t) = todo.pop() {
             if let (Token::Cs(_), tex::Meaning::Macro(m)) = (&t, self.tex.meaning(&t)) {
-                if m.params.is_empty() && m.optional.is_none() && budget > 0 {
+                if !separators.contains(&tex::Meaning::Macro(m.clone())) && m.params.is_empty() && m.optional.is_none() && budget > 0 {
                     budget -= 1;
                     for b in m.body.iter().rev() {
                         if let tex::Body::Tok(x) = b {
@@ -349,8 +426,9 @@ fn cell_options(cell: &[Token]) -> (Vec<Token>, Vec<Token>) {
 /// What the matrix's options say about its cells.
 #[derive(Debug, Clone, Default)]
 pub struct MatrixSettings {
-    pub column_sep: f64,
-    pub row_sep: f64,
+    /// `column sep` and `row sep` as pgf's separation lists
+    pub column_sep: Vec<Token>,
+    pub row_sep: Vec<Token>,
     pub of_nodes: bool,
     pub math: bool,
     pub nodes_style: Vec<Token>,
