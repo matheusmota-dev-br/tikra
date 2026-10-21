@@ -242,19 +242,9 @@ fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
     s
 }
 
-pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
-    let m = canvas.margin;
-    let (min, max) = match (canvas.min, canvas.max) {
-        (Some(a), Some(b)) => (a, b),
-        _ => (Point::default(), Point::default()),
-    };
-    let (x0, y0, x1, y1) = (min.x - m, min.y - m, max.x + m, max.y + m);
-    let (width, height) = (((x1 - x0) * BP).max(0.0), ((y1 - y0) * BP).max(0.0));
-
-    let mut body = String::new();
-    let mut defs = Defs { text: String::new(), count: 0 };
-    let mut glyphs = Vec::new();
-    for item in &canvas.items {
+/// The items as SVG elements, into `body`; their definitions (gradients, clips, masks) into `defs`.
+fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<GlyphId>) {
+    for item in items {
         match item {
             Item::Path { segments, fill, stroke } => {
                 if segments.is_empty() || (fill.is_none() && stroke.is_none()) {
@@ -263,7 +253,7 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
                 let d = path_data(segments);
                 let mut a = String::new();
                 match fill {
-                    Some(f) => a.push_str(&fill_attributes(f, &mut defs)),
+                    Some(f) => a.push_str(&fill_attributes(f, defs)),
                     None => a.push_str(r#" fill="none""#),
                 }
                 if let Some(s) = stroke {
@@ -274,7 +264,7 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
             Item::Text { label: l, place, opacity } => {
                 let op = if *opacity < 1.0 { format!(r#" opacity="{}""#, n(*opacity)) } else { String::new() };
                 let _ = write!(body, r#"<g transform="{}" fill="{}"{op}>"#, label_matrix(place), l.color.hex());
-                body.push_str(&label(l, &mut glyphs));
+                body.push_str(&label(l, glyphs));
                 body.push_str("</g>");
             }
             Item::Clip { segments, even_odd } => {
@@ -295,7 +285,7 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
                 let _ = write!(body, r#"<g transform="matrix({} {} {} {} {} {})">"#, n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
             }
             Item::Fade { mask } => {
-                let gradient = paint_value(&Paint::Shading(mask.clone()), &mut defs);
+                let gradient = paint_value(&Paint::Shading(mask.clone()), defs);
                 let id = defs.id("m");
                 let _ = write!(
                     defs.text,
@@ -303,9 +293,32 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
                 );
                 let _ = write!(body, r#"<g mask="url(#{id})">"#);
             }
+            Item::FadePicture { items } => {
+                // the picture as a luminance mask: white opaque, black and nothing transparent
+                let mut inner = String::new();
+                items_svg(items, &mut inner, defs, glyphs);
+                let id = defs.id("m");
+                let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
+                let _ = write!(body, r#"<g mask="url(#{id})">"#);
+            }
             Item::End => body.push_str("</g>"),
         }
     }
+}
+
+pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
+    let m = canvas.margin;
+    let (min, max) = match (canvas.min, canvas.max) {
+        (Some(a), Some(b)) => (a, b),
+        _ => (Point::default(), Point::default()),
+    };
+    let (x0, y0, x1, y1) = (min.x - m, min.y - m, max.x + m, max.y + m);
+    let (width, height) = (((x1 - x0) * BP).max(0.0), ((y1 - y0) * BP).max(0.0));
+
+    let mut body = String::new();
+    let mut defs = Defs { text: String::new(), count: 0 };
+    let mut glyphs = Vec::new();
+    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs);
     let font = mathra::font::font();
     let mut seen = HashSet::new();
     for g in glyphs {

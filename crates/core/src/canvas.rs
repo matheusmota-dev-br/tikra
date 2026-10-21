@@ -96,6 +96,11 @@ pub enum Item {
     Fade {
         mask: Shading,
     },
+    /// A fading drawn as a picture (`\pgfdeclarefading`): what follows, up to the matching `End`, is
+    /// as opaque as the picture is white there, and transparent where it draws nothing.
+    FadePicture {
+        items: Vec<Item>,
+    },
     End,
 }
 
@@ -172,6 +177,7 @@ impl Item {
             Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             // the items inside move too: the transformation moves with them
             Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
+            Item::FadePicture { items } => items.iter_mut().for_each(|i| i.translate(d)),
             Item::Group { .. } | Item::End => {}
         }
     }
@@ -199,6 +205,7 @@ impl Item {
             Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             // a transformed group inside: the outer transformation around it
             Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),
+            Item::FadePicture { items } => items.iter_mut().for_each(|i| i.transform(t)),
             Item::Group { .. } | Item::End => {}
         }
     }
