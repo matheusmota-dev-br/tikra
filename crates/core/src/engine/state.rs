@@ -116,6 +116,9 @@ pub struct GState {
     pub double_distance: f64,
     /// Font: size in pt, and the TeX commands that set it (`\bfseries`, `\itshape`)
     pub font_size: f64,
+    /// The size (pt) set by a font command (`\Huge`) around the nodes, not by `font=`: `em` and `ex`
+    /// in lengths are in it
+    pub ambient_size: f64,
     pub font: String,
 
     // path construction settings
@@ -280,6 +283,7 @@ impl Default for GState {
             double: None,
             double_distance: 0.6 * PT,
             font_size: 10.0,
+            ambient_size: 10.0,
             font: String::new(),
             to: ToSettings::default(),
             grid_step: (1.0, 1.0),

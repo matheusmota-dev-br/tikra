@@ -11,6 +11,8 @@ pub struct Variables {
     pub values: HashMap<String, f64>,
     /// name → (parameters without the backslash, body)
     pub functions: HashMap<String, (Vec<String>, String)>,
+    /// The font size over 10pt, for `em` and `ex` (none: 10pt).
+    pub font_scale: Option<f64>,
 }
 
 impl Variables {
@@ -38,6 +40,12 @@ pub fn unit_cm(u: &str) -> Option<f64> {
         "pc" => 12.0 * 2.54 / 72.27,
         _ => return None,
     })
+}
+
+/// Centimeters per unit, `em` and `ex` in the font of `vars`.
+fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
+    let f = unit_cm(u)?;
+    Some(if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f })
 }
 
 /// Nesting cap (parentheses, signs, calls): `f(x) = f(x)` does not overflow the stack.
@@ -76,7 +84,7 @@ pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
     for u in ["cm", "mm", "pt", "bp", "in", "em", "ex", "pc"] {
         if let Some(n) = t.strip_suffix(u) {
             if let Ok(v) = eval(n, vars) {
-                return Ok((v * unit_cm(u).unwrap(), true));
+                return Ok((v * unit_cm_in(u, vars).unwrap(), true));
             }
         }
     }
@@ -289,7 +297,7 @@ impl Parser<'_> {
                 let mut v: f64 = n.parse().map_err(|_| Error::Expression(format!("invalid number: {n}")))?;
                 // a unit glued to a number inside an expression: 2cm, 3pt
                 let rest: String = self.c[self.pos..].iter().take(2).collect();
-                if let Some(f) = unit_cm(&rest) {
+                if let Some(f) = unit_cm_in(&rest, self.vars) {
                     if !self.c.get(self.pos + 2).is_some_and(|c| c.is_ascii_alphabetic()) {
                         self.pos += 2;
                         v *= f;

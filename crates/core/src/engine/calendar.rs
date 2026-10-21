@@ -530,8 +530,9 @@ impl Engine {
     }
 
     fn font_length(&mut self, s: &str) -> Result<f64, Error> {
+        // `em` and `ex` in the ambient font; the calendar's own `font=` counts too
         let v = self.length(s)?;
-        Ok(if s.contains("em") || s.contains("ex") { v * self.st.font_size / 10.0 } else { v })
+        Ok(if s.contains("em") || s.contains("ex") { v * self.st.font_size / self.st.ambient_size } else { v })
     }
 
     fn calendar_shift(&mut self, x: f64, y: f64) {

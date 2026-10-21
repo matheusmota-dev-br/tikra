@@ -379,8 +379,8 @@ pub struct Engine {
     /// pictures already drawn, and how the document lays them out
     boxes: Vec<PictureBox>,
     layout: Vec<Layout>,
-    /// the words of the text around the pictures
-    words: Vec<String>,
+    /// the words of the text around the pictures, each with the font it starts in
+    words: Vec<(String, String)>,
     /// keys run so far
     pub keys_run: usize,
     /// the data visualizations being run, innermost last
@@ -704,10 +704,10 @@ impl Engine {
         if self.picture_depth == 0 {
             // text of the paragraph, set word by word around the pictures
             match self.layout.last() {
-                Some(Layout::Word(i)) => self.words[*i].push(c),
+                Some(Layout::Word(i)) => self.words[*i].1.push(c),
                 _ => {
                     self.layout.push(Layout::Word(self.words.len()));
-                    self.words.push(c.to_string());
+                    self.words.push((self.st.font.clone(), c.to_string()));
                 }
             }
             return;
@@ -874,7 +874,7 @@ impl Engine {
     }
 
     pub fn vars(&self) -> crate::expr::Variables {
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone() }
+        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0) }
     }
 
     /// A pgfmath number from text.
@@ -1284,6 +1284,7 @@ impl Engine {
             Cmd::FontSize => {
                 if let Token::Cs(n) = t {
                     self.st.font_size = font_size(n);
+                    self.st.ambient_size = self.st.font_size;
                     self.st.font.push_str(&format!("\\{n}"));
                 }
                 Ok(())
@@ -2084,7 +2085,7 @@ const LINE_SKIP: f64 = 1.0 * crate::PT;
 
 /// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
-fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f64) -> Canvas {
+fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
     let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
     for l in layout {
@@ -2095,7 +2096,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f6
     }
     // the words as TeX sets them, in the text font
     let mut warnings = Vec::new();
-    let labels: Vec<crate::scene::Label> = words.iter().map(|w| crate::label::compose_label(w, "", None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
+    let labels: Vec<crate::scene::Label> = words.iter().map(|(font, w)| crate::label::compose_label(w, font, None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
     let mut baseline_y = 0.0;
     let mut previous_depth: Option<f64> = None;
     let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
