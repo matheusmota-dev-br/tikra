@@ -520,6 +520,8 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let mut stack_base: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let mut dmin = [f64::INFINITY; 3];
     let mut dmax = [f64::NEG_INFINITY; 3];
+    let mut boxplots = 0usize;
+    super::boxplot::variable_widths(&axis.entries.iter().filter_map(|en| if let Entry::Plot(p) = en { p.boxplot.as_deref() } else { None }).collect::<Vec<_>>());
     for en in &axis.entries {
         let Entry::Plot(p) = en else {
             points.push(None);
@@ -527,6 +529,19 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         };
         let mut v: Vec<[f64; 3]> = p.coords.iter().map(|c| [lg(0, c.x), lg(1, c.y), lg(2, c.z)]).collect();
         let mut base = vec![0.0; v.len()];
+        // a box plot: its outliers at its position, and its box and whiskers in view
+        if p.boxplot.is_some() {
+            let index = boxplots;
+            boxplots += 1;
+            for c in super::boxplot::extent(e, p, index, &mut v) {
+                for i in 0..2 {
+                    if c[i].is_finite() {
+                        dmin[i] = dmin[i].min(c[i]);
+                        dmax[i] = dmax[i].max(c[i]);
+                    }
+                }
+            }
+        }
         if let Some(dir) = p.stack {
             let a = if dir == 'x' { 0 } else { 1 };
             let b = &mut stack_base[a];
@@ -822,6 +837,15 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     };
     if three_d {
         super::cube::prepare(e, &mut frame, dir, &lines);
+    } else {
+        // `lower` is lower on paper (left for y): with `y dir=reverse` the x tick labels go to
+        // ymax (`\pgfplots@init@ticklabelaxisspec@twodim@for`)
+        for a in 0..2 {
+            let lower_is_min = if a == 0 { frame.e[1].y >= 0.0 } else { frame.e[0].x >= 0.0 };
+            if !lower_is_min && frame.label_side[a] != 0 {
+                frame.label_side[a] = -frame.label_side[a];
+            }
+        }
     }
     // the box's lowest corner goes to the origin
     if !three_d {
@@ -1489,6 +1513,10 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
                 while k < tokens.len() && numeric(&tokens[k], k == j) {
                     k += 1;
                 }
+                // the longest prefix that is a number (`1--4` is 1, then `--4`)
+                while k > j + 1 && tex::tokens_to_string(&tokens[j..k]).trim().parse::<f64>().is_err() {
+                    k -= 1;
+                }
                 arg = tokens[j..k].to_vec();
                 end = k;
             }
@@ -1793,6 +1821,15 @@ impl Engine {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);
                     let y = value(self, 1, "y")?.unwrap_or(0.0);
                     Ok(f.desc(x, y))
+                }
+                "boxplot" | "boxplot box" | "boxplot whisker" => {
+                    let parts = crate::options::split_top_level(args);
+                    let a = parts.first().map(|p| self.number(p.trim())).transpose()?.unwrap_or(0.0);
+                    let b = parts.get(1).map(|p| self.number(p.trim())).transpose()?.unwrap_or(0.0);
+                    match super::boxplot::cs(system, a, b) {
+                        Some([x, y]) => Ok(f.at([x, y, f.min[2]])),
+                        None => Err(Error::Figure(format!("{system} cs outside a box plot"))),
+                    }
                 }
                 "axis direction" => {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);

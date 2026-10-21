@@ -429,6 +429,34 @@ const DEFINITIONS: &str = r"
 	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
 	/pgfplots/ybar interval/.default=1,
+	/pgfplots/@hist/.initial=false, /pgfplots/@boxplot/.initial=,
+	/pgfplots/every boxplot/.style={},
+	/pgfplots/boxplot/data/.initial=y, /pgfplots/boxplot/data value/.initial=, /pgfplots/boxplot/data filter/.code=,
+	/pgfplots/boxplot/median/.initial=auto, /pgfplots/boxplot/lower quartile/.initial=auto,
+	/pgfplots/boxplot/upper quartile/.initial=auto, /pgfplots/boxplot/lower whisker/.initial=auto,
+	/pgfplots/boxplot/upper whisker/.initial=auto, /pgfplots/boxplot/average/.initial=,
+	/pgfplots/boxplot/ensure mark/.initial=false, /pgfplots/boxplot/ensure mark/.default=true,
+	/pgfplots/boxplot/estimator/.initial=legacy,
+	/pgfplots/boxplot/lower quartile off/.initial=0.25, /pgfplots/boxplot/upper quartile off/.initial=0.75,
+	/pgfplots/boxplot/whisker range/.initial=1.5,
+	/pgfplots/boxplot/whisker extend/.initial=\pgfkeysvalueof{/pgfplots/boxplot/box extend}*0.8,
+	/pgfplots/boxplot/box extend/.initial=0.8, /pgfplots/boxplot/draw direction/.initial=x,
+	/pgfplots/boxplot/variable width/.initial=false, /pgfplots/boxplot/variable width/.default=true,
+	/pgfplots/boxplot/sample size/.initial=auto, /pgfplots/boxplot/sample size min/.initial=,
+	/pgfplots/boxplot/sample size max/.initial=, /pgfplots/boxplot/variable width min target/.initial=0.2,
+	/pgfplots/boxplot/draw position/.initial=1+\plotnumofactualtype,
+	/pgfplots/boxplot/draw relative anchor/.initial=0.5,
+	/pgfplots/boxplot/every whisker/.style={}, /pgfplots/boxplot/every box/.style={},
+	/pgfplots/boxplot/every median/.style={}, /pgfplots/boxplot/every average/.style={/tikz/mark=diamond*},
+	/pgfplots/@boxplot macros/.code={\def\pgfplotsboxplotvalue##1{\pgfkeysvalueof{/pgfplots/boxplot/##1}}\let\boxplotvalue=\pgfplotsboxplotvalue},
+	/pgfplots/@boxplot macros,
+	/pgfplots/hist/data/.initial=y, /pgfplots/hist/data value/.initial=,
+	/pgfplots/hist/data min/.initial=, /pgfplots/hist/data max/.initial=, /pgfplots/hist/bins/.initial=10,
+	/pgfplots/hist/intervals/.initial=true, /pgfplots/hist/intervals/.default=true,
+	/pgfplots/hist/cumulative/.initial=false, /pgfplots/hist/cumulative/.default=true,
+	/pgfplots/hist/density/.initial=false, /pgfplots/hist/density/.default=true,
+	/pgfplots/hist/handler/.style={/tikz/ybar interval},
+	/pgfplots/hist/data filter/.code=,
 	/pgfplots/xbar interval/.style={bar direction=x,bar cycle list,y tick label as interval,ytick=data,ymajorgrids,ytick align=outside,xbar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/xbar interval},
 	/pgfplots/xbar interval/.default=1,
@@ -878,6 +906,32 @@ keyfn!(k_colormap_color, |e, v| {
     e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
 });
 
+// `hist={bins=…}`: the plot's values are counted in bins, then drawn with `hist/handler`.
+keyfn!(k_hist, |e, v| {
+    set(e, "/pgfplots/@hist", "true");
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/hist"));
+    e.st.key_path = saved;
+    r?;
+    run(e, "/pgfplots/hist/handler")
+});
+
+// `boxplot={…}`, `boxplot prepared={…}`: the box plot handler, its keys in /pgfplots/boxplot.
+keyfn!(k_boxplot, |e, v| {
+    let name = current_name(e);
+    set(e, "/pgfplots/@boxplot", if name.ends_with("prepared") { "prepared" } else { "raw" });
+    set(e, "/tikz/@plot handler", "boxplot");
+    run(e, "/pgfplots/every boxplot")?;
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/boxplot"));
+    e.st.key_path = saved;
+    r?;
+    if flag(e, "/pgfplots/boxplot/ensure mark") && e.st.plot_mark.is_none() {
+        run(e, "/tikz/mark=*")?;
+    }
+    Ok(())
+});
+
 // `group style={…}`: keys of /pgfplots/group.
 keyfn!(k_group_style, |e, v| {
     let saved = e.st.key_path.clone();
@@ -975,6 +1029,9 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/axis y line*", k_line_star),
     ("/pgfplots/axis z line*", k_line_star),
     ("/pgfplots/group style", k_group_style),
+    ("/pgfplots/hist", k_hist),
+    ("/pgfplots/boxplot", k_boxplot),
+    ("/pgfplots/boxplot prepared", k_boxplot),
     ("/pgfplots/color of colormap", k_colormap_color),
     ("/pgfplots/const color of colormap", k_colormap_color),
     ("/pgfplots/index of colormap", k_colormap_color),

@@ -147,6 +147,8 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     };
     let at = |x: f64, y: f64| f.at([x, y, f.min[2]]);
     match handler.as_str() {
+        // box plots draw their box; the points are the outliers' marks
+        "boxplot" => super::boxplot::draw(e, p, f, index_of_type)?,
         "ybar" | "xbar" => {
             let vertical = handler == "ybar";
             let (ua, _) = if vertical { (unit(f.e[0]), unit(f.e[1])) } else { (unit(f.e[1]), unit(f.e[0])) };
@@ -276,7 +278,9 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     // the rest of the path: nodes at the last point
     let rest: Vec<Token> = p.post.iter().filter(|t| !t.is_cs("closedcycle")).cloned().collect();
     if rest.iter().any(|t| !t.is_space()) {
-        if let Some(last) = cp.iter().rev().flatten().next() {
+        // a box plot without outliers starts its path at the origin
+        let origin = (p.boxplot.is_some()).then(|| f.at(f.min));
+        if let Some(last) = cp.iter().rev().flatten().next().copied().or(origin).as_ref() {
             let mut code = toks(&format!("\\path[draw=none,fill=none] (tikra cs:{}pt,{}pt) ", last.x / PT, last.y / PT));
             code.extend(rest);
             code.push(Token::other(';'));

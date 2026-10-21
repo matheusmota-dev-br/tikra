@@ -82,6 +82,8 @@ pub struct Plot {
     pub image: bool,
     /// `late options`: axis options the plot asks for (`matrix plot`: `y dir=reverse`).
     pub late: Vec<Token>,
+    /// `boxplot`, `boxplot prepared`: the box's numbers (the points are the outliers).
+    pub boxplot: Option<Box<super::boxplot::BoxStats>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -381,6 +383,14 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         if plot.post.len() > tex::MAX_TOKENS {
             break;
         }
+    }
+    if keys::flag(e, "/pgfplots/@hist") {
+        histogram(e, plot)?;
+    }
+    match keys::value(e, "/pgfplots/@boxplot").as_str() {
+        "raw" => super::boxplot::survey(e, plot, false),
+        "prepared" => super::boxplot::survey(e, plot, true),
+        _ => {}
     }
     point_meta(e, plot)?;
     lattice_from_scanlines(e, plot);
@@ -837,6 +847,77 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     if !jump && plot.lattice.is_none() {
         plot.coords.retain(|c| c.x.is_finite());
     }
+    Ok(())
+}
+
+/// `hist`: the points become the bins' counts, `(start of bin k, count k)`, and a last point at
+/// the end of the data range (`\pgfplotsplothandlersurveyend@hist@`).
+fn histogram(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    let data = keys::value(e, "/pgfplots/hist/data");
+    let value_expr = keys::value(e, "/pgfplots/hist/data value");
+    let mut vars = e.vars();
+    let mut values = Vec::new();
+    for c in &plot.coords {
+        let v = if !value_expr.is_empty() {
+            vars.insert("x".into(), c.x);
+            vars.insert("y".into(), c.y);
+            vars.insert("z".into(), c.z);
+            crate::expr::eval(&value_expr, &vars).unwrap_or(f64::NAN)
+        } else {
+            match data.as_str() {
+                "x" => c.x,
+                "z" => c.z,
+                "y" | "" => c.y,
+                other => {
+                    vars.insert("x".into(), c.x);
+                    vars.insert("y".into(), c.y);
+                    vars.insert("z".into(), c.z);
+                    crate::expr::eval(other, &vars).unwrap_or(f64::NAN)
+                }
+            }
+        };
+        if v.is_finite() {
+            values.push(v);
+        }
+    }
+    let bins = keys::number(e, "/pgfplots/hist/bins").unwrap_or(10.0).max(1.0) as usize;
+    // `data min` defaults to `xmin`
+    let limit = |e: &mut Engine, k: &str, axis: &str| keys::number(e, &format!("/pgfplots/hist/{k}")).or_else(|| keys::number(e, &format!("/pgfplots/{axis}")));
+    let lo = limit(e, "data min", "xmin").unwrap_or_else(|| values.iter().copied().fold(f64::INFINITY, f64::min));
+    let hi = limit(e, "data max", "xmax").unwrap_or_else(|| values.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+    if values.is_empty() || !(lo.is_finite() && hi.is_finite()) {
+        plot.coords.clear();
+        return Ok(());
+    }
+    let h = (hi - lo) / bins as f64;
+    let mut counts = vec![0.0f64; bins];
+    for v in &values {
+        let k = if h != 0.0 { ((v - lo) / h + 1e-4).trunc() } else { 0.0 };
+        let k = if k < 0.0 { 0 } else { (k as usize).min(bins - 1) };
+        counts[k] += 1.0;
+    }
+    let total: f64 = counts.iter().sum();
+    let cumulative = keys::flag(e, "/pgfplots/hist/cumulative");
+    let density = keys::flag(e, "/pgfplots/hist/density");
+    if cumulative {
+        let mut acc = 0.0;
+        for c in counts.iter_mut() {
+            acc += *c;
+            *c = if density { acc / total } else { acc };
+        }
+    } else if density && total > 0.0 && h != 0.0 {
+        for c in counts.iter_mut() {
+            *c /= total * h;
+        }
+    }
+    let mut coords: Vec<Coord> = counts.iter().enumerate().map(|(k, c)| Coord::new(lo + h * k as f64, *c, 0.0)).collect();
+    if keys::flag(e, "/pgfplots/hist/intervals") {
+        coords.push(Coord::new(hi, counts[bins - 1], 0.0));
+    }
+    plot.coords = coords;
+    plot.three_d = false;
+    plot.scanlines.clear();
+    plot.handler = keys::value(e, "/tikz/@plot handler");
     Ok(())
 }
 

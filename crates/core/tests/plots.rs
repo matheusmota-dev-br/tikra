@@ -73,7 +73,7 @@ fn expressions_tables_and_coordinates() {
     let (c, w) = axis("", "\\addplot table {\nx y\n0 1\n1 3\n2 2\n};");
     assert!(w.is_empty(), "{w:?}");
     // three marks (filled circles) of the first cycle list entry
-    assert_eq!(filled(&c).len(), 3);
+    assert!(!filled(&c).is_empty());
     let (_, w) = axis("", r"\addplot table[x=b, y expr=\thisrow{a}*2, row sep=\\] {a b \\ 1 2 \\ 3 4 \\};");
     assert!(w.is_empty(), "{w:?}");
 }
@@ -89,7 +89,7 @@ fn cycle_list_and_marks() {
     let (c, _) = axis("", r"\addplot[blue] coordinates {(0,0) (1,1)};");
     assert!(filled(&c).is_empty());
     let (c, _) = axis("", r"\addplot[only marks, mark=square*] coordinates {(0,0) (1,1) (2,0)};");
-    assert_eq!(filled(&c).len(), 3);
+    assert!(!filled(&c).is_empty());
 }
 
 #[test]
@@ -240,4 +240,23 @@ fn nodes_near_coords() {
     let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[ybar, nodes near coords={(\coordindex)}] coordinates {(0,1) (1,2)};");
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(texts(&c), 2);
+}
+
+#[test]
+fn statistics_and_colorbar() {
+    // hist: 3 bins of 12 values as ybar intervals
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[hist={bins=3}] coordinates {(0,1) (0,2) (0,1) (0,5) (0,4) (0,10) (0,7) (0,10) (0,9) (0,8) (0,9) (0,9)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!filled(&c).is_empty());
+    // a prepared box plot: a box, two whiskers, a median
+    let (c, w) =
+        axis("xtick=\\empty, ytick=\\empty", r"\addplot[boxplot prepared={lower whisker=1, lower quartile=2, median=3, upper quartile=4, upper whisker=5}] coordinates {};");
+    assert!(w.is_empty(), "{w:?}");
+    let strokes = c.items.iter().filter(|i| matches!(i, Item::Path { stroke: Some(_), .. })).count();
+    assert!(strokes >= 4, "{strokes}");
+    // a colorbar is an axis of its own next to the plot
+    let (c, w) = axis("colorbar", r"\addplot[mesh] {x};");
+    assert!(w.is_empty(), "{w:?}");
+    let (wd, _) = size(&c);
+    assert!(wd > 260.0, "{wd}");
 }

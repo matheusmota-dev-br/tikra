@@ -4,6 +4,7 @@
 //! the order they came, with the TikZ statements among them), the descriptions and the legend
 //! are drawn ([`draw`]).
 
+pub mod boxplot;
 pub mod colorbar;
 pub mod colormap;
 pub mod cube;
