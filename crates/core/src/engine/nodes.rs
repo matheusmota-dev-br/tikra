@@ -238,7 +238,7 @@ impl Engine {
         &mut self.st.node
     }
 
-    fn key_text(&mut self, path: &str) -> String {
+    pub fn key_text(&mut self, path: &str) -> String {
         keys::value(&self.tex, path).map(|v| tex::tokens_to_string(&v)).unwrap_or_default()
     }
 

@@ -1226,7 +1226,8 @@ fn grid(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Err
 /// `plot[options] coordinates {…}` and `plot[options] (expression)`.
 fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) -> Result<(), Error> {
     e.begin_group();
-    let res = (|| -> Result<(Vec<Point>, bool, Vec<crate::canvas::Item>, bool), Error> {
+    type Plot = (Vec<Point>, Vec<Segment>, Vec<crate::canvas::Item>, bool);
+    let res = (|| -> Result<Plot, Error> {
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
@@ -1237,7 +1238,6 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         let (d0, d1) = e.st.domain;
         let n = e.st.samples.max(2);
         let var = e.st.variable.clone();
-        let smooth = e.st.smooth;
         let mut points = Vec::new();
         match next(e, depth)? {
             Some(Token::Char('c', Cat::Letter)) => {
@@ -1284,10 +1284,11 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         }
         // the marks, drawn after the path, in the plot's own settings
         let marks = e.plot_marks(&points)?;
-        Ok((points, smooth, marks, e.st.only_marks))
+        let segs = plot_handler(e, &points)?;
+        Ok((points, segs, marks, e.st.only_marks))
     })();
     e.end_group();
-    let (points, smooth, marks, only_marks) = res?;
+    let (points, mut segs, marks, only_marks) = res?;
     b.node_items.extend(marks);
     if points.is_empty() || only_marks {
         if let Some(p) = points.last() {
@@ -1295,31 +1296,107 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         }
         return Ok(());
     }
+    // `--plot` continues the path: the plot's first move is a line
     if continues && b.current.is_some() {
-        b.segs.push(Segment::LineTo(points[0]));
-    } else {
-        b.segs.push(Segment::MoveTo(points[0]));
-        b.subpath_start = Some(points[0]);
-    }
-    if smooth && points.len() > 2 {
-        for k in 0..points.len() - 1 {
-            let p0 = points[k.saturating_sub(1)];
-            let p1 = points[k];
-            let p2 = points[k + 1];
-            let p3 = points[(k + 2).min(points.len() - 1)];
-            let c1 = p1.plus(p2.minus(p0).scale(1.0 / 6.0));
-            let c2 = p2.minus(p3.minus(p1).scale(1.0 / 6.0));
-            b.segs.push(Segment::CurveTo(c1, c2, p2));
-        }
-    } else {
-        for p in &points[1..] {
-            b.segs.push(Segment::LineTo(*p));
+        if let Some(Segment::MoveTo(p)) = segs.first().copied() {
+            segs[0] = Segment::LineTo(p);
         }
     }
+    if let Some(Segment::MoveTo(p)) = segs.first() {
+        b.subpath_start = Some(*p);
+    }
+    b.segs.extend(segs);
     let n = points.len();
     b.last = Some(OnPath::Segment(points[n.saturating_sub(2)], None, points[n - 1]));
     b.current = Some(Coord { p: points[n - 1], node: None });
     Ok(())
+}
+
+/// The path of a plot's points (canvas coordinates) as its handler makes it, in the plot's own
+/// coordinate system (where the zero level of combs and bars is, and bar widths are measured).
+fn plot_handler(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
+    let t = e.st.transform;
+    let inv = crate::reader::invert(&t);
+    let q: Vec<Point> = points.iter().map(|p| inv.apply(*p)).collect();
+    let n = q.len();
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let p = Point::new;
+    let mut v = Vec::new();
+    let handler = e.st.plot_handler.clone();
+    let k = 0.2775 * e.st.tension;
+    match handler.as_str() {
+        "smooth" if n > 2 => {
+            // \pgfplothandlercurveto: each inner point's supports along its neighbours' chord
+            v.push(Segment::MoveTo(q[0]));
+            let mut support = q[0];
+            for i in 1..n - 1 {
+                let d = q[i + 1].minus(q[i - 1]).scale(k);
+                v.push(Segment::CurveTo(support, q[i].minus(d), q[i]));
+                support = q[i].plus(d);
+            }
+            v.push(Segment::CurveTo(support, q[n - 1], q[n - 1]));
+        }
+        "smooth cycle" if n > 2 => {
+            // \pgfplothandlerclosedcurve: from the second point round to it again
+            let d = |i: usize| q[(i + 1) % n].minus(q[(i + n - 1) % n]).scale(k);
+            v.push(Segment::MoveTo(q[1]));
+            for step in 1..=n {
+                let (i, j) = (step % n, (step + 1) % n);
+                v.push(Segment::CurveTo(q[i].plus(d(i)), q[j].minus(d(j)), q[j]));
+            }
+            v.push(Segment::Close);
+        }
+        "xcomb" | "ycomb" | "polar comb" => {
+            for a in &q {
+                let base = match handler.as_str() {
+                    "xcomb" => p(0.0, a.y),
+                    "ycomb" => p(a.x, 0.0),
+                    _ => p(0.0, 0.0),
+                };
+                v.extend([Segment::MoveTo(base), Segment::LineTo(*a)]);
+            }
+        }
+        "xbar" | "ybar" => {
+            let (w, sh) = (e.key_text("/pgf/bar width"), e.key_text("/pgf/bar shift"));
+            let (width, shift) = (e.length(&w)?, e.length(&sh)?);
+            for a in &q {
+                // \pgfpathrectangle from the zero level to the point, bar width across
+                let (lo, size) = if handler == "ybar" { (p(a.x - width / 2.0 + shift, 0.0), p(width, a.y)) } else { (p(0.0, a.y - width / 2.0 + shift), p(a.x, width)) };
+                v.extend([
+                    Segment::MoveTo(lo),
+                    Segment::LineTo(p(lo.x + size.x, lo.y)),
+                    Segment::LineTo(p(lo.x + size.x, lo.y + size.y)),
+                    Segment::LineTo(p(lo.x, lo.y + size.y)),
+                    Segment::Close,
+                ]);
+            }
+        }
+        h if h.starts_with("const plot") || h.starts_with("jump mark") => {
+            v.push(Segment::MoveTo(q[0]));
+            for w in q.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                let mid = 0.5 * a.x + 0.5 * b.x;
+                match h {
+                    "const plot mark right" => v.extend([Segment::LineTo(p(a.x, b.y)), Segment::LineTo(b)]),
+                    "const plot mark mid" => v.extend([Segment::LineTo(p(mid, a.y)), Segment::LineTo(p(mid, b.y)), Segment::LineTo(b)]),
+                    "jump mark left" => v.extend([Segment::LineTo(p(b.x, a.y)), Segment::MoveTo(b)]),
+                    "jump mark right" => v.extend([Segment::MoveTo(p(a.x, b.y)), Segment::LineTo(b)]),
+                    "jump mark mid" => v.extend([Segment::LineTo(p(mid, a.y)), Segment::MoveTo(p(mid, b.y)), Segment::LineTo(b)]),
+                    _ => v.extend([Segment::LineTo(p(b.x, a.y)), Segment::LineTo(b)]),
+                }
+            }
+        }
+        _ => {
+            v.push(Segment::MoveTo(q[0]));
+            v.extend(q[1..].iter().map(|a| Segment::LineTo(*a)));
+            if handler == "sharp cycle" {
+                v.push(Segment::Close);
+            }
+        }
+    }
+    Ok(crate::canvas::transform_segments(&v, &t))
 }
 
 /// `parabola (b)`, `parabola bend (c) (b)`, `parabola[bend at end] (b)`.
