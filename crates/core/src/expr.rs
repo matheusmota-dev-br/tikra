@@ -226,7 +226,7 @@ impl Parser<'_> {
         self.skip_spaces();
         if self.peek() == Some('r') && !self.c.get(self.pos + 1).is_some_and(|c| c.is_ascii_alphanumeric()) {
             self.pos += 1;
-            return Ok(v.to_degrees());
+            return Ok(deg_of(v));
         }
         Ok(v)
     }
@@ -364,7 +364,7 @@ impl Parser<'_> {
                 let a = args[0];
                 Ok(match name.as_str() {
                     "sin" => sin_degrees(a),
-                    "cos" => sin_degrees(a + 90.0),
+                    "cos" => cos_degrees(a),
                     "tan" => g(a).tan(),
                     "asin" => a.asin().to_degrees(),
                     "acos" => a.acos().to_degrees(),
@@ -410,18 +410,67 @@ mod tests {
     }
 }
 
-/// The sine of degrees, exact at multiples of 90 as pgfmath's (`sin(360)` is 0, not -2.4e-16).
+/// The sine of degrees as pgfmath computes it (`\pgfmathsin`): in TeX's fixed point, between the
+/// cosines of the whole degrees around (rounded to five decimals), so `sin(90)` is 1 and the top of a
+/// sine between two whole degrees just below.
 fn sin_degrees(a: f64) -> f64 {
-    let r = a.rem_euclid(360.0);
-    if r == 0.0 || r == 180.0 {
-        0.0
-    } else if r == 90.0 {
-        1.0
-    } else if r == 270.0 {
-        -1.0
+    pgf_cos_sp(sp_of(a) - 90 * 65536) as f64 / 65536.0
+}
+
+fn cos_degrees(a: f64) -> f64 {
+    pgf_cos_sp(sp_of(a)) as f64 / 65536.0
+}
+
+/// A number as TeX reads it into a dimension: the nearest sp.
+fn sp_of(v: f64) -> i64 {
+    (v * 65536.0).round() as i64
+}
+
+/// `<factor><dimen>` as TeX computes it: the factor's whole part times the dimension, plus its
+/// fraction (in 2^-16) times the dimension cut toward zero.
+fn tex_scale(f: f64, d: i64) -> i64 {
+    let negative = (f < 0.0) != (d < 0);
+    let a = f.abs();
+    let whole = a.trunc() as i64;
+    let fraction = ((a - a.trunc()) * 65536.0).round() as i64;
+    let d = d.abs();
+    let r = whole * d + d * fraction / 65536;
+    if negative {
+        -r
     } else {
-        a.to_radians().sin()
+        r
     }
+}
+
+/// pgfmath's table: the cosine of a whole degree, to five decimals.
+fn cos_table(n: i64) -> f64 {
+    ((n as f64).to_radians().cos() * 1e5).round() / 1e5
+}
+
+/// pgfmath's cosine of `x` sp degrees, in sp.
+fn pgf_cos_sp(x: i64) -> i64 {
+    let mut x = x;
+    let turns = (x / 65536) / 360 * -360;
+    x += turns * 65536;
+    if x < 0 {
+        x = -x;
+    }
+    if x >= 180 * 65536 {
+        x = 360 * 65536 - x;
+    }
+    let (a, fraction) = (x / 65536, x % 65536);
+    if fraction == 0 {
+        return sp_of(cos_table(a));
+    }
+    tex_scale(cos_table(a), 65536 - fraction) + tex_scale(cos_table((a + 1).min(180)), fraction)
+}
+
+/// Radians to degrees as pgfmath's postfix `r` (times 57.29577, in TeX's fixed point).
+fn deg_of(v: f64) -> f64 {
+    if v.abs() > 285.0 {
+        return v.to_degrees();
+    }
+    tex_scale(57.29577, sp_of(v)) as f64 / 65536.0
 }
 
 thread_local! {

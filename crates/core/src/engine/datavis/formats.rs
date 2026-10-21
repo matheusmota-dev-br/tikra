@@ -137,6 +137,9 @@ impl Engine {
         match first {
             Statement::Func { name, expr } => {
                 let v = self.number_of(expr.clone())?;
+                // \pgfmathparse computes in TeX's fixed point: what it gives is a whole number of
+                // sp, its products cut toward zero (sin x at its top is just below 1)
+                let v = if v.abs() < 16384.0 { (v * 65536.0).trunc() / 65536.0 } else { v };
                 set_attribute(self, name, &num(v));
                 self.run_statements(rest)
             }
