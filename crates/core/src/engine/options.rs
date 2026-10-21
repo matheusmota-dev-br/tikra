@@ -495,8 +495,8 @@ fn shift_vector(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<Point, Error> 
     let s = text(e, v)?;
     let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
-    let full = e.st.transform.compose(&e.st.pending);
-    Ok(crate::reader::invert(&full).apply(p))
+    // in the coordinate system as it is: shifts given before (still pending) do not change it
+    Ok(crate::reader::invert(&e.st.transform).apply(p))
 }
 
 fn dash_from(e: &mut Engine, spec: &str) -> Result<Option<Vec<f64>>, Error> {
@@ -1584,14 +1584,14 @@ keyfn!(k_matrix_of_math_nodes, |e, _v| {
     e.st.matrix.math = true;
     Ok(())
 });
+// `nodes={…}`: more of every node (a matrix's own node took every node before its options)
 keyfn!(k_matrix_nodes, |e, v| {
-    if let Some(v) = v {
-        if !e.st.matrix.nodes_style.is_empty() {
-            e.st.matrix.nodes_style.push(Token::other(','));
-        }
-        e.st.matrix.nodes_style.extend(v);
-    }
-    Ok(())
+    let Some(v) = v else { return Ok(()) };
+    let mut keys = tikra_tokens("every node/.append style=");
+    keys.push(Token::Char('{', crate::tex::Cat::Begin));
+    keys.extend(v);
+    keys.push(Token::Char('}', crate::tex::Cat::End));
+    e.process_keys(keys, Some("/tikz"))
 });
 
 fn shade_color(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<crate::color::Color, Error> {
