@@ -43,7 +43,6 @@ fn nested_foreach() {
 }
 
 #[test]
-#[ignore = "the engine reads the outer body up to a top-level `;`; pgffor collects a nested \\foreach and its braced body (\\pgffor@collectforeach)"]
 fn nested_foreach_with_a_braced_inner_body() {
     let c = canvas(r"\foreach \x in {0,1,2} \foreach \y in {0,1} { \fill (\x,\y) circle (1pt); }");
     assert_eq!(paths(&c).len(), 6);

@@ -1792,6 +1792,17 @@ keyfn!(k_path_fading, |e, v| {
     e.st.path_fading = if s.is_empty() || s == "none" { None } else { Some(s) };
     Ok(())
 });
+keyfn!(k_fit_fading, |e, v| {
+    e.st.fit_fading = text(e, &v)? != "false";
+    Ok(())
+});
+// `scope fading=name`: what the scope draws is faded, the fading at the scope's origin
+keyfn!(k_scope_fading, |e, v| {
+    let s = text(e, &v)?;
+    let t = e.st.transform.compose(&e.st.pending);
+    e.open_fading(&s, t);
+    Ok(())
+});
 keyfn!(k_transparency_group, |e, _v| {
     e.st.transparency_group = true;
     Ok(())
@@ -1971,6 +1982,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
+    ("/tikz/fit fading", k_fit_fading),
+    ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
     ("/tikz/shading", k_shading),
     ("/tikz/shading angle", k_shading_angle),

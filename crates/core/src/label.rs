@@ -74,10 +74,15 @@ fn clean(text: &str) -> String {
     while i < c.len() {
         if c[i] == '\\' {
             let name: String = c[i + 1..].iter().take_while(|x| x.is_ascii_alphabetic()).collect();
-            if COMMANDS.contains(&name.as_str()) {
+            if COMMANDS.contains(&name.as_str()) || name == "bfseries" || name == "bf" {
                 i += 1 + name.chars().count();
                 while c.get(i) == Some(&' ') {
                     i += 1;
+                }
+                // a control word kept before keeps its end (`\foo\small x`)
+                let tail: String = out.chars().rev().take_while(|x| x.is_ascii_alphabetic()).collect();
+                if !tail.is_empty() && out[..out.len() - tail.len()].ends_with('\\') {
+                    out.push(' ');
                 }
                 continue;
             }
@@ -216,7 +221,7 @@ fn typeset(text: &str, bold: bool, warnings: &mut Vec<String>) -> MathBox {
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
     let size = font_size(&format!("{font} {text}"));
-    let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf");
+    let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
     let text = rules(&clean(text), size);
     let space = 333.0f32;
