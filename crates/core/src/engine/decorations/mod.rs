@@ -570,7 +570,7 @@ impl Engine {
         let mut segs = segments;
         if self.st.decorate && !segs.is_empty() && segs.iter().all(super::path::valid_segment) {
             // pgf counts a path in the picture's size as it is built, before it is decorated
-            if !self.canvas_frozen {
+            if self.counts_for_size() {
                 self.canvas.include_path(&segs);
             }
             self.begin_group();
@@ -790,7 +790,7 @@ impl Engine {
             for item in tips {
                 if let Item::Path { segments, fill, stroke } = item {
                     let segments = transform_segments(&segments, &t);
-                    if !self.canvas_frozen {
+                    if self.counts_for_size() {
                         self.canvas.include_path(&segments);
                     }
                     self.canvas.push(Item::Path { segments, fill, stroke });

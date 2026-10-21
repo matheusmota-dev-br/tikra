@@ -411,14 +411,16 @@ impl Engine {
         let mut items = Vec::new();
         if shape != ShapeKind::Coordinate {
             // the bounding box: the shape's anchors, as pgf protocols them
-            for a in ["north east", "south west", "north west", "south east"] {
-                if let Some(p) = info.anchor(a) {
-                    self.canvas.include(p);
-                }
-            }
             let bg = transform_segments(&info.background(self.st.rounded), &t);
-            // and the background path, control points included, as \pgfusepath protocols it
-            self.canvas.include_path(&bg);
+            if self.counts_for_size() {
+                for a in ["north east", "south west", "north west", "south east"] {
+                    if let Some(p) = info.anchor(a) {
+                        self.canvas.include(p);
+                    }
+                }
+                // and the background path, control points included, as \pgfusepath protocols it
+                self.canvas.include_path(&bg);
+            }
             let fill = if self.st.mode.fill {
                 Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
             } else if self.st.mode.pattern {

@@ -151,9 +151,13 @@ impl Engine {
                 let saved = std::mem::take(&mut self.canvas);
                 let frozen = self.canvas_frozen;
                 self.canvas_frozen = false;
+                let clipped: Vec<bool> = self.scopes.iter_mut().map(|s| std::mem::take(&mut s.clipped)).collect();
                 let res = self.draw_cell(name.as_deref(), &settings, r + 1, c + 1, cell, Transform::default());
                 let drawn = std::mem::replace(&mut self.canvas, saved);
                 self.canvas_frozen = frozen;
+                for (s, c) in self.scopes.iter_mut().zip(clipped) {
+                    s.clipped = c;
+                }
                 res?;
                 if let (Some(lo), Some(hi)) = (drawn.min, drawn.max) {
                     extents[r][c] = Extent { left: (-lo.x).max(0.0), right: hi.x.max(0.0), up: hi.y.max(0.0), down: (-lo.y).max(0.0), empty: false };

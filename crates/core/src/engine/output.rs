@@ -11,6 +11,12 @@ use super::Engine;
 use crate::PT;
 
 impl Engine {
+    /// Whether what is drawn now makes the picture larger: not after `use as bounding box`, nor
+    /// after a clip in the scope.
+    pub fn counts_for_size(&self) -> bool {
+        !self.canvas_frozen && !self.scopes.iter().any(|s| s.clipped)
+    }
+
     /// Uses the path as the state says: clip, fill, draw, arrows.
     pub fn use_path(&mut self, segments: Vec<Segment>, command: &str) -> Result<(), Error> {
         if !segments.iter().all(valid_segment) {
@@ -26,7 +32,7 @@ impl Engine {
         if mode.bounding_box {
             self.canvas.include_path(&segs);
             self.canvas_frozen = true;
-        } else if !self.canvas_frozen {
+        } else if self.counts_for_size() {
             self.canvas.include_path(&segs);
             // a stroked path adds half its line width around its own box (\pgfusepath)
             if mode.draw {
@@ -96,6 +102,11 @@ impl Engine {
         }
         if mode.clip {
             self.open_in_scope(Item::Clip { segments: segs, even_odd: self.st.even_odd });
+            // what the scope draws after a clip does not make the picture larger (pgf's
+            // \pgf@relevantforpicturesizefalse)
+            if let Some(s) = self.scopes.last_mut() {
+                s.clipped = true;
+            }
         }
         Ok(())
     }
@@ -282,7 +293,7 @@ impl Engine {
     }
 
     fn push_tips(&mut self, tips: Tips) {
-        if !self.canvas_frozen {
+        if self.counts_for_size() {
             for p in tips.hull {
                 self.canvas.include(p);
             }

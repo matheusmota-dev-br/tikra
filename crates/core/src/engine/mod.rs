@@ -219,6 +219,8 @@ fn path_command(cmd: Cmd) -> Option<&'static str> {
 #[derive(Debug, Clone, Default)]
 struct PgfScope {
     ends: usize,
+    /// a path clipped it: what it draws after does not make the picture larger
+    pub clipped: bool,
 }
 
 /// Cap on statements per figure: nested loops do not hang the caller.
