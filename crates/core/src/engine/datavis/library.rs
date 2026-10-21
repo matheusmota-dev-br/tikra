@@ -10,7 +10,7 @@
 /// Commands, the `/pgf/data` keys and the generic keys of `/tikz/data visualization`.
 const BASE: &str = r"
 \def\tikzdatavisualizationset{\pgfqkeys{/tikz/data visualization}}
-\def\pgfdvdeclarestylesheet#1#2{\pgfkeys{/pgf/data visualization/style sheets/#1/.cd,#2}}
+\def\pgfdvdeclarestylesheet#1#2{ \pgfkeys{/pgf/data visualization/style sheets/#1/.cd,#2} }
 \def\tikra@dv@also#1{\expandafter\pgfkeysalso\expandafter{#1}}
 \def\tikra@dv@append#1#2{\expandafter\def\expandafter#1\expandafter{#1#2}}
 \def\tikra@dv@at{}\def\tikra@dv@atoptions{}\def\tikra@dv@defaultticks{}\def\tikra@dv@ticks{}

@@ -140,7 +140,7 @@ pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
 }
 
 /// The shape keys, read from the engine's pgfkeys.
-struct EngineKeys<'a>(&'a mut Engine);
+pub(super) struct EngineKeys<'a>(pub(super) &'a mut Engine);
 
 impl shapes::Keys for EngineKeys<'_> {
     fn length(&mut self, key: &str, default: f64) -> f64 {
@@ -372,7 +372,7 @@ impl Engine {
         text_tokens.extend(body(self, "tikz@atend@node"));
         let expanded = self.tex.expand_fully(text_tokens)?;
         for (part, tokens) in split_parts(&expanded) {
-            texts.push((part, tex::tokens_to_string(&tokens).trim().to_string()));
+            texts.push((part, tex::tokens_to_text(&tokens).trim().to_string()));
         }
         let text = texts[0].1.clone();
         let text_width = {
@@ -404,8 +404,8 @@ impl Engine {
                     Some((inner, c)) => (inner, c),
                     None => (t.to_string(), color),
                 };
-                let t = t.as_str();
-                let l = label::compose_label(t, &font, text_width, align, color, &mut warnings);
+                let t = self.inline_colors(&t);
+                let l = label::compose_label(&t, &font, text_width, align, color, &mut warnings);
                 for w in warnings {
                     self.warn(w);
                 }
@@ -562,7 +562,10 @@ impl Engine {
             Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
         } else if self.st.mode.pattern {
             Some(Fill {
-                paint: Paint::Pattern { name: self.st.pattern_name.clone().unwrap_or_default(), color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK) },
+                paint: {
+                    let (name, color) = (self.st.pattern_name.clone().unwrap_or_default(), self.st.pattern_color.unwrap_or(crate::color::Color::BLACK));
+                    self.pattern_paint(&name, color).unwrap_or(Paint::Pattern { name, color })
+                },
                 opacity: self.st.fill_opacity,
                 even_odd: false,
             })
@@ -627,7 +630,8 @@ impl Engine {
                 continue;
             }
             let mut warnings = Vec::new();
-            let l = label::compose_label(text.trim(), &self.st.font, None, 'c', color, &mut warnings);
+            let text = self.inline_colors(text.trim());
+            let l = label::compose_label(&text, &self.st.font, None, 'c', color, &mut warnings);
             for w in warnings {
                 self.warn(w);
             }
@@ -897,4 +901,61 @@ fn split_colon(v: &[Token]) -> Option<(Vec<Token>, Vec<Token>)> {
         }
     }
     None
+}
+
+impl Engine {
+    /// `\textcolor{color}{text}` inside a node's text, its color resolved for the math typesetter
+    /// (which colors only in math): `$\textcolor[HTML]{rrggbb}{\text{text}}$`.
+    fn inline_colors(&mut self, text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(i) = rest.find("\\textcolor{") {
+            out.push_str(&rest[..i]);
+            let after = &rest[i + "\\textcolor{".len()..];
+            let Some(end) = after.find('}') else {
+                out.push_str(&rest[i..]);
+                return out;
+            };
+            let spec = &after[..end];
+            let body_start = &after[end + 1..];
+            // the braced text after the color
+            let Some(body) = body_start.strip_prefix('{') else {
+                out.push_str(&rest[i..i + "\\textcolor{".len() + end + 1]);
+                rest = body_start;
+                continue;
+            };
+            let mut depth = 1;
+            let mut close = body.len();
+            for (k, c) in body.char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = k;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let inner = &body[..close];
+            match self.color(spec) {
+                Some(c) => {
+                    let hex = c.hex();
+                    let hex = hex.trim_start_matches('#');
+                    // math inside stays math; text goes in \text
+                    if inner.contains('$') {
+                        out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{{}}}$", inner.replace('$', "")));
+                    } else {
+                        out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{\\text{{{inner}}}}}$"));
+                    }
+                }
+                None => out.push_str(inner),
+            }
+            rest = body.get(close + 1..).unwrap_or("");
+        }
+        out.push_str(rest);
+        out
+    }
 }

@@ -25,6 +25,7 @@ pub mod nonlinear;
 pub mod options;
 pub mod output;
 pub mod path;
+pub mod patterns;
 pub mod pgfplots;
 pub mod pics;
 pub mod shadings;
@@ -35,6 +36,7 @@ pub mod three_d;
 pub mod tikzmath;
 pub mod trees;
 pub mod turtle;
+pub mod views;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -67,6 +69,10 @@ pub enum Cmd {
     Chainin,
     TikzMath,
     DeclareFading,
+    DeclarePatternForm,
+    DeclarePatternColored,
+    SetFillPattern,
+    TikzDeclarePattern,
     DeclareShadingH,
     DeclareShadingV,
     DeclareShadingR,
@@ -139,6 +145,8 @@ pub enum Cmd {
     Spy,
     SpyBegin,
     SpyEnd,
+    /// `\quad` and `\qquad` between pictures
+    Quad,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -163,6 +171,10 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("chainin", Cmd::Chainin),
     ("tikzmath", Cmd::TikzMath),
     ("pgfdeclarefading", Cmd::DeclareFading),
+    ("pgfdeclarepatternformonly", Cmd::DeclarePatternForm),
+    ("pgfdeclarepatterninherentlycolored", Cmd::DeclarePatternColored),
+    ("pgfsetfillpattern", Cmd::SetFillPattern),
+    ("tikzdeclarepattern", Cmd::TikzDeclarePattern),
     ("pgfdeclarehorizontalshading", Cmd::DeclareShadingH),
     ("pgfdeclareverticalshading", Cmd::DeclareShadingV),
     ("pgfdeclareradialshading", Cmd::DeclareShadingR),
@@ -258,6 +270,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("noindent", Cmd::FontSeries),
     ("maketitle", Cmd::FontSeries),
     ("selectfont", Cmd::FontSeries),
+    ("quad", Cmd::Quad),
+    ("qquad", Cmd::Quad),
     ("spy", Cmd::Spy),
     ("tikra@spybegin", Cmd::SpyBegin),
     ("tikra@spyend", Cmd::SpyEnd),
@@ -335,6 +349,8 @@ pub struct Engine {
     pub math_kinds: HashMap<String, tikzmath::Kind>,
     /// path operations to run after the node just made (`after node path`, joins)
     pub after_node_path: Vec<Token>,
+    /// The open `local bounding box`es: their names and the group depth they were opened at.
+    pub local_boxes: Vec<(String, usize)>,
     /// the path's last point and where it came from, for `turn` in the next coordinate
     pub turn_from: (crate::scene::Point, crate::scene::Point),
     /// where the path's subpath started (`current subpath start`)
@@ -349,6 +365,8 @@ pub struct Engine {
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
     /// paths kept by `save path`
     pub saved_paths: HashMap<String, Vec<crate::scene::Segment>>,
+    /// patterns declared by the basic layer
+    pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
@@ -395,8 +413,8 @@ enum Layout {
     /// a word of the text around the pictures (in `words`)
     Word(usize),
     Space,
-    /// `\hspace{…}` between pictures
-    Glue(f64),
+    /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
+    Skip(f64),
     Par,
 }
 
@@ -443,6 +461,7 @@ impl Clone for Engine {
             chain_list: self.chain_list.clone(),
             math_kinds: self.math_kinds.clone(),
             after_node_path: Vec::new(),
+            local_boxes: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
@@ -453,6 +472,7 @@ impl Clone for Engine {
             basic_shadings: self.basic_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
             saved_paths: self.saved_paths.clone(),
+            user_patterns: self.user_patterns.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -512,6 +532,7 @@ impl Engine {
             chain_list: Default::default(),
             math_kinds: Default::default(),
             after_node_path: Vec::new(),
+            local_boxes: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: None,
@@ -522,6 +543,7 @@ impl Engine {
             basic_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
             saved_paths: HashMap::new(),
+            user_patterns: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
@@ -673,8 +695,9 @@ impl Engine {
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {
-            // a space after a picture or a word is TeX's interword space
-            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_) | Layout::Glue(_))) {
+            // a space after a picture or a word is TeX's interword space; spaces with commands
+            // between them (`\tikzset{…}` on its own line) are glue each, so is one after `\hspace{…}`
+            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_) | Layout::Space | Layout::Skip(_))) {
                 self.layout.push(Layout::Space);
             }
             return;
@@ -745,8 +768,26 @@ impl Engine {
             if let Some(s) = self.saved.pop() {
                 self.st = s;
             }
+            self.close_local_boxes();
         } else {
             self.warn("extra '}'");
+        }
+    }
+
+    /// `local bounding box=name`: a rectangle node `name` over what is drawn from here to the end
+    /// of the group.
+    pub fn open_local_box(&mut self, name: String) {
+        self.local_boxes.push((name, self.saved.len()));
+        self.canvas.local.push((None, None));
+    }
+
+    /// The local bounding boxes of the groups that ended, as nodes.
+    fn close_local_boxes(&mut self) {
+        while self.local_boxes.last().is_some_and(|b| b.1 > self.saved.len()) {
+            let (name, _) = self.local_boxes.pop().expect("checked");
+            if let Some((Some(lo), Some(hi))) = self.canvas.local.pop() {
+                self.nodes.insert(name, libraries::box_node(lo, hi));
+            }
         }
     }
 
@@ -931,6 +972,10 @@ impl Engine {
             Cmd::Chainin => self.chainin(),
             Cmd::TikzMath => self.tikzmath(),
             Cmd::DeclareFading => self.declare_fading(),
+            Cmd::DeclarePatternForm => self.declare_pattern(false),
+            Cmd::DeclarePatternColored => self.declare_pattern(true),
+            Cmd::SetFillPattern => self.set_fill_pattern(),
+            Cmd::TikzDeclarePattern => self.tikz_declare_pattern(),
             Cmd::DeclareShadingH => self.declare_shading('h'),
             Cmd::DeclareShadingV => self.declare_shading('v'),
             Cmd::DeclareShadingR => self.declare_shading('r'),
@@ -1242,7 +1287,7 @@ impl Engine {
                 let arg = self.argument()?;
                 if self.picture_depth == 0 {
                     let w = self.length_of(arg)?;
-                    self.layout.push(Layout::Glue(w));
+                    self.layout.push(Layout::Skip(w));
                 }
                 Ok(())
             }
@@ -1255,6 +1300,14 @@ impl Engine {
                 if let Token::Cs(n) = t {
                     self.st.font_size = font_size(n);
                     self.st.font.push_str(&format!("\\{n}"));
+                }
+                Ok(())
+            }
+            Cmd::Quad => {
+                // 1em and 2em of the 10pt font, as glue between the pictures
+                if self.picture_depth == 0 {
+                    let em = if t.is_cs("qquad") { 2.0 } else { 1.0 };
+                    self.layout.push(Layout::Skip(em * 10.0 * crate::PT));
                 }
                 Ok(())
             }
@@ -1700,6 +1753,7 @@ impl Engine {
                 self.begin_on_layer(layer);
                 Ok(())
             }
+            "pgfviewboxscope" => self.begin_view_box_scope(),
             "tikzfadingfrompicture" => {
                 // its \end is read with its body
                 self.tex.env_stack.pop();
@@ -1749,7 +1803,7 @@ impl Engine {
             "tikzpicture" | "pgfpicture" => self.end_picture(),
             n if pgfplots::is_axis(n) => self.end_axis()?,
             "groupplot" => self.end_groupplot()?,
-            "pgfscope" => {
+            "pgfscope" | "pgfviewboxscope" => {
                 self.end_scope();
                 self.end_group();
             }
@@ -2086,7 +2140,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f6
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
-                Layout::Glue(w) => x += w,
+                Layout::Skip(w) if started => x += w,
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));
@@ -2098,6 +2152,10 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f6
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
                     let (Some(min), Some(max)) = (b.canvas.min, b.canvas.max) else {
+                        // an empty picture is still where the line starts: the glue after it counts
+                        if !started {
+                            out.include(Point::new(x, baseline_y));
+                        }
                         started = true;
                         continue;
                     };

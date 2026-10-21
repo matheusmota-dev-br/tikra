@@ -46,6 +46,16 @@ pub enum Shading {
     Radial { transform: Transform, focus: Point, stops: Vec<Stop> },
 }
 
+/// A pattern's tile: its items, the same tile when they are the same list.
+#[derive(Debug, Clone)]
+pub struct TileItems(pub std::rc::Rc<Vec<Item>>);
+
+impl PartialEq for TileItems {
+    fn eq(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     Solid(Color),
@@ -53,6 +63,14 @@ pub enum Paint {
     Pattern {
         name: String,
         color: Color,
+    },
+    /// A pattern declared in the document: the items of one tile (canvas cm, the tile from `origin`
+    /// to `origin + size`), repeated from the page's origin, the tiling turned by `transform`.
+    Tile {
+        items: TileItems,
+        origin: Point,
+        size: Point,
+        transform: Transform,
     },
     Shading(Shading),
 }
@@ -104,6 +122,18 @@ pub enum Item {
     End,
 }
 
+/// Grows the box `min`–`max` to include `p`.
+fn grow(min: &mut Option<Point>, max: &mut Option<Point>, p: Point) {
+    *min = Some(match *min {
+        Some(m) => Point::new(m.x.min(p.x), m.y.min(p.y)),
+        None => p,
+    });
+    *max = Some(match *max {
+        Some(m) => Point::new(m.x.max(p.x), m.y.max(p.y)),
+        None => p,
+    });
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Canvas {
     pub items: Vec<Item>,
@@ -112,6 +142,8 @@ pub struct Canvas {
     pub max: Option<Point>,
     /// The margin around (the standalone `border`), in cm.
     pub margin: f64,
+    /// The `local bounding box`es being measured: grown with the picture's.
+    pub local: Vec<(Option<Point>, Option<Point>)>,
 }
 
 impl Canvas {
@@ -120,14 +152,10 @@ impl Canvas {
         if !(p.x.is_finite() && p.y.is_finite()) {
             return;
         }
-        self.min = Some(match self.min {
-            Some(m) => Point::new(m.x.min(p.x), m.y.min(p.y)),
-            None => p,
-        });
-        self.max = Some(match self.max {
-            Some(m) => Point::new(m.x.max(p.x), m.y.max(p.y)),
-            None => p,
-        });
+        grow(&mut self.min, &mut self.max, p);
+        for (lo, hi) in self.local.iter_mut() {
+            grow(lo, hi, p);
+        }
     }
 
     /// Grows the bounding box by every point of a path, control points included, as pgf does.

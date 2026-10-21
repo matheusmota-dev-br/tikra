@@ -130,7 +130,8 @@ impl Engine {
         self.begin_group();
         set_attribute(self, "set", name);
         let old = std::mem::replace(&mut self.st.key_path, "/tikz".into());
-        let r = self.emit(Signal::Style, None);
+        let styling = tikra_tokens(&format!("/tikz/data visualization/visualizers/{name}/styling/.try"));
+        let r = self.emit(Signal::Style, None).and_then(|_| self.keys_command(styling, Some("/tikz"), true));
         self.st.key_path = old;
         self.end_group();
         r?;
@@ -401,6 +402,8 @@ impl Engine {
             self.keys_command(setup, Some("/tikz"), true)?;
             self.st.key_path = "/tikz".into();
             self.emit(Signal::Style, None)?;
+            // the text has a strut of .75em above and .25em below its baseline (taken as its
+            // height and depth: TeX's inline fractions fit in them, tikra's are taller)
             let mut node = tikra_tokens("\\node[/tikz/data visualization/node styling,text height=.75em,text depth=.25em,");
             node.extend(style);
             node.extend(tikra_tokens("]"));

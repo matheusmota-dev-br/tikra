@@ -182,6 +182,12 @@ pub struct GState {
     pub radial_outer: Color,
     /// `path fading=`: the fading's name; `transparency group` for the scope being opened
     pub path_fading: Option<String>,
+    /// `fading angle`: the path fading turned in the path's box.
+    pub fading_angle: f64,
+    /// `handle active characters in code` (and `… in nodes`): active characters in options and
+    /// coordinates read as the characters they are
+    pub active_in_code: bool,
+    pub active_in_nodes: bool,
     pub transparency_group: bool,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
@@ -223,6 +229,8 @@ pub struct GState {
     pub snapshot: Option<f64>,
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
+    /// `\pgfsetfillpattern`: the basic layer's fills use the pattern
+    pub fill_pattern: bool,
     /// `save path=\macro`, `use path=\macro` (the path is kept under the macro's name)
     pub save_path: Option<Token>,
     pub use_saved_path: Option<Token>,
@@ -310,6 +318,7 @@ impl Default for GState {
             allow_upside_down: false,
             snapshot: None,
             fit_fading: true,
+            fill_pattern: false,
             save_path: None,
             use_saved_path: None,
             nonlinear: Default::default(),
@@ -317,6 +326,9 @@ impl Default for GState {
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,
+            fading_angle: 0.0,
+            active_in_code: false,
+            active_in_nodes: false,
             transparency_group: false,
             shading: "axis".into(),
             shade_angle: 0.0,

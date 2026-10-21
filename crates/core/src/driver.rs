@@ -97,6 +97,8 @@ fn stroke_attributes(s: &Stroke) -> String {
 struct Defs {
     text: String,
     count: usize,
+    /// glyphs drawn inside definitions (a pattern's tile)
+    glyphs: Vec<GlyphId>,
 }
 
 impl Defs {
@@ -112,6 +114,28 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
         Paint::Pattern { name, color } => {
             let id = defs.id("p");
             defs.text.push_str(&pattern(name, &id, &color.hex()));
+            format!("url(#{id})")
+        }
+        Paint::Tile { items, origin, size, transform: t } => {
+            // the tile's items drawn first (their own definitions come before the pattern)
+            let (mut inner, mut glyphs) = (String::new(), Vec::new());
+            items_svg(&items.0, &mut inner, defs, &mut glyphs);
+            defs.glyphs.append(&mut glyphs);
+            let id = defs.id("p");
+            let (w, h) = (size.x * BP, size.y * BP);
+            // the tile's corner in SVG space (y down): its content is placed from there
+            let (x0, y0) = (origin.x * BP, -(origin.y + size.y) * BP);
+            let m = format!("matrix({} {} {} {} {} {})", n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
+            let _ = write!(
+                defs.text,
+                r#"<pattern id="{id}" patternUnits="userSpaceOnUse" x="{}" y="{}" width="{}" height="{}" patternTransform="{m}"><g transform="translate({} {})">{inner}</g></pattern>"#,
+                n(x0),
+                n(y0),
+                n(w),
+                n(h),
+                n(-x0),
+                n(-y0)
+            );
             format!("url(#{id})")
         }
         Paint::Shading(sh) => {
@@ -316,9 +340,10 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
     let (width, height) = (((x1 - x0) * BP).max(0.0), ((y1 - y0) * BP).max(0.0));
 
     let mut body = String::new();
-    let mut defs = Defs { text: String::new(), count: 0 };
+    let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new() };
     let mut glyphs = Vec::new();
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs);
+    glyphs.append(&mut defs.glyphs);
     let font = mathra::font::font();
     let mut seen = HashSet::new();
     for g in glyphs {

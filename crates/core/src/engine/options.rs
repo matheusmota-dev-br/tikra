@@ -69,6 +69,12 @@ impl Engine {
         let key = self.argument_string()?;
         let value = self.argument()?;
         let value = if is_novalue(&value) { None } else { Some(value) };
+        // a label's text is a node's: it keeps them with `handle active characters in nodes`
+        let text = matches!(key.trim(), "label" | "pin" | "node contents");
+        let value = match value {
+            Some(v) if self.st.active_in_code && !(text && self.st.active_in_nodes) => Some(deactivate(v)),
+            v => v,
+        };
         self.invoke(&key, value)
     }
 
@@ -1036,6 +1042,10 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         "above left" => "south east",
         "above right" => "south west",
         "below left" => "north east",
+        "base left" => "base east",
+        "base right" => "base west",
+        "mid left" => "mid east",
+        "mid right" => "mid west",
         _ => "north west",
     };
     set_value(e, "/tikz/anchor", anchor);
@@ -1096,6 +1106,10 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         "above left" => "north west",
         "above right" => "north east",
         "below left" => "south west",
+        "base left" => "base west",
+        "base right" => "base east",
+        "mid left" => "mid west",
+        "mid right" => "mid east",
         _ => "south east",
     };
     let (name, explicit) = match target.split_once('.') {
@@ -1114,6 +1128,11 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
     }
     e.st_node().at = Some(base.plus(offset));
     Ok(())
+}
+
+/// The active characters of `v` as the characters they are.
+pub fn deactivate(v: Vec<Token>) -> Vec<Token> {
+    v.into_iter().map(|t| if let Token::Char(c, tex::Cat::Active) = t { Token::other(c) } else { t }).collect()
 }
 
 /// A positioning distance: a length, or a number in units of the x or y vector.
@@ -1188,6 +1207,10 @@ keyfn!(k_above_left, |e, v| placement(e, "above left", v));
 keyfn!(k_above_right, |e, v| placement(e, "above right", v));
 keyfn!(k_below_left, |e, v| placement(e, "below left", v));
 keyfn!(k_below_right, |e, v| placement(e, "below right", v));
+keyfn!(k_base_left, |e, v| placement(e, "base left", v));
+keyfn!(k_base_right, |e, v| placement(e, "base right", v));
+keyfn!(k_mid_left, |e, v| placement(e, "mid left", v));
+keyfn!(k_mid_right, |e, v| placement(e, "mid right", v));
 
 keyfn!(k_pos, |e, v| {
     // `pos=` (empty): not on the path
@@ -1439,6 +1462,16 @@ keyfn!(k_continue_chain, |e, v| {
     e.continue_chain(&s);
     Ok(())
 });
+keyfn!(k_start_branch, |e, v| {
+    let s = text(e, &v)?;
+    e.start_branch(&s);
+    Ok(())
+});
+keyfn!(k_continue_branch, |e, v| {
+    let s = text(e, &v)?;
+    e.continue_branch(&s);
+    Ok(())
+});
 keyfn!(k_chain_default_direction, |e, v| {
     let s = text(e, &v)?;
     e.chain_default_direction(&s);
@@ -1450,6 +1483,10 @@ keyfn!(k_on_chain, |e, v| {
 });
 keyfn!(k_join, |e, v| {
     let s = text(e, &v)?;
+    // `join=round`: the line join; anything else is the chains' join
+    if matches!(s.trim(), "round" | "bevel" | "miter") {
+        return e.process_keys(tikra_tokens(&format!("line join={}", s.trim())), Some("/tikz"));
+    }
     e.join(&s);
     Ok(())
 });
@@ -1821,6 +1858,32 @@ keyfn!(k_path_fading, |e, v| {
     e.st.path_fading = if s.is_empty() || s == "none" { None } else { Some(s) };
     Ok(())
 });
+keyfn!(k_fading_angle, |e, v| {
+    let s = text(e, &v)?;
+    e.st.fading_angle = e.number(&s)?;
+    Ok(())
+});
+keyfn!(k_local_bounding_box, |e, v| {
+    let s = text(e, &v)?;
+    e.open_local_box(s.trim().to_string());
+    Ok(())
+});
+keyfn!(k_meet, |e, v| {
+    let s = text(e, &v)?;
+    e.view_key(&s, false)
+});
+keyfn!(k_slice, |e, v| {
+    let s = text(e, &v)?;
+    e.view_key(&s, true)
+});
+keyfn!(k_active_in_code, |e, _v| {
+    e.st.active_in_code = true;
+    Ok(())
+});
+keyfn!(k_active_in_nodes, |e, _v| {
+    e.st.active_in_nodes = true;
+    Ok(())
+});
 keyfn!(k_fit_fading, |e, v| {
     e.st.fit_fading = text(e, &v)? != "false";
     Ok(())
@@ -1924,6 +1987,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/left", k_left),
     ("/tikz/right", k_right),
     ("/tikz/above left", k_above_left),
+    ("/tikz/base left", k_base_left),
+    ("/tikz/base right", k_base_right),
+    ("/tikz/mid left", k_mid_left),
+    ("/tikz/mid right", k_mid_right),
     ("/tikz/above right", k_above_right),
     ("/tikz/below left", k_below_left),
     ("/tikz/below right", k_below_right),
@@ -1986,6 +2053,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/trim right", k_trim_right),
     ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
+    ("/tikz/start branch", k_start_branch),
+    ("/tikz/continue branch", k_continue_branch),
     ("/tikz/chain default direction", k_chain_default_direction),
     ("/tikz/on chain", k_on_chain),
     ("/tikz/join", k_join),
@@ -2022,6 +2091,12 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
     ("/tikz/fit fading", k_fit_fading),
+    ("/tikz/handle active characters in code", k_active_in_code),
+    ("/tikz/handle active characters in nodes", k_active_in_nodes),
+    ("/tikz/meet", k_meet),
+    ("/tikz/slice", k_slice),
+    ("/tikz/local bounding box", k_local_bounding_box),
+    ("/tikz/fading angle", k_fading_angle),
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
     ("/tikz/shading", k_shading),
@@ -2093,7 +2168,7 @@ const DEFINITIONS: &str = r"
   very nearly transparent/.style={opacity=0.1}, nearly transparent/.style={opacity=0.25},
   semitransparent/.style={opacity=0.5}, nearly opaque/.style={opacity=0.75},
   very nearly opaque/.style={opacity=0.9}, ultra nearly opaque/.style={opacity=0.95}, opaque/.style={opacity=1},
-  rounded corners/.default=4pt, double/.default=white, cap/.style={line cap=#1}, join/.style={line join=#1},
+  rounded corners/.default=4pt, double/.default=white, cap/.style={line cap=#1},
   draw opacity/.default=1, help lines/.append style={},
   text centered/.style={align=center}, text ragged/.style={align=left}, text badly ragged/.style={align=left},
   text justified/.style={align=justify}, text ragged left/.style={align=right},

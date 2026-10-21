@@ -424,7 +424,12 @@ pub fn read_coordinate_tokens(e: &mut Engine) -> Result<Vec<tex::Token>, Error> 
     let mut braces = 0usize;
     let mut math = false;
     loop {
-        let t = e.tex.get_token().ok_or_else(|| Error::Figure("unmatched parenthesis".into()))?;
+        let mut t = e.tex.get_token().ok_or_else(|| Error::Figure("unmatched parenthesis".into()))?;
+        if let tex::Token::Char(c, tex::Cat::Active) = t {
+            if e.st.active_in_code {
+                t = tex::Token::other(c);
+            }
+        }
         match &t {
             tex::Token::Char(_, tex::Cat::Begin) => braces += 1,
             tex::Token::Char(_, tex::Cat::End) => braces = braces.saturating_sub(1),

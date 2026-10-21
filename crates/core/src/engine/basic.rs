@@ -75,6 +75,7 @@ enum B {
     EndPicture,
     Text,
     Node,
+    MultipartNode,
     Coordinate,
     XVec,
     YVec,
@@ -156,6 +157,7 @@ const COMMANDS: &[(&str, B)] = &[
     ("endpgfpicture", B::EndPicture),
     ("pgftext", B::Text),
     ("pgfnode", B::Node),
+    ("pgfmultipartnode", B::MultipartNode),
     ("pgfcoordinate", B::Coordinate),
     ("pgfsetxvec", B::XVec),
     ("pgfsetyvec", B::YVec),
@@ -482,6 +484,8 @@ impl Engine {
         self.st.mode = Mode::default();
         for a in actions.split(',').map(str::trim) {
             match a {
+                // after \pgfsetfillpattern, a fill is the pattern
+                "fill" if self.st.fill_pattern => self.st.mode.pattern = true,
                 "fill" => self.st.mode.fill = true,
                 "stroke" | "draw" => self.st.mode.draw = true,
                 "clip" => self.st.mode.clip = true,
@@ -862,11 +866,12 @@ impl Engine {
                 let items = self.node(NodeSpec { options, name: None, at: Some(place), text, place: OnPath::Point(place), point: place, coordinate: false, default_pos: None })?;
                 self.canvas.items.extend(items);
             }
-            B::Node => {
-                // \pgfnode{shape}{anchor}{text}{name}{path usage}
+            B::Node | B::MultipartNode => {
+                // \pgfnode{shape}{anchor}{text}{name}{path usage}; \pgfmultipartnode has no text
+                // (its parts are boxes, empty here)
                 let shape = self.argument_string()?;
                 let anchor = self.argument_string()?;
-                let text = self.argument()?;
+                let text = if matches!(cmd, B::Node) { self.argument()? } else { self.node_part_boxes() };
                 let name = self.argument_string()?;
                 let usage = self.argument()?;
                 let usage = tex::tokens_to_string(&usage);
@@ -972,6 +977,25 @@ impl Engine {
             }
         }
         Ok(())
+    }
+}
+
+impl Engine {
+    /// A multipart node's text from the boxes `\setbox\pgfnodepart<name>box=\hbox{…}` filled: the
+    /// text part first, then the others with `\nodepart{name}`.
+    fn node_part_boxes(&mut self) -> Vec<Token> {
+        let boxes = std::mem::take(&mut self.tex.named_boxes);
+        let mut parts: Vec<(String, Vec<Token>)> = boxes.iter().filter_map(|(n, b)| Some((n.strip_prefix("pgfnodepart")?.strip_suffix("box")?.to_string(), b.clone()))).collect();
+        parts.sort_by_key(|(n, _)| n != "text");
+        let mut text = Vec::new();
+        for (name, body) in parts {
+            if name != "text" {
+                text.extend(tikra_tokens(&format!("\\nodepart{{{name}}}")));
+            }
+            text.extend(body);
+        }
+        self.tex.named_boxes = boxes;
+        text
     }
 }
 

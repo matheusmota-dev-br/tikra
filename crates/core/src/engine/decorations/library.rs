@@ -1452,6 +1452,7 @@ impl<'a> Run<'a> {
             "south west" => p(-w, -h),
             _ => p(0.0, 0.0),
         };
+        let base = t;
         let t = shifted(&t, -off.x, -off.y);
         match name.as_str() {
             "circle" | "ellipse" => {
@@ -1470,17 +1471,54 @@ impl<'a> Run<'a> {
                 self.ln(&t, -w, 0.0);
                 self.w.out.close();
             }
-            other => {
-                if other != "rectangle" {
+            other if other != "rectangle" => {
+                // any other shape: its background path at the size, from the node shapes, at its anchor
+                let boxes = [("text".to_string(), crate::engine::shapes::BoxSize::default())];
+                let (line_width, ex) = (self.e.st.line_width, 4.3 * PT);
+                let mut keys = crate::engine::nodes::EngineKeys(self.e);
+                let mut input = crate::engine::shapes::Input {
+                    parts: &boxes,
+                    inner_xsep: 0.0,
+                    inner_ysep: 0.0,
+                    minimum_width: 2.0 * w * PT,
+                    minimum_height: 2.0 * h * PT,
+                    outer_xsep: 0.0,
+                    outer_ysep: 0.0,
+                    aspect: 1.0,
+                    ex,
+                    line_width,
+                    pointer: None,
+                    keys: &mut keys,
+                };
+                let Some(g) = crate::engine::shapes::compute(other, &mut input) else {
                     self.e.warn(format!("shape backgrounds: shape '{other}' not supported: drawn as a rectangle"));
+                    self.rectangle(&t, w, h);
+                    return;
+                };
+                let at = g.anchor(&anchor).unwrap_or(g.center);
+                // node coordinates are cm, the decoration's pt
+                let m = base.compose(&Transform::scaling(1.0 / PT, 1.0 / PT)).compose(&Transform::translation(-at.x, -at.y));
+                for path in g.paths.iter().filter(|p| matches!(p.layer, crate::engine::shapes::Layer::Background) && matches!(p.usage, crate::engine::shapes::Usage::Node)) {
+                    for seg in &path.segments {
+                        match *seg {
+                            crate::scene::Segment::MoveTo(q) => self.w.out.move_to(m.apply(q)),
+                            crate::scene::Segment::LineTo(q) => self.w.out.line_to(m.apply(q)),
+                            crate::scene::Segment::CurveTo(a, b, q) => self.w.out.curve_to(m.apply(a), m.apply(b), m.apply(q)),
+                            crate::scene::Segment::Close => self.w.out.close(),
+                        }
+                    }
                 }
-                self.mv(&t, -w, -h);
-                self.ln(&t, w, -h);
-                self.ln(&t, w, h);
-                self.ln(&t, -w, h);
-                self.w.out.close();
             }
+            _ => self.rectangle(&t, w, h),
         }
+    }
+
+    fn rectangle(&mut self, t: &Transform, w: f64, h: f64) {
+        self.mv(t, -w, -h);
+        self.ln(t, w, -h);
+        self.ln(t, w, h);
+        self.ln(t, -w, h);
+        self.w.out.close();
     }
 
     // ------------------------------------------------------------ text along path

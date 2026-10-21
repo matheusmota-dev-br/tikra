@@ -52,13 +52,6 @@ impl Engine {
     /// The fading `name` drawn by `code`: typeset as a paragraph of its own (a `\tikz`, a shading,
     /// text), the drawing around it set aside meanwhile.
     fn fading_from(&mut self, name: String, code: Vec<Token>) -> Result<(), Error> {
-        let saved_canvas = std::mem::take(&mut self.canvas);
-        let saved_boxes = std::mem::take(&mut self.boxes);
-        let saved_layout = std::mem::take(&mut self.layout);
-        let saved_words = std::mem::take(&mut self.words);
-        let saved_depth = std::mem::replace(&mut self.picture_depth, 0);
-        let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
-        self.begin_group();
         // a bare shading or text is a picture's content
         let first = code.iter().find(|t| !t.is_space()).cloned();
         let code = match first {
@@ -78,6 +71,24 @@ impl Engine {
                 v
             }
         };
+        let canvas = self.draw_apart(code)?;
+        let Canvas { items, min, max, .. } = canvas;
+        if let (Some(min), Some(max)) = (min, max) {
+            self.picture_fadings.insert(name, PictureFading { items, min, max });
+        }
+        Ok(())
+    }
+
+    /// What `code` draws, typeset as a paragraph of its own (pictures, text), the drawing around it
+    /// set aside meanwhile.
+    pub fn draw_apart(&mut self, code: Vec<Token>) -> Result<Canvas, Error> {
+        let saved_canvas = std::mem::take(&mut self.canvas);
+        let saved_boxes = std::mem::take(&mut self.boxes);
+        let saved_layout = std::mem::take(&mut self.layout);
+        let saved_words = std::mem::take(&mut self.words);
+        let saved_depth = std::mem::replace(&mut self.picture_depth, 0);
+        let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
+        self.begin_group();
         let r = self.run_tokens(code);
         while self.picture_depth > 0 {
             self.end_picture();
@@ -91,11 +102,7 @@ impl Engine {
         self.picture_depth = saved_depth;
         self.canvas_frozen = saved_frozen;
         r?;
-        let Canvas { items, min, max, .. } = canvas;
-        if let (Some(min), Some(max)) = (min, max) {
-            self.picture_fadings.insert(name, PictureFading { items, min, max });
-        }
-        Ok(())
+        Ok(canvas)
     }
 
     /// `\begin{tikzfadingfrompicture}[name=…] … \end{tikzfadingfrompicture}` (the `\begin` read).
@@ -211,6 +218,7 @@ impl Engine {
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let t = if fit { f.fit(lo, hi) } else { self.st.transform };
+        let t = t.compose(&Transform::rotation(self.st.fading_angle));
         Some(f.mask(&t))
     }
 }

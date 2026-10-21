@@ -625,7 +625,7 @@ impl Engine {
         self.tex.define_string("tikra@dv@tickvalue", pos, false);
         // TeX prints the number inside the node: its style (a number format) applies
         self.begin_group();
-        let r = self.keys_command(tikra_tokens("/tikz/data visualization/node styling"), Some("/tikz"), true).and_then(|_| self.typeset(code));
+        let r = self.keys_command(tikra_tokens("/tikz/data visualization/styling,/tikz/data visualization/node styling"), Some("/tikz"), true).and_then(|_| self.typeset(code));
         self.end_group();
         r
     }
