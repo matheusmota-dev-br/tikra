@@ -290,12 +290,31 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     return skip_rest(e, depth);
                 }
                 let c1 = target(e, b, depth, "controls")?.p;
-                let mut c2 = c1;
+                let mut c2 = Some(c1);
+                // a relative second control point is relative to the curve's end
+                let mut c2_offset = None;
                 if let Some(Token::Char('a', Cat::Letter)) = peek(e, depth)? {
                     let _ = next(e, depth)?;
                     let w = word(e, 'a');
                     if w == "and" {
-                        c2 = target(e, b, depth, "controls")?.p;
+                        match next(e, depth)? {
+                            Some(t) if t.is_char('+') => {
+                                match next(e, depth)? {
+                                    Some(t) if t.is_char('+') => {
+                                        let _ = next(e, depth)?;
+                                    }
+                                    _ => {}
+                                }
+                                let r = coordinate(e)?;
+                                c2_offset = Some(r.p.minus(e.st.transform.apply(Point::default())));
+                                c2 = None;
+                            }
+                            Some(t) => {
+                                e.tex.back(t);
+                                c2 = Some(target(e, b, depth, "controls")?.p);
+                            }
+                            None => {}
+                        }
                     }
                 }
                 // the closing ..
@@ -310,6 +329,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                 }
                 let r = target(e, b, depth, "controls")?;
+                let c2 = c2.unwrap_or_else(|| r.p.plus(c2_offset.unwrap_or_default()));
                 curve_to(e, b, c1, c2, r);
                 place_mid_nodes(e, b, Some(0.5))?;
             }
