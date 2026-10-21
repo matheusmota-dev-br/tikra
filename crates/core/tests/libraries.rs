@@ -12,6 +12,13 @@ fn items(body: &str) -> Vec<Item> {
     canvas.items
 }
 
+/// What the engine draws for a picture with options.
+fn picture(options: &str, body: &str) -> Vec<Item> {
+    let (canvas, warnings) = tikra::engine::run_document(&format!("\\begin{{tikzpicture}}{options}{body}\\end{{tikzpicture}}")).unwrap();
+    assert!(warnings.is_empty(), "{body}: {warnings:?}");
+    canvas.items
+}
+
 fn paths(body: &str) -> Vec<Vec<Segment>> {
     items(body).into_iter().filter_map(|i| if let Item::Path { segments, .. } = i { Some(segments) } else { None }).collect()
 }
@@ -158,4 +165,30 @@ fn delimiters_beside_a_matrix() {
 fn pgfmath_results_with_units_are_in_points() {
     let p = paths(r"\pgfmathsetmacro\l{1cm} \draw (0,0) -- (\l pt,0);");
     assert!(near(point(&p[0][1]).minus(point(&p[0][0])), 1.0, 0.0), "{p:?}");
+}
+
+#[test]
+fn a_spy_shows_the_picture_magnified_and_clipped() {
+    let it = picture("[spy using outlines={circle,magnification=2,size=1cm,connect spies}]", r"\draw (0,0) -- (1,0); \spy on (0.5,0) in node at (3,0);");
+    // the line, the node on (0.5,0), the clip of the node at (3,0) with the line twice as long and
+    // twice as thick in it, that node's border, the connection
+    let lines: Vec<(Point, Point, f64)> = it
+        .iter()
+        .filter_map(|i| match i {
+            Item::Path { segments, stroke: Some(s), .. } if segments.len() == 2 => Some((first_point(segments), point(&segments[1]), s.width)),
+            _ => None,
+        })
+        .collect();
+    let (a0, a1, w) = lines[0];
+    let (b0, b1, w2) = lines[1];
+    assert!(near(a1.minus(a0), 1.0, 0.0) && near(b1.minus(b0), 2.0, 0.0) && (w2 - 2.0 * w).abs() < 1e-9, "{lines:?}");
+    // the magnified line is centered on the node at (3,0): 2.5 right of the spied point
+    assert!(near(b0.lerp(b1, 0.5).minus(a0.lerp(a1, 0.5)), 2.5, 0.0), "{lines:?}");
+    assert!(it.iter().any(|i| matches!(i, Item::Clip { .. })));
+}
+
+#[test]
+fn a_spy_outside_a_spy_scope_is_reported() {
+    let (_, warnings) = tikra::engine::run_document(r"\begin{tikzpicture}\spy on (0,0) in node at (1,1);\end{tikzpicture}").unwrap();
+    assert!(warnings.iter().any(|w| w.contains("outside a spy scope")), "{warnings:?}");
 }

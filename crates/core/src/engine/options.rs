@@ -1947,7 +1947,7 @@ const DEFINITIONS: &str = r"
   behind path/.style={}, in front of path/.style={},
   execute at begin node/.code={}, execute at end node/.code={},
   style/.code={\pgfkeysalso{#1}},
-  every shadow/.style={}, alias/.code={},
+  every shadow/.style={}, cap/.style={line cap=#1},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
@@ -2010,6 +2010,7 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
     lexer.push_text(super::libraries::DEFINITIONS);
+    lexer.push_text(super::spy::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

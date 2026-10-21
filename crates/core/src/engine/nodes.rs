@@ -501,8 +501,11 @@ impl Engine {
                     segs = super::output::round_corners(&segs, e.st.rounded);
                 }
                 let segs = transform_segments(&segs, &t);
-                if matches!(p.usage, Usage::Node) && (e.st.decorate || !e.st.preactions.is_empty() || !e.st.postactions.is_empty() || (e.st.double.is_some() && e.st.mode.draw)) {
-                    // the border as a path of its own, decorated, with its actions, or double
+                if matches!(p.usage, Usage::Node)
+                    && p.layer == Layer::Background
+                    && (e.st.decorate || !e.st.preactions.is_empty() || !e.st.postactions.is_empty() || (e.st.double.is_some() && e.st.mode.draw))
+                {
+                    // the background as a path of its own, decorated, with its actions, or double
                     let saved = std::mem::take(&mut e.canvas.items);
                     let r = e.finish_path(segs, scope, "node");
                     items.extend(std::mem::replace(&mut e.canvas.items, saved));

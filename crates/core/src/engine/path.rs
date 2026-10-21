@@ -404,8 +404,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             let place = b.last.unwrap_or(OnPath::Point(point));
                             let items = e.node(NodeSpec { options, name, at, text, place, point, coordinate, default_pos: None })?;
                             b.node_items.extend(items);
-                            if e.last_node_name.is_none() && !e.after_node_path.is_empty() {
-                                // what follows may refer to the node: it gets a name (`\tikz@fig@mustbenamed`)
+                            if e.last_node_name.is_none() {
+                                // what follows may refer to the node (an edge, `after node path`): it gets a
+                                // name, as `\tikz@fig@mustbenamed` gives one
                                 if let Some(info) = e.last_node.clone() {
                                     let n = format!("tikra@fig@{}", e.steps);
                                     e.nodes.insert(n.clone(), info);
