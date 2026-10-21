@@ -79,13 +79,29 @@ impl Engine {
         let path = keys::full_path(&self.st.key_path, key);
         // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
         if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
-            let (base, h) = (base.to_string(), h.to_string());
+            let (mut base, h) = (base.to_string(), h.to_string());
+            // `/handler config=full or existing`: a handler that changes a key that does not exist
+            // goes to the key of the same name on the search path (pgfplots' `every mark/.append style`)
+            if matches!(h.as_str(), ".append style" | ".prefix style" | ".append code" | ".prefix code" | ".append" | ".prefix" | ".add") && !self.key_exists(&base) {
+                if let Some(list) = keys::value(&self.tex, &format!("{}/.@searchalso", keys::parent(&base))) {
+                    let name = keys::name(&base).to_string();
+                    let found = tex::tokens_to_string(&list).split(',').map(|p| format!("{}/{name}", p.trim().trim_end_matches('/'))).find(|other| self.key_exists(other));
+                    if let Some(other) = found {
+                        base = other;
+                    }
+                }
+            }
             return self.handler(&base, &h, value);
         }
         if self.run_key(&path, value.clone())? {
             return Ok(());
         }
         self.unknown(&path, value)
+    }
+
+    /// Whether a key has code or a value.
+    pub fn key_exists(&self, path: &str) -> bool {
+        self.tex.is_defined(&macro_name(path)) || self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))
     }
 
     /// Runs the key at `path` if it is defined; false if it is not.
@@ -95,6 +111,8 @@ impl Engine {
         match cmd {
             Meaning::Native(id) if id >= NATIVE_KEY_BASE => {
                 let f = self.key_fns[(id - NATIVE_KEY_BASE) as usize];
+                self.current_key.clear();
+                self.current_key.push_str(path);
                 let v = value.filter(|v| !is_novalue(v));
                 f(self, v)?;
                 Ok(true)
@@ -1447,8 +1465,9 @@ keyfn!(k_declare_function, |e, v| {
     let s = text(e, &v)?;
     for def in s.split(';') {
         let Some((head, body)) = def.split_once('=') else { continue };
-        let Some((name, params)) = head.trim().split_once('(') else { continue };
-        let params = params.trim_end_matches(')').split(',').map(|p| p.trim().trim_start_matches('\\').to_string()).collect();
+        // a constant (`C=4;`) has no parameters
+        let (name, params) = head.trim().split_once('(').unwrap_or((head.trim(), ""));
+        let params = params.trim_end_matches(')').split(',').map(|p| p.trim().trim_start_matches('\\').to_string()).filter(|p| !p.is_empty()).collect();
         Rc::make_mut(&mut e.st.functions).insert(name.trim().to_string(), (params, body.trim().to_string()));
     }
     Ok(())

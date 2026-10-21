@@ -15,6 +15,7 @@ pub mod nodes;
 pub mod options;
 pub mod output;
 pub mod path;
+pub mod pgfplots;
 pub mod pics;
 pub mod shapes;
 pub mod state;
@@ -293,6 +294,11 @@ pub struct Engine {
     layout: Vec<Layout>,
     /// keys run so far
     pub keys_run: usize,
+    /// the full path of the native key being run (natives that share code tell keys apart by it)
+    pub current_key: String,
+    /// the `axis` environment being read, and the one being drawn
+    pub axis: Option<Box<pgfplots::Axis>>,
+    pub frame: Option<std::rc::Rc<pgfplots::Frame>>,
     /// the graphs being read (`\graph`)
     pub graphs: graphs::State,
 }
@@ -365,6 +371,9 @@ impl Clone for Engine {
             on_layer: self.on_layer.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
+            current_key: self.current_key.clone(),
+            axis: self.axis.clone(),
+            frame: self.frame.clone(),
             graphs: self.graphs.clone(),
         }
     }
@@ -421,6 +430,9 @@ impl Engine {
             on_layer: Vec::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
+            current_key: String::new(),
+            axis: None,
+            frame: None,
             graphs: graphs::State::default(),
         };
         for (name, cmd) in COMMANDS {
@@ -429,6 +441,7 @@ impl Engine {
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
         options::define_keys(&mut e);
+        pgfplots::define(&mut e);
         graphs::define(&mut e);
         e
     }
@@ -722,7 +735,14 @@ impl Engine {
         if basic::is_basic(id) {
             return self.basic_command(id);
         }
-        let Some(&(_, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
+        if pgfplots::is_command(id) {
+            return self.pgfplots_command(id);
+        }
+        let Some(&(name, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
+        if self.axis.is_some() && pgfplots::is_deferred(name) {
+            // inside an axis, TikZ statements wait until the axis is set up
+            return self.defer_statement(t);
+        }
         if let Some(defaults) = path_command(cmd) {
             let r = path::statement(self, defaults);
             return self.recover(r, t);
@@ -947,10 +967,18 @@ impl Engine {
                 Ok(())
             }
             Cmd::Pgfmathprintnumber => {
-                let _ = self.optional()?;
+                let o = self.optional()?;
                 let a = self.argument()?;
                 let v = self.number_of(a)?;
-                self.tex.push_tokens(tex::string_tokens(&pgf_number(v)));
+                let saved = self.st.number_format.clone();
+                if let Some(o) = o {
+                    let path = self.st.key_path.clone();
+                    self.process_keys(o, Some("/pgf/number format"))?;
+                    self.st.key_path = path;
+                }
+                let s = self.st.number_format.print(v);
+                self.st.number_format = saved;
+                self.tex.push_tokens(tex::string_tokens(&s));
                 Ok(())
             }
             Cmd::Usetikzlibrary | Cmd::Usepackage | Cmd::Documentclass => {
@@ -1338,20 +1366,7 @@ impl Engine {
                 let o = self.optional()?;
                 self.open_tikz_scope(o, true)
             }
-            "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis" => {
-                let o = self.optional()?.map(|o| tex::tokens_to_string(&o)).unwrap_or_default();
-                let body = self.environment_body(&name)?;
-                self.tex.env_stack.pop();
-                let opened = self.picture_depth == 0;
-                if opened {
-                    self.begin_picture(None)?;
-                }
-                let r = crate::axes_bridge::axis(self, &o, &body);
-                if opened {
-                    self.end_picture();
-                }
-                r
-            }
+            n if pgfplots::is_axis(n) => self.begin_axis(n),
             "pgfonlayer" => {
                 let layer = self.argument_string()?;
                 self.begin_on_layer(layer);
@@ -1380,39 +1395,6 @@ impl Engine {
         }
     }
 
-    /// The raw text of an environment, up to its `\end{name}` (the end consumed).
-    fn environment_body(&mut self, name: &str) -> Result<String, Error> {
-        let mut out = Vec::new();
-        let mut depth = 0usize;
-        while let Some(t) = self.tex.get_token() {
-            if t.is_cs("begin") || t.is_cs("end") {
-                let is_end = t.is_cs("end");
-                let arg = self.tex.read_undelimited()?;
-                let arg_name = tex::tokens_to_string(&arg);
-                if arg_name.trim() == name {
-                    if is_end {
-                        if depth == 0 {
-                            break;
-                        }
-                        depth -= 1;
-                    } else {
-                        depth += 1;
-                    }
-                }
-                out.push(t);
-                out.push(Token::Char('{', Cat::Begin));
-                out.extend(arg);
-                out.push(Token::Char('}', Cat::End));
-                continue;
-            }
-            out.push(t);
-            if out.len() > tex::MAX_TOKENS {
-                break;
-            }
-        }
-        Ok(tex::tokens_to_string(&out))
-    }
-
     fn end_environment(&mut self) -> Result<(), Error> {
         let name = self.argument_string()?;
         let Some(pos) = self.tex.env_stack.iter().rposition(|n| *n == name) else {
@@ -1432,6 +1414,7 @@ impl Engine {
     fn close_environment(&mut self, name: &str) -> Result<(), Error> {
         match name {
             "tikzpicture" | "pgfpicture" => self.end_picture(),
+            n if pgfplots::is_axis(n) => self.end_axis()?,
             "pgfscope" => {
                 self.end_scope();
                 self.end_group();
@@ -1786,6 +1769,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
 /// Runs a whole document (or figure) and returns the canvas and the warnings.
 pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
     let mut e = Engine::new();
+    crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
     e.canvas.margin = 2.0 * crate::PT;
     e.tex.push_text(code);

@@ -405,6 +405,9 @@ impl Engine {
             anchor = auto_anchor(direction, (side == 'r') != self.st.swap).to_string();
         }
         let anchor = anchor.trim();
+        // pgfplots' `near ticklabel` anchors face the axis
+        let resolved = self.frame.as_ref().and_then(|f| f.near_anchor(anchor, &self.st.pending));
+        let anchor = resolved.as_deref().unwrap_or(anchor);
         let a_local = info.anchor_local(anchor).unwrap_or_else(|| {
             self.warn(format!("unknown anchor '{anchor}': center used"));
             info.geometry.center

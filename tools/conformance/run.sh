@@ -34,7 +34,9 @@ for line in open(sys.argv[1], encoding="utf-8"):
     tex = json.loads(line)["tex"]
     (out / (hashlib.sha1(tex.encode()).hexdigest()[:16] + ".tex")).write_text(tex, encoding="utf-8")
 ' "$work/examples.jsonl" "$work/tikra-in"
-cargo run -q --release -p tikra --example conformance -- "$work/tikra-in" "$work/tikra"
+# data files (`table {plotdata/…}`) are read from the manuals' doc folders, as pdflatex compiled them
+TIKRA_INPUT_DIR="$PWD/$src/pgfplots-$PGFPLOTS/doc/latex/pgfplots:$PWD/$src/pgf-$PGF/doc/generic/pgf" \
+  cargo run -q --release -p tikra --example conformance -- "$work/tikra-in" "$work/tikra"
 
 python3 -I tools/conformance/compare.py "$work/examples.jsonl" "$work" --docs docs/conformance.md
 echo "Side by side: $work/report.html"
