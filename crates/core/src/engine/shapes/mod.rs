@@ -8,6 +8,8 @@
 
 mod basic;
 mod geometric;
+mod misc;
+mod symbols;
 
 use crate::scene::{Point, Segment};
 
@@ -244,6 +246,8 @@ pub const DEFINITIONS: &str = r"
 \newif\ifpgf@lib@sh@trapeziumstretchesbody
 \newif\ifpgf@lib@sh@isosceslestrianglestretches
 \newif\ifpgfcylinderusescustomfill
+\newif\ifpgfcloudignoresaspect
+\newif\ifpgfcloudanchorsuseellipse
 \def\tikra@kiteangles#1and#2and#3\@@{\pgfkeys{/pgf/kite upper vertex angle={#1},/pgf/kite lower vertex angle={#2}}}
 \pgfkeys{/pgf/.cd,
   shape border uses incircle/.is if=pgfshapeborderusesincircle,
@@ -272,6 +276,34 @@ pub const DEFINITIONS: &str = r"
   cylinder uses custom fill/.is if=pgfcylinderusescustomfill,
   cylinder end fill/.initial=white,
   cylinder body fill/.initial=white,
+  rounded rectangle west arc/.initial=convex,
+  rounded rectangle east arc/.initial=convex,
+  rounded rectangle left arc/.style={/pgf/rounded rectangle west arc={#1}},
+  rounded rectangle right arc/.style={/pgf/rounded rectangle east arc={#1}},
+  rounded rectangle arc length/.initial=180,
+  chamfered rectangle corners/.initial=chamfer all,
+  chamfered rectangle angle/.initial=45,
+  chamfered rectangle xsep/.initial=.666ex,
+  chamfered rectangle ysep/.initial=.666ex,
+  chamfered rectangle sep/.style={/pgf/chamfered rectangle xsep={#1},/pgf/chamfered rectangle ysep={#1}},
+  starburst points/.initial=17,
+  starburst point height/.initial=.5cm,
+  random starburst/.initial=100,
+  cloud puffs/.initial=10,
+  cloud puff arc/.initial=150,
+  cloud ignores aspect/.is if=pgfcloudignoresaspect,
+  cloud anchors use ellipse/.is if=pgfcloudanchorsuseellipse,
+  signal pointer angle/.initial=90,
+  signal to/.initial=east,
+  signal from/.initial=nowhere,
+  tape bend top/.initial=in and out,
+  tape bend bottom/.initial=in and out,
+  tape bend/.style={/pgf/tape bend top={#1},/pgf/tape bend bottom={#1}},
+  tape bend height/.initial=5pt,
+  magnifying glass handle angle/.initial=-45,
+  magnifying glass handle aspect/.initial=1.5,
+  magnetic tape tail/.initial=0.15,
+  magnetic tape tail extend/.initial=0cm,
 }
 ";
 
@@ -295,6 +327,18 @@ const NAMES: &[&str] = &[
     "dart",
     "circular sector",
     "cylinder",
+    "cross out",
+    "strike out",
+    "rounded rectangle",
+    "chamfered rectangle",
+    "forbidden sign",
+    "correct forbidden sign",
+    "magnifying glass",
+    "starburst",
+    "cloud",
+    "signal",
+    "tape",
+    "magnetic tape",
 ];
 
 /// Computes the shape `name` for a node; None if the shape is not known.
@@ -314,6 +358,18 @@ pub fn compute(name: &str, input: &mut Input) -> Option<Geometry> {
         "dart" => geometric::dart(input),
         "circular sector" => geometric::circular_sector(input),
         "cylinder" => geometric::cylinder(input),
+        "cross out" => misc::cross_out(input),
+        "strike out" => misc::strike_out(input),
+        "rounded rectangle" => misc::rounded_rectangle(input),
+        "chamfered rectangle" => misc::chamfered_rectangle(input),
+        "forbidden sign" => symbols::forbidden_sign(input),
+        "correct forbidden sign" => symbols::correct_forbidden_sign(input),
+        "magnifying glass" => symbols::magnifying_glass(input),
+        "starburst" => symbols::starburst(input),
+        "cloud" => symbols::cloud(input),
+        "signal" => symbols::signal(input),
+        "tape" => symbols::tape(input),
+        "magnetic tape" => symbols::magnetic_tape(input),
         _ => return None,
     })
 }
