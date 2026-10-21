@@ -55,8 +55,10 @@ pub struct GState {
     /// Arrow specifications at the start and the end (`->`, `-{Latex[length=3mm]}`).
     pub start_arrow: Option<String>,
     pub end_arrow: Option<String>,
-    /// What `>` stands for (`>=Latex`).
-    pub default_arrow: String,
+    /// Arrow tips defined with `name/.tip=` and `>=`.
+    pub tips: Rc<super::arrows::UserTips>,
+    /// `tips=`: when tips are drawn
+    pub tips_mode: super::arrows::TipsMode,
     pub shorten_start: f64,
     pub shorten_end: f64,
     /// `double`: the color between the two lines, and the distance between them
@@ -131,7 +133,8 @@ impl Default for GState {
             rounded: 0.0,
             start_arrow: None,
             end_arrow: None,
-            default_arrow: "to".into(),
+            tips: Rc::default(),
+            tips_mode: Default::default(),
             shorten_start: 0.0,
             shorten_end: 0.0,
             double: None,

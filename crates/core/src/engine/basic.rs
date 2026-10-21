@@ -646,7 +646,7 @@ impl Engine {
                 let s = self.argument_string()?;
                 match cmd {
                     B::Arrows => {
-                        if let Some((a, b)) = super::arrows::parse_arrows(&s) {
+                        if let Some((a, b)) = super::arrows::parse_arrows(&s, &self.st.tips) {
                             self.st.start_arrow = a;
                             self.st.end_arrow = b;
                         }

@@ -5,8 +5,10 @@ use crate::canvas::{Fill, Item, Paint, Stroke};
 use crate::scene::{Point, Segment};
 use crate::Error;
 
+use super::arrows::{EndTips, TipsMode, Widths};
 use super::path::{valid_segment, MAX_COORDINATE, MAX_DECORATION_STEPS};
 use super::Engine;
+use crate::PT;
 
 impl Engine {
     /// Uses the path as the state says: clip, fill, draw, arrows.
@@ -27,10 +29,8 @@ impl Engine {
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);
         }
-        if self.st.shorten_start > 0.0 || self.st.shorten_end > 0.0 {
-            shorten_ends(&mut segs, self.st.shorten_start, self.st.shorten_end);
-        }
         let mode = self.st.mode.clone();
+        // the bounding box grows as the path is built: before any shortening
         if mode.bounding_box {
             self.canvas.include_path(&segs);
             self.canvas_frozen = true;
@@ -61,27 +61,14 @@ impl Engine {
             None
         };
         let stroke = mode.draw.then(|| self.stroke());
+        // `tips=true`/`proper`: tips on a path that is neither filled nor stroked
+        let tips_only = stroke.is_none() && fill.is_none() && !mode.clip && matches!(self.st.tips_mode, TipsMode::True | TipsMode::Proper);
+        // a clipping path has no tips and is not shortened
+        let mut tips = if drawn && !mode.clip && (stroke.is_some() || tips_only) { self.arrow_ends(&mut segs) } else { Tips::default() };
+        if tips_only {
+            self.push_tips(std::mem::take(&mut tips));
+        }
         if drawn && (fill.is_some() || stroke.is_some()) {
-            let mut tips = Vec::new();
-            if let Some(s) = &stroke {
-                let default = self.st.default_arrow.clone();
-                if let Some(spec) = self.st.end_arrow.clone() {
-                    if let Some((p, d, k)) = end_point(&segs) {
-                        let back = super::arrows::tip_items(&spec, &default, p, d, s, &mut tips);
-                        if back > 0.0 {
-                            pull_back_end(&mut segs, k, p, d, back);
-                        }
-                    }
-                }
-                if let Some(spec) = self.st.start_arrow.clone() {
-                    if let Some((p, d)) = start_point(&segs) {
-                        let back = super::arrows::tip_items(&spec, &default, p, d, s, &mut tips);
-                        if back > 0.0 {
-                            pull_back_start(&mut segs, p, d, back);
-                        }
-                    }
-                }
-            }
             if let Some(under) = solid_under {
                 self.canvas.push(Item::Path { segments: segs.clone(), fill: Some(under), stroke: None });
             }
@@ -95,89 +82,157 @@ impl Engine {
                 }
                 _ => self.canvas.push(Item::Path { segments: segs.clone(), fill, stroke }),
             }
-            if !self.canvas_frozen {
-                for t in &tips {
-                    if let Item::Path { segments, .. } = t {
-                        self.canvas.include_path(segments);
-                    }
-                }
-            }
-            self.canvas.items.extend(tips);
+            self.push_tips(tips);
         }
         if mode.clip {
             self.open_in_scope(Item::Clip { segments: segs, even_odd: self.st.even_odd });
         }
         Ok(())
     }
-}
 
-/// Last point of a path and the direction it arrives from.
-fn end_point(segs: &[Segment]) -> Option<(Point, Point, usize)> {
-    let mut previous = None;
-    let mut res = None;
-    for (k, s) in segs.iter().enumerate() {
-        match s {
-            Segment::MoveTo(p) => previous = Some(*p),
-            Segment::LineTo(p) => {
-                if let Some(a) = previous {
-                    if p.minus(a).norm() > 1e-12 {
-                        res = Some((*p, p.minus(a), k));
-                    }
-                }
-                previous = Some(*p);
-            }
-            Segment::CurveTo(c1, c2, p) => {
-                let d = if p.minus(*c2).norm() > 1e-9 {
-                    p.minus(*c2)
-                } else if p.minus(*c1).norm() > 1e-9 {
-                    p.minus(*c1)
-                } else {
-                    p.minus(previous.unwrap_or(*p))
-                };
-                res = Some((*p, d, k));
-                previous = Some(*p);
-            }
-            Segment::Close => return None,
+    /// Shortens the path for its arrow tips and `shorten <`/`shorten >`, and draws the tips, as
+    /// `\pgf@prepare@end@of@path` and `\pgf@prepare@start@of@path` do: the end first, then the start
+    /// of the path as the end left it. Nothing on a closed path.
+    fn arrow_ends(&mut self, segs: &mut [Segment]) -> Tips {
+        let mut out = Tips::default();
+        if segs.iter().any(|s| matches!(s, Segment::Close)) || self.st.tips_mode == TipsMode::Never {
+            return out;
         }
+        // `tips=proper`, `on proper draw`: not on a path that stays at one point
+        if matches!(self.st.tips_mode, TipsMode::Proper | TipsMode::OnProperDraw) && !proper(segs) {
+            return out;
+        }
+        let s = self.stroke();
+        let widths = match self.st.double {
+            Some(_) => Widths { line: (2.0 * s.width + self.st.double_distance) / PT, inner: self.st.double_distance / PT },
+            None => Widths { line: s.width / PT, inner: 0.0 },
+        };
+        let user = self.st.tips.clone();
+        let mut warn = Vec::new();
+        let (end_spec, start_spec) = (self.st.end_arrow.clone().unwrap_or_default(), self.st.start_arrow.clone().unwrap_or_default());
+        let (shorten_end, shorten_start) = (self.st.shorten_end / PT, self.st.shorten_start / PT);
+        let end = EndTips::new(self, &end_spec, false, &user, widths, shorten_end, &mut warn);
+        let start = EndTips::new(self, &start_spec, true, &user, widths, shorten_start, &mut warn);
+        for w in warn {
+            self.warn(w);
+        }
+        let mut at_end = None;
+        if !end.is_empty() || end.shortening != 0.0 {
+            if let Some((k, last, reference)) = path_end(segs) {
+                if end.shortening != 0.0 {
+                    set_end(&mut segs[k], toward(last, reference, end.shortening * PT));
+                }
+                at_end = Some((last, reference));
+            }
+        }
+        let mut at_start = None;
+        if !start.is_empty() || start.shortening != 0.0 {
+            if let Some((first, reference)) = path_start(segs) {
+                if start.shortening != 0.0 {
+                    segs[0] = Segment::MoveTo(toward(first, reference, start.shortening * PT));
+                }
+                at_start = Some((first, reference));
+            }
+        }
+        // the stroke color and line width, without the dash; fills with the fill opacity
+        let stroke = Stroke { width: widths.line * PT, ..s };
+        let fill_opacity = self.st.fill_opacity;
+        for (tips, at) in [(&start, at_start), (&end, at_end)] {
+            if let Some((p, from)) = at {
+                let hull = tips.draw(p, from, &stroke, fill_opacity, &mut out.items);
+                out.hull.extend(hull);
+            }
+        }
+        out
     }
-    res
+
+    fn push_tips(&mut self, tips: Tips) {
+        if !self.canvas_frozen {
+            for p in tips.hull {
+                self.canvas.include(p);
+            }
+        }
+        self.canvas.items.extend(tips.items);
+    }
 }
 
-fn start_point(segs: &[Segment]) -> Option<(Point, Point)> {
-    let Segment::MoveTo(a) = segs.first()? else { return None };
-    match segs.get(1)? {
-        Segment::LineTo(p) => Some((*a, a.minus(*p))),
-        Segment::CurveTo(c1, c2, p) => {
-            let target = if c1.minus(*a).norm() > 1e-9 {
-                *c1
-            } else if c2.minus(*a).norm() > 1e-9 {
-                *c2
+/// The drawing of a path's tips, and the points of their hulls (for the bounding box).
+#[derive(Default)]
+struct Tips {
+    items: Vec<Item>,
+    hull: Vec<Point>,
+}
+
+/// The point at `distance` from `p` toward `q` (`\pgfpointlineatdistance`); along x if they coincide.
+fn toward(p: Point, q: Point, distance: f64) -> Point {
+    let d = q.minus(p);
+    let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+    p.plus(u.scale(distance))
+}
+
+fn set_end(s: &mut Segment, p: Point) {
+    match s {
+        Segment::MoveTo(q) | Segment::LineTo(q) | Segment::CurveTo(_, _, q) => *q = p,
+        Segment::Close => {}
+    }
+}
+
+/// The last segment of a path, its end point and the point the tip is aimed from: the previous
+/// point, or the last control point of a curve (`\pgf@parse@end`; pgf moves only the end point).
+/// When these coincide, the point before. None if the last subpath is a lone point.
+fn path_end(segs: &[Segment]) -> Option<(usize, Point, Point)> {
+    let k = segs.len().checked_sub(1)?;
+    let point = |s: &Segment| match s {
+        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+        Segment::Close => None,
+    };
+    match segs[k] {
+        Segment::LineTo(last) => Some((k, last, point(&segs[k.checked_sub(1)?])?)),
+        Segment::CurveTo(c1, c2, last) => {
+            let r = if c2 != last {
+                c2
+            } else if c1 != last {
+                c1
             } else {
-                *p
+                point(&segs[k.checked_sub(1)?])?
             };
-            Some((*a, a.minus(target)))
+            Some((k, last, r))
         }
         _ => None,
     }
 }
 
-fn pull_back_end(segs: &mut [Segment], k: usize, p: Point, d: Point, amount: f64) {
-    let u = d.scale(1.0 / d.norm().max(1e-12));
-    let new = p.minus(u.scale(amount));
-    if let Segment::CurveTo(_, c2, q) = &mut segs[k] {
-        *q = new;
-        *c2 = c2.minus(u.scale(amount));
-    } else {
-        segs[k] = Segment::LineTo(new);
+/// The first point of a path and the point the tip is aimed from: the next point, or the first
+/// control point of a curve (then the second, if it coincides).
+fn path_start(segs: &[Segment]) -> Option<(Point, Point)> {
+    let Segment::MoveTo(first) = *segs.first()? else { return None };
+    match *segs.get(1)? {
+        Segment::LineTo(p) => Some((first, p)),
+        Segment::CurveTo(c1, c2, p) => Some((
+            first,
+            if c1 != first {
+                c1
+            } else if c2 != first {
+                c2
+            } else {
+                p
+            },
+        )),
+        _ => None,
     }
 }
 
-fn pull_back_start(segs: &mut [Segment], p: Point, d: Point, amount: f64) {
-    let u = d.scale(1.0 / d.norm().max(1e-12));
-    segs[0] = Segment::MoveTo(p.minus(u.scale(amount)));
-    if let Some(Segment::CurveTo(c1, _, _)) = segs.get_mut(1) {
-        *c1 = c1.minus(u.scale(amount));
-    }
+/// A path that leaves its first point (`\pgf@path@check@proper`).
+fn proper(segs: &[Segment]) -> bool {
+    let points: Vec<Point> = segs
+        .iter()
+        .flat_map(|s| match *s {
+            Segment::MoveTo(p) | Segment::LineTo(p) => vec![p],
+            Segment::CurveTo(a, b, p) => vec![a, b, p],
+            Segment::Close => vec![],
+        })
+        .collect();
+    points.iter().any(|p| Some(p) != points.first())
 }
 
 /// Zigzag, snake (wave) or random steps over the straight segments.
@@ -322,25 +377,4 @@ fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
         }
     }
     out
-}
-
-fn shorten_ends(segs: &mut [Segment], start: f64, end: f64) {
-    if segs.len() < 2 {
-        return;
-    }
-    if let (Segment::MoveTo(a), Some(Segment::LineTo(b))) = (segs[0], segs.get(1).copied()) {
-        let d = b.minus(a);
-        let n = d.norm();
-        if n > start && start > 0.0 {
-            segs[0] = Segment::MoveTo(a.plus(d.scale(start / n)));
-        }
-    }
-    let k = segs.len() - 1;
-    if let (Segment::LineTo(b), Segment::MoveTo(a) | Segment::LineTo(a) | Segment::CurveTo(_, _, a)) = (segs[k], segs[k - 1]) {
-        let d = b.minus(a);
-        let n = d.norm();
-        if n > end && end > 0.0 {
-            segs[k] = Segment::LineTo(b.minus(d.scale(end / n)));
-        }
-    }
 }
