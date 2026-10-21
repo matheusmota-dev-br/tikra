@@ -59,6 +59,7 @@ pub enum Cmd {
     PgfMatrix,
     Chainin,
     TikzMath,
+    SetSeed,
     Pic,
     Graph,
     Tikz,
@@ -131,6 +132,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
     ("tikzmath", Cmd::TikzMath),
+    ("tikra@setseed", Cmd::SetSeed),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -805,6 +807,13 @@ impl Engine {
             Cmd::PgfMatrix => self.pgf_matrix(),
             Cmd::Chainin => self.chainin(),
             Cmd::TikzMath => self.tikzmath(),
+            Cmd::SetSeed => {
+                // \pgfmathsetseed: the integer part of the value
+                let v = self.argument_string()?;
+                let n: f64 = v.trim().parse().unwrap_or(1.0);
+                crate::expr::set_seed(n.trunc() as i64);
+                Ok(())
+            }
             Cmd::Graph => {
                 self.tex.push_tokens(tikra_tokens("graph "));
                 let r = path::statement(self, "");

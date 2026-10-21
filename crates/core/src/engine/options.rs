@@ -2050,6 +2050,7 @@ const DEFINITIONS: &str = r"
   every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
+\def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
 \def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
 \def\pgfmatrixnextcell{\tikra@nextcell}

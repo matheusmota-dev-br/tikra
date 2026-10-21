@@ -237,7 +237,6 @@ pub struct Run<'a> {
     /// `\pgf@decorate@additionaltransform` (raise, mirror, transform), pt
     pub extra: Transform,
     has_corners: bool,
-    rng: i64,
     state: &'static str,
     next_state: &'static str,
     repeat: i64,
@@ -291,7 +290,6 @@ impl<'a> Run<'a> {
             s,
             extra,
             has_corners,
-            rng: 1,
             state: "",
             next_state: "",
             repeat: -1,
@@ -348,17 +346,9 @@ impl<'a> Run<'a> {
         self.e.number(&t).unwrap_or(default)
     }
 
-    /// pgf's `rand`: the Park–Miller generator of `pgfmathfunctions.random`, in [-1, 1].
+    /// pgf's `rand`, from the one generator pgfmath has (`\pgfmathsetseed` sets it).
     fn rand(&mut self) -> f64 {
-        let (m, a, q, r) = (2_147_483_647i64, 69_621i64, 30_845i64, 23_902i64);
-        let z = self.rng;
-        let mut next = a * (z - (z / q) * q) - r * (z / q);
-        if next < 0 {
-            next += m;
-        }
-        self.rng = next;
-        let v = next - (next / 200_001) * 200_001 - 100_000;
-        v as f64 / 100_000.0
+        crate::expr::pseudo_random_signed()
     }
 
     // ------------------------------------------------------------ path commands

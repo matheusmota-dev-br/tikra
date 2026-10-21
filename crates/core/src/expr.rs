@@ -67,10 +67,12 @@ fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool),
 /// and one with a unit is converted to cm. Returns (value, had_unit).
 pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
     let t = text.trim();
-    // units inside the expression, each number with its own (`1cm+.5pt`)
-    if let Ok((v, true)) = eval_units(t, vars, 0) {
-        return Ok((v, true));
+    // once: an expression with `rnd` draws a new number each time it is evaluated
+    let first = eval_units(t, vars, 0);
+    if first.is_ok() {
+        return first;
     }
+    // a unit after the whole expression (`2*\x cm`)
     for u in ["cm", "mm", "pt", "bp", "in", "em", "ex", "pc"] {
         if let Some(n) = t.strip_suffix(u) {
             if let Ok(v) = eval(n, vars) {
@@ -78,8 +80,7 @@ pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
             }
         }
     }
-    // a unit inside the expression (`85pt/3`): the value is a length, already in cm
-    eval_units(t, vars, 0)
+    first
 }
 
 struct Parser<'a> {
@@ -322,7 +323,7 @@ impl Parser<'_> {
                         return eval_at(&body, self.vars, self.depth + 1);
                     }
                     return match name.as_str() {
-                        "rand" => Ok(pseudo_random() * 2.0 - 1.0),
+                        "rand" => Ok(pseudo_random_signed()),
                         "rnd" => Ok(pseudo_random()),
                         "true" => Ok(1.0),
                         "false" => Ok(0.0),
@@ -413,22 +414,42 @@ fn sin_degrees(a: f64) -> f64 {
 }
 
 thread_local! {
-    static SEED: std::cell::Cell<u64> = const { std::cell::Cell::new(0x2545_F491_4F6C_DD1D) };
+    static SEED: std::cell::Cell<i64> = const { std::cell::Cell::new(1) };
 }
 
-/// pgfmath's `rnd`: a number in [0, 1). Deterministic, so a figure always draws the same.
-fn pseudo_random() -> f64 {
+/// pgf's pseudo-random numbers (`\pgfmathgeneratepseudorandomnumber`): the Park–Miller "minimal
+/// standard" generator with Schrage's factoring, a = 69621, m = 2^31 - 1, so that `\pgfmathsetseed`
+/// gives TeX's sequence.
+pub fn next_random() -> i64 {
     SEED.with(|s| {
-        let mut x = s.get();
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        s.set(x);
-        (x >> 11) as f64 / (1u64 << 53) as f64
+        let (a, q, r, m) = (69_621i64, 30_845i64, 23_902i64, 2_147_483_647i64);
+        let z = s.get();
+        let mut n = a * (z % q) - r * (z / q);
+        if n < 0 {
+            n += m;
+        }
+        s.set(n);
+        n
     })
+}
+
+/// `\pgfmathsetseed{n}`.
+pub fn set_seed(seed: i64) {
+    SEED.with(|s| s.set(seed));
+}
+
+/// pgfmath's `rnd`: [0, 1] in steps of 1/100000, as pgf scales the generator's number.
+fn pseudo_random() -> f64 {
+    (next_random() % 100_001) as f64 / 100_000.0
+}
+
+/// pgfmath's `rand`: [-1, 1].
+pub fn pseudo_random_signed() -> f64 {
+    (next_random() % 200_001 - 100_000) as f64 / 100_000.0
 }
 
 /// Starts `rnd` and `rand` over: each figure draws the same numbers.
 pub fn reset_random() {
-    SEED.with(|s| s.set(0x2545_F491_4F6C_DD1D));
+    // pgf seeds with \time * \year; a document here always starts from the same seed
+    set_seed(1);
 }
