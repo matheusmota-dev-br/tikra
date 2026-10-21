@@ -174,7 +174,7 @@ impl Engine {
                 self.st.text_color = None;
                 return Ok(());
             }
-            if let Some((a, b)) = super::arrows::parse_arrows(&name) {
+            if let Some((a, b)) = super::arrows::parse_arrows(&name, &self.st.tips) {
                 self.st.start_arrow = a;
                 self.st.end_arrow = b;
                 return Ok(());
@@ -314,6 +314,12 @@ impl Engine {
                 };
                 let body = if h.contains("style") { Self::style_body(body) } else { body };
                 self.define_code(base, n, body);
+            }
+            ".tip" => {
+                // `name/.tip=spec`: \pgfdeclarearrow{name=name, means=spec}, the name being the last part of the path
+                let name = base.rsplit('/').next().unwrap_or(base).trim().to_string();
+                let means = tex::tokens_to_string(&v);
+                std::rc::Rc::make_mut(&mut self.st.tips).declare(&name, &means);
             }
             ".default" => self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/.@def"))), macro_tokens(v), false),
             ".initial" => self.tex.set_meaning(&Token::cs(&macro_name(base)), macro_tokens(v), false),
@@ -727,7 +733,7 @@ keyfn!(k_sharp, |e, _v| {
 
 keyfn!(k_arrows, |e, v| {
     let s = text(e, &v)?;
-    match super::arrows::parse_arrows(&s) {
+    match super::arrows::parse_arrows(&s, &e.st.tips) {
         Some((a, b)) => {
             e.st.start_arrow = a;
             e.st.end_arrow = b;
@@ -738,8 +744,18 @@ keyfn!(k_arrows, |e, v| {
 });
 
 keyfn!(k_default_arrow, |e, v| {
+    // TikZ's `>`: `\pgfdeclarearrow{name=<->, means=…}`
     let s = text(e, &v)?;
-    e.st.default_arrow = s;
+    std::rc::Rc::make_mut(&mut e.st.tips).declare("<->", &s);
+    Ok(())
+});
+
+keyfn!(k_tips, |e, v| {
+    let s = text(e, &v)?;
+    match super::arrows::TipsMode::from_name(&s) {
+        Some(m) => e.st.tips_mode = m,
+        None => e.warn(format!("tips={s} not supported: ignored")),
+    }
     Ok(())
 });
 
@@ -1628,6 +1644,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/sharp corners", k_sharp),
     ("/tikz/arrows", k_arrows),
     ("/tikz/>", k_default_arrow),
+    ("/pgf/tips", k_tips),
     ("/tikz/shorten >", k_shorten_end),
     ("/tikz/shorten <", k_shorten_start),
     ("/tikz/double", k_double),

@@ -35,7 +35,7 @@ pub fn axis(e: &mut Engine, options: &str, body: &str) -> Result<(), Error> {
                 if let Some(st) = &stroke {
                     if let Some(tip) = s.end_tip {
                         if let Some((pt, d)) = last_direction(&segs) {
-                            let back = crate::engine::arrows::tip_items(tip_name(tip), "to", pt, d, st, &mut tips);
+                            let back = crate::engine::arrows::tip_items(tip_name(tip), pt, d, st, &mut tips);
                             if back > 0.0 {
                                 if let Some(Segment::LineTo(q)) = segs.last_mut() {
                                     let u = d.scale(1.0 / d.norm().max(1e-12));
@@ -97,7 +97,7 @@ fn tip_name(t: Tip) -> &'static str {
         Tip::Bar => "|",
         Tip::Circle => "o",
         Tip::Double => ">>",
-        Tip::Default => "to",
+        Tip::Default => ">",
     }
 }
 
