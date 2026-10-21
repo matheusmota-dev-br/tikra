@@ -150,8 +150,8 @@ fn input_repairs() {
     let r = figure("```\n\\\\draw\\[red\\] (0,0) -- (1,1);\n```");
     assert!(r.warnings.iter().any(|a| a.contains("Markdown")), "{:?}", r.warnings);
     // an unknown command becomes a warning, not an error
-    let r = figure(r"\begin{tikzpicture} \draw (0,0) -- (1,0); \matrix {a}; \end{tikzpicture}");
-    assert!(r.warnings.iter().any(|a| a.contains("matrix")));
+    let r = figure(r"\begin{tikzpicture} \draw (0,0) -- (1,0); \spy on (0,0) in node at (1,1); \end{tikzpicture}");
+    assert!(r.warnings.iter().any(|a| a.contains("spy")), "{:?}", r.warnings);
 }
 
 #[test]

@@ -326,6 +326,9 @@ impl Engine {
                 *target = self.length(&v)?;
             }
         }
+        if let Some(b) = self.forced_box.take() {
+            (wd, ht, dp) = b;
+        }
         if let Some((w, h)) = self.st.node.fit {
             // fit: the box is the fitted area, centered on the baseline
             (wd, ht, dp) = (w, h / 2.0, h / 2.0);

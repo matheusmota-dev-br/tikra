@@ -6,6 +6,7 @@ pub mod arrows;
 pub mod basic;
 pub mod coords;
 pub mod intersections;
+pub mod matrix;
 pub mod nodes;
 pub mod options;
 pub mod output;
@@ -240,6 +241,8 @@ pub struct Engine {
     pub last_node: Option<nodes::NodeInfo>,
     pub last_node_name: Option<String>,
     tree_count: usize,
+    /// the text box a node must take (a matrix's cells), instead of its text's
+    pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
@@ -307,6 +310,7 @@ impl Clone for Engine {
             tree_count: self.tree_count,
             tree_edge_out: self.tree_edge_out.clone(),
             tree_child_names: self.tree_child_names.clone(),
+            forced_box: self.forced_box,
             scope_ends: self.scope_ends.clone(),
             layer_order: self.layer_order.clone(),
             layers: self.layers.clone(),
@@ -354,6 +358,7 @@ impl Engine {
             tree_count: 0,
             tree_edge_out: None,
             tree_child_names: Vec::new(),
+            forced_box: None,
             scope_ends: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
             layers: HashMap::new(),
@@ -659,7 +664,8 @@ impl Engine {
                 self.st.name_prefix = if p == ".." { String::new() } else { p };
                 Ok(())
             }
-            Cmd::Matrix | Cmd::Graph => {
+            Cmd::Matrix => self.matrix(),
+            Cmd::Graph => {
                 let rest = self.skip_statement()?;
                 let _ = rest;
                 let name = tex::show_token(t);

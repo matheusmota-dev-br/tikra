@@ -1372,6 +1372,37 @@ keyfn!(k_edge_from_parent_path, |e, v| {
     Ok(())
 });
 
+keyfn!(k_column_sep, |e, v| {
+    let s = text(e, &v)?;
+    let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
+    e.st.matrix.column_sep = e.length(&first)?;
+    Ok(())
+});
+keyfn!(k_row_sep, |e, v| {
+    let s = text(e, &v)?;
+    let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
+    e.st.matrix.row_sep = e.length(&first)?;
+    Ok(())
+});
+keyfn!(k_matrix_of_nodes, |e, _v| {
+    e.st.matrix.of_nodes = true;
+    Ok(())
+});
+keyfn!(k_matrix_of_math_nodes, |e, _v| {
+    e.st.matrix.of_nodes = true;
+    e.st.matrix.math = true;
+    Ok(())
+});
+keyfn!(k_matrix_nodes, |e, v| {
+    if let Some(v) = v {
+        if !e.st.matrix.nodes_style.is_empty() {
+            e.st.matrix.nodes_style.push(Token::other(','));
+        }
+        e.st.matrix.nodes_style.extend(v);
+    }
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1496,6 +1527,12 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/column sep", k_column_sep),
+    ("/tikz/row sep", k_row_sep),
+    ("/tikz/matrix of nodes", k_matrix_of_nodes),
+    ("/tikz/matrix of math nodes", k_matrix_of_math_nodes),
+    ("/tikz/nodes", k_matrix_nodes),
+    ("/tikz/matrix", k_ignore),
     ("/tikz/level distance", k_level_distance),
     ("/tikz/sibling distance", k_sibling_distance),
     ("/tikz/grow", k_grow),
@@ -1576,7 +1613,7 @@ const DEFINITIONS: &str = r"
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
-  every pic/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
+  every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}

@@ -109,6 +109,8 @@ pub struct GState {
     /// `edge from parent[options] node{…}` read in a child: options and label nodes
     pub tree_edge: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
     pub name_prefix: String,
+    /// what the options of the matrix being read say about its cells
+    pub matrix: super::matrix::MatrixSettings,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
     pub level_distance: f64,
@@ -187,6 +189,7 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            matrix: Default::default(),
             tree_level: 0,
             level_distance: 1.5,
             sibling_distance: 1.5,
