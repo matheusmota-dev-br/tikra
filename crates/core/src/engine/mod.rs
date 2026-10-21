@@ -314,6 +314,8 @@ pub struct Engine {
     /// pictures already drawn, and how the document lays them out
     boxes: Vec<PictureBox>,
     layout: Vec<Layout>,
+    /// the words of the text around the pictures
+    words: Vec<String>,
     /// keys run so far
     pub keys_run: usize,
     /// the full path of the native key being run (natives that share code tell keys apart by it)
@@ -338,6 +340,8 @@ struct PictureBox {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Layout {
     Picture(usize),
+    /// a word of the text around the pictures (in `words`)
+    Word(usize),
     Space,
     Par,
 }
@@ -396,6 +400,7 @@ impl Clone for Engine {
             on_layer: self.on_layer.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
+            words: self.words.clone(),
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
@@ -457,6 +462,7 @@ impl Engine {
             on_layer: Vec::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
+            words: Vec::new(),
             current_key: String::new(),
             axis: None,
             frame: None,
@@ -594,9 +600,20 @@ impl Engine {
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {
-            // a space between two pictures is TeX's interword space
-            if matches!(self.layout.last(), Some(Layout::Picture(_))) {
+            // a space after a picture or a word is TeX's interword space
+            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_))) {
                 self.layout.push(Layout::Space);
+            }
+            return;
+        }
+        if self.picture_depth == 0 {
+            // text of the paragraph, set word by word around the pictures
+            match self.layout.last() {
+                Some(Layout::Word(i)) => self.words[*i].push(c),
+                _ => {
+                    self.layout.push(Layout::Word(self.words.len()));
+                    self.words.push(c.to_string());
+                }
             }
             return;
         }
@@ -1824,7 +1841,7 @@ const LINE_SKIP: f64 = 1.0 * crate::PT;
 
 /// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
-fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
+fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f64) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
     let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
     for l in layout {
@@ -1833,16 +1850,27 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
             other => lines.last_mut().expect("a line").push(*other),
         }
     }
+    // the words as TeX sets them, in the text font
+    let mut warnings = Vec::new();
+    let labels: Vec<crate::scene::Label> = words.iter().map(|w| crate::label::compose_label(w, "", None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
     let mut baseline_y = 0.0;
     let mut previous_depth: Option<f64> = None;
-    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_)))) {
+    let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
+    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && l.iter().any(|x| matches!(x, Layout::Word(_))))) {
         let (mut height, mut depth) = (0.0f64, 0.0f64);
         for l in line {
-            if let Layout::Picture(i) = l {
-                let b = &boxes[*i];
-                let (lo, hi) = (b.canvas.min.map_or(0.0, |m| m.y), b.canvas.max.map_or(0.0, |m| m.y));
-                height = height.max(hi - b.baseline);
-                depth = depth.max(b.baseline - lo);
+            match l {
+                Layout::Picture(i) => {
+                    let b = &boxes[*i];
+                    let (lo, hi) = (b.canvas.min.map_or(0.0, |m| m.y), b.canvas.max.map_or(0.0, |m| m.y));
+                    height = height.max(hi - b.baseline);
+                    depth = depth.max(b.baseline - lo);
+                }
+                Layout::Word(i) => {
+                    height = height.max(labels[*i].height());
+                    depth = depth.max(labels[*i].depth());
+                }
+                _ => {}
             }
         }
         if let Some(d) = previous_depth {
@@ -1854,6 +1882,14 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
+                Layout::Word(i) => {
+                    let label = &labels[*i];
+                    out.include(Point::new(x, baseline_y - label.depth()));
+                    out.include(Point::new(x + label.width(), baseline_y + label.height()));
+                    out.items.push(Item::Text { label: label.clone(), place: crate::scene::Transform::translation(x, baseline_y), opacity: 1.0 });
+                    x += label.width();
+                    started = true;
+                }
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
                     let (Some(min), Some(max)) = (b.canvas.min, b.canvas.max) else {
@@ -1895,7 +1931,7 @@ pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
         e.end_scope();
     }
     let margin = e.canvas.margin;
-    e.canvas = typeset(&e.boxes, &e.layout, margin);
+    e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
     let _ = Transform::default();
