@@ -1133,6 +1133,35 @@ fn node_distance_text(e: &Engine) -> String {
     keys::value(&e.tex, "/tikz/node distance").map(|v| tex::tokens_to_string(&v)).unwrap_or_else(|| "1cm".into())
 }
 
+/// The deprecated `right of=a` and its kin: at the node's center, shifted by the node distance
+/// (its first part) in the direction, anchored at the center (`\tikz@of`).
+fn old_of(e: &mut Engine, v: Option<Vec<Token>>, angle: f64) -> Result<(), Error> {
+    let name = text(e, &v)?;
+    let Some(node) = e.lookup_node(name.trim()) else { return Err(Error::Figure(format!("{name}: no such node"))) };
+    set_value(e, "/tikz/anchor", "center");
+    e.st_node().at = Some(node.center());
+    let (d, _) = node_distance(e)?;
+    let (s, c) = angle.to_radians().sin_cos();
+    add_transform(e, Transform::translation(d * c, d * s));
+    Ok(())
+}
+keyfn!(k_above_of, |e, v| old_of(e, v, 90.0));
+keyfn!(k_below_of, |e, v| old_of(e, v, -90.0));
+keyfn!(k_left_of, |e, v| old_of(e, v, 180.0));
+keyfn!(k_right_of, |e, v| old_of(e, v, 0.0));
+keyfn!(k_above_left_of, |e, v| old_of(e, v, 135.0));
+keyfn!(k_below_left_of, |e, v| old_of(e, v, -135.0));
+keyfn!(k_above_right_of, |e, v| old_of(e, v, 45.0));
+keyfn!(k_below_right_of, |e, v| old_of(e, v, -45.0));
+keyfn!(k_save_path, |e, v| {
+    e.st.save_path = v.and_then(|v| v.into_iter().find(|t| matches!(t, Token::Cs(_))));
+    Ok(())
+});
+keyfn!(k_use_path, |e, v| {
+    e.st.use_saved_path = v.and_then(|v| v.into_iter().find(|t| matches!(t, Token::Cs(_))));
+    Ok(())
+});
+
 fn node_distance(e: &mut Engine) -> Result<(f64, f64), Error> {
     let s = node_distance_text(e);
     let read = |e: &mut Engine, t: &str| match place_length(e, t, 1) {
@@ -1937,6 +1966,16 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/start chain", k_start_chain),
     ("/tikz/turn", k_turn),
     ("/tikz/path picture", k_path_picture),
+    ("/tikz/above of", k_above_of),
+    ("/tikz/below of", k_below_of),
+    ("/tikz/left of", k_left_of),
+    ("/tikz/right of", k_right_of),
+    ("/tikz/above left of", k_above_left_of),
+    ("/tikz/below left of", k_below_left_of),
+    ("/tikz/above right of", k_above_right_of),
+    ("/tikz/below right of", k_below_right_of),
+    ("/tikz/save path", k_save_path),
+    ("/tikz/use path", k_use_path),
     ("/tikz/trim left", k_trim_left),
     ("/tikz/evaluate", k_evaluate),
     ("/tikz/make snapshot of", k_snapshot),
@@ -2028,7 +2067,7 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  every edge/.style={draw}, every to/.style={}, centered/.style={anchor=center}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},

@@ -223,6 +223,9 @@ pub struct GState {
     pub snapshot: Option<f64>,
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
+    /// `save path=\macro`, `use path=\macro` (the path is kept under the macro's name)
+    pub save_path: Option<Token>,
+    pub use_saved_path: Option<Token>,
     /// `\pgftransformnonlinear`: the code of each, in order
     pub nonlinear: std::rc::Rc<Vec<Vec<Token>>>,
     /// `\pgfsetcurvilinearbeziercurve`
@@ -307,6 +310,8 @@ impl Default for GState {
             allow_upside_down: false,
             snapshot: None,
             fit_fading: true,
+            save_path: None,
+            use_saved_path: None,
             nonlinear: Default::default(),
             curvilinear: None,
             trim_right: None,

@@ -3,6 +3,7 @@
 
 use crate::canvas::{Fill, Item, Paint, Stroke};
 use crate::scene::{Point, Segment};
+use crate::tex::Token;
 use crate::Error;
 
 use super::arrows::{Curvilinear, EndTips, TipsMode, Widths};
@@ -28,6 +29,15 @@ impl Engine {
 
     fn use_path_here(&mut self, segments: Vec<Segment>) -> Result<(), Error> {
         let mut segs = segments;
+        // `use path=\p`: the path kept by `save path=\p` instead; `save path` keeps this one
+        if let Some(Token::Cs(n)) = self.st.use_saved_path.take() {
+            if let Some(saved) = self.saved_paths.get(&*n) {
+                segs = saved.clone();
+            }
+        }
+        if let Some(Token::Cs(n)) = self.st.save_path.take() {
+            self.saved_paths.insert(n.to_string(), segs.clone());
+        }
         if !self.st.nonlinear.is_empty() {
             segs = self.nonlinear_path(&segs)?;
         }
