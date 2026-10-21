@@ -93,6 +93,48 @@ fn clean(text: &str) -> String {
     out
 }
 
+/// Typewriter text (`\\texttt{…}`, or all of it under `\\ttfamily`) as math's monospace letters,
+/// the closest the math font has to TeX's typewriter font; its spaces kept.
+fn typewriter(text: &str, all: bool) -> String {
+    let mono = |t: &str| -> String {
+        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\mathtt{{{p}}}")).collect();
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("${}$", parts.join("\\ "))
+        }
+    };
+    if all && !text.contains('$') && !text.contains('\\') {
+        return mono(text);
+    }
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("\\texttt{") {
+        out.push_str(&rest[..i]);
+        let body = &rest[i + "\\texttt{".len()..];
+        // to the matching brace
+        let mut depth = 1;
+        let mut end = body.len();
+        for (k, c) in body.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = k;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        out.push_str(&mono(&body[..end]));
+        rest = body.get(end + 1..).unwrap_or("");
+    }
+    out.push_str(rest);
+    out
+}
+
 /// A TeX dimension at the start of `s` (`2cm`, `1 pt`, `.5ex`): its value in points and the rest.
 fn dimension(s: &str, size: f64) -> Option<(f64, &str)> {
     let s = s.trim_start();
@@ -223,7 +265,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
-    let text = rules(&clean(text), size);
+    let mono = font.contains("\\ttfamily") || text.contains("\\ttfamily");
+    let text = typewriter(&rules(&clean(text), size), mono);
     let space = 333.0f32;
     let mut boxes = Vec::new();
     for line in manual_lines(&text) {
