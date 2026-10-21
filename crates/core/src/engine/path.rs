@@ -525,10 +525,7 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
             b.last = Some(OnPath::Corner(start, corner, b.point()));
             place_mid_nodes(e, b, Some(0.5))?;
         }
-        Some("to") => {
-            to(e, b, to_opts, r)?;
-            place_mid_nodes(e, b, Some(0.5))?;
-        }
+        Some("to") => to(e, b, to_opts, r)?,
         _ => {
             b.move_to(r);
             place_mid_nodes(e, b, Some(0.5))?;
@@ -588,23 +585,148 @@ fn curve_to(e: &mut Engine, b: &mut Builder, c1: Point, c2: Point, r: Coord) {
     b.current = Some(r);
 }
 
-/// The control points of a `to` from `a` to `r` with the current `out`, `in`, `bend` and `looseness`.
-fn to_controls(e: &mut Engine, a: Point, r: Point) -> Option<(Point, Point)> {
-    let d = r.minus(a);
-    let dist = d.norm();
-    let base = d.y.atan2(d.x).to_degrees();
-    let (out, inn) = match (e.st.bend, e.st.to_out, e.st.to_in) {
-        (Some(g), _, _) => (base + g, base + 180.0 - g),
-        (None, None, None) => return None,
-        (None, o, i) => (o.unwrap_or(base), i.unwrap_or(base + 180.0)),
+fn polar(angle: f64, d: f64) -> Point {
+    let (s, c) = angle.to_radians().sin_cos();
+    Point::new(d * c, d * s)
+}
+
+/// `\tikz@to@compute@distance@main`: the out and in distances, from the looseness and clamped by
+/// `min distance` and `max distance`.
+fn to_distances(e: &Engine, a: Point, b: Point) -> (f64, f64) {
+    let t = &e.st.to;
+    let d = 0.3915 * b.minus(a).norm();
+    let clamp = |x: f64, lo: f64, hi: f64| {
+        let x = if x < lo { lo } else { x };
+        if x > hi {
+            hi
+        } else {
+            x
+        }
     };
-    let lo = e.st.out_looseness.unwrap_or(e.st.looseness);
-    let li = e.st.in_looseness.unwrap_or(e.st.looseness);
-    let (so, co) = out.to_radians().sin_cos();
-    let (si, ci) = inn.to_radians().sin_cos();
-    let ko = 0.3915 * dist * lo;
-    let ki = 0.3915 * dist * li;
-    Some((a.plus(Point::new(co * ko, so * ko)), r.plus(Point::new(ci * ki, si * ki))))
+    (clamp(t.out_looseness * d, t.out_min, t.out_max), clamp(t.in_looseness * d, t.in_min, t.in_max))
+}
+
+/// A curve of `to` as the topaths library computes it, from `from` to `r`: an explicit start (the
+/// relative curves start on the border of the start node), the controls and an explicit end.
+fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, Point, Point, Option<Point>), Error> {
+    let node = |e: &Engine, c: &Coord| c.node.as_ref().and_then(|n| e.nodes.get(n)).cloned();
+    let (na, nb) = (node(e, from), node(e, r));
+    let (out, inn) = (e.st.to.out, e.st.to.inn);
+    if !e.st.to.relative {
+        // the ends are the nodes' borders at the angles out and in
+        let a = na.as_ref().and_then(|n| n.anchor(&out.to_string())).unwrap_or(from.p);
+        let b = nb.as_ref().and_then(|n| n.anchor(&inn.to_string())).unwrap_or(r.p);
+        let (ko, ki) = to_distances(e, a, b);
+        // `(p)`, or `+(d)` from the end it belongs to
+        let control = |e: &mut Engine, c: Option<Vec<Token>>, base: Point| -> Result<Option<Point>, Error> {
+            let Some(v) = c else { return Ok(None) };
+            let mut v = crate::keys::trim(&v).to_vec();
+            let plus = v.iter().take_while(|t| t.is_char('+')).count();
+            v.drain(..plus);
+            let v = if v.first().is_some_and(|t| t.is_char('(')) && v.last().is_some_and(|t| t.is_char(')')) { v[1..v.len() - 1].to_vec() } else { v };
+            let text = e.math_string(v)?;
+            let p = e.coordinate(&text)?.p;
+            Ok(Some(if plus > 0 { base.plus(p.minus(e.st.transform.apply(Point::default()))) } else { p }))
+        };
+        let c1 = control(e, e.st.to.out_control.clone(), from.p)?.unwrap_or_else(|| a.plus(polar(out, ko)));
+        let c2 = control(e, e.st.to.in_control.clone(), r.p)?.unwrap_or_else(|| b.plus(polar(inn, ki)));
+        return Ok((None, c1, c2, None));
+    }
+    // relative: the angles are measured from the line between the ends
+    let (a0, b0) = (na.as_ref().map_or(from.p, |n| n.center()), nb.as_ref().map_or(r.p, |n| n.center()));
+    let rotate = |p: Point, about: Point, angle: f64| {
+        let (s, c) = angle.to_radians().sin_cos();
+        let d = p.minus(about);
+        about.plus(Point::new(c * d.x - s * d.y, s * d.x + c * d.y))
+    };
+    let first = na.as_ref().map_or(a0, |n| n.border_toward(rotate(b0, a0, out)));
+    let second = nb.as_ref().map_or(b0, |n| n.border_toward(rotate(a0, b0, 180.0 + inn)));
+    let (ko, ki) = to_distances(e, first, second);
+    let d = second.minus(first);
+    let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+    let turn = |v: Point| Point::new(u.x * v.x - u.y * v.y, u.y * v.x + u.x * v.y);
+    let c1 = first.plus(turn(polar(out, ko)));
+    let c2 = second.plus(turn(polar(inn, ki)));
+    Ok((na.map(|_| first), c1, c2, Some(second)))
+}
+
+/// The end of a `to` as `\tikztostart` and `\tikztotarget` name it: a node, or a point on the canvas.
+fn to_name(c: &Coord) -> String {
+    match &c.node {
+        Some(n) => n.clone(),
+        None => format!("tikra cs:{}pt,{}pt", c.p.x / crate::PT, c.p.y / crate::PT),
+    }
+}
+
+/// `\tikztonodes`: the nodes given between `to` and its target, labels at the middle by default.
+fn to_nodes(mids: Vec<MidNode>) -> Vec<Token> {
+    let mut v = Vec::new();
+    for m in mids {
+        v.extend(tikra_tokens(if m.coordinate { "coordinate[pos=0.5," } else { "node[pos=0.5," }));
+        v.extend(m.options);
+        v.extend(tikra_tokens("]"));
+        if let Some(n) = m.name {
+            v.extend(tikra_tokens(&format!("({n})")));
+        }
+        if !m.coordinate {
+            v.push(Token::Char('{', Cat::Begin));
+            v.extend(m.text);
+            v.push(Token::Char('}', Cat::End));
+        }
+    }
+    v
+}
+
+/// The path of a `to` (or an `edge`) with its options already set, from the current point to `r`.
+fn to_path(e: &mut Engine, b: &mut Builder, r: Coord) -> Result<(), Error> {
+    let from = b.current.clone().unwrap_or(Coord { p: b.point(), node: None });
+    let r = if e.st.to.is_loop {
+        // [looseness=8,min distance=5mm] after the options, and back to the start
+        let t = &mut e.st.to;
+        (t.out_looseness, t.in_looseness) = (8.0, 8.0);
+        (t.out_min, t.in_min) = (0.5, 0.5);
+        (t.out_control, t.in_control) = (None, None);
+        from.clone()
+    } else {
+        r
+    };
+    if let Some(path) = e.st.to.path.clone() {
+        // the user's to path, run as path operations with the three macros set
+        e.tex.define_string("tikztostart", &to_name(&from), false);
+        e.tex.define_string("tikztotarget", &to_name(&r), false);
+        e.tex.set_meaning(&Token::cs("tikztonodes"), super::macro_tokens(to_nodes(std::mem::take(&mut b.mid_nodes))), false);
+        let mut v = path;
+        v.push(Token::other(';'));
+        e.tex.push_tokens(v);
+        return operations(e, b, None);
+    }
+    if !e.st.to.curve {
+        line_to(e, b, r);
+        return Ok(());
+    }
+    e.process_keys(tikra_tokens("every curve to/.try"), Some("/tikz"))?;
+    let (start, c1, c2, end) = to_curve(e, &from, &r)?;
+    if let Some(s) = start {
+        match b.segs.last_mut() {
+            Some(Segment::MoveTo(m)) => *m = s,
+            _ => b.segs.push(Segment::MoveTo(s)),
+        }
+        b.current = Some(Coord { p: s, node: None });
+        b.subpath_start.get_or_insert(s);
+    }
+    match end {
+        Some(p) => {
+            let a = b.point();
+            if b.current.is_none() {
+                b.segs.push(Segment::MoveTo(a));
+            }
+            b.segs.push(Segment::CurveTo(c1, c2, p));
+            b.last = Some(OnPath::Segment(a, Some((c1, c2)), p));
+            b.current = Some(Coord { p, node: r.node.clone() });
+        }
+        None => curve_to(e, b, c1, c2, r),
+    }
+    Ok(())
 }
 
 fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(), Error> {
@@ -617,17 +739,11 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
         for (text, options) in std::mem::take(&mut e.st.quoted) {
             b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
         }
-        let a = b.point();
-        let rp = r.node.as_ref().and_then(|n| e.nodes.get(n)).map_or(r.p, |n| n.center());
-        let from = b.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| e.nodes.get(n)).map_or(a, |n| n.center());
-        Ok(to_controls(e, from, rp))
+        to_path(e, b, r)?;
+        place_mid_nodes(e, b, Some(0.5))
     })();
     e.end_group();
-    match res? {
-        Some((c1, c2)) => curve_to(e, b, c1, c2, r),
-        None => line_to(e, b, r),
-    }
-    Ok(())
+    res
 }
 
 /// `edge[options] node{…} (target)`: a separate path, drawn after this one; the current point stays.
@@ -656,14 +772,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         for (text, options) in std::mem::take(&mut e.st.quoted) {
             sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
         }
-        let a = sub.point();
-        let rp = r.node.as_ref().and_then(|n| e.nodes.get(n)).map_or(r.p, |n| n.center());
-        let from = sub.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| e.nodes.get(n)).map_or(a, |n| n.center());
-        let controls = to_controls(e, from, rp);
-        match controls {
-            Some((c1, c2)) => curve_to(e, &mut sub, c1, c2, r.clone()),
-            None => line_to(e, &mut sub, r.clone()),
-        }
+        to_path(e, &mut sub, r.clone())?;
         place_mid_nodes(e, &mut sub, Some(0.5))
     })();
     e.end_group();

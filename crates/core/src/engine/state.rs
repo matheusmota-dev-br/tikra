@@ -6,7 +6,55 @@ use std::rc::Rc;
 use crate::canvas::{Cap, Join};
 use crate::color::Color;
 use crate::scene::{Point, Transform};
+use crate::tex::Token;
 use crate::PT;
+
+/// The topaths library's settings for `to` and `edge`: `out`, `in`, `bend left`, `looseness`,
+/// `min distance`, `controls`, `to path`, `loop`.
+#[derive(Debug, Clone)]
+pub struct ToSettings {
+    /// a curve (`\tikz@to@switch@on`) rather than a line
+    pub curve: bool,
+    /// `out` and `in` taken from the line between the ends (`bend left`, `relative`)
+    pub relative: bool,
+    pub bend: f64,
+    pub out: f64,
+    pub inn: f64,
+    pub out_looseness: f64,
+    pub in_looseness: f64,
+    pub out_min: f64,
+    pub out_max: f64,
+    pub in_min: f64,
+    pub in_max: f64,
+    pub out_control: Option<Vec<Token>>,
+    pub in_control: Option<Vec<Token>>,
+    /// `to path={…}` of the user: run with `\tikztostart`, `\tikztotarget`, `\tikztonodes`
+    pub path: Option<Vec<Token>>,
+    /// `loop`: the target is the start, `looseness=8,min distance=5mm`
+    pub is_loop: bool,
+}
+
+impl Default for ToSettings {
+    fn default() -> Self {
+        ToSettings {
+            curve: false,
+            relative: false,
+            bend: 30.0,
+            out: 45.0,
+            inn: 135.0,
+            out_looseness: 1.0,
+            in_looseness: 1.0,
+            out_min: 0.0,
+            out_max: 10000.0 * PT,
+            in_min: 0.0,
+            in_max: 10000.0 * PT,
+            out_control: None,
+            in_control: None,
+            path: None,
+            is_loop: false,
+        }
+    }
+}
 
 /// What a path does once built (`\tikz@mode`): set by `draw`, `fill`… for one path only.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -67,12 +115,7 @@ pub struct GState {
     pub font: String,
 
     // path construction settings
-    pub to_out: Option<f64>,
-    pub to_in: Option<f64>,
-    pub bend: Option<f64>,
-    pub looseness: f64,
-    pub out_looseness: Option<f64>,
-    pub in_looseness: Option<f64>,
+    pub to: ToSettings,
     pub grid_step: (f64, f64),
     pub domain: (f64, f64),
     pub samples: usize,
@@ -176,12 +219,7 @@ impl Default for GState {
             double_distance: 0.6 * PT,
             font_size: 10.0,
             font: String::new(),
-            to_out: None,
-            to_in: None,
-            bend: None,
-            looseness: 1.0,
-            out_looseness: None,
-            in_looseness: None,
+            to: ToSettings::default(),
             grid_step: (1.0, 1.0),
             domain: (-5.0, 5.0),
             samples: 25,

@@ -1114,34 +1114,139 @@ keyfn!(k_pin, |e, v| {
 });
 
 keyfn!(k_out, |e, v| {
-    e.st.to_out = number(e, &v)?;
+    if let Some(x) = number(e, &v)? {
+        e.st.to.out = x;
+    }
+    e.st.to.curve = true;
     Ok(())
 });
 keyfn!(k_in, |e, v| {
-    e.st.to_in = number(e, &v)?;
+    if let Some(x) = number(e, &v)? {
+        e.st.to.inn = x;
+    }
+    e.st.to.curve = true;
     Ok(())
 });
-keyfn!(k_bend_left, |e, v| {
-    e.st.bend = Some(number(e, &v)?.unwrap_or(30.0));
+keyfn!(k_relative, |e, v| {
+    e.st.to.relative = text(e, &v)? != "false";
     Ok(())
 });
-keyfn!(k_bend_right, |e, v| {
-    e.st.bend = Some(-number(e, &v)?.unwrap_or(30.0));
+keyfn!(k_bend_angle, |e, v| {
+    if let Some(x) = number(e, &v)? {
+        e.st.to.bend = x;
+    }
     Ok(())
 });
+/// `bend left[=angle]` and `bend right`: `out` the angle off the line, `in` its mirror, relative.
+fn bend(e: &mut Engine, v: Option<Vec<Token>>, sign: f64) -> Result<(), Error> {
+    let v = v.filter(|v| !crate::keys::trim(v).is_empty());
+    if let Some(x) = number(e, &v)? {
+        e.st.to.bend = x;
+    }
+    e.st.to.out = sign * e.st.to.bend;
+    e.st.to.inn = 180.0 - e.st.to.out;
+    e.st.to.curve = true;
+    e.st.to.relative = true;
+    Ok(())
+}
+keyfn!(k_bend_left, |e, v| bend(e, v, 1.0));
+keyfn!(k_bend_right, |e, v| bend(e, v, -1.0));
 keyfn!(k_looseness, |e, v| {
-    e.st.looseness = number(e, &v)?.unwrap_or(1.0);
-    e.st.in_looseness = None;
-    e.st.out_looseness = None;
+    let x = number(e, &v)?.unwrap_or(1.0);
+    e.st.to.out_looseness = x;
+    e.st.to.in_looseness = x;
+    e.st.to.out_control = None;
+    e.st.to.in_control = None;
+    e.st.to.curve = true;
     Ok(())
 });
 keyfn!(k_out_looseness, |e, v| {
-    e.st.out_looseness = number(e, &v)?;
+    e.st.to.out_looseness = number(e, &v)?.unwrap_or(1.0);
+    e.st.to.out_control = None;
+    e.st.to.curve = true;
     Ok(())
 });
 keyfn!(k_in_looseness, |e, v| {
-    e.st.in_looseness = number(e, &v)?;
+    e.st.to.in_looseness = number(e, &v)?.unwrap_or(1.0);
+    e.st.to.in_control = None;
+    e.st.to.curve = true;
     Ok(())
+});
+/// `\tikz@to@set@distances{in min}{in max}{out min}{out max}`: which of them a key sets.
+fn distances(e: &mut Engine, v: Option<Vec<Token>>, which: [bool; 4]) -> Result<(), Error> {
+    let Some(d) = length(e, &v)? else { return Ok(()) };
+    let t = &mut e.st.to;
+    for (k, set) in which.iter().enumerate() {
+        if *set {
+            *[&mut t.in_min, &mut t.in_max, &mut t.out_min, &mut t.out_max][k] = d;
+        }
+    }
+    if which[0] || which[1] {
+        t.in_control = None;
+    }
+    if which[2] || which[3] {
+        t.out_control = None;
+    }
+    t.curve = true;
+    Ok(())
+}
+keyfn!(k_in_min_distance, |e, v| distances(e, v, [true, false, false, false]));
+keyfn!(k_in_max_distance, |e, v| distances(e, v, [false, true, false, false]));
+keyfn!(k_in_distance, |e, v| distances(e, v, [true, true, false, false]));
+keyfn!(k_out_min_distance, |e, v| distances(e, v, [false, false, true, false]));
+keyfn!(k_out_max_distance, |e, v| distances(e, v, [false, false, false, true]));
+keyfn!(k_out_distance, |e, v| distances(e, v, [false, false, true, true]));
+keyfn!(k_min_distance, |e, v| distances(e, v, [true, false, true, false]));
+keyfn!(k_max_distance, |e, v| distances(e, v, [false, true, false, true]));
+keyfn!(k_distance, |e, v| distances(e, v, [true, true, true, true]));
+keyfn!(k_in_control, |e, v| {
+    e.st.to.in_control = v;
+    e.st.to.curve = true;
+    Ok(())
+});
+keyfn!(k_out_control, |e, v| {
+    e.st.to.out_control = v;
+    e.st.to.curve = true;
+    Ok(())
+});
+// `controls=(a) and (b)`: the out control, then the in control.
+keyfn!(k_controls, |e, v| {
+    let v = v.unwrap_or_default();
+    let mut split = None;
+    for i in 0..v.len().saturating_sub(2) {
+        if v[i].is_char('a') && v[i + 1].is_char('n') && v[i + 2].is_char('d') {
+            split = Some(i);
+        }
+    }
+    let Some(i) = split else {
+        e.warn("controls without 'and': ignored");
+        return Ok(());
+    };
+    e.st.to.out_control = Some(crate::keys::trim(&v[..i]).to_vec());
+    e.st.to.in_control = Some(crate::keys::trim(&v[i + 3..]).to_vec());
+    e.st.to.curve = true;
+    Ok(())
+});
+keyfn!(k_to_path, |e, v| {
+    e.st.to.path = v;
+    Ok(())
+});
+// `line to`, `move to` and `curve to`: the topaths library's own paths.
+keyfn!(k_line_to, |e, _v| {
+    e.st.to.path = None;
+    e.st.to.curve = false;
+    Ok(())
+});
+keyfn!(k_curve_to, |e, _v| {
+    e.st.to.path = None;
+    e.st.to.curve = true;
+    Ok(())
+});
+keyfn!(k_loop, |e, _v| {
+    e.st.to.path = None;
+    e.st.to.is_loop = true;
+    e.st.to.curve = true;
+    e.process_keys(tikra_tokens("every loop/.try"), Some("/tikz"))
 });
 
 /// A grid step in the units of the xy system: a number counts in x and y units, a length in cm.
@@ -1577,6 +1682,24 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/looseness", k_looseness),
     ("/tikz/out looseness", k_out_looseness),
     ("/tikz/in looseness", k_in_looseness),
+    ("/tikz/bend angle", k_bend_angle),
+    ("/tikz/relative", k_relative),
+    ("/tikz/in min distance", k_in_min_distance),
+    ("/tikz/in max distance", k_in_max_distance),
+    ("/tikz/in distance", k_in_distance),
+    ("/tikz/out min distance", k_out_min_distance),
+    ("/tikz/out max distance", k_out_max_distance),
+    ("/tikz/out distance", k_out_distance),
+    ("/tikz/min distance", k_min_distance),
+    ("/tikz/max distance", k_max_distance),
+    ("/tikz/distance", k_distance),
+    ("/tikz/in control", k_in_control),
+    ("/tikz/out control", k_out_control),
+    ("/tikz/controls", k_controls),
+    ("/tikz/to path", k_to_path),
+    ("/tikz/line to", k_line_to),
+    ("/tikz/curve to", k_curve_to),
+    ("/tikz/loop", k_loop),
     ("/tikz/step", k_step),
     ("/tikz/xstep", k_xstep),
     ("/tikz/ystep", k_ystep),
@@ -1642,7 +1765,10 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, every circle node/.style={}, every rectangle node/.style={},
+  every edge/.style={draw}, every to/.style={}, every curve to/.style={},
+  every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
+  loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},
+  loop below/.style={below,out=285,in=255,loop}, move to/.style={to path={(\tikztotarget) \tikztonodes}}, every circle node/.style={}, every rectangle node/.style={},
   every coordinate node/.style={}, every ellipse node/.style={}, every diamond node/.style={},
   ultra thin/.style={line width=0.1pt}, very thin/.style={line width=0.2pt}, thin/.style={line width=0.4pt},
   semithick/.style={line width=0.6pt}, thick/.style={line width=0.8pt}, very thick/.style={line width=1.2pt},
@@ -1664,8 +1790,7 @@ const DEFINITIONS: &str = r"
   very nearly transparent/.style={opacity=0.1}, nearly transparent/.style={opacity=0.25},
   semitransparent/.style={opacity=0.5}, nearly opaque/.style={opacity=0.75},
   very nearly opaque/.style={opacity=0.9}, ultra nearly opaque/.style={opacity=0.95}, opaque/.style={opacity=1},
-  rounded corners/.default=4pt, double/.default=white, bend left/.default=30, bend right/.default=30,
-  bend angle/.code={\pgfkeys{/tikz/bend left/.default=#1,/tikz/bend right/.default=#1}},
+  rounded corners/.default=4pt, double/.default=white, 
   draw opacity/.default=1, help lines/.append style={},
   text centered/.style={align=center}, text ragged/.style={align=left}, text badly ragged/.style={align=left},
   text justified/.style={align=justify}, text ragged left/.style={align=right},
