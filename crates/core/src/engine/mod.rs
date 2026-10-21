@@ -5,6 +5,7 @@
 pub mod arrows;
 pub mod basic;
 pub mod coords;
+pub mod intersections;
 pub mod nodes;
 pub mod options;
 pub mod output;
@@ -218,6 +219,8 @@ pub struct Engine {
     nesting: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
+    /// paths kept by `name path`
+    pub named_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// pictures already drawn, and how the document lays them out
     boxes: Vec<PictureBox>,
     layout: Vec<Layout>,
@@ -273,6 +276,7 @@ impl Clone for Engine {
             nesting: self.nesting,
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
+            named_paths: self.named_paths.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
         }
@@ -310,6 +314,7 @@ impl Engine {
             nesting: 0,
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
+            named_paths: HashMap::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
         };

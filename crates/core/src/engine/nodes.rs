@@ -49,6 +49,8 @@ pub struct NodeSetup {
     pub name: Option<String>,
     /// `label=` and `pin=` values, in order; true for a pin
     pub labels: Vec<(Vec<Token>, bool)>,
+    /// `fit=`: the width and height the text box takes
+    pub fit: Option<(f64, f64)>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -313,10 +315,21 @@ impl Engine {
             }
             Some(l)
         };
-        let (wd, ht, dp) = match &lbl {
+        let (mut wd, mut ht, mut dp) = match &lbl {
             Some(l) => (text_width.unwrap_or_else(|| l.width()), l.height(), l.depth()),
             None => (0.0, 0.0, 0.0),
         };
+        // text height and text depth replace the box's
+        for (key, target) in [("/tikz/text height", &mut ht), ("/tikz/text depth", &mut dp)] {
+            let v = self.key_text(key);
+            if !v.trim().is_empty() {
+                *target = self.length(&v)?;
+            }
+        }
+        if let Some((w, h)) = self.st.node.fit {
+            // fit: the box is the fitted area, centered on the baseline
+            (wd, ht, dp) = (w, h / 2.0, h / 2.0);
+        }
         let xsep = self.key_length("/pgf/inner xsep", 0.3333 * 0.3515);
         let ysep = self.key_length("/pgf/inner ysep", 0.3333 * 0.3515);
         let min_w = self.key_length("/pgf/minimum width", PT);

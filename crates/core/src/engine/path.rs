@@ -103,6 +103,9 @@ fn statement_in_group(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
     let segs = std::mem::take(&mut b.segs);
+    if let Some(name) = e.st.name_path.take() {
+        e.named_paths.insert(name, segs.clone());
+    }
     e.use_path(segs, "path")?;
     for (segs, options, items) in std::mem::take(&mut b.edges) {
         edge_path(e, segs, options)?;

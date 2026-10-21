@@ -97,6 +97,8 @@ pub struct GState {
     pub swap: bool,
     /// quotes (`"text" above`) in the options being read make nodes on the path, not labels
     pub quotes_on_path: bool,
+    /// `name path=`: the path is kept under this name (intersections)
+    pub name_path: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
 }
@@ -160,6 +162,7 @@ impl Default for GState {
             auto: None,
             swap: false,
             quotes_on_path: false,
+            name_path: None,
             quoted: Vec::new(),
         }
     }

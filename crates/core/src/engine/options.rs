@@ -1239,6 +1239,50 @@ keyfn!(k_tikz_unknown, |e, v| e.tikz_unknown(v));
 
 keyfn!(k_ignore, |_e, _v| Ok(()));
 
+// `fit=(a)(b)(1,2)`: the node covers the points (a node by its west, east, north and south).
+keyfn!(k_fit, |e, v| {
+    let s = text(e, &v)?;
+    let (mut lo, mut hi) = (Point::new(f64::INFINITY, f64::INFINITY), Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY));
+    let mut grow = |p: Point| {
+        lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+        hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+    };
+    let mut rest = s.as_str();
+    while let Some(i) = rest.find('(') {
+        let Some(j) = rest[i..].find(')') else { break };
+        let inner = rest[i + 1..i + j].trim().to_string();
+        rest = &rest[i + j + 1..];
+        match e.nodes.get(&inner) {
+            Some(n) => {
+                for a in ["west", "east", "north", "south"] {
+                    if let Some(p) = n.anchor(a) {
+                        grow(p);
+                    }
+                }
+            }
+            None => grow(e.coordinate(&inner)?.p),
+        }
+    }
+    if lo.x > hi.x {
+        return Ok(());
+    }
+    let center = lo.lerp(hi, 0.5);
+    e.st_node().at = Some(center);
+    e.st_node().fit = Some((hi.x - lo.x, hi.y - lo.y));
+    set_value(e, "/tikz/anchor", "center");
+    set_value(e, "/tikz/align", "center");
+    e.process_keys(tikra_tokens("every fit/.try"), None)?;
+    Ok(())
+});
+
+keyfn!(k_name_path, |e, v| {
+    let s = text(e, &v)?;
+    e.st.name_path = Some(s);
+    Ok(())
+});
+
+keyfn!(k_name_intersections, |e, v| super::intersections::name_intersections(e, v));
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1363,6 +1407,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/fit", k_fit),
+    ("/tikz/name path", k_name_path),
+    ("/tikz/name path global", k_name_path),
+    ("/tikz/name intersections", k_name_intersections),
     ("/tikz/swap", k_swap),
     ("/tikz/'", k_swap),
 ];
@@ -1420,12 +1468,11 @@ const DEFINITIONS: &str = r"
   execute at begin scope/.code={}, execute at end scope/.code={},
   execute at begin picture/.code={}, execute at end picture/.code={},
   every shadow/.style={}, alias/.code={},
-  name path/.code={}, name path global/.code={},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
-  every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={},
+  every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikz@picture@start{\pgfkeysalso{/tikz/every picture/.try}}
 \def\tikz@scope@options{\pgfkeysalso{/tikz/every scope/.try}}
