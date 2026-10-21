@@ -347,6 +347,8 @@ pub struct Engine {
     pub math_kinds: HashMap<String, tikzmath::Kind>,
     /// path operations to run after the node just made (`after node path`, joins)
     pub after_node_path: Vec<Token>,
+    /// The open `local bounding box`es: their names and the group depth they were opened at.
+    pub local_boxes: Vec<(String, usize)>,
     /// the path's last point and where it came from, for `turn` in the next coordinate
     pub turn_from: (crate::scene::Point, crate::scene::Point),
     /// where the path's subpath started (`current subpath start`)
@@ -457,6 +459,7 @@ impl Clone for Engine {
             chain_list: self.chain_list.clone(),
             math_kinds: self.math_kinds.clone(),
             after_node_path: Vec::new(),
+            local_boxes: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
@@ -527,6 +530,7 @@ impl Engine {
             chain_list: Default::default(),
             math_kinds: Default::default(),
             after_node_path: Vec::new(),
+            local_boxes: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: None,
@@ -762,8 +766,26 @@ impl Engine {
             if let Some(s) = self.saved.pop() {
                 self.st = s;
             }
+            self.close_local_boxes();
         } else {
             self.warn("extra '}'");
+        }
+    }
+
+    /// `local bounding box=name`: a rectangle node `name` over what is drawn from here to the end
+    /// of the group.
+    pub fn open_local_box(&mut self, name: String) {
+        self.local_boxes.push((name, self.saved.len()));
+        self.canvas.local.push((None, None));
+    }
+
+    /// The local bounding boxes of the groups that ended, as nodes.
+    fn close_local_boxes(&mut self) {
+        while self.local_boxes.last().is_some_and(|b| b.1 > self.saved.len()) {
+            let (name, _) = self.local_boxes.pop().expect("checked");
+            if let Some((Some(lo), Some(hi))) = self.canvas.local.pop() {
+                self.nodes.insert(name, libraries::box_node(lo, hi));
+            }
         }
     }
 

@@ -1036,6 +1036,10 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         "above left" => "south east",
         "above right" => "south west",
         "below left" => "north east",
+        "base left" => "base east",
+        "base right" => "base west",
+        "mid left" => "mid east",
+        "mid right" => "mid west",
         _ => "north west",
     };
     set_value(e, "/tikz/anchor", anchor);
@@ -1096,6 +1100,10 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         "above left" => "north west",
         "above right" => "north east",
         "below left" => "south west",
+        "base left" => "base west",
+        "base right" => "base east",
+        "mid left" => "mid west",
+        "mid right" => "mid east",
         _ => "south east",
     };
     let (name, explicit) = match target.split_once('.') {
@@ -1188,6 +1196,10 @@ keyfn!(k_above_left, |e, v| placement(e, "above left", v));
 keyfn!(k_above_right, |e, v| placement(e, "above right", v));
 keyfn!(k_below_left, |e, v| placement(e, "below left", v));
 keyfn!(k_below_right, |e, v| placement(e, "below right", v));
+keyfn!(k_base_left, |e, v| placement(e, "base left", v));
+keyfn!(k_base_right, |e, v| placement(e, "base right", v));
+keyfn!(k_mid_left, |e, v| placement(e, "mid left", v));
+keyfn!(k_mid_right, |e, v| placement(e, "mid right", v));
 
 keyfn!(k_pos, |e, v| {
     // `pos=` (empty): not on the path
@@ -1840,6 +1852,11 @@ keyfn!(k_fading_angle, |e, v| {
     e.st.fading_angle = e.number(&s)?;
     Ok(())
 });
+keyfn!(k_local_bounding_box, |e, v| {
+    let s = text(e, &v)?;
+    e.open_local_box(s.trim().to_string());
+    Ok(())
+});
 keyfn!(k_fit_fading, |e, v| {
     e.st.fit_fading = text(e, &v)? != "false";
     Ok(())
@@ -1943,6 +1960,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/left", k_left),
     ("/tikz/right", k_right),
     ("/tikz/above left", k_above_left),
+    ("/tikz/base left", k_base_left),
+    ("/tikz/base right", k_base_right),
+    ("/tikz/mid left", k_mid_left),
+    ("/tikz/mid right", k_mid_right),
     ("/tikz/above right", k_above_right),
     ("/tikz/below left", k_below_left),
     ("/tikz/below right", k_below_right),
@@ -2043,6 +2064,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
     ("/tikz/fit fading", k_fit_fading),
+    ("/tikz/local bounding box", k_local_bounding_box),
     ("/tikz/fading angle", k_fading_angle),
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
