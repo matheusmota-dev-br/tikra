@@ -5,7 +5,7 @@ use crate::canvas::{Fill, Item, Paint, Stroke};
 use crate::scene::{Point, Segment};
 use crate::Error;
 
-use super::arrows::{EndTips, TipsMode, Widths};
+use super::arrows::{Curvilinear, EndTips, TipsMode, Widths};
 use super::path::{valid_segment, MAX_COORDINATE, MAX_DECORATION_STEPS};
 use super::Engine;
 use crate::PT;
@@ -76,11 +76,8 @@ impl Engine {
         let stroke = mode.draw.then(|| self.stroke());
         // `tips=true`/`proper`: tips on a path that is neither filled nor stroked
         let tips_only = stroke.is_none() && fill.is_none() && !mode.clip && matches!(self.st.tips_mode, TipsMode::True | TipsMode::Proper);
-        // a clipping path has no tips and is not shortened
-        let mut tips = if drawn && !mode.clip && (stroke.is_some() || tips_only) { self.arrow_ends(&mut segs) } else { Tips::default() };
-        if tips_only {
-            self.push_tips(std::mem::take(&mut tips));
-        }
+        // a clipping path has no tips and is not shortened; a lone point still gets them
+        let tips = if !segs.is_empty() && !mode.clip && (stroke.is_some() || tips_only) { self.arrow_ends(&mut segs) } else { Tips::default() };
         if drawn && (fill.is_some() || stroke.is_some()) {
             if let Some(under) = solid_under {
                 self.canvas.push(Item::Path { segments: segs.clone(), fill: Some(under), stroke: None });
@@ -95,8 +92,8 @@ impl Engine {
                 }
                 _ => self.canvas.push(Item::Path { segments: segs.clone(), fill, stroke }),
             }
-            self.push_tips(tips);
         }
+        self.push_tips(tips);
         if mode.clip {
             self.open_in_scope(Item::Clip { segments: segs, even_odd: self.st.even_odd });
         }
@@ -132,32 +129,64 @@ impl Engine {
         let mut at_end = None;
         if !end.is_empty() || end.shortening != 0.0 {
             if let Some((k, movable, last, reference)) = path_end(segs) {
+                // a curve with flexed tips: shortened along it, and the tips laid on it
+                let curve = match (segs[k], end.flexed()) {
+                    (Segment::CurveTo(c1, c2, _), true) => point_of(&segs[k - 1]).map(|prev| Curvilinear::new([last, c2, c1, prev])),
+                    _ => None,
+                };
                 if movable && end.shortening != 0.0 {
-                    let p = toward(last, reference, end.shortening * PT);
-                    if let Segment::LineTo(q) | Segment::CurveTo(_, _, q) = &mut segs[k] {
-                        *q = p;
+                    match &curve {
+                        Some(c) => {
+                            let [p, b, a, _] = c.after(c.time(end.shortening));
+                            segs[k] = Segment::CurveTo(a, b, p);
+                        }
+                        None => {
+                            let p = toward(last, reference, end.shortening * PT);
+                            if let Segment::LineTo(q) | Segment::CurveTo(_, _, q) = &mut segs[k] {
+                                *q = p;
+                            }
+                        }
                     }
                 }
-                at_end = Some((last, reference));
+                at_end = Some(match curve {
+                    Some(c) => Along::Curve(c),
+                    None => Along::Line(last, reference),
+                });
             }
         }
         let mut at_start = None;
         if !start.is_empty() || start.shortening != 0.0 {
             if let Some((m, movable, first, reference)) = path_start(segs) {
+                let curve = match (segs.get(m + 1), start.flexed()) {
+                    (Some(&Segment::CurveTo(c1, c2, p)), true) => Some(Curvilinear::new([first, c1, c2, p])),
+                    _ => None,
+                };
                 if movable && start.shortening != 0.0 {
-                    segs[m] = Segment::MoveTo(toward(first, reference, start.shortening * PT));
+                    match &curve {
+                        Some(c) => {
+                            let [p, a, b, q] = c.after(c.time(start.shortening));
+                            segs[m] = Segment::MoveTo(p);
+                            segs[m + 1] = Segment::CurveTo(a, b, q);
+                        }
+                        None => segs[m] = Segment::MoveTo(toward(first, reference, start.shortening * PT)),
+                    }
                 }
-                at_start = Some((first, reference));
+                at_start = Some(match curve {
+                    Some(c) => Along::Curve(c),
+                    None => Along::Line(first, reference),
+                });
             }
         }
         // the stroke color and line width, without the dash; fills with the fill opacity
         let stroke = Stroke { width: widths.line * PT, ..s };
         let fill_opacity = self.st.fill_opacity;
         for (tips, at) in [(&start, at_start), (&end, at_end)] {
-            if let Some((p, from)) = at {
-                let hull = tips.draw(p, from, &stroke, fill_opacity, &mut out.items);
-                out.hull.extend(hull);
-            }
+            let hull = match at {
+                Some(Along::Line(p, from)) => tips.draw(p, from, &stroke, fill_opacity, &mut out.items),
+                Some(Along::Curve(c)) => tips.draw_on_curve(&c, &stroke, fill_opacity, &mut out.items),
+                None => continue,
+            };
+            out.hull.extend(hull);
         }
         out
     }
@@ -170,6 +199,12 @@ impl Engine {
         }
         self.canvas.items.extend(tips.items);
     }
+}
+
+/// What the tips of an end are laid along: the line from a point to the end, or the end's curve.
+enum Along {
+    Line(Point, Point),
+    Curve(Curvilinear),
 }
 
 /// The drawing of a path's tips, and the points of their hulls (for the bounding box).

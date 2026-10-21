@@ -479,7 +479,12 @@ impl Eval for super::Engine {
         self.number(text).ok()
     }
     fn paint(&mut self, text: &str) -> Option<Color> {
-        self.color(text)
+        // pgf's names for the path's current colors (`fill=pgffillcolor`)
+        match text.trim() {
+            "pgffillcolor" => Some(self.st.fill_paint_color()),
+            "pgfstrokecolor" => Some(self.st.stroke_color()),
+            t => self.color(t),
+        }
     }
 }
 
@@ -550,6 +555,7 @@ enum Opt {
     RoundJoin(bool),
     Arc(f64),
     N(u32),
+    Flex(Flex),
 }
 
 impl Opt {
@@ -567,6 +573,20 @@ impl Opt {
                 | Opt::AngleOfLength(_)
         )
     }
+}
+
+/// How a tip sits on a curved end (the bending library, which the manual loads: its
+/// `arrows=[flex]` is the default here).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Flex {
+    /// along the tangent at the end of the path
+    Quick,
+    /// turned so that its visual ends lie on the path, with this rigidity
+    Flex(f64),
+    /// the same with its tip and back ends
+    FlexPrime(f64),
+    /// bent along the path: drawn flexed here
+    Bend,
 }
 
 /// The values of the arrow keys for one tip, in pt.
@@ -590,6 +610,7 @@ struct Keys {
     fill: Option<Color>,
     arc: f64,
     n: u32,
+    flex: Flex,
 }
 
 impl Default for Keys {
@@ -613,6 +634,7 @@ impl Default for Keys {
             fill: None,
             arc: 180.0,
             n: 4,
+            flex: Flex::Flex(1.0),
         }
     }
 }
@@ -677,6 +699,7 @@ impl Keys {
             Opt::RoundJoin(r) => self.round_join = r,
             Opt::Arc(a) => self.arc = a,
             Opt::N(n) => self.n = n.max(1),
+            Opt::Flex(f) => self.flex = f,
         }
     }
 
@@ -825,8 +848,11 @@ fn parse_opts(ev: &mut dyn Eval, text: &str, warn: &mut Vec<String>) -> Vec<Opt>
             }
             "arc" => Opt::Arc(num(ev, &v)),
             "n" => Opt::N(num(ev, &v).max(0.0) as u32),
-            // the bending library bends tips along curves; drawn straight here
-            "quick" | "flex" | "flex'" | "bend" => continue,
+            // the bending library's modes
+            "quick" => Opt::Flex(Flex::Quick),
+            "flex" => Opt::Flex(Flex::Flex(if value.is_some() { num(ev, &v) } else { 1.0 })),
+            "flex'" => Opt::Flex(Flex::FlexPrime(if value.is_some() { num(ev, &v) } else { 1.0 })),
+            "bend" => Opt::Flex(Flex::Bend),
             _ => match value.is_none().then(|| ev.paint(&key)).flatten() {
                 Some(c) => Opt::Color(c),
                 None => {
@@ -854,13 +880,16 @@ struct Shape {
     join: Option<Join>,
 }
 
-/// A tip as pgf instantiates it: its ends along x (tip end, back end, line end), the convex hull
-/// that counts for the bounding box, and the drawing.
+/// A tip as pgf instantiates it: its ends along x (tip end, back end, line end), the visual ends
+/// that a flexed tip puts on the path, the convex hull that counts for the bounding box, and the
+/// drawing.
 #[derive(Debug, Clone, PartialEq)]
 struct Geometry {
     tip: f64,
     back: f64,
     line: f64,
+    visual_tip: f64,
+    visual_back: f64,
     hull: Vec<Point>,
     shapes: Vec<Shape>,
 }
@@ -941,6 +970,9 @@ fn geometry(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
         g.tip = -b;
         g.back = -t;
         g.line = -g.line;
+        let (vt, vb) = (g.visual_tip, g.visual_back);
+        g.visual_tip = -vb;
+        g.visual_back = -vt;
         let flip = |p: Point| Point::new(-p.x, p.y);
         g.hull = g.hull.iter().map(|&p| flip(p)).collect();
         for s in &mut g.shapes {
@@ -964,6 +996,8 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
     let hy = |alw: f64, y: f64| if h { -0.5 * alw } else { y };
     let mut p = Pen::default();
     let (tip, back, line);
+    // `\pgfarrowssetvisualbackend`, where the tip sets it (the back end otherwise)
+    let mut visual_back = None;
     let mut shapes = Vec::new();
     let cap = |round: bool| Some(if round { Cap::Round } else { Cap::Butt });
     let join = |round: bool| Some(if round { Join::Round } else { Join::Miter });
@@ -976,6 +1010,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
             let xc = 0.5 * (4.0 * q * q + 1.0).sqrt() * alw;
             let xa = q * alw;
             tip = if rj { l + 0.5 * alw } else { l + xc + if h { xa } else { 0.0 } };
+            visual_back = Some(l + 0.5 * alw);
             back = -0.5 * alw;
             line = if rev { l + if h { 0.5 * alw } else { 0.0 } } else { l - 0.5 * alw };
             hull.push(Point::new(if rj { l + 0.5 * alw } else { l + xc + xa }, hy(alw, 0.0)));
@@ -1061,6 +1096,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
         Kind::ArcBarb => {
             let ah = 0.5 * k.arc;
             tip = l;
+            visual_back = Some(l);
             line = l - 0.5 * alw;
             upper(&mut hull, l, 0.25 * w);
             if h {
@@ -1116,6 +1152,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
             tip = da + if rc && !sa { 0.5 * alw } else { 0.0 };
             back = db - if rc && !sb { 0.5 * alw } else { 0.0 };
             line = if rev { 0.25 * alw } else { -0.25 * alw };
+            visual_back = Some(0.5 * alw);
             upper(&mut hull, tip, 0.5 * w);
             upper(&mut hull, back, 0.5 * w);
             if h {
@@ -1160,6 +1197,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
                 da - 0.6 * lw.line
             };
             back = -0.5 * alw;
+            visual_back = Some(da + 0.5 * alw);
             hull.push(Point::new(tip, 0.5 * alw));
             hull.push(Point::new(tip, -0.5 * alw));
             upper(&mut hull, 0.5 * alw, 0.5 * db + 0.5 * alw);
@@ -1200,6 +1238,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
             tip = if rj { 0.5 * alw } else { xc + if h { xa } else { 0.0 } };
             line = if rev && h { 0.5 * alw } else { -0.5 * alw };
             back = -da - 0.5 * alw;
+            visual_back = Some(0.5 * alw);
             hull.push(Point::new(tip, 0.5 * alw));
             hull.push(Point::new(tip, -0.5 * alw));
             upper(&mut hull, -da + 0.5 * alw, 0.5 * db + 0.5 * alw);
@@ -1299,6 +1338,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
             hull.push(Point::new(l + if !rj && h { xa } else { 0.0 }, hy(alw, 0.0)));
             upper(&mut hull, 0.0, 0.5 * w);
             hull.push(Point::new(ins, hy(alw, 0.0)));
+            visual_back = Some(ins);
             ins += inset_miter;
             p.m(da + back_miter, 0.0).l(back_miter, db).l(ins, 0.0);
             if !h {
@@ -1475,7 +1515,7 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
             line = 0.0;
         }
     }
-    Geometry { tip, back, line, hull, shapes }
+    Geometry { tip, back, line, visual_tip: tip, visual_back: visual_back.unwrap_or(back), hull, shapes }
 }
 
 /// The tips declared with `\pgfarrowsdeclare`: their extents (left and right) and drawing; the line
@@ -1735,7 +1775,7 @@ fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
             (-1.36 * a - 0.5 * b, 2.06 * a + 0.5 * b)
         }
     };
-    Geometry { tip, back, line: 0.0, hull: Vec::new(), shapes }
+    Geometry { tip, back, line: 0.0, visual_tip: tip, visual_back: back, hull: Vec::new(), shapes }
 }
 
 // ---------------------------------------------------------------------------------------- placing
@@ -1749,6 +1789,7 @@ struct Placed {
     swap: bool,
     color: Option<Color>,
     fill: Option<Color>,
+    flex: Flex,
 }
 
 /// The tips at one end of a path, as pgf computes them before drawing (`\pgf@arrow@compute@shortening`).
@@ -1792,7 +1833,7 @@ impl EndTips {
             } else {
                 e.shortening = g.tip + k.sep - g.line;
             }
-            e.tips.push(Placed { g, sep: k.sep, slant: k.slant, swap: k.swap, color: k.color, fill: k.fill });
+            e.tips.push(Placed { g, sep: k.sep, slant: k.slant, swap: k.swap, color: k.color, fill: k.fill, flex: k.flex });
         }
         e.shortening += shorten;
         e.total += shorten;
@@ -1816,22 +1857,146 @@ impl EndTips {
         let mut pos = -self.total;
         for t in &self.tips {
             let off = pos - t.g.back;
-            let local = |p: Point| {
-                let y = if t.swap { -p.y } else { p.y };
-                canvas(Point::new(p.x + t.slant * y + off, y))
-            };
             pos += t.g.tip + t.sep - t.g.back;
-            let color = t.color.unwrap_or(stroke.color);
-            for s in &t.g.shapes {
-                let segments = map_segments(&s.segs, local);
-                let fill = s.fill.then(|| Fill { paint: Paint::Solid(t.fill.unwrap_or(color)), opacity: fill_opacity, even_odd: false });
-                let line =
-                    s.stroke.then(|| Stroke { color, width: s.width * PT, dash: None, cap: s.cap.unwrap_or(stroke.cap), join: s.join.unwrap_or(stroke.join), ..stroke.clone() });
-                items.push(Item::Path { segments, fill, stroke: line });
-            }
-            hull.extend(t.g.hull.iter().map(|&p| local(p)));
+            t.paint(|p| canvas(Point::new(p.x + off, p.y)), stroke, fill_opacity, items, &mut hull);
         }
         hull
+    }
+
+    /// Whether the end is drawn along a curve, when it ends with one: some tip is flexed (pgf's
+    /// precise shortening).
+    pub fn flexed(&self) -> bool {
+        self.tips.iter().any(|t| t.flex != Flex::Quick)
+    }
+
+    /// Draws the tips on a curve (`\pgf@do@draw@curved`), each turned so that its visual ends (or
+    /// tip and back ends, for `flex'`) lie on it; the curve is measured from its point `along.0`,
+    /// where the path ends. Returns the hull points.
+    pub fn draw_on_curve(&self, along: &Curvilinear, stroke: &Stroke, fill_opacity: f64, items: &mut Vec<Item>) -> Vec<Point> {
+        let mut hull = Vec::new();
+        let mut xb = self.total;
+        for t in &self.tips {
+            xb += t.g.back;
+            let origin = xb;
+            xb -= t.g.tip + t.sep;
+            let (start, end, rigidity) = match t.flex {
+                Flex::FlexPrime(r) => (t.g.tip, t.g.back, r),
+                Flex::Flex(r) => (t.g.visual_tip, t.g.visual_back, r),
+                Flex::Quick | Flex::Bend => (t.g.visual_tip, t.g.visual_back, 1.0),
+            };
+            let end = rigidity * (end - start) + start;
+            let (at, u) = if (start - end).abs() < 1e-9 {
+                // no length to flex: along the tangent
+                let time = along.time(origin - start);
+                (along.at(time), along.toward_start(time).scale(-1.0))
+            } else {
+                let p = along.at(along.time(origin - start));
+                let q = along.at(along.time(origin - end));
+                let d = p.minus(q);
+                (p, if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(0.0, 1.0) })
+            };
+            let n = Point::new(-u.y, u.x);
+            t.paint(|p| at.plus(u.scale((p.x - start) * PT)).plus(n.scale(p.y * PT)), stroke, fill_opacity, items, &mut hull);
+        }
+        hull
+    }
+}
+
+impl Placed {
+    /// Paints the tip through `place`, from its frame (pt) after its slant and swap to the canvas.
+    fn paint(&self, place: impl Fn(Point) -> Point, stroke: &Stroke, fill_opacity: f64, items: &mut Vec<Item>, hull: &mut Vec<Point>) {
+        let local = |p: Point| {
+            let y = if self.swap { -p.y } else { p.y };
+            place(Point::new(p.x + self.slant * y, y))
+        };
+        let color = self.color.unwrap_or(stroke.color);
+        for s in &self.g.shapes {
+            let segments = map_segments(&s.segs, local);
+            let fill = s.fill.then(|| Fill { paint: Paint::Solid(self.fill.unwrap_or(color)), opacity: fill_opacity, even_odd: false });
+            let line = s.stroke.then(|| Stroke { color, width: s.width * PT, dash: None, cap: s.cap.unwrap_or(stroke.cap), join: s.join.unwrap_or(stroke.join), ..stroke.clone() });
+            items.push(Item::Path { segments, fill, stroke: line });
+        }
+        hull.extend(self.g.hull.iter().map(|&p| local(p)));
+    }
+}
+
+/// A cubic curve measured by length from its first point, the way pgf's curvilinear library does
+/// it: lengths at four times near the start (about 1, 2, 4 and 8 pt along), straight between them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Curvilinear {
+    pub points: [Point; 4],
+    tau: f64,
+    lengths: [f64; 4],
+}
+
+impl Curvilinear {
+    /// `\pgfsetcurvilinearbeziercurve` (canvas cm).
+    pub fn new(points: [Point; 4]) -> Curvilinear {
+        let mut c = Curvilinear { points, tau: 0.0, lengths: [0.0; 4] };
+        let pt = |a: Point, b: Point| b.minus(a).norm() / PT;
+        let polygon = pt(points[0], points[1]) + pt(points[1], points[2]) + pt(points[2], points[3]);
+        c.tau = ratio(1.0, polygon);
+        let mut first = pt(points[0], c.at(c.tau));
+        if first > 1.0 {
+            c.tau = ratio(c.tau, first);
+            first = pt(points[0], c.at(c.tau));
+        }
+        let mut sum = first;
+        c.lengths[0] = sum;
+        for (k, f) in [2.0, 4.0, 8.0].into_iter().enumerate() {
+            sum += pt(c.at(c.tau * f / 2.0), c.at(c.tau * f));
+            c.lengths[k + 1] = sum;
+        }
+        c
+    }
+
+    /// The point at `t` (beyond 1, the cubic goes on).
+    pub fn at(&self, t: f64) -> Point {
+        let [a, b, c, d] = self.points;
+        let s = 1.0 - t;
+        a.scale(s * s * s).plus(b.scale(3.0 * s * s * t)).plus(c.scale(3.0 * s * t * t)).plus(d.scale(t * t * t))
+    }
+
+    /// The unit direction at `t` toward increasing `t`, away from the first point.
+    fn toward_start(&self, t: f64) -> Point {
+        let [a, b, c, d] = self.points;
+        let s = 1.0 - t;
+        let mut v = b.minus(a).scale(3.0 * s * s).plus(c.minus(b).scale(6.0 * s * t)).plus(d.minus(c).scale(3.0 * t * t));
+        if v.norm() < 1e-12 {
+            // a degenerate start: toward the first control point that differs
+            v = self.points.iter().find(|p| p.minus(a).norm() > 1e-12).map(|p| p.minus(a)).unwrap_or(Point::new(0.0, -1.0));
+        }
+        v.scale(1.0 / v.norm())
+    }
+
+    /// `\pgfcurvilineardistancetotime`: the time at `distance` (pt) from the first point.
+    pub fn time(&self, distance: f64) -> f64 {
+        let [la, lb, lc, ld] = self.lengths;
+        let tau = self.tau;
+        // straight through (l0, t0) and (l1, t1)
+        let line = |l0: f64, t0: f64, l1: f64, t1: f64| t0 + ratio(t1 - t0, l1 - l0) * (distance - l0);
+        if distance < la {
+            ratio(tau, la) * distance
+        } else if distance < lb {
+            line(la, tau, lb, 2.0 * tau)
+        } else if distance < lc {
+            line(lb, 2.0 * tau, lc, 4.0 * tau)
+        } else if distance < ld {
+            line(lc, 4.0 * tau, ld, 8.0 * tau)
+        } else {
+            ratio(8.0 * tau, ld) * distance
+        }
+    }
+
+    /// The curve from time `t` to the end, as a cubic: what is left once the start is cut off.
+    pub fn after(&self, t: f64) -> [Point; 4] {
+        let [a, b, c, d] = self.points;
+        let ab = a.lerp(b, t);
+        let bc = b.lerp(c, t);
+        let cd = c.lerp(d, t);
+        let abc = ab.lerp(bc, t);
+        let bcd = bc.lerp(cd, t);
+        [abc.lerp(bcd, t), bcd, cd, d]
     }
 }
 
@@ -2078,6 +2243,30 @@ mod tests {
             e.draw(Point::new(1.0, 0.0), Point::new(0.0, 0.0), &s, 1.0, &mut items);
             assert!(items.iter().all(|i| matches!(i, Item::Path { stroke, .. } if stroke.as_ref().is_none_or(|s| s.dash.is_none()))), "{spec}");
         }
+    }
+
+    #[test]
+    fn curves_measured_from_their_start() {
+        // a straight cubic 10 pt long, evenly parametrized: time is distance over length
+        let p = |x: f64| Point::new(x * PT, 0.0);
+        let c = Curvilinear::new([p(0.0), p(10.0 / 3.0), p(20.0 / 3.0), p(10.0)]);
+        for d in [0.5, 1.0, 3.0, 7.0, 12.0] {
+            assert!((c.time(d) - d / 10.0).abs() < 1e-6, "{d}: {}", c.time(d));
+        }
+        let [a, _, _, d] = c.after(0.5);
+        assert!((a.x - 5.0 * PT).abs() < 1e-9 && d == p(10.0));
+        // tips laid on a quarter circle stay near it
+        let r = 1.0;
+        let k = 0.5523 * r;
+        let arc = Curvilinear::new([Point::new(r, 0.0), Point::new(r, k), Point::new(k, r), Point::new(0.0, r)]);
+        let e = end("Latex[length=10pt]", 0.0);
+        let mut items = Vec::new();
+        let s = Stroke { color: Color::BLACK, width: 0.0, dash: None, cap: Cap::Butt, join: Join::Miter, miter_limit: 10.0, opacity: 1.0 };
+        let hull = e.draw_on_curve(&arc, &s, 1.0, &mut items);
+        // the point at the end, the back corners about 10 pt down the arc, both sides of it
+        assert!(hull[0].minus(Point::new(r, 0.0)).norm() < 1e-6, "{hull:?}");
+        let back = hull[1].lerp(hull[2], 0.5);
+        assert!((back.norm() - r).abs() < 0.005 && back.y > 0.0, "{back:?}");
     }
 
     #[test]
