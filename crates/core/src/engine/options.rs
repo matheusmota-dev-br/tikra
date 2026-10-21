@@ -69,6 +69,12 @@ impl Engine {
         let key = self.argument_string()?;
         let value = self.argument()?;
         let value = if is_novalue(&value) { None } else { Some(value) };
+        // a label's text is a node's: it keeps them with `handle active characters in nodes`
+        let text = matches!(key.trim(), "label" | "pin" | "node contents");
+        let value = match value {
+            Some(v) if self.st.active_in_code && !(text && self.st.active_in_nodes) => Some(deactivate(v)),
+            v => v,
+        };
         self.invoke(&key, value)
     }
 
@@ -1124,6 +1130,11 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
     Ok(())
 }
 
+/// The active characters of `v` as the characters they are.
+pub fn deactivate(v: Vec<Token>) -> Vec<Token> {
+    v.into_iter().map(|t| if let Token::Char(c, tex::Cat::Active) = t { Token::other(c) } else { t }).collect()
+}
+
 /// A positioning distance: a length, or a number in units of the x or y vector.
 fn place_length(e: &mut Engine, text: &str, axis: usize) -> Result<f64, Error> {
     let s = e.math_string(tikra_tokens(text.trim()))?;
@@ -1865,6 +1876,14 @@ keyfn!(k_slice, |e, v| {
     let s = text(e, &v)?;
     e.view_key(&s, true)
 });
+keyfn!(k_active_in_code, |e, _v| {
+    e.st.active_in_code = true;
+    Ok(())
+});
+keyfn!(k_active_in_nodes, |e, _v| {
+    e.st.active_in_nodes = true;
+    Ok(())
+});
 keyfn!(k_fit_fading, |e, v| {
     e.st.fit_fading = text(e, &v)? != "false";
     Ok(())
@@ -2072,6 +2091,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
     ("/tikz/fit fading", k_fit_fading),
+    ("/tikz/handle active characters in code", k_active_in_code),
+    ("/tikz/handle active characters in nodes", k_active_in_nodes),
     ("/tikz/meet", k_meet),
     ("/tikz/slice", k_slice),
     ("/tikz/local bounding box", k_local_bounding_box),

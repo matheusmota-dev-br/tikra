@@ -184,6 +184,10 @@ pub struct GState {
     pub path_fading: Option<String>,
     /// `fading angle`: the path fading turned in the path's box.
     pub fading_angle: f64,
+    /// `handle active characters in code` (and `… in nodes`): active characters in options and
+    /// coordinates read as the characters they are
+    pub active_in_code: bool,
+    pub active_in_nodes: bool,
     pub transparency_group: bool,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
@@ -323,6 +327,8 @@ impl Default for GState {
             matrix: Default::default(),
             path_fading: None,
             fading_angle: 0.0,
+            active_in_code: false,
+            active_in_nodes: false,
             transparency_group: false,
             shading: "axis".into(),
             shade_angle: 0.0,

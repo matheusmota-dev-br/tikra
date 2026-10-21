@@ -605,6 +605,7 @@ impl Tex {
         self.meanings.insert(Rc::from("thr@@"), Meaning::CharDef(3));
         self.meanings.insert(Rc::from("@m"), Meaning::CharDef(1000));
         self.meanings.insert(Rc::from("@M"), Meaning::CharDef(10000));
+        self.meanings.insert(Rc::from("active"), Meaning::CharDef(13));
         self.meanings.insert(Rc::from("textwidth"), Meaning::Dimen(254));
         self.dimens.insert(254, 345 * 65536);
         self.meanings.insert(Rc::from("linewidth"), Meaning::Dimen(255));
@@ -2698,6 +2699,25 @@ pub fn tokens_to_string(v: &[Token]) -> String {
                 }
             }
             Token::Char(c, _) => s.push(*c),
+        }
+    }
+    s
+}
+
+/// Like [`tokens_to_string`], for text read again as TeX: a control word before a space (`\o` from
+/// an active character's definition) gets `{}`, so the space stays.
+pub fn tokens_to_text(v: &[Token]) -> String {
+    let mut s = String::new();
+    for (i, t) in v.iter().enumerate() {
+        let word = matches!(t, Token::Cs(n) if n.chars().next().is_some_and(|c| c.is_alphabetic() || c == '@'));
+        if word && matches!(v.get(i + 1), Some(Token::Char(_, Cat::Space))) {
+            s.push_str(&tokens_to_string(std::slice::from_ref(t)));
+            s.push_str("{}");
+        } else {
+            s.push_str(&tokens_to_string(&v[i..=i]));
+            if word && matches!(v.get(i + 1), Some(Token::Char(c, _)) if c.is_alphabetic()) {
+                s.push(' ');
+            }
         }
     }
     s

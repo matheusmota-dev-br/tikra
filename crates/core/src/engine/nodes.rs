@@ -372,7 +372,7 @@ impl Engine {
         text_tokens.extend(body(self, "tikz@atend@node"));
         let expanded = self.tex.expand_fully(text_tokens)?;
         for (part, tokens) in split_parts(&expanded) {
-            texts.push((part, tex::tokens_to_string(&tokens).trim().to_string()));
+            texts.push((part, tex::tokens_to_text(&tokens).trim().to_string()));
         }
         let text = texts[0].1.clone();
         let text_width = {
