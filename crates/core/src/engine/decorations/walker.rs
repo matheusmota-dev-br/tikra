@@ -11,6 +11,17 @@ pub const SP: f64 = 1.0 / 65536.0;
 /// Comparisons of distances allow for float noise where TeX's dimensions are exact.
 pub const EPS: f64 = 1e-7;
 
+/// A length as TeX keeps it: a whole number of sp.
+pub fn to_sp(pt: f64) -> f64 {
+    (pt * 65536.0).round() / 65536.0
+}
+
+/// A computed distance as a TeX dimension takes it (`.5\dimen` truncates toward zero): the
+/// automaton moves by these, so stretches that seem to end on a corner stop a few sp before it.
+pub fn trunc_sp(pt: f64) -> f64 {
+    (pt * 65536.0 + if pt >= 0.0 { 1e-6 } else { -1e-6 }).trunc() / 65536.0
+}
+
 /// An input segment object (`\pgf@decorate@inputsegmentobject@…`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Obj {
@@ -162,21 +173,21 @@ pub fn parse(segs: &[Segment], existing_last: Point) -> Parsed {
                 start = q;
             }
             Segment::LineTo(q) => {
-                let len = q.minus(last).norm();
+                let len = to_sp(q.minus(last).norm());
                 p.total += len;
                 add(&mut p, &mut queue, Obj::Line { len, a: last, b: q });
                 last = q;
                 p.last_nonmove = q;
             }
             Segment::CurveTo(c1, c2, q) => {
-                let len = curve_length(last, c1, c2, q);
+                let len = to_sp(curve_length(last, c1, c2, q));
                 p.total += len;
                 add(&mut p, &mut queue, Obj::Curve { len, a: last, s1: c1, s2: c2, b: q });
                 last = q;
                 p.last_nonmove = q;
             }
             Segment::Close => {
-                let len = start.minus(last).norm();
+                let len = to_sp(start.minus(last).norm());
                 p.total += len;
                 add(&mut p, &mut queue, Obj::Close { len, a: last, b: start });
                 last = start;
@@ -393,6 +404,7 @@ impl Walker {
 
     /// `\pgf@decorate@movealongpath`
     pub fn move_along_path(&mut self, d: f64) {
+        let d = trunc_sp(d);
         let mut dtm = d;
         self.completed += d;
         self.remaining -= d;

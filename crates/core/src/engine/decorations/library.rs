@@ -401,7 +401,7 @@ impl<'a> Run<'a> {
     /// `\pgf@decorate@invoke` with the code to run before and after (`\pgfdecoration`'s list).
     pub fn invoke_with(&mut self, dec: Dec, distance: f64, before: Option<Vec<Token>>, after: Option<Vec<Token>>) -> Result<(), Error> {
         let w = &mut self.w;
-        let len = distance.min(w.rem_total);
+        let len = super::walker::trunc_sp(distance).min(w.rem_total);
         w.section = len;
         w.rem_total -= len;
         w.remaining = len;
