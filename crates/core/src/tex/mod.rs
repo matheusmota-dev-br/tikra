@@ -13,6 +13,7 @@
 pub mod dimen;
 
 use std::collections::{HashMap, VecDeque};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 use crate::Error;
@@ -345,17 +346,51 @@ pub const MAX_EXPANSIONS: usize = 2_000_000;
 /// Cap on tokens in one list (a macro doubling itself on each step stops here).
 pub const MAX_TOKENS: usize = 1_000_000;
 
+
+/// A fast hash for the tables TeX looks into at every token (names, registers, catcodes): FxHash,
+/// as rustc uses. Names come from the document, so crafted ones can collide; that only slows the
+/// lookups, and the engine's caps on statements and expansions bound the work.
+#[derive(Default, Clone, Copy)]
+pub struct FxHasher(u64);
+
+impl Hasher for FxHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        const K: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+        let mut chunks = bytes.chunks_exact(8);
+        for c in &mut chunks {
+            self.0 = (self.0.rotate_left(5) ^ u64::from_le_bytes(c.try_into().expect("8 bytes"))).wrapping_mul(K);
+        }
+        for b in chunks.remainder() {
+            self.0 = (self.0.rotate_left(5) ^ u64::from(*b)).wrapping_mul(K);
+        }
+    }
+    fn write_u32(&mut self, v: u32) {
+        self.0 = (self.0.rotate_left(5) ^ u64::from(v)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_usize(&mut self, v: usize) {
+        self.write_u64(v as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+pub type Map<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
+
 /// The state of TeX: input, meanings, registers, groups.
 #[derive(Clone)]
 pub struct Tex {
     input: Vec<Frame>,
-    meanings: HashMap<Rc<str>, Meaning>,
-    active: HashMap<char, Meaning>,
-    pub counts: HashMap<u32, i64>,
+    meanings: Map<Rc<str>, Meaning>,
+    active: Map<char, Meaning>,
+    pub counts: Map<u32, i64>,
     /// in scaled points (65536 sp = 1 pt)
-    pub dimens: HashMap<u32, i64>,
-    pub toks: HashMap<u32, Rc<Vec<Token>>>,
-    catcodes: HashMap<char, Cat>,
+    pub dimens: Map<u32, i64>,
+    pub toks: Map<u32, Rc<Vec<Token>>>,
+    catcodes: Map<char, Cat>,
     save: Vec<Vec<Saved>>,
     /// a `\global` prefix is pending
     global: bool,
@@ -387,12 +422,12 @@ impl Tex {
     pub fn new() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
-            meanings: HashMap::new(),
-            active: HashMap::new(),
-            counts: HashMap::new(),
-            dimens: HashMap::new(),
-            toks: HashMap::new(),
-            catcodes: HashMap::new(),
+            meanings: Map::default(),
+            active: Map::default(),
+            counts: Map::default(),
+            dimens: Map::default(),
+            toks: Map::default(),
+            catcodes: Map::default(),
             save: Vec::new(),
             global: false,
             conds: 0,
@@ -588,12 +623,12 @@ impl Tex {
     pub fn new_lexer() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
-            meanings: HashMap::new(),
-            active: HashMap::new(),
-            counts: HashMap::new(),
-            dimens: HashMap::new(),
-            toks: HashMap::new(),
-            catcodes: HashMap::new(),
+            meanings: Map::default(),
+            active: Map::default(),
+            counts: Map::default(),
+            dimens: Map::default(),
+            toks: Map::default(),
+            catcodes: Map::default(),
             save: Vec::new(),
             global: false,
             conds: 0,
@@ -2545,7 +2580,7 @@ enum BranchEnd {
     Fi,
 }
 
-fn restore<K: std::hash::Hash + Eq, V>(map: &mut HashMap<K, V>, k: K, old: Option<V>) {
+fn restore<K: std::hash::Hash + Eq, V, S: std::hash::BuildHasher>(map: &mut HashMap<K, V, S>, k: K, old: Option<V>) {
     match old {
         Some(v) => {
             map.insert(k, v);

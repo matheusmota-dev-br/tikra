@@ -212,7 +212,11 @@ def main():
         results.append(r)
     (work / "results.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
     timing_path = work / "timing.json"
-    summary = report_md(results, json.loads(timing_path.read_text()) if timing_path.exists() else None)
+    timing = json.loads(timing_path.read_text()) if timing_path.exists() else None
+    startup_path = work / "tikra" / "startup.json"
+    if timing is not None and startup_path.exists():
+        timing = {**timing, **json.loads(startup_path.read_text())}
+    summary = report_md(results, timing)
     Path(a.docs or work / "report.md").write_text(summary)
     report_html(results, work)
     print(summary.split("\n## ")[0])
@@ -262,6 +266,8 @@ def report_md(results, timing=None):
         "",
     ]
     if timing:
+        startup_ms = timing.get("startup_us", None)
+        startup_ms = startup_ms / 1000 if startup_ms is not None else None
         same = [r for r in counted if r["hash"] in timing["ms"] and r.get("svg_us")]
         tex = sorted(timing["ms"][r["hash"]] for r in same)
         tik = sorted(r["svg_us"] / 1000 for r in same)
@@ -280,7 +286,8 @@ def report_md(results, timing=None):
                 "",
                 f"Median ratio: tikra is **{mid(sorted(t / k for t, k in zip([timing['ms'][r['hash']] for r in same], [r['svg_us'] / 1000 for r in same]))):.0f}× faster**. "
                 "pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user",
-                "waits for; tikra's is the conversion inside a running process (the command line adds a few ms to start).",
+                "waits for; tikra's is the conversion inside a running process"
+                + (f": the first figure of a process also builds the engine, {startup_ms:.1f} ms more." if startup_ms is not None else "."),
                 "",
             ]
     out += ["## By chapter", "", "Sorted by how many figures do not match, the work left.", "",
