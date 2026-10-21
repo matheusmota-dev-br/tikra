@@ -134,7 +134,8 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     let mut segs: Vec<Segment> = Vec::new();
     let bar_width = keys::length(e, "/pgf/bar width").unwrap_or(10.0 * PT);
     define(e, "pgfplotbarwidth", &format!("{}pt", bar_width / PT));
-    let bar_shift = keys::length(e, "/pgf/bar shift").unwrap_or(0.0);
+    // stacked bars stand on each other: no shift
+    let bar_shift = if p.stack.is_some() { 0.0 } else { keys::length(e, "/pgf/bar shift").unwrap_or(0.0) };
     define(e, "pgfplotbarshift", &format!("{}pt", bar_shift / PT));
     let stacked = p.stack.is_some();
     // the zero level bars and combs stand on

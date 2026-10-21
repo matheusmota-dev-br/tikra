@@ -17,6 +17,7 @@ pub mod mesh;
 pub mod number;
 pub mod plot;
 pub mod polar;
+pub mod symbolic;
 pub mod table;
 pub mod ticks;
 pub mod visual;

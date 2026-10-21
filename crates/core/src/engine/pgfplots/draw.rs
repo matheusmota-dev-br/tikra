@@ -528,7 +528,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let mut user: [(Option<f64>, Option<f64>); 3] = [(None, None); 3];
     for (a, u) in user.iter_mut().enumerate() {
         let c = axis_char(a);
-        *u = (keys::number(e, &format!("/pgfplots/{c}min")).map(|v| lg(a, v)), keys::number(e, &format!("/pgfplots/{c}max")).map(|v| lg(a, v)));
+        *u = (super::symbolic::number(e, c, &format!("/pgfplots/{c}min")).map(|v| lg(a, v)), super::symbolic::number(e, c, &format!("/pgfplots/{c}max")).map(|v| lg(a, v)));
     }
     // the coordinates, stacked
     let mut points: Vec<PlotPoints> = Vec::new();
@@ -635,11 +635,11 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let mut auto_max = [true; 3];
     for a in 0..3 {
         let c = axis_char(a);
-        if let Some(v) = keys::number(e, &format!("/pgfplots/{c}min")) {
+        if let Some(v) = super::symbolic::number(e, c, &format!("/pgfplots/{c}min")) {
             min[a] = lg(a, v);
             auto_min[a] = false;
         }
-        if let Some(v) = keys::number(e, &format!("/pgfplots/{c}max")) {
+        if let Some(v) = super::symbolic::number(e, c, &format!("/pgfplots/{c}max")) {
             max[a] = lg(a, v);
             auto_max[a] = false;
         }
@@ -1117,6 +1117,22 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
         return Ok((v.into_iter().map(|x| f.logical(a, x)).collect(), 0.0));
     }
     if !text.is_empty() {
+        // names of a symbolic axis
+        if !super::symbolic::names(e, c).is_empty() {
+            let mut v = Vec::new();
+            for item in super::super::foreach_items(&e.tex.expand_fully(trimmed.clone())?) {
+                let s = tex::tokens_to_string(&item);
+                match super::symbolic::index(e, c, &s) {
+                    Some(i) => v.push(i),
+                    None => {
+                        if let Ok(x) = e.number_of(item) {
+                            v.push(x);
+                        }
+                    }
+                }
+            }
+            return Ok((v, 0.0));
+        }
         let v = number_list(e, trimmed)?;
         return Ok((v.into_iter().map(|x| f.logical(a, x)).filter(|x| x.is_finite()).collect(), 0.0));
     }
@@ -1685,6 +1701,9 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
             return Ok(tex::string_tokens(&format!("${}$", ff.print(v))));
         }
         return Ok(tex::string_tokens(&format!("${base_text}^{{{}}}$", fmt.print(exp))));
+    }
+    if let Some(name) = super::symbolic::label(e, c, t) {
+        return Ok(super::super::tikra_tokens(&name));
     }
     Ok(tex::string_tokens(&format!("${}$", e.st.number_format.print(shown(t)))))
 }

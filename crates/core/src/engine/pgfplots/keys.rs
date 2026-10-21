@@ -578,6 +578,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/mesh/check/.initial=error,
 	/pgfplots/mesh/interior colormap name/.initial=,
 	/pgfplots/late options/.initial=,
+	/pgfplots/symbolic x coords/.initial=, /pgfplots/symbolic y coords/.initial=, /pgfplots/symbolic z coords/.initial=,
 	/pgfplots/@axis type/.initial=cart, /pgfplots/data cs/.initial=cart,
 	/pgfplots/every polar axis/.style={grid=major, xtick pos=right, ytick pos=right,
 		every axis title shift=1.2\baselineskip, legend style={anchor=center}, /pgfplots/polar labels},

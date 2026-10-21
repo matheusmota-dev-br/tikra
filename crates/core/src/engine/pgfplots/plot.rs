@@ -520,6 +520,14 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
 }
 
 /// A value of `coordinates`: a number, or an expression.
+/// A coordinate of axis `c`: a name of `symbolic c coords`, or a number.
+fn axis_value(e: &mut Engine, c: char, tokens: &[Token]) -> f64 {
+    if let Some(i) = super::symbolic::index(e, c, &tex::tokens_to_string(tokens)) {
+        return i;
+    }
+    value(e, tokens)
+}
+
 fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
     let s = tex::tokens_to_string(tokens);
     if let Some(v) = table::parse_number(&s) {
@@ -573,8 +581,8 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
                 out.push(Coord::new(f64::NAN, f64::NAN, f64::NAN));
                 continue;
             }
-            let x = parts.first().map_or(f64::NAN, |p| value(e, p));
-            let y = parts.get(1).map_or(f64::NAN, |p| value(e, p));
+            let x = parts.first().map_or(f64::NAN, |p| axis_value(e, 'x', p));
+            let y = parts.get(1).map_or(f64::NAN, |p| axis_value(e, 'y', p));
             let z = parts.get(2).map_or(0.0, |p| value(e, p));
             let mut c = Coord::new(x, y, z);
             // error bars, then [meta]
@@ -750,8 +758,15 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
                 }
             }
         };
+        // a cell of a symbolic axis is a name
+        let sym = |e: &mut Engine, s: &Src, c: char, v: f64| match s {
+            Src::Col(Some(col)) if !v.is_finite() => t.cell(r, *col).and_then(|cell| super::symbolic::index(e, c, cell)).unwrap_or(v),
+            _ => v,
+        };
         let x = get(e, &sx);
+        let x = sym(e, &sx, 'x', x);
         let y = get(e, &sy);
+        let y = sym(e, &sy, 'y', y);
         let z = if matches!(sz, Src::None) { 0.0 } else { get(e, &sz) };
         let mut c = Coord::new(x, y, z);
         c.meta = get(e, &smeta);
