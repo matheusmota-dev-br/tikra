@@ -473,7 +473,12 @@ impl Engine {
         let t = info.transform;
         let g = info.geometry.clone();
         let mut items = Vec::new();
-        let node_fill = if self.st.mode.fill {
+        // a shaded node: its shading fitted to the background path, as \pgfshadepath does
+        let background: Vec<Segment> =
+            g.paths.iter().filter(|p| p.layer == Layer::Background && matches!(p.usage, Usage::Node)).flat_map(|p| transform_segments(&p.segments, &t)).collect();
+        let node_fill = if self.st.mode.shade && !background.is_empty() {
+            Some(Fill { paint: Paint::Shading(self.shading_of(&background)), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
+        } else if self.st.mode.fill {
             Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
         } else if self.st.mode.pattern {
             Some(Fill {
