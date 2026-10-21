@@ -283,7 +283,7 @@ impl Engine {
             }
         };
         self.process_keys(tikra_tokens(&format!("every {} node/.try", shape_name.trim())), Some("/tikz"))?;
-        let name = spec.name.clone().or_else(|| self.st.node.name.clone());
+        let name = spec.name.clone().or_else(|| self.st.node.name.clone()).or_else(|| self.set_member_name());
 
         // the text box
         let text = self.tex.expand_to_string(spec.text.clone())?;
@@ -433,6 +433,7 @@ impl Engine {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
             self.tex.define_string("tikzlastnode", &n, true);
+            self.join_sets(&n);
             self.nodes.insert(n, info.clone());
         }
         // the last node, for trees (labels below do not count)

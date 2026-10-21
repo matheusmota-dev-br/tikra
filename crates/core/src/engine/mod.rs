@@ -5,6 +5,7 @@
 pub mod arrows;
 pub mod basic;
 pub mod coords;
+pub mod graphs;
 pub mod intersections;
 pub mod matrix;
 pub mod nodes;
@@ -258,6 +259,8 @@ pub struct Engine {
     layout: Vec<Layout>,
     /// keys run so far
     pub keys_run: usize,
+    /// the graphs being read (`\graph`)
+    pub graphs: graphs::State,
 }
 
 /// A finished picture: its canvas and the height of its baseline in it (cm).
@@ -322,6 +325,7 @@ impl Clone for Engine {
             on_layer: self.on_layer.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
+            graphs: self.graphs.clone(),
         }
     }
 }
@@ -371,6 +375,7 @@ impl Engine {
             on_layer: Vec::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
+            graphs: graphs::State::default(),
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
@@ -378,6 +383,7 @@ impl Engine {
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
         options::define_keys(&mut e);
+        graphs::define(&mut e);
         e
     }
 
@@ -672,11 +678,9 @@ impl Engine {
             }
             Cmd::Matrix => self.matrix(),
             Cmd::Graph => {
-                let rest = self.skip_statement()?;
-                let _ = rest;
-                let name = tex::show_token(t);
-                self.warn(format!("{name} is not supported: ignored"));
-                Ok(())
+                self.tex.push_tokens(tikra_tokens("graph "));
+                let r = path::statement(self, "");
+                self.recover(r, t)
             }
             Cmd::Unsupported => {
                 let name = tex::show_token(t);
