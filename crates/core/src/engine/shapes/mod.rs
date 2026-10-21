@@ -270,6 +270,7 @@ pub const DEFINITIONS: &str = r"
 \tikzset{
   execute at begin node/.code={\expandafter\def\expandafter\tikz@atbegin@node\expandafter{\tikz@atbegin@node#1}},
   execute at end node/.code={\expandafter\def\expandafter\tikz@atend@node\expandafter{\tikz@atend@node#1}},
+  node contents/.code={},
 }
 \def\tikra@kiteangles#1and#2and#3\@@{\pgfkeys{/pgf/kite upper vertex angle={#1},/pgf/kite lower vertex angle={#2}}}
 \pgfkeys{/pgf/.cd,

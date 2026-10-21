@@ -570,42 +570,37 @@ impl Engine {
             other => self.number(other).unwrap_or(90.0),
         };
         let distance = if pin { self.key_length("/tikz/pin distance", 3.0 * 0.1515) } else { self.key_length("/tikz/label distance", 0.0) };
-        let (border, anchor) = if angle.is_nan() {
+        // as `tikz@label@post`: at the node's anchor of that (whole) angle, moved away from the
+        // center by the distance, with the anchor on the side away from the node
+        let (at, anchor) = if angle.is_nan() {
             (info.center(), "center".to_string())
         } else {
-            let compass = compass_anchor(&position);
-            let b = match compass {
-                Some(c) => info.anchor(c).unwrap_or(info.center()),
-                None => info.anchor(&format!("{angle}")).unwrap_or(info.center()),
-            };
-            let opposite = match position.as_str() {
-                "above" | "north" => "south".to_string(),
-                "below" | "south" => "north".to_string(),
-                "left" | "west" => "east".to_string(),
-                "right" | "east" => "west".to_string(),
-                "above left" | "north west" => "south east".to_string(),
-                "above right" | "north east" => "south west".to_string(),
-                "below left" | "south west" => "north east".to_string(),
-                "below right" | "south east" => "north west".to_string(),
-                _ => opposite_anchor(angle),
-            };
-            (b, opposite)
+            let border = info.anchor(&format!("{}", angle.trunc())).unwrap_or(info.center());
+            let d = border.minus(info.center());
+            if d.norm() < 1e-9 {
+                // a node without size (a coordinate): straight out at the angle
+                (border.plus(Point::new(angle.to_radians().cos(), angle.to_radians().sin()).scale(distance)), direction_anchor(angle).to_string())
+            } else {
+                let u = d.scale(1.0 / d.norm());
+                (border.plus(u.scale(distance)), auto_anchor(Point::new(u.y, -u.x).scale(PT), false).to_string())
+            }
         };
-        let (s_, c_) = if angle.is_nan() { (0.0, 0.0) } else { angle.to_radians().sin_cos() };
-        let at = border.plus(Point::new(c_ * distance, s_ * distance));
         let mut options = tikra_tokens(&format!("every {}/.try,anchor={anchor},", if pin { "pin" } else { "label" }));
         options.extend(opts);
         let items = self.node(NodeSpec { options, name: None, at: Some(at), text: text_tokens, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         if pin {
-            // the pin edge, from the label to the node's border
-            let edge_from = at;
-            let edge_to = border;
+            // the pin edge: an edge from the node to the pin's label, between their borders
+            let label = self.last_node.clone();
+            let (from, to) = match &label {
+                Some(l) => (info.border_toward(l.center()), l.border_toward(info.center())),
+                None => (info.border_toward(at), at),
+            };
             self.begin_group();
             self.st.mode = Default::default();
             self.process_keys(tikra_tokens("every pin edge/.try,draw"), Some("/tikz"))?;
             let stroke = self.stroke();
             self.end_group();
-            let mut out = vec![Item::Path { segments: vec![Segment::MoveTo(edge_from), Segment::LineTo(edge_to)], fill: None, stroke: Some(stroke) }];
+            let mut out = vec![Item::Path { segments: vec![Segment::MoveTo(from), Segment::LineTo(to)], fill: None, stroke: Some(stroke) }];
             out.extend(items);
             return Ok(out);
         }
@@ -666,28 +661,20 @@ fn auto_anchor(d: Point, right: bool) -> &'static str {
     }
 }
 
-fn compass_anchor(p: &str) -> Option<&'static str> {
-    Some(match p {
-        "above" | "north" => "north",
-        "below" | "south" => "south",
-        "left" | "west" => "west",
-        "right" | "east" => "east",
-        "above left" | "north west" => "north west",
-        "above right" | "north east" => "north east",
-        "below left" | "south west" => "south west",
-        "below right" | "south east" => "south east",
-        _ => return None,
-    })
-}
-
-/// The anchor of a label at `angle`: TikZ uses the compass anchor nearest to the opposite side.
-fn opposite_anchor(angle: f64) -> String {
-    let a = angle.rem_euclid(360.0);
-    let names = ["west", "south west", "south", "south east", "east", "north east", "north", "north west"];
-    if (a % 45.0).abs() < 1e-9 {
-        return names[((a / 45.0).round() as usize) % 8].to_string();
+/// `\tikz@compute@direction`: the anchor of a label at `angle` (whole degrees) away from a point.
+fn direction_anchor(angle: f64) -> &'static str {
+    let a = (angle.trunc() as i64).rem_euclid(360);
+    match a {
+        0..=3 => "west",
+        4..=86 => "south west",
+        87..=93 => "south",
+        94..=176 => "south east",
+        177..=183 => "east",
+        184..=266 => "north east",
+        267..=273 => "north",
+        274..=356 => "north west",
+        _ => "west",
     }
-    format!("{}", (a + 180.0).rem_euclid(360.0))
 }
 
 /// `30:text` → (`30`, `text`): split at the first colon outside braces.
