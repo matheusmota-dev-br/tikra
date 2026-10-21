@@ -204,6 +204,8 @@ pub struct GState {
     pub aliases: Vec<String>,
     /// `trim left` and `trim right` of the picture
     pub trim_left: Option<String>,
+    /// `allow upside down`: sloped nodes are not turned the right way up
+    pub allow_upside_down: bool,
     pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
@@ -279,6 +281,7 @@ impl Default for GState {
             after_node_path: Vec::new(),
             aliases: Vec::new(),
             trim_left: None,
+            allow_upside_down: false,
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,

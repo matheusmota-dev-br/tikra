@@ -818,6 +818,32 @@ keyfn!(k_double_distance, |e, v| {
     Ok(())
 });
 
+// the distance between the two lines' centers: the gap is that less one line width
+keyfn!(k_double_distance_centers, |e, v| {
+    e.st.double_distance = (length(e, &v)?.unwrap_or(0.6 * PT) - e.st.line_width).max(0.0);
+    if e.st.double.is_none() {
+        e.st.double = Some(crate::color::Color::WHITE);
+    }
+    Ok(())
+});
+// `shift only`: the transformation keeps only where it moves the origin
+keyfn!(k_shift_only, |e, _v| {
+    let full = e.st.transform.compose(&e.st.pending);
+    e.st.pending = crate::reader::invert(&e.st.transform).compose(&Transform::translation(full.e, full.f));
+    Ok(())
+});
+keyfn!(k_allow_upside_down, |e, v| {
+    e.st.allow_upside_down = text(e, &v)? != "false";
+    Ok(())
+});
+keyfn!(k_nodes_in_empty_cells, |e, v| {
+    e.st.matrix.nodes_in_empty_cells = text(e, &v)? != "false";
+    Ok(())
+});
+keyfn!(k_matrix_anchor, |e, v| {
+    e.st.matrix.anchor = Some(text(e, &v)?);
+    Ok(())
+});
 keyfn!(k_shift, |e, v| {
     let p = shift_vector(e, &v)?;
     add_transform(e, Transform::translation(p.x, p.y));
@@ -1778,6 +1804,12 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/shorten <", k_shorten_start),
     ("/tikz/double", k_double),
     ("/tikz/double distance", k_double_distance),
+    ("/tikz/double distance between line centers", k_double_distance_centers),
+    ("/tikz/shift only", k_shift_only),
+    ("/tikz/allow upside down", k_allow_upside_down),
+    ("/tikz/nodes in empty cells", k_nodes_in_empty_cells),
+    ("/tikz/matrix anchor", k_matrix_anchor),
+    ("/tikz/append after command", k_after_node_path),
     ("/tikz/shift", k_shift),
     ("/tikz/xshift", k_xshift),
     ("/tikz/yshift", k_yshift),
@@ -1931,7 +1963,7 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  every edge/.style={draw}, every to/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},

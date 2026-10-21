@@ -13,7 +13,9 @@ cd "$(dirname "$0")/../.."
 # the versions inside the TeX Live image, so the manual's examples are the ones that TeX knows
 PGF=3.1.11a
 PGFPLOTS=1.18.2
-work=target/conformance
+# CONFORMANCE_WORK: another working directory (with `ref` and `src` linked from the main one), so
+# that several checkouts can measure at once
+work=${CONFORMANCE_WORK:-target/conformance}
 src=$work/src
 mkdir -p "$src"
 [ -d "$src/pgf-$PGF" ] || curl -sfL "https://github.com/pgf-tikz/pgf/archive/refs/tags/$PGF.tar.gz" | tar xz -C "$src"
