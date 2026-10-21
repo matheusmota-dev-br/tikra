@@ -1320,6 +1320,58 @@ keyfn!(k_pic_actions, |e, _v| {
     Ok(())
 });
 
+keyfn!(k_level_distance, |e, v| {
+    e.st.level_distance = length(e, &v)?.unwrap_or(1.5);
+    Ok(())
+});
+keyfn!(k_sibling_distance, |e, v| {
+    e.st.sibling_distance = length(e, &v)?.unwrap_or(1.5);
+    Ok(())
+});
+
+/// `grow=down`, `grow=30`, `grow'=…`: the direction of the tree; set in a child, it is that child's.
+fn set_grow(e: &mut Engine, v: &Option<Vec<Token>>, swapped: bool) -> Result<(), Error> {
+    let s = text(e, v)?;
+    e.st.grow_angle = match s.as_str() {
+        "down" | "south" => -90.0,
+        "up" | "north" => 90.0,
+        "left" | "west" => 180.0,
+        "right" | "east" => 0.0,
+        "north east" => 45.0,
+        "north west" => 135.0,
+        "south east" => -45.0,
+        "south west" => -135.0,
+        other => e.number(other)?,
+    };
+    e.st.grow_swapped = swapped;
+    e.st.special_level = Some(e.st.tree_level);
+    Ok(())
+}
+keyfn!(k_grow, |e, v| set_grow(e, &v, false));
+keyfn!(k_grow_swapped, |e, v| set_grow(e, &v, true));
+keyfn!(k_missing, |e, v| {
+    e.st.child_missing = text(e, &v)? != "false";
+    Ok(())
+});
+keyfn!(k_growth_parent_anchor, |e, v| {
+    e.st.growth_anchor = text(e, &v)?;
+    Ok(())
+});
+keyfn!(k_parent_anchor, |e, v| {
+    let s = text(e, &v)?;
+    e.st.parent_anchor = if s == "border" || s.is_empty() { String::new() } else { format!(".{s}") };
+    Ok(())
+});
+keyfn!(k_child_anchor, |e, v| {
+    let s = text(e, &v)?;
+    e.st.child_anchor = if s == "border" || s.is_empty() { String::new() } else { format!(".{s}") };
+    Ok(())
+});
+keyfn!(k_edge_from_parent_path, |e, v| {
+    e.st.edge_from_parent_path = v;
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1444,6 +1496,15 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/level distance", k_level_distance),
+    ("/tikz/sibling distance", k_sibling_distance),
+    ("/tikz/grow", k_grow),
+    ("/tikz/grow'", k_grow_swapped),
+    ("/tikz/missing", k_missing),
+    ("/tikz/growth parent anchor", k_growth_parent_anchor),
+    ("/tikz/parent anchor", k_parent_anchor),
+    ("/tikz/child anchor", k_child_anchor),
+    ("/tikz/edge from parent path", k_edge_from_parent_path),
     ("/tikz/pic actions", k_pic_actions),
     ("/tikz/execute at begin scope", k_at_begin_scope),
     ("/tikz/execute at end scope", k_at_end_scope),
@@ -1515,7 +1576,7 @@ const DEFINITIONS: &str = r"
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
-  every pic/.style={}, name prefix/.code={\tikra@nameprefix{#1}},
+  every pic/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}

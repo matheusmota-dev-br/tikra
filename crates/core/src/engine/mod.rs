@@ -12,6 +12,7 @@ pub mod output;
 pub mod path;
 pub mod pics;
 pub mod state;
+pub mod trees;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -235,6 +236,14 @@ pub struct Engine {
     layer_order: Vec<String>,
     layers: HashMap<String, Vec<Item>>,
     on_layer: Vec<(String, Vec<Item>)>,
+    /// the last node made (a tree's parent), its name, and how many tree parents were named
+    pub last_node: Option<nodes::NodeInfo>,
+    pub last_node_name: Option<String>,
+    tree_count: usize,
+    /// the name of each child being grown, set by the first node its statement makes
+    pub tree_child_names: Vec<Option<String>>,
+    /// a child's `edge from parent[…]`, read inside its statement
+    pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
     /// paths kept by `name path`
     pub named_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// pictures already drawn, and how the document lays them out
@@ -293,6 +302,11 @@ impl Clone for Engine {
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
             named_paths: self.named_paths.clone(),
+            last_node: self.last_node.clone(),
+            last_node_name: self.last_node_name.clone(),
+            tree_count: self.tree_count,
+            tree_edge_out: self.tree_edge_out.clone(),
+            tree_child_names: self.tree_child_names.clone(),
             scope_ends: self.scope_ends.clone(),
             layer_order: self.layer_order.clone(),
             layers: self.layers.clone(),
@@ -335,6 +349,11 @@ impl Engine {
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
             named_paths: HashMap::new(),
+            last_node: None,
+            last_node_name: None,
+            tree_count: 0,
+            tree_edge_out: None,
+            tree_child_names: Vec::new(),
             scope_ends: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
             layers: HashMap::new(),

@@ -432,11 +432,18 @@ impl Engine {
             self.tex.define_string("tikzlastnode", &n, true);
             self.nodes.insert(n, info.clone());
         }
+        // the last node, for trees (labels below do not count)
+        let registered = name.as_ref().map(|n| format!("{}{n}", self.st.name_prefix));
+        if let Some(slot @ None) = self.tree_child_names.last_mut() {
+            *slot = Some(registered.clone().unwrap_or_default());
+        }
+        let last = (Some(info.clone()), registered);
         // labels and pins
         let labels = std::mem::take(&mut self.st.node.labels);
         for (spec_tokens, pin) in labels {
             items.extend(self.label(&info, spec_tokens, pin)?);
         }
+        (self.last_node, self.last_node_name) = last;
         Ok(items)
     }
 
