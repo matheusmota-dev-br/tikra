@@ -163,6 +163,9 @@ impl Engine {
             _ => None,
         });
         let name = name.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+        if name.starts_with('"') {
+            return self.quotes(&name, value);
+        }
         if value.is_none() {
             if let Some(c) = self.color(&name) {
                 self.st.color = c;
@@ -186,6 +189,37 @@ impl Engine {
             return Ok(());
         }
         self.unknown_warning(&name, &format!("/tikz/{name}"));
+        Ok(())
+    }
+
+    /// The quotes library: `"text" options` makes a label in node options, and a node on the path in
+    /// `to`/`edge` options; `'` after the quotes means `swap`.
+    fn quotes(&mut self, key: &str, value: Option<Vec<Token>>) -> Result<(), Error> {
+        // pgfkeys split `"x=1"` at its `=`: put it back together
+        let mut whole = key.to_string();
+        if let Some(v) = value {
+            whole.push('=');
+            whole.push_str(&tex::tokens_to_string(&v));
+        }
+        let Some(end) = whole[1..].find('"').map(|i| i + 1) else {
+            self.warn(format!("quotes: closing '\"' missing in {whole}"));
+            return Ok(());
+        };
+        let text = whole[1..end].to_string();
+        let mut options = whole[end + 1..].trim().to_string();
+        if let Some(rest) = options.strip_prefix('\'') {
+            options = format!("swap,{}", rest.trim());
+        }
+        // `"text" above, red` is one key in a list only up to the comma: the rest are options
+        let options = options.split_whitespace().collect::<Vec<_>>().join(" ");
+        if self.st.quotes_on_path {
+            let mut o = tikra_tokens("every edge quotes/.try,");
+            o.extend(tikra_tokens(&options));
+            self.st.quoted.push((tikra_tokens(&text), o));
+        } else {
+            let spec = format!("[every label quotes/.try,{options}]{text}");
+            self.st.node.labels.push((tikra_tokens(&spec), false));
+        }
         Ok(())
     }
 
@@ -1205,6 +1239,21 @@ keyfn!(k_tikz_unknown, |e, v| e.tikz_unknown(v));
 
 keyfn!(k_ignore, |_e, _v| Ok(()));
 
+keyfn!(k_auto, |e, v| {
+    let s = text(e, &v)?;
+    e.st.auto = match s.as_str() {
+        "false" => None,
+        "right" => Some('r'),
+        _ => Some('l'),
+    };
+    Ok(())
+});
+
+keyfn!(k_swap, |e, _v| {
+    e.st.swap = !e.st.swap;
+    Ok(())
+});
+
 keyfn!(k_baseline, |e, v| {
     e.st.baseline = Some(text(e, &v)?);
     Ok(())
@@ -1313,6 +1362,9 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/on grid", k_ignore),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
+    ("/tikz/auto", k_auto),
+    ("/tikz/swap", k_swap),
+    ("/tikz/'", k_swap),
 ];
 
 /// TikZ's own definitions of the keys it defines as styles or values (tikz.code.tex, pgfmoduleshapes).
@@ -1373,6 +1425,7 @@ const DEFINITIONS: &str = r"
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
+  every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={},
 }
 \def\tikz@picture@start{\pgfkeysalso{/tikz/every picture/.try}}
 \def\tikz@scope@options{\pgfkeysalso{/tikz/every scope/.try}}

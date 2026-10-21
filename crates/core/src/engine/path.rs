@@ -530,9 +530,14 @@ fn to_controls(e: &mut Engine, a: Point, r: Point) -> Option<(Point, Point)> {
 
 fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(), Error> {
     e.begin_group();
+    e.st.quotes_on_path = true;
+    e.st.quoted.clear();
     let res = (|| {
         e.process_keys(tikra_tokens("every to/.try"), Some("/tikz"))?;
         e.process_keys(opts, Some("/tikz"))?;
+        for (text, options) in std::mem::take(&mut e.st.quoted) {
+            b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+        }
         let a = b.point();
         let rp = r.node.as_ref().and_then(|n| e.nodes.get(n)).map_or(r.p, |n| n.center());
         let from = b.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| e.nodes.get(n)).map_or(a, |n| n.center());
@@ -554,9 +559,14 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         sub.move_to(c.clone());
     }
     e.begin_group();
+    e.st.quotes_on_path = true;
+    e.st.quoted.clear();
     let res = (|| {
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(opts.clone(), Some("/tikz"))?;
+        for (text, options) in std::mem::take(&mut e.st.quoted) {
+            sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+        }
         let a = sub.point();
         let rp = r.node.as_ref().and_then(|n| e.nodes.get(n)).map_or(r.p, |n| n.center());
         let from = sub.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| e.nodes.get(n)).map_or(a, |n| n.center());

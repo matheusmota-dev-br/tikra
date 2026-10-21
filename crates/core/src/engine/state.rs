@@ -91,6 +91,14 @@ pub struct GState {
     pub node: super::nodes::NodeSetup,
     /// `baseline=` of the picture
     pub baseline: Option<String>,
+    /// `auto`: nodes on a segment go to its left (`'l'`) or right (`'r'`)
+    pub auto: Option<char>,
+    /// `swap` (or `'`): the other side
+    pub swap: bool,
+    /// quotes (`"text" above`) in the options being read make nodes on the path, not labels
+    pub quotes_on_path: bool,
+    /// nodes made by quotes in `to`/`edge` options: text and options
+    pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
 }
 
 impl Default for GState {
@@ -149,6 +157,10 @@ impl Default for GState {
             functions: Rc::new(HashMap::new()),
             node: Default::default(),
             baseline: None,
+            auto: None,
+            swap: false,
+            quotes_on_path: false,
+            quoted: Vec::new(),
         }
     }
 }
