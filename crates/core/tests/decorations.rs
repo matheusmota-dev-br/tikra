@@ -211,3 +211,17 @@ fn text_effects_make_a_node_per_character() {
     let (items, _) = picture(r"\path[decoration={text effects along path, text={abc}, text effects/.cd, path from text}, decorate] (0,0);");
     assert_eq!(items.iter().filter(|i| matches!(i, Item::Text { .. })).count(), 3);
 }
+
+#[test]
+fn replaced_characters_and_relative_controls() {
+    // the second control of `.. controls +(…) and +(…) ..` is relative to the end
+    let (items, _) = picture(r"\draw (0,0) .. controls +(1,0) and +(-1,0) .. (3,2);");
+    let s = &paths(&items)[0];
+    assert!(matches!(s[1], Segment::CurveTo(a, b, _) if near(a, 1.0, 0.0) && near(b, 2.0, 2.0)), "{s:?}");
+    // a character drawn by code instead of a node
+    let (items, w) =
+        picture(r"\path[decoration={text effects along path, text={a0a}, text effects/.cd, replace characters=0 with {\fill circle [radius=2pt];}}, decorate] (0,0) -- (3,0);");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(items.iter().filter(|i| matches!(i, Item::Text { .. })).count(), 2);
+    assert_eq!(paths(&items).len(), 1);
+}

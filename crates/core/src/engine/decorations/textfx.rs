@@ -28,6 +28,8 @@ pub struct Settings {
     pub vars: [Option<String>; 6],
     /// `style characters=… with {…}`: a character's text and its options
     pub styles: Vec<(String, Vec<Token>)>,
+    /// `replace characters=… with {…}`: a character's text and the code drawn instead
+    pub replacements: Vec<(String, Vec<Token>)>,
 }
 
 impl Default for Settings {
@@ -45,6 +47,7 @@ impl Default for Settings {
             repeat: 0,
             vars: Default::default(),
             styles: Vec::new(),
+            replacements: Vec::new(),
         }
     }
 }
@@ -317,6 +320,37 @@ impl Run<'_> {
             // a space: an empty box as wide as the font's interword space
             text = Vec::new();
         }
+        if let Some((_, code)) = te.replacements.iter().find(|(s, _)| s.trim() == c.text.trim()) {
+            // `replace characters`: the code in a scope with the character's options; its width
+            // is that of the picture it draws
+            let code = code.clone();
+            let saved_items = std::mem::take(&mut e.canvas.items);
+            e.canvas.min = None;
+            e.canvas.max = None;
+            e.begin_scope();
+            let r = e.process_keys(options, Some("/tikz")).and_then(|_| {
+                e.st.apply_pending();
+                e.run_tokens(code)
+            });
+            e.end_scope();
+            let drawn = std::mem::replace(&mut e.canvas.items, saved_items);
+            let (lo, hi) = (e.canvas.min, e.canvas.max);
+            (e.canvas.min, e.canvas.max) = saved;
+            e.end_group();
+            r?;
+            if t.is_some() {
+                self.e.canvas.items.extend(drawn);
+                // the drawing counts in the picture as it was drawn
+                for q in [lo, hi].into_iter().flatten() {
+                    self.e.canvas.include(q);
+                }
+            }
+            let width = match (lo, hi) {
+                (Some(a), Some(b)) => b.x - a.x,
+                _ => 0.0,
+            };
+            return Ok(width / PT);
+        }
         let name = "tikra@te@character".to_string();
         let r = e.node(NodeSpec { options, name: Some(name.clone()), at: None, text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None });
         let width = e.nodes.get(&name).map(|info| {
@@ -407,7 +441,19 @@ te_key!(k_style_characters, |e, v| {
         None => e.warn("style characters: '… with {…}' expected: ignored"),
     }
 });
-te_key!(k_replace_characters, |e, _v| e.warn("text effects: replace characters not supported: ignored"));
+te_key!(k_replace_characters, |e, v| {
+    let v = v.unwrap_or_default();
+    match super::split_word(&v, "with") {
+        Some((chars, code)) => {
+            let code = tex::strip_outer_braces(crate::keys::trim(&code).to_vec());
+            for c in scan(crate::keys::trim(&chars)) {
+                let t = tex::tokens_to_string(&c);
+                e.st.decoration.te.replacements.push((t, code.clone()));
+            }
+        }
+        None => e.warn("replace characters: '… with {…}' expected: ignored"),
+    }
+});
 te_key!(k_characters_append, |e, v| {
     let mut t = super::super::tikra_tokens("/pgf/decoration/text effects/every character/.append style=");
     t.push(Token::Char('{', Cat::Begin));

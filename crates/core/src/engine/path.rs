@@ -50,11 +50,13 @@ struct Builder {
     edges: Vec<(Vec<Segment>, Vec<Token>, Vec<Item>)>,
     /// the point a `+` coordinate is relative to (set by `+`, not moved)
     relative_base: Option<Point>,
+    /// where a path is before its first point: the origin of its coordinate system
+    origin: Point,
 }
 
 impl Builder {
     fn point(&self) -> Point {
-        self.current.as_ref().map_or(Point::default(), |c| c.p)
+        self.current.as_ref().map_or(self.origin, |c| c.p)
     }
 
     fn move_to(&mut self, r: Coord) {
@@ -106,7 +108,17 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         }
     }
     e.st.apply_pending();
-    let mut b = Builder { segs: Vec::new(), current: None, subpath_start: None, last: None, node_items: Vec::new(), mid_nodes: Vec::new(), edges: Vec::new(), relative_base: None };
+    let mut b = Builder {
+        segs: Vec::new(),
+        current: None,
+        subpath_start: None,
+        last: None,
+        node_items: Vec::new(),
+        mid_nodes: Vec::new(),
+        edges: Vec::new(),
+        relative_base: None,
+        origin: e.st.transform.apply(Point::default()),
+    };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
@@ -289,11 +301,20 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 }
                 let c1 = target(e, b, depth, "controls")?.p;
                 let mut c2 = c1;
+                // a relative second control is relative to the end point
+                let mut c2_offset = None;
                 if let Some(Token::Char('a', Cat::Letter)) = peek(e, depth)? {
                     let _ = next(e, depth)?;
                     let w = word(e, 'a');
                     if w == "and" {
-                        c2 = target(e, b, depth, "controls")?.p;
+                        if matches!(peek(e, depth)?, Some(t) if t.is_char('+')) {
+                            let saved = b.relative_base;
+                            let base = saved.unwrap_or_else(|| b.point());
+                            c2_offset = Some(target(e, b, depth, "controls")?.p.minus(base));
+                            b.relative_base = saved;
+                        } else {
+                            c2 = target(e, b, depth, "controls")?.p;
+                        }
                     }
                 }
                 // the closing ..
@@ -308,6 +329,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                 }
                 let r = target(e, b, depth, "controls")?;
+                if let Some(o) = c2_offset {
+                    c2 = r.p.plus(o);
+                }
                 curve_to(e, b, c1, c2, r);
                 place_mid_nodes(e, b, Some(0.5))?;
             }
@@ -343,8 +367,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate)?;
                         if at.is_some() || pending_op.is_none() {
-                            // before any point, a node is at the origin of the current coordinate system
-                            let point = if b.current.is_some() { b.point() } else { e.st.transform.apply(Point::default()) };
+                            let point = b.point();
                             let place = b.last.unwrap_or(OnPath::Point(point));
                             let items = e.node(NodeSpec { options, name, at, text, place, point, coordinate, default_pos: None })?;
                             b.node_items.extend(items);
@@ -618,7 +641,17 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
 /// `edge[options] node{…} (target)`: a separate path, drawn after this one; the current point stays.
 fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<MidNode>) -> Result<(), Error> {
     let saved_current = b.current.clone();
-    let mut sub = Builder { segs: Vec::new(), current: None, subpath_start: None, last: None, node_items: Vec::new(), mid_nodes: mids, edges: Vec::new(), relative_base: None };
+    let mut sub = Builder {
+        segs: Vec::new(),
+        current: None,
+        subpath_start: None,
+        last: None,
+        node_items: Vec::new(),
+        mid_nodes: mids,
+        edges: Vec::new(),
+        relative_base: None,
+        origin: e.st.transform.apply(Point::default()),
+    };
     if let Some(c) = &saved_current {
         sub.move_to(c.clone());
     }
