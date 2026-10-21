@@ -45,8 +45,7 @@ impl Engine {
                     color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK),
                 }
             } else if mode.shade {
-                // shadings come later: the fill color stands in
-                Paint::Solid(self.st.fill_color.unwrap_or(crate::color::Color { r: 0.5, g: 0.5, b: 0.5 }))
+                Paint::Shading(self.shading_for(&segs))
             } else {
                 Paint::Solid(self.st.fill_paint_color())
             };
@@ -108,6 +107,51 @@ impl Engine {
             self.open_in_scope(Item::Clip { segments: segs, even_odd: self.st.even_odd });
         }
         Ok(())
+    }
+}
+
+impl Engine {
+    /// The current shading fitted to the path's bounding box, as `\pgfshadepath` fits it.
+    fn shading_for(&self, segs: &[Segment]) -> crate::canvas::Shading {
+        let mut c = crate::canvas::Canvas::default();
+        c.include_path(segs);
+        let (lo, hi) = (c.min.unwrap_or_default(), c.max.unwrap_or_default());
+        let (w, h) = (hi.x - lo.x, hi.y - lo.y);
+        let a = self.st.shade_angle;
+        let (s, co) = a.to_radians().sin_cos();
+        let (abs_s, abs_c) = (s.abs(), co.abs());
+        // pgf's scaling: the shading's middle 50 bp cover the box along the rotated axes
+        let sx = (w * abs_c + h * abs_s) / (abs_c + abs_s) / 50.0;
+        let sy = (w * abs_s + h * abs_c) / (abs_c + abs_s) / 50.0;
+        let center = lo.lerp(hi, 0.5);
+        let transform = crate::scene::Transform::translation(center.x, center.y)
+            .compose(&crate::scene::Transform::rotation(a))
+            .compose(&crate::scene::Transform::scaling(sx.max(1e-9), sy.max(1e-9)));
+        let st = &self.st;
+        let blend = |x: crate::color::Color, y: crate::color::Color, t: f64| crate::color::Color {
+            r: x.r * t + y.r * (1.0 - t),
+            g: x.g * t + y.g * (1.0 - t),
+            b: x.b * t + y.b * (1.0 - t),
+        };
+        let (white, black) = (crate::color::Color::WHITE, crate::color::Color::BLACK);
+        match st.shading.as_str() {
+            "ball" => crate::canvas::Shading::Radial {
+                transform,
+                focus: Point::new(-10.0, 10.0),
+                stops: vec![
+                    (0.0, blend(st.ball, white, 0.15)),
+                    (9.0 / 50.0, blend(st.ball, white, 0.75)),
+                    (18.0 / 50.0, blend(st.ball, black, 0.7)),
+                    (0.5, blend(st.ball, black, 0.5)),
+                    (1.0, black),
+                ],
+            },
+            "radial" => crate::canvas::Shading::Radial { transform, focus: Point::default(), stops: vec![(0.0, st.radial_inner), (0.5, st.radial_outer), (1.0, st.radial_outer)] },
+            _ => crate::canvas::Shading::Axial {
+                transform,
+                stops: vec![(0.0, st.axis_bottom), (0.25, st.axis_bottom), (0.5, st.axis_middle), (0.75, st.axis_top), (1.0, st.axis_top)],
+            },
+        }
     }
 }
 

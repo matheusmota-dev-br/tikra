@@ -1403,6 +1403,66 @@ keyfn!(k_matrix_nodes, |e, v| {
     Ok(())
 });
 
+fn shade_color(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<crate::color::Color, Error> {
+    let s = text(e, v)?;
+    e.color(&s).ok_or_else(|| Error::Figure(format!("unknown color '{s}'")))
+}
+fn mix(a: crate::color::Color, b: crate::color::Color) -> crate::color::Color {
+    crate::color::Color { r: (a.r + b.r) / 2.0, g: (a.g + b.g) / 2.0, b: (a.b + b.b) / 2.0 }
+}
+keyfn!(k_shading, |e, v| {
+    e.st.shading = text(e, &v)?;
+    e.st.mode.shade = true;
+    Ok(())
+});
+keyfn!(k_shading_angle, |e, v| {
+    e.st.shade_angle = number(e, &v)?.unwrap_or(0.0);
+    e.st.mode.shade = true;
+    Ok(())
+});
+/// `top color`, `bottom color` (angle 0), `left color`, `right color` (angle 90): the middle becomes their mix.
+fn axis_color(e: &mut Engine, v: &Option<Vec<Token>>, top: bool, angle: f64) -> Result<(), Error> {
+    let c = shade_color(e, v)?;
+    if top {
+        e.st.axis_top = c;
+    } else {
+        e.st.axis_bottom = c;
+    }
+    e.st.axis_middle = mix(e.st.axis_top, e.st.axis_bottom);
+    e.st.shading = "axis".into();
+    e.st.shade_angle = angle;
+    e.st.mode.shade = true;
+    Ok(())
+}
+keyfn!(k_top_color, |e, v| axis_color(e, &v, true, 0.0));
+keyfn!(k_bottom_color, |e, v| axis_color(e, &v, false, 0.0));
+keyfn!(k_left_color, |e, v| axis_color(e, &v, true, 90.0));
+keyfn!(k_right_color, |e, v| axis_color(e, &v, false, 90.0));
+keyfn!(k_middle_color, |e, v| {
+    e.st.axis_middle = shade_color(e, &v)?;
+    e.st.shading = "axis".into();
+    e.st.mode.shade = true;
+    Ok(())
+});
+keyfn!(k_ball_color, |e, v| {
+    e.st.ball = shade_color(e, &v)?;
+    e.st.shading = "ball".into();
+    e.st.mode.shade = true;
+    Ok(())
+});
+keyfn!(k_inner_color, |e, v| {
+    e.st.radial_inner = shade_color(e, &v)?;
+    e.st.shading = "radial".into();
+    e.st.mode.shade = true;
+    Ok(())
+});
+keyfn!(k_outer_color, |e, v| {
+    e.st.radial_outer = shade_color(e, &v)?;
+    e.st.shading = "radial".into();
+    e.st.mode.shade = true;
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1527,6 +1587,16 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/shading", k_shading),
+    ("/tikz/shading angle", k_shading_angle),
+    ("/tikz/top color", k_top_color),
+    ("/tikz/bottom color", k_bottom_color),
+    ("/tikz/left color", k_left_color),
+    ("/tikz/right color", k_right_color),
+    ("/tikz/middle color", k_middle_color),
+    ("/tikz/ball color", k_ball_color),
+    ("/tikz/inner color", k_inner_color),
+    ("/tikz/outer color", k_outer_color),
     ("/tikz/column sep", k_column_sep),
     ("/tikz/row sep", k_row_sep),
     ("/tikz/matrix of nodes", k_matrix_of_nodes),
