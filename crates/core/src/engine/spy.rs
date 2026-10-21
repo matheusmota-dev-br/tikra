@@ -155,11 +155,12 @@ impl Engine {
     }
 
     /// Puts a path picture into the node drawn from item `first` on: after the fill of its
-    /// background (the path on `border`, not a shadow), before its stroke, as `\tikz@finish` does.
+    /// background (the last path on `border`, not a shadow), before its stroke, as `\tikz@finish` does.
     fn insert_path_picture(&mut self, first: usize, border: &[crate::scene::Segment], picture: Vec<Item>) {
         let items = &self.canvas.items;
         let on_border = |k: &usize| matches!(&items[*k], Item::Path { segments, .. } if segments.as_slice() == border);
-        let at = (first..items.len()).find(on_border).or_else(|| (first..items.len()).find(|&k| matches!(items[k], Item::Path { .. })));
+        // the last one: a shadow before it has the same outline
+        let at = (first..items.len()).rfind(on_border).or_else(|| (first..items.len()).find(|&k| matches!(items[k], Item::Path { .. })));
         let Some(k) = at else {
             self.canvas.items.extend(picture);
             return;
