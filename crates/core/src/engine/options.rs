@@ -1463,6 +1463,16 @@ keyfn!(k_outer_color, |e, v| {
     Ok(())
 });
 
+keyfn!(k_path_fading, |e, v| {
+    let s = text(e, &v)?;
+    e.st.path_fading = if s.is_empty() || s == "none" { None } else { Some(s) };
+    Ok(())
+});
+keyfn!(k_transparency_group, |e, _v| {
+    e.st.transparency_group = true;
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1587,6 +1597,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/path fading", k_path_fading),
+    ("/tikz/transparency group", k_transparency_group),
     ("/tikz/shading", k_shading),
     ("/tikz/shading angle", k_shading_angle),
     ("/tikz/top color", k_top_color),

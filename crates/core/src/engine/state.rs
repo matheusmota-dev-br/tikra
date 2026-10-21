@@ -120,6 +120,9 @@ pub struct GState {
     pub ball: Color,
     pub radial_inner: Color,
     pub radial_outer: Color,
+    /// `path fading=`: the fading's name; `transparency group` for the scope being opened
+    pub path_fading: Option<String>,
+    pub transparency_group: bool,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
     pub level_distance: f64,
@@ -199,6 +202,8 @@ impl Default for GState {
             quotes_on_path: false,
             name_path: None,
             matrix: Default::default(),
+            path_fading: None,
+            transparency_group: false,
             shading: "axis".into(),
             shade_angle: 0.0,
             axis_top: Color { r: 0.5, g: 0.5, b: 0.5 },

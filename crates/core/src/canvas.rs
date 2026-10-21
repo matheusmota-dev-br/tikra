@@ -87,6 +87,10 @@ pub enum Item {
     Group {
         opacity: f64,
     },
+    /// A fading: what follows, up to the matching `End`, is as opaque as the shading is white.
+    Fade {
+        mask: Shading,
+    },
     End,
 }
 
@@ -149,6 +153,7 @@ impl Item {
             }
             Item::Clip { segments, .. } => *segments = transform_segments(segments, &t),
             Item::Text { place, .. } => *place = t.compose(place),
+            Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             Item::Group { .. } | Item::End => {}
         }
     }

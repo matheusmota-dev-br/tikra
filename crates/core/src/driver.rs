@@ -290,6 +290,15 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
                     body.push_str("<g>");
                 }
             }
+            Item::Fade { mask } => {
+                let gradient = paint_value(&Paint::Shading(mask.clone()), &mut defs);
+                let id = defs.id("m");
+                let _ = write!(
+                    defs.text,
+                    r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="{gradient}"/></mask>"#
+                );
+                let _ = write!(body, r#"<g mask="url(#{id})">"#);
+            }
             Item::End => body.push_str("</g>"),
         }
     }
