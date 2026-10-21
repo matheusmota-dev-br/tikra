@@ -192,3 +192,16 @@ fn a_spy_outside_a_spy_scope_is_reported() {
     let (_, warnings) = tikra::engine::run_document(r"\begin{tikzpicture}\spy on (0,0) in node at (1,1);\end{tikzpicture}").unwrap();
     assert!(warnings.iter().any(|w| w.contains("outside a spy scope")), "{warnings:?}");
 }
+
+#[test]
+fn every_picture_keys_are_tikz_keys() {
+    let (_, warnings) =
+        tikra::engine::run_document(r"\tikzset{every picture/.style={on grid,node distance=2cm}}\begin{tikzpicture}\node (a) {}; \node[right=of a] {};\end{tikzpicture}").unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn insert_path_puts_operations_where_the_options_are() {
+    let p = paths(r"\draw[insert path={-- (1,0)}] (0,0) [insert path={-- (1,1)}];");
+    assert_eq!(p[0].len(), 3, "{p:?}");
+}

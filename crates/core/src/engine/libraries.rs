@@ -25,7 +25,7 @@ macro_rules! keyfn {
 }
 
 // `append after command` adds path operations after the node (as `after node path`), `prefix after
-// command` puts them before those already there
+// command` puts them before those already there; `insert path` puts path operations where the options are
 keyfn!(k_append_after_command, |e, v| {
     e.st.after_node_path.extend(v.unwrap_or_default());
     Ok(())
@@ -44,6 +44,11 @@ keyfn!(k_growth_function, |e, v| {
     Ok(())
 });
 
+keyfn!(k_insert_path, |e, v| {
+    e.st.insert_path.extend(v.unwrap_or_default());
+    Ok(())
+});
+
 // the through library: `circle through=(a)` makes the node a circle around its position through
 // the point
 keyfn!(k_circle_through, |e, v| {
@@ -59,6 +64,7 @@ pub const KEYS: &[(&str, KeyFn)] = &[
     ("/tikz/prefix after command", k_prefix_after_command),
     ("/tikz/growth function", k_growth_function),
     ("/tikz/circle through", k_circle_through),
+    ("/tikz/insert path", k_insert_path),
 ];
 
 /// The libraries' styles, read as TeX with `@` a letter.

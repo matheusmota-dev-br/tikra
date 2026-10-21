@@ -195,6 +195,8 @@ pub struct GState {
     /// the perspective library's matrix, and the points of `plane origin`, `plane x`, `plane y`
     pub perspective: super::three_d::Perspective,
     pub plane: [Option<String>; 3],
+    /// `insert path={…}`: path operations the options put where they are
+    pub insert_path: Vec<Token>,
     /// `growth function=\macro`: places the children instead of `grow` (the petri library's tokens)
     pub growth_function: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
@@ -302,6 +304,7 @@ impl Default for GState {
             child_missing: false,
             edge_from_parent_path: None,
             growth_function: None,
+            insert_path: Vec::new(),
             perspective: super::three_d::NO_PERSPECTIVE,
             plane: [None, None, None],
             canvas_transform: None,

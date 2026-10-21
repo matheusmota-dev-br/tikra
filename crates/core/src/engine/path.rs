@@ -110,6 +110,8 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         }
     }
     e.st.apply_pending();
+    let inserted = std::mem::take(&mut e.st.insert_path);
+    e.tex.push_tokens(inserted);
     let mut b = Builder {
         segs: Vec::new(),
         current: None,
@@ -344,6 +346,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 let o = e.tex.read_until_char(']', false)?;
                 e.process_keys(o, Some("/tikz"))?;
                 e.st.apply_pending();
+                // `insert path`: more of the path, here
+                let inserted = std::mem::take(&mut e.st.insert_path);
+                e.tex.push_tokens(inserted);
             }
             Token::Char(_, Cat::Begin) => e.begin_group(),
             Token::Char(_, Cat::End) => e.end_group(),
@@ -485,6 +490,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         e.children(parent)?;
                     }
                     "decorate" => decorate_operation(e, b, depth)?,
+                    "foreach" => path_foreach(e, b)?,
                     "svg" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);

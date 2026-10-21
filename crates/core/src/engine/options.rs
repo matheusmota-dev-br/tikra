@@ -1984,8 +1984,8 @@ const DEFINITIONS: &str = r"
 }
 \def\tikz@framexsep{1ex}\def\tikz@frameysep{1ex}\def\tikz@outerframexsep{0ex}\def\tikz@outerframeysep{0ex}
 \def\tikra@onbg#1{\pgfonlayer{background}\pgftransformreset#1\endpgfonlayer}
-\def\tikz@picture@start{\pgfkeysalso{/tikz/every picture/.try}}
-\def\tikz@scope@options{\pgfkeysalso{/tikz/every scope/.try}}
+\def\tikz@picture@start{\tikzset{every picture/.try}}
+\def\tikz@scope@options{\tikzset{every scope/.try}}
 ";
 
 /// Defines every native key and TikZ's own styles.
