@@ -1450,6 +1450,10 @@ keyfn!(k_on_chain, |e, v| {
 });
 keyfn!(k_join, |e, v| {
     let s = text(e, &v)?;
+    // `join=round`: the line join; anything else is the chains' join
+    if matches!(s.trim(), "round" | "bevel" | "miter") {
+        return e.process_keys(tikra_tokens(&format!("line join={}", s.trim())), Some("/tikz"));
+    }
     e.join(&s);
     Ok(())
 });
@@ -2093,7 +2097,7 @@ const DEFINITIONS: &str = r"
   very nearly transparent/.style={opacity=0.1}, nearly transparent/.style={opacity=0.25},
   semitransparent/.style={opacity=0.5}, nearly opaque/.style={opacity=0.75},
   very nearly opaque/.style={opacity=0.9}, ultra nearly opaque/.style={opacity=0.95}, opaque/.style={opacity=1},
-  rounded corners/.default=4pt, double/.default=white, cap/.style={line cap=#1}, join/.style={line join=#1},
+  rounded corners/.default=4pt, double/.default=white, cap/.style={line cap=#1},
   draw opacity/.default=1, help lines/.append style={},
   text centered/.style={align=center}, text ragged/.style={align=left}, text badly ragged/.style={align=left},
   text justified/.style={align=justify}, text ragged left/.style={align=right},
