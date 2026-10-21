@@ -377,6 +377,17 @@ const DEFINITIONS: &str = r"
 	/pgfplots/view/.style 2 args={/pgfplots/view/az={#1},/pgfplots/view/el={#2}},
 	/pgfplots/view/h/.style={/pgfplots/view/az={#1}}, /pgfplots/view/v/.style={/pgfplots/view/el={#1}},
 	/pgfplots/plot box ratio/.initial=1 1 1,
+	/pgfplots/every 3d description/.style={%
+		/pgfplots/every axis x label/.style={at={(ticklabel cs:0.5)},anchor=near ticklabel},%
+		/pgfplots/every axis y label/.style={at={(ticklabel cs:0.5)},anchor=near ticklabel},%
+		/pgfplots/every x tick scale label/.style={at={(xticklabel cs:0.95,5pt)},anchor=near xticklabel,inner sep=0pt},
+		/pgfplots/every y tick scale label/.style={at={(yticklabel cs:0.95,5pt)},anchor=near yticklabel,inner sep=0pt},
+		/pgfplots/try min ticks=3,%
+	},%
+	/pgfplots/every 3d view {0}{90}/.style={/pgfplots/xlabel near ticks,/pgfplots/ylabel near ticks,/pgfplots/axis on top=true},
+	/pgfplots/3d box/.initial=background, /pgfplots/3d box/.default=complete,
+	/pgfplots/every 3d box foreground/.style={},
+	/pgfplots/3d box foreground style/.style={/pgfplots/every 3d box foreground/.append style={#1}},
 	/pgfplots/cycle list name/.initial=color,
 	/pgfplots/cycle list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@internal@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@internal@}},
 	/pgfplots/cycle list shift/.initial=,

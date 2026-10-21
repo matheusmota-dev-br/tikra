@@ -54,6 +54,11 @@ pub struct Frame {
     /// The range of point meta (axis wide) and the colormap it maps to.
     pub meta: [f64; 2],
     pub colormap: Option<super::colormap::Colormap>,
+    /// 3d: the box's foreground faces (`[axis][lower, upper]`), the lines with the tick labels
+    /// (pgfplots' three-character strings like `v00`) and those lines for a boxed axis.
+    pub fg: [[bool; 2]; 3],
+    pub label_line: [super::cube::Part; 3],
+    pub box_line: [super::cube::Part; 3],
 }
 
 impl Frame {
@@ -89,6 +94,9 @@ impl Frame {
 
     /// The outward unit normal of the line that holds axis `a`'s tick labels.
     pub fn normal(&self, a: usize) -> Point {
+        if self.three_d {
+            return super::cube::outer_normal(&self.e, self.label_line[a], self.box_line[a]);
+        }
         let b = if a == 0 { 1 } else { 0 };
         let d = self.e[b];
         let n = d.norm().max(1e-12);
@@ -135,17 +143,17 @@ pub type PlotPoints = Option<(Vec<[f64; 3]>, Vec<f64>)>;
 type Captured<T> = (T, Vec<Item>, Option<(Point, Point)>);
 
 /// What an axis knows once its limits are final.
-struct Setup {
-    frame: Rc<Frame>,
+pub(super) struct Setup {
+    pub frame: Rc<Frame>,
     /// per plot: logical coordinates (after stacking) and the stack's base
-    points: Vec<PlotPoints>,
-    ticks: [Vec<f64>; 3],
-    tick_distance: [f64; 3],
-    hide: [bool; 3],
-    line: [String; 3],
+    pub points: Vec<PlotPoints>,
+    pub ticks: [Vec<f64>; 3],
+    pub tick_distance: [f64; 3],
+    pub hide: [bool; 3],
+    pub line: [String; 3],
 }
 
-fn axis_char(a: usize) -> char {
+pub(super) fn axis_char(a: usize) -> char {
     ['x', 'y', 'z'][a]
 }
 
@@ -204,7 +212,7 @@ fn enlarge_setting(v: &str, auto_min: bool, auto_max: bool) -> (bool, bool, f64,
 
 impl Engine {
     /// A value of the axis (`/pgfplots/<key>`), expanded.
-    fn pv(&mut self, key: &str) -> String {
+    pub(super) fn pv(&mut self, key: &str) -> String {
         keys::value(self, &format!("/pgfplots/{key}"))
     }
 
@@ -221,12 +229,12 @@ impl Engine {
     }
 
     /// Runs a key list on a path or node, with `/pgfplots` styles reachable.
-    fn keys_tikz(&mut self, list: &str) -> Result<(), Error> {
+    pub(super) fn keys_tikz(&mut self, list: &str) -> Result<(), Error> {
         self.process_keys(toks(list), Some("/tikz"))
     }
 
     /// Draws a path with the options `list` (as `\draw[list] …;`).
-    fn draw_with(&mut self, list: &str, segs: Vec<Segment>) -> Result<(), Error> {
+    pub(super) fn draw_with(&mut self, list: &str, segs: Vec<Segment>) -> Result<(), Error> {
         if segs.is_empty() {
             return Ok(());
         }
@@ -319,6 +327,9 @@ fn clone_frame(f: &Frame) -> Frame {
         label_axis: Cell::new(f.label_axis.get()),
         tick_dim: RefCell::new(*f.tick_dim.borrow()),
         label_side: f.label_side,
+        fg: f.fg,
+        label_line: f.label_line,
+        box_line: f.box_line,
         label_shift: f.label_shift,
         meta: f.meta,
         colormap: f.colormap.clone(),
@@ -429,6 +440,9 @@ fn register_axis_node(e: &mut Engine, name: &str, lo: Point, hi: Point, blo: Poi
 /// Limits, scaling and ticks.
 fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let three_d = axis.entries.iter().any(|en| matches!(en, Entry::Plot(p) if p.three_d)) || !e.pv("zmin").is_empty() || !e.pv("zmax").is_empty();
+    if three_d {
+        three_d_descriptions(e, axis)?;
+    }
     let log = [e.pv("xmode") == "log", e.pv("ymode") == "log", e.pv("zmode") == "log"];
     let lg = |a: usize, v: f64| {
         if log[a] {
@@ -527,8 +541,9 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     for a in 0..dims {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
-        // 'auto' enlarges only limits that were computed, and not z of a 2d axis
-        let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && (a < 2 || three_d), auto_max[a] && (a < 2 || three_d));
+        // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
+        let auto = if three_d { a == 2 } else { a < 2 };
+        let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
         let amount = abs.unwrap_or(rel * (max[a] - min[a]));
         if amount > 1e-9 * (max[a].abs() + 1.0) && !invalid {
             if lo {
@@ -601,7 +616,9 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
         let (saz, caz) = az.to_radians().sin_cos();
         let (sel, cel) = (-el).to_radians().sin_cos();
-        let base = [Point::new(caz, saz * sel), Point::new(saz, -sel * caz), Point::new(0.0, cel)];
+        let ratio: Vec<f64> = e.pv("plot box ratio").replace(['{', '}'], " ").split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        let r = |k: usize| ratio.get(k).copied().unwrap_or(1.0);
+        let base = [Point::new(caz, saz * sel).scale(r(0)), Point::new(saz, -sel * caz).scale(r(1)), Point::new(0.0, cel).scale(r(2))];
         // stretch to fill: scale x and y components so that the box's projection is W × H
         let mut corners = Vec::new();
         for i in 0..8 {
@@ -718,7 +735,13 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         label_shift,
         meta: meta_range(e, axis),
         colormap: colormap(e),
+        fg: [[false, true]; 3],
+        label_line: [*b"v00", *b"0v0", *b"00v"],
+        box_line: [*b"v00", *b"0v0", *b"00v"],
     };
+    if three_d {
+        super::cube::prepare(e, &mut frame, dir, &lines);
+    }
     // the box's lowest corner goes to the origin
     if !three_d {
         let a = frame.at(frame.min);
@@ -736,6 +759,97 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         dist[a] = d;
     }
     Ok(Setup { frame: Rc::new(frame), points, ticks, tick_distance: dist, hide, line: lines })
+}
+
+/// The styles that pgfplots' `descriptions` family holds, and the keys that only set them.
+const DESCRIPTION_KEYS: &[&str] = &[
+    "every axis label",
+    "every axis x label",
+    "every axis y label",
+    "every axis z label",
+    "every axis title",
+    "every x tick scale label",
+    "every y tick scale label",
+    "every z tick scale label",
+    "label style",
+    "xlabel style",
+    "ylabel style",
+    "zlabel style",
+    "title style",
+    "x tick scale label style",
+    "y tick scale label style",
+    "z tick scale label style",
+    "xlabel near ticks",
+    "ylabel near ticks",
+    "xlabel absolute",
+    "ylabel absolute",
+];
+
+/// `\pgfplots@BEGIN@prepare@description@styles`: once an axis is known to be 3d it gets
+/// `every 3d description` (and `every 3d view {az}{el}`); the description styles of `every axis`
+/// and of the axis' options are then set again, so that they still win.
+fn three_d_descriptions(e: &mut Engine, axis: &Axis) -> Result<(), Error> {
+    let az = e.pv("view/az");
+    let el = e.pv("view/el");
+    let saved = e.st.key_path.clone();
+    e.st.key_path = "/pgfplots".into();
+    let r = (|| {
+        keys::run(e, "every 3d description")?;
+        keys::run(e, &format!("every 3d view {{{az}}}{{{el}}}/.try"))?;
+        let mut lists = Vec::new();
+        if let Some(Meaning(body)) = style_code(e, "/pgfplots/every axis") {
+            lists.push(body);
+        }
+        lists.push(axis.options.clone());
+        for list in lists {
+            let kept = description_items(&list);
+            if !kept.is_empty() {
+                e.process_keys(kept, Some("/pgfplots"))?;
+            }
+        }
+        Ok(())
+    })();
+    e.st.key_path = saved;
+    r
+}
+
+/// The items of a key list (or of a style's `\pgfkeysalso{…}`s) that set description styles.
+fn description_items(list: &[Token]) -> Vec<Token> {
+    let mut lists = Vec::new();
+    let mut i = 0;
+    let mut plain = Vec::new();
+    while i < list.len() {
+        if list[i].is_cs("pgfkeysalso") {
+            let (arg, end) = group_at(list, i + 1);
+            lists.push(arg);
+            i = end;
+            continue;
+        }
+        plain.push(list[i].clone());
+        i += 1;
+    }
+    lists.push(plain);
+    let mut out = Vec::new();
+    for l in lists {
+        for item in pk::split_list(&l) {
+            let path = item.key.trim_start_matches("/pgfplots/");
+            let name = pk::handler(path).map_or(path, |(base, _)| base);
+            if !DESCRIPTION_KEYS.contains(&name.trim()) {
+                continue;
+            }
+            if !out.is_empty() {
+                out.extend(tex::string_tokens(","));
+            }
+            out.extend(tex::string_tokens(&item.key));
+            if let Some(v) = item.value {
+                out.extend(tex::string_tokens("="));
+                out.push(Token::Char('{', tex::Cat::Begin));
+                out.extend(v);
+                out.push(Token::Char('}', tex::Cat::End));
+            }
+        }
+    }
+    out
 }
 
 /// The point meta range of the axis' plots (`point meta min/max` if given).
@@ -792,7 +906,7 @@ fn bbox_size(points: &[Point]) -> (f64, f64) {
 }
 
 /// A list of tick values (`1,2,...,10`, `{0,0.5}`), in data units.
-fn number_list(e: &mut Engine, tokens: Vec<Token>) -> Result<Vec<f64>, Error> {
+pub(super) fn number_list(e: &mut Engine, tokens: Vec<Token>) -> Result<Vec<f64>, Error> {
     let list = e.tex.expand_fully(tokens)?;
     let mut v = Vec::new();
     for item in super::super::foreach_items(&list) {
@@ -847,7 +961,7 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
 }
 
 /// The ticks of axis `a` that are drawn: (index in the list, logical value).
-fn visible(f: &Frame, a: usize, list: &[f64]) -> Vec<(usize, f64)> {
+pub(super) fn visible(f: &Frame, a: usize, list: &[f64]) -> Vec<(usize, f64)> {
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
     let tol = 0.05 * PT / f.e[a].norm().max(1e-12);
     list.iter().copied().enumerate().filter(|(_, t)| *t >= lo - tol && *t <= hi + tol).collect()
@@ -862,7 +976,7 @@ fn on_axis(f: &Frame, a: usize, t: f64, b_value: f64) -> Point {
     f.at(l)
 }
 
-fn unit(p: Point) -> Point {
+pub(super) fn unit(p: Point) -> Point {
     p.scale(1.0 / p.norm().max(1e-12))
 }
 
@@ -880,7 +994,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         draw_axis_2d(e, s)?;
     }
     if f.three_d && !on_top {
-        draw_axis_3d(e, s)?;
+        super::cube::draw(e, s, false)?;
     }
     // the plots, clipped
     let clip = keys::flag(e, "/pgfplots/clip");
@@ -930,9 +1044,13 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     if clip {
         (e.canvas.min, e.canvas.max) = saved_bbox;
     }
+    // `3d box=complete`: the foreground edges, on top of the plots
+    if f.three_d && e.pv("3d box") != "background" {
+        super::cube::draw(e, s, true)?;
+    }
     if on_top {
         if f.three_d {
-            draw_axis_3d(e, s)?;
+            super::cube::draw(e, s, false)?;
         } else {
             draw_axis_2d(e, s)?;
         }
@@ -1093,7 +1211,7 @@ fn grid(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) -> Resul
 
 /// Minor tick positions: `minor x tick num` between the ticks (9 per decade on log axes), or
 /// `minor xtick`.
-fn minor_ticks(e: &mut Engine, s: &Setup, a: usize, list: &[f64]) -> Vec<f64> {
+pub(super) fn minor_ticks(e: &mut Engine, s: &Setup, a: usize, list: &[f64]) -> Vec<f64> {
     let f = &s.frame;
     let c = axis_char(a);
     if let Some(v) = keys::value_tokens(e, &format!("/pgfplots/minor {c}tick")) {
@@ -1185,7 +1303,7 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
 /// (`hide obscured x ticks`).
 fn obscured(s: &Setup, a: usize, t: f64) -> bool {
     let f = &s.frame;
-    if s.line[a] != "center" {
+    if s.line[a] != "center" || f.three_d {
         return false;
     }
     let tol = 0.05 * PT / f.e[a].norm().max(1e-12);
@@ -1371,13 +1489,36 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
         return Ok(());
     }
     let b = 1 - a;
-    let align = e.pv(&format!("{c}tick align"));
+    let off = tick_offset(e, a);
+    let n = f.normal(a);
+    let side = f.label_side[a];
+    let bv = if side > 0 {
+        f.max[b]
+    } else if side == 0 {
+        f.zero[b]
+    } else {
+        f.min[b]
+    };
+    tick_labels_at(e, s, a, list, extra, &|t| on_axis(&f, a, t, bv), n.scale(off), off)
+}
+
+/// How far tick labels move out for the tick lines (`tick align`).
+pub(super) fn tick_offset(e: &mut Engine, a: usize) -> f64 {
+    let align = e.pv(&format!("{}tick align", axis_char(a)));
     let len = keys::length(e, "/pgfplots/major tick length").unwrap_or(0.15);
-    let off = match align.as_str() {
+    match align.as_str() {
         "outside" => len,
         "center" => len / 2.0,
         _ => 0.0,
-    };
+    }
+}
+
+/// The tick labels of axis `a` at `base(t)` moved by `shift`, and the scale label; `off` is how
+/// far the labels are from the axis line at least.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool, base: &dyn Fn(f64) -> Point, shift: Point, off: f64) -> Result<(), Error> {
+    let f = s.frame.clone();
+    let c = axis_char(a);
     // scaled ticks: the labels divided by a power of ten
     // scaled ticks: the labels multiplied by `factor`, and a label that says by what
     let mut factor = 1.0;
@@ -1406,14 +1547,6 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
     }
     let interval = keys::flag(e, &format!("/pgfplots/{c} tick label as interval"));
     let n = f.normal(a);
-    let side = f.label_side[a];
-    let bv = if side > 0 {
-        f.max[b]
-    } else if side == 0 {
-        f.zero[b]
-    } else {
-        f.min[b]
-    };
     let anchor = format!("near {c}ticklabel");
     let styles = format!("/pgfplots/every tick label,/pgfplots/every {c} tick label");
     let mut dim = 0.0f64;
@@ -1423,7 +1556,7 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
         for w in vis.windows(2) {
             let (k, t) = w[0];
             let (_, t2) = w[1];
-            entries.push((k, t, Some(t2), on_axis(&f, a, (t + t2) / 2.0, bv)));
+            entries.push((k, t, Some(t2), base((t + t2) / 2.0)));
         }
     } else {
         for (k, t) in &vis {
@@ -1431,12 +1564,12 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
                 continue;
             }
             let next = list.get(k + 1).copied();
-            entries.push((*k, *t, next, on_axis(&f, a, *t, bv)));
+            entries.push((*k, *t, next, base(*t)));
         }
     }
     f.label_axis.set(a);
     for (k, t, next, p) in entries {
-        let at = p.plus(n.scale(off));
+        let at = p.plus(shift);
         // the number format of the tick label styles applies to the text
         e.begin_group();
         let r = (|| {
@@ -1469,100 +1602,6 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
         let items = e.node(NodeSpec { options, name: None, at: None, text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None });
         f.cs.set(Cs::Plain);
         e.canvas.items.extend(items?);
-    }
-    Ok(())
-}
-
-/// A 3d axis: the box's background edges, ticks and labels on the lower front edges.
-fn draw_axis_3d(e: &mut Engine, s: &Setup) -> Result<(), Error> {
-    let f = s.frame.clone();
-    // which faces are in the background: the view direction's signs
-    let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
-    let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
-    let n = [-az.sin() * el.cos(), az.cos() * el.cos(), el.sin()];
-    // background face of each axis: the one away from the viewer
-    let back = [if n[0] > 0.0 { f.max[0] } else { f.min[0] }, if n[1] > 0.0 { f.min[1] } else { f.max[1] }, f.min[2]];
-    let edges = |fixed: usize| -> Vec<Segment> {
-        let others: Vec<usize> = (0..3).filter(|k| *k != fixed).collect();
-        let mut v = Vec::new();
-        for &o in &others {
-            let other = others.iter().copied().find(|k| *k != o).unwrap_or(0);
-            for bvalue in [f.min[other], f.max[other]] {
-                let mut l0 = [0.0; 3];
-                l0[fixed] = back[fixed];
-                l0[other] = bvalue;
-                l0[o] = f.min[o];
-                let mut l1 = l0;
-                l1[o] = f.max[o];
-                v.push(Segment::MoveTo(f.at(l0)));
-                v.push(Segment::LineTo(f.at(l1)));
-            }
-        }
-        v
-    };
-    // grid on the background faces
-    for a in 0..3 {
-        let c = axis_char(a);
-        if s.hide[a] || !keys::flag(e, &format!("/pgfplots/{c}majorgrids")) {
-            continue;
-        }
-        let mut segs = Vec::new();
-        for (_, t) in visible(&f, a, &s.ticks[a]) {
-            for b in (0..3).filter(|b| *b != a) {
-                let o = (0..3).find(|k| *k != a && *k != b).unwrap_or(0);
-                let mut l0 = [0.0; 3];
-                l0[a] = t;
-                l0[b] = back[b];
-                l0[o] = f.min[o];
-                let mut l1 = l0;
-                l1[o] = f.max[o];
-                segs.push(Segment::MoveTo(f.at(l0)));
-                segs.push(Segment::LineTo(f.at(l1)));
-            }
-        }
-        e.draw_with(&format!("/pgfplots/every axis grid,/pgfplots/every major grid,/pgfplots/every axis {c} grid,/pgfplots/every major {c} grid"), segs)?;
-    }
-    let mut segs = Vec::new();
-    for fixed in [2, 0, 1] {
-        segs.extend(edges(fixed));
-    }
-    e.draw_with("/pgfplots/every outer x axis line,/pgfplots/every outer y axis line,/pgfplots/every outer z axis line", segs)?;
-    // tick labels on the front lower edges: x at y on the front side, y at x on the front side
-    let front = [if n[0] > 0.0 { f.min[0] } else { f.max[0] }, if n[1] > 0.0 { f.max[1] } else { f.min[1] }];
-    let center = f.at([(f.min[0] + f.max[0]) / 2.0, (f.min[1] + f.max[1]) / 2.0, (f.min[2] + f.max[2]) / 2.0]);
-    for a in 0..3 {
-        let c = axis_char(a);
-        if s.hide[a] || !keys::flag(e, &format!("/pgfplots/{c}majorticks")) {
-            continue;
-        }
-        let base = |t: f64| -> [f64; 3] {
-            match a {
-                0 => [t, front[1], f.min[2]],
-                1 => [front[0], t, f.min[2]],
-                _ => [if n[0] > 0.0 { f.min[0] } else { f.max[0] }, if n[1] > 0.0 { f.min[1] } else { f.max[1] }, t],
-            }
-        };
-        let len = keys::length(e, "/pgfplots/major tick length").unwrap_or(0.15);
-        let mut tsegs = Vec::new();
-        let styles = format!("/pgfplots/every tick label,/pgfplots/every {c} tick label");
-        for (k, t) in visible(&f, a, &s.ticks[a]) {
-            let p = f.at(base(t));
-            let out = unit(p.minus(Point::new(center.x, if a == 2 { p.y } else { center.y })));
-            tsegs.push(Segment::MoveTo(p));
-            tsegs.push(Segment::LineTo(p.plus(out.scale(-len))));
-            e.begin_group();
-            let r = (|| {
-                e.keys_tikz(&styles)?;
-                tick_text(e, a, t, None, k, 1.0, false)
-            })();
-            e.end_group();
-            let text = r?;
-            let angle = out.y.atan2(out.x).to_degrees() + 180.0;
-            let options = toks(&format!("anchor={angle},{styles}"));
-            let items = e.node(NodeSpec { options, name: None, at: Some(p), text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None })?;
-            e.canvas.items.extend(items);
-        }
-        e.draw_with(&format!("/pgfplots/every tick,/pgfplots/every major tick,/pgfplots/every {c} tick"), tsegs)?;
     }
     Ok(())
 }
@@ -1653,19 +1692,31 @@ impl Engine {
                         Some(p) => self.length(p)?,
                         None => 0.0,
                     };
-                    let b = if a == 0 { 1 } else { 0 };
-                    let side = f.label_side[a];
-                    let bv = if side > 0 {
-                        f.max[b]
-                    } else if side == 0 {
-                        f.zero[b]
+                    let base = if f.three_d {
+                        // a point of the line that holds the tick labels
+                        let line = f.label_line[a];
+                        let l = [0, 1, 2].map(|k| match line[k] {
+                            b'v' => f.min[k] + t * (f.max[k] - f.min[k]),
+                            b'1' => f.max[k],
+                            b'2' => f.zero[k],
+                            _ => f.min[k],
+                        });
+                        f.at(l)
                     } else {
-                        f.min[b]
+                        let b = if a == 0 { 1 } else { 0 };
+                        let side = f.label_side[a];
+                        let bv = if side > 0 {
+                            f.max[b]
+                        } else if side == 0 {
+                            f.zero[b]
+                        } else {
+                            f.min[b]
+                        };
+                        let mut l = f.min;
+                        l[a] = f.min[a] + t * (f.max[a] - f.min[a]);
+                        l[b] = bv;
+                        f.at(l)
                     };
-                    let mut l = f.min;
-                    l[a] = f.min[a] + t * (f.max[a] - f.min[a]);
-                    l[b] = bv;
-                    let base = f.at(l);
                     let shift = if system.ends_with('*') { extra } else { f.tick_dim.borrow()[a] + extra + f.label_shift[a] };
                     Ok(base.plus(f.normal(a).scale(shift)))
                 }

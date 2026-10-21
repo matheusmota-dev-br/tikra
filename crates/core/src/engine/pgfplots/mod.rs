@@ -5,6 +5,7 @@
 //! are drawn ([`draw`]).
 
 pub mod colormap;
+pub mod cube;
 pub mod draw;
 pub mod keys;
 pub mod legend;
@@ -39,6 +40,8 @@ pub struct Axis {
     pub numplots: usize,
     /// Whether a picture was opened for this axis (an `axis` outside `tikzpicture`).
     pub opened_picture: bool,
+    /// The axis' options, as given.
+    pub options: Vec<Token>,
     /// The environment's group depth, to close it at `\end{axis}`.
     pub depth: usize,
 }
@@ -129,6 +132,7 @@ impl Engine {
         keys::run(self, "every axis/.try")?;
         keys::run(self, style)?;
         let saved = self.st.key_path.clone();
+        axis.options = o.clone();
         self.process_keys(o, Some("/pgfplots")).map_err(|err| Error::Figure(format!("axis options: {err}")))?;
         self.st.key_path = saved;
         axis.numplots = 0;

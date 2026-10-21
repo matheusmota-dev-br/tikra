@@ -250,6 +250,10 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
                     (plot.coords, plot.scanlines) = read_table(e, three_d)?;
                 }
                 "expression" => {
+                    // `\addplot expression[domain=0:3] {…}`: options for the sampling
+                    if let Some(o) = e.optional()? {
+                        e.process_keys(o, Some("/pgfplots"))?;
+                    }
                     let body = match e.tex.next_nonspace() {
                         Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
                         _ => return Err(Error::Figure("expression without a formula".into())),

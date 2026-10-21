@@ -187,3 +187,19 @@ fn degenerate_input_does_not_fail() {
     let r = tikra::convert(r"\begin{axis} \addplot {x}; \end{axis}").unwrap();
     assert!(r.svg.contains("<path"));
 }
+
+#[test]
+fn three_d_axis_and_surface() {
+    // view {25}{30}: x and y not enlarged, three ticks wanted at least (`every 3d description`)
+    let (c, w) = axis("", r"\addplot3[surf,shader=interp] {x*y};");
+    assert!(w.is_empty(), "{w:?}");
+    // as TeX: x -4, -2, 0, 2, 4 (the longer axis on paper); y -5, 0, 5; z -20, 0, 20
+    assert_eq!(texts(&c), 11);
+    // 25 × 25 samples: 24 × 24 patches
+    assert_eq!(filled(&c).len(), 24 * 24);
+    // 3d box=complete draws the edges in front too: more lines than the background box alone
+    let strokes = |c: &Canvas| c.items.iter().filter(|i| matches!(i, Item::Path { fill: None, stroke: Some(_), .. })).count();
+    let (c2, w) = axis("3d box=complete", r"\addplot3[surf,shader=interp] {x*y};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(strokes(&c2) > strokes(&c), "{} {}", strokes(&c2), strokes(&c));
+}

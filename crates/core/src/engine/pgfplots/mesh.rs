@@ -149,7 +149,9 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             |c: Color| Stroke { color: c, width, dash: st.dash.clone().filter(|d| !d.0.is_empty()), cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: opacity.0 };
         let (fill_c, stroke_c) = if surf && closes {
             match shader.as_str() {
-                "interp" => (Some(fill.at(mapped)), None),
+                // pgfplots shades each patch; flat patches with a hairline of their color have
+                // no seams between them either
+                "interp" => (Some(fill.at(mapped)), Some(fill.at(mapped))),
                 "flat" | "flat mean" | "flat corner" => (Some(fill.at(mapped)), Some(fill.at(mapped))),
                 _ => (Some(fill.at(mapped)), Some(faceted.at(mapped))),
             }
@@ -157,7 +159,11 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             (None, Some(draw.at(mapped)))
         };
         let fill_item = fill_c.map(|c| Fill { paint: Paint::Solid(c), opacity: opacity.1, even_odd: false });
-        e.canvas.push(Item::Path { segments: segs, fill: fill_item, stroke: stroke_c.map(stroke) });
+        let mut stroke_item = stroke_c.map(stroke);
+        if let (Some(st), true) = (stroke_item.as_mut(), surf && closes && shader == "interp") {
+            st.width = 0.2 * crate::PT;
+        }
+        e.canvas.push(Item::Path { segments: segs, fill: fill_item, stroke: stroke_item });
     }
     Ok(())
 }
