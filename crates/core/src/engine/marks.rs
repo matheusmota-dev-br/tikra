@@ -136,7 +136,7 @@ fn shape(name: &str, r: f64) -> Option<Vec<(Vec<Segment>, Usage)>> {
 fn chosen(k: usize, repeat: usize, phase: usize, indices: &Option<Vec<usize>>) -> bool {
     match indices {
         Some(list) => list.contains(&k),
-        None => k >= phase && (k - phase) % repeat.max(1) == 0,
+        None => k >= phase && (k - phase).is_multiple_of(repeat.max(1)),
     }
 }
 
