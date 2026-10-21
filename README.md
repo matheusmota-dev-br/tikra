@@ -81,7 +81,7 @@ Labels: node text is typeset by mathra, with `$…$` and `\(…\)` for math, `\t
 
 ## Warnings, not errors
 
-What tikra does not understand becomes a **warning**, and the figure is drawn with the rest: `\matrix`, `\pic`, unknown commands and options it cannot read, TikZ escaped twice or for Markdown (undone), labels with broken LaTeX (recovered by mathra's tolerant mode). `--warnings` lists them; `Output::warnings` has them in the library.
+What tikra does not understand becomes a **warning**, and the figure is drawn with the rest: `\matrix`, `\pic`, unknown commands and environments, TikZ escaped twice or for Markdown (undone), labels with broken LaTeX (recovered by mathra's tolerant mode). `--warnings` lists them; `Output::warnings` has them in the library. Options are not checked yet: an option tikra does not know (`ybar`, `xtick`, `fit`, `drop shadow`) is ignored without a warning. How often that changes the drawing is measured in [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).
 
 Limits protect against hostile input: 100,000 statements per figure, 64 levels of nesting, 2,000 samples per plot, coordinates within ±100,000 cm, PNG up to 100 megapixels. Past a limit you get a clear error or a warning, never a hang.
 
@@ -115,6 +115,7 @@ $ cargo clippy --all-targets -- -D warnings
 $ npm/build.sh && npm/test/run.sh             # the npm package, packed and installed as users get it
 $ site/build.sh                               # the playground: then open site/index.html
 $ scripts/release.sh --dry-run                # what a release would publish
+$ tools/conformance/run.sh                    # how far from TikZ: every manual example, TeX next to tikra
 ```
 
 What each test file covers and the inputs built to break the interpreter are in [docs/tests.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/tests.md).

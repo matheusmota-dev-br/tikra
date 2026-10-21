@@ -248,3 +248,37 @@ fn png_of_extreme_figures() {
     let r = finishes(r"\draw (0,0) -- (0.0001,0);");
     assert!(tikra::png(&r.svg, 300.0, true).is_ok());
 }
+
+#[test]
+fn unclosed_groups_never_hang() {
+    // a group that never closes, at each place a group is read; found by tools/conformance
+    for body in [
+        r"\begin{axis}\addplot {x}; \addlegendentry{a\end{axis}",
+        r"\begin{axis}\addplot {x}; \addlegendentry\end{axis}",
+        r"\begin{axis}\addplot[red {x};\end{axis}",
+        r"\begin{axis}\addplot {x^2;\end{axis}",
+        r"\begin{axis}\addplot coordinates {(1,2) (3,4};\end{axis}",
+        r"\draw[red (0,0) -- (1,1);",
+        r"\draw (0,0) -- (1,1) node[red {a};",
+        r"\draw (0,0) to[bend left (1,1);",
+        r"\draw (0,0) .. controls (1,1 .. (2,0);",
+        r"\draw plot[smooth coordinates {(0,0) (1,1)};",
+        r"\draw plot coordinates {(0,0) (1,1};",
+        r"\draw (0,0) arc[start angle=0, end angle=90, radius=1;",
+        r"\node {a;",
+    ] {
+        let _ = convert_with_deadline(&figure(body));
+    }
+}
+
+#[test]
+fn expanded_legend_entries() {
+    // pgfplots manual: \addlegendentryexpanded inside a \foreach once looped forever; it draws as \addlegendentry
+    let drawing = |legend: &str| {
+        let r = convert_with_deadline(&figure(&format!(r"\begin{{axis}}\addplot {{x^2}}; {legend}{{$x^2$}}\end{{axis}}"))).unwrap();
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        let (head, tail) = (r.svg.find("<metadata>").unwrap(), r.svg.find("</metadata>").unwrap());
+        format!("{}{}", &r.svg[..head], &r.svg[tail..])
+    };
+    assert_eq!(drawing(r"\addlegendentryexpanded"), drawing(r"\addlegendentry"));
+}

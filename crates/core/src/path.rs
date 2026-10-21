@@ -3,7 +3,7 @@
 use crate::color::Color;
 use crate::label;
 use crate::options::{self, Opt};
-use crate::reader::{block, invert, line_width, Env};
+use crate::reader::{block, block_or_rest, invert, line_width, Env};
 use crate::scene::*;
 use crate::{Error, PT};
 
@@ -649,7 +649,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             skip(&mut i);
             let mut o = String::new();
             if c.get(i) == Some(&'[') {
-                let (x, end) = block(&c, i).unwrap_or_default();
+                let (x, end) = block_or_rest(&c, i);
                 o = x;
                 i = end;
             }
@@ -690,7 +690,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             let t = b.env.scope().transform;
             let (mut rx, mut ry) = (0.0, 0.0);
             if c.get(i) == Some(&'[') {
-                let (o, end) = block(&c, i).unwrap_or_default();
+                let (o, end) = block_or_rest(&c, i);
                 i = end;
                 for x in options::parse(&o) {
                     match (x.key.as_str(), x.value.as_deref()) {
@@ -743,7 +743,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
                     }
                 }
             } else if c.get(i) == Some(&'[') {
-                let (o, end) = block(&c, i).unwrap_or_default();
+                let (o, end) = block_or_rest(&c, i);
                 i = end;
                 for x in options::parse(&o) {
                     match (x.key.as_str(), x.value.as_deref()) {
@@ -781,7 +781,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             skip(&mut i);
             let mut step = grid_step;
             if c.get(i) == Some(&'[') {
-                let (o, end) = block(&c, i).unwrap_or_default();
+                let (o, end) = block_or_rest(&c, i);
                 i = end;
                 for x in options::parse(&o) {
                     match (x.key.as_str(), x.value.as_deref()) {
@@ -824,7 +824,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             skip(&mut i);
             let mut plot_options = String::new();
             if c.get(i) == Some(&'[') {
-                let (o, end) = block(&c, i).unwrap_or_default();
+                let (o, end) = block_or_rest(&c, i);
                 plot_options = o;
                 i = end;
                 skip(&mut i);
@@ -856,7 +856,7 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
                 let mut k = 0;
                 while k < lc.len() {
                     if lc[k] == '(' {
-                        let (d, f) = block(&lc, k).unwrap_or_default();
+                        let (d, f) = block_or_rest(&lc, k);
                         points.push(coordinate(b.env, &d)?.p);
                         k = f;
                     } else {
@@ -936,10 +936,10 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
             }
         } else if c[i] == '[' {
             // options in the middle of a path: they apply to the rest (accepted and ignored)
-            let (_, end) = block(&c, i).unwrap_or_default();
+            let (_, end) = block_or_rest(&c, i);
             i = end;
         } else if c[i] == '{' {
-            let (_, end) = block(&c, i).unwrap_or_default();
+            let (_, end) = block_or_rest(&c, i);
             i = end;
         } else {
             let junk: String = c[i..].iter().take(20).collect();
