@@ -562,7 +562,10 @@ impl Engine {
             Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
         } else if self.st.mode.pattern {
             Some(Fill {
-                paint: Paint::Pattern { name: self.st.pattern_name.clone().unwrap_or_default(), color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK) },
+                paint: {
+                    let (name, color) = (self.st.pattern_name.clone().unwrap_or_default(), self.st.pattern_color.unwrap_or(crate::color::Color::BLACK));
+                    self.pattern_paint(&name, color).unwrap_or(Paint::Pattern { name, color })
+                },
                 opacity: self.st.fill_opacity,
                 even_odd: false,
             })

@@ -68,10 +68,9 @@ impl Engine {
         let drawn = segs.iter().any(|s| !matches!(s, Segment::MoveTo(_)));
         let fill = if mode.fill || mode.pattern || mode.shade {
             let paint = if mode.pattern {
-                Paint::Pattern {
-                    name: self.st.pattern_name.clone().unwrap_or_else(|| "north east lines".into()),
-                    color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK),
-                }
+                let name = self.st.pattern_name.clone().unwrap_or_else(|| "north east lines".into());
+                let color = self.st.pattern_color.unwrap_or(crate::color::Color::BLACK);
+                self.pattern_paint(&name, color).unwrap_or(Paint::Pattern { name, color })
             } else if mode.shade {
                 Paint::Shading(self.shading_for(&segs))
             } else {

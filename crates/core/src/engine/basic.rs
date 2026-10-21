@@ -482,6 +482,8 @@ impl Engine {
         self.st.mode = Mode::default();
         for a in actions.split(',').map(str::trim) {
             match a {
+                // after \pgfsetfillpattern, a fill is the pattern
+                "fill" if self.st.fill_pattern => self.st.mode.pattern = true,
                 "fill" => self.st.mode.fill = true,
                 "stroke" | "draw" => self.st.mode.draw = true,
                 "clip" => self.st.mode.clip = true,

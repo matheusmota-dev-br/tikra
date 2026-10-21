@@ -25,6 +25,7 @@ pub mod nonlinear;
 pub mod options;
 pub mod output;
 pub mod path;
+pub mod patterns;
 pub mod pgfplots;
 pub mod pics;
 pub mod shadings;
@@ -67,6 +68,9 @@ pub enum Cmd {
     Chainin,
     TikzMath,
     DeclareFading,
+    DeclarePatternForm,
+    DeclarePatternColored,
+    SetFillPattern,
     DeclareShadingH,
     DeclareShadingV,
     DeclareShadingR,
@@ -162,6 +166,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("chainin", Cmd::Chainin),
     ("tikzmath", Cmd::TikzMath),
     ("pgfdeclarefading", Cmd::DeclareFading),
+    ("pgfdeclarepatternformonly", Cmd::DeclarePatternForm),
+    ("pgfdeclarepatterninherentlycolored", Cmd::DeclarePatternColored),
+    ("pgfsetfillpattern", Cmd::SetFillPattern),
     ("pgfdeclarehorizontalshading", Cmd::DeclareShadingH),
     ("pgfdeclareverticalshading", Cmd::DeclareShadingV),
     ("pgfdeclareradialshading", Cmd::DeclareShadingR),
@@ -348,6 +355,8 @@ pub struct Engine {
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
     /// paths kept by `save path`
     pub saved_paths: HashMap<String, Vec<crate::scene::Segment>>,
+    /// patterns declared by the basic layer
+    pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
@@ -450,6 +459,7 @@ impl Clone for Engine {
             basic_shadings: self.basic_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
             saved_paths: self.saved_paths.clone(),
+            user_patterns: self.user_patterns.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -519,6 +529,7 @@ impl Engine {
             basic_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
             saved_paths: HashMap::new(),
+            user_patterns: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
@@ -928,6 +939,9 @@ impl Engine {
             Cmd::Chainin => self.chainin(),
             Cmd::TikzMath => self.tikzmath(),
             Cmd::DeclareFading => self.declare_fading(),
+            Cmd::DeclarePatternForm => self.declare_pattern(false),
+            Cmd::DeclarePatternColored => self.declare_pattern(true),
+            Cmd::SetFillPattern => self.set_fill_pattern(),
             Cmd::DeclareShadingH => self.declare_shading('h'),
             Cmd::DeclareShadingV => self.declare_shading('v'),
             Cmd::DeclareShadingR => self.declare_shading('r'),

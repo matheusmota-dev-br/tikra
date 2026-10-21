@@ -46,6 +46,16 @@ pub enum Shading {
     Radial { transform: Transform, focus: Point, stops: Vec<Stop> },
 }
 
+/// A pattern's tile: its items, the same tile when they are the same list.
+#[derive(Debug, Clone)]
+pub struct TileItems(pub std::rc::Rc<Vec<Item>>);
+
+impl PartialEq for TileItems {
+    fn eq(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     Solid(Color),
@@ -53,6 +63,12 @@ pub enum Paint {
     Pattern {
         name: String,
         color: Color,
+    },
+    /// A pattern declared in the document: the items of one tile (canvas cm, the tile from the
+    /// origin to `size`), repeated from the origin of the page.
+    Tile {
+        items: TileItems,
+        size: Point,
     },
     Shading(Shading),
 }
