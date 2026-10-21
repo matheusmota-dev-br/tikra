@@ -280,9 +280,18 @@ impl Engine {
 
         // the text boxes, one per node part
         let mut texts = Vec::new();
-        for (part, tokens) in split_parts(&spec.text) {
-            let t = self.tex.expand_to_string(tokens)?;
-            texts.push((part, t.trim().to_string()));
+        // expanded first: a macro may hold the `\nodepart`s
+        // with what `execute at begin node` and `execute at end node` put around it
+        let body = |e: &Engine, name: &str| match e.tex.meaning_of(name) {
+            tex::Meaning::Macro(m) => tex::substitute(&m.body, &[]),
+            _ => Vec::new(),
+        };
+        let mut text_tokens = body(self, "tikz@atbegin@node");
+        text_tokens.extend(spec.text.clone());
+        text_tokens.extend(body(self, "tikz@atend@node"));
+        let expanded = self.tex.expand_fully(text_tokens)?;
+        for (part, tokens) in split_parts(&expanded) {
+            texts.push((part, tex::tokens_to_string(&tokens).trim().to_string()));
         }
         let text = texts[0].1.clone();
         let text_width = {

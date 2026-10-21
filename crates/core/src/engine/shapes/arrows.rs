@@ -166,7 +166,7 @@ fn arrow_extend(input: &mut Input, side: &str, half_box: f64) -> f64 {
     if text.contains("none") {
         return 0.0;
     }
-    let length_text = text.replace("from center", "");
+    let length_text = text.replace("from center", "").replace("from border", "");
     let v = input.keys.length_of(length_text.trim(), 0.0);
     if !text.contains("from center") && v > 0.0 {
         v + half_box
