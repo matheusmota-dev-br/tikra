@@ -354,7 +354,12 @@ impl Run<'_> {
         let name = "tikra@te@character".to_string();
         let r = e.node(NodeSpec { options, name: Some(name.clone()), at: None, text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None });
         let width = e.nodes.get(&name).map(|info| {
-            let (w, h) = (info.half.0 + info.outer.0, info.half.1 + info.outer.1);
+            // half the size between the outer anchors (outer sep included)
+            let half = |a: &str, b: &str| match (info.anchor(a), info.anchor(b)) {
+                (Some(p), Some(q)) => p.minus(q).norm() / 2.0,
+                _ => 0.0,
+            };
+            let (w, h) = (half("east", "west"), half("north", "south"));
             if te.segment_from_width {
                 2.0 * w
             } else {

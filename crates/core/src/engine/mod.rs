@@ -14,6 +14,7 @@ pub mod options;
 pub mod output;
 pub mod path;
 pub mod pics;
+pub mod shapes;
 pub mod state;
 pub mod trees;
 

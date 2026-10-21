@@ -135,6 +135,17 @@ impl Canvas {
         }
     }
 
+    /// Grows the bounding box by the box of a path's points enlarged by `margin` on every side, as
+    /// `\pgfusepath` does by half the line width for a stroked path.
+    pub fn include_path_margin(&mut self, segments: &[Segment], margin: f64) {
+        let mut b = Canvas::default();
+        b.include_path(segments);
+        if let (Some(min), Some(max)) = (b.min, b.max) {
+            self.include(Point::new(min.x - margin, min.y - margin));
+            self.include(Point::new(max.x + margin, max.y + margin));
+        }
+    }
+
     pub fn push(&mut self, item: Item) {
         self.items.push(item);
     }

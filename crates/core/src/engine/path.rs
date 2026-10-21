@@ -928,6 +928,10 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
             None => break,
         }
     }
+    // `node contents=…` stands for the text, which is then not given
+    if let Some(v) = crate::keys::split_list(&options).into_iter().find(|i| i.key == "node contents").and_then(|i| i.value) {
+        return Ok((options, name, at, tex::strip_outer_braces(v)));
+    }
     if !coordinate {
         e.warn("node without text: '{…}' missing");
     }
