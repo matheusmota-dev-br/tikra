@@ -925,13 +925,12 @@ keyfn!(k_minimum_size, |e, v| {
 
 keyfn!(k_font, |e, v| {
     let s = text(e, &v)?;
-    // the font commands, for the node's text
-    for name in ["tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge"] {
-        if s.contains(&format!("\\{name}")) && !s.contains(&format!("\\{name}er")) {
-            e.st.font_size = super::font_size(name);
-        }
-    }
-    e.st.font.push_str(&s);
+    // `font=` replaces the font of the nodes (`\tikz@textfont`), and the fonts selected around
+    // the picture stay: what came before the last `font=` is kept, the rest replaced
+    const MARK: &str = "\\tikz@textfont ";
+    let around = e.st.font.find(MARK).map_or(e.st.font.as_str(), |i| &e.st.font[..i]).to_string();
+    e.st.font = format!("{around}{MARK}{s}");
+    e.st.font_size = 10.0 * crate::label::font_size(&e.st.font);
     Ok(())
 });
 
