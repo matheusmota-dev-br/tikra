@@ -529,11 +529,17 @@ impl Engine {
         // a direction among the label's options (`"text" above` with quotes) is its position
         let directions = ["above", "below", "left", "right", "above left", "above right", "below left", "below right"];
         let mut given = None;
+        // `pin edge={…}`: options of the pin's edge, not of its label
+        let mut edge_options = Vec::new();
         let items = keys::split_list(&opts);
-        if items.iter().any(|i| i.value.is_none() && directions.contains(&i.key.as_str())) {
+        let taken = |i: &keys::Item| (i.value.is_none() && directions.contains(&i.key.as_str())) || i.key == "pin edge";
+        if items.iter().any(taken) {
             let mut rest = Vec::new();
             for i in items {
-                if i.value.is_none() && directions.contains(&i.key.as_str()) {
+                if i.key == "pin edge" {
+                    edge_options.push(Token::other(','));
+                    edge_options.extend(i.value.unwrap_or_default());
+                } else if i.value.is_none() && directions.contains(&i.key.as_str()) {
                     given = Some(i.key.clone());
                 } else {
                     if !rest.is_empty() {
@@ -597,7 +603,9 @@ impl Engine {
             };
             self.begin_group();
             self.st.mode = Default::default();
-            self.process_keys(tikra_tokens("every pin edge/.try,draw"), Some("/tikz"))?;
+            let mut edge = tikra_tokens("every pin edge/.try,draw");
+            edge.extend(edge_options);
+            self.process_keys(edge, Some("/tikz"))?;
             let stroke = self.stroke();
             self.end_group();
             let mut out = vec![Item::Path { segments: vec![Segment::MoveTo(from), Segment::LineTo(to)], fill: None, stroke: Some(stroke) }];
