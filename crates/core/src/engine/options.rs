@@ -1614,6 +1614,9 @@ pub fn define_keys(e: &mut Engine) {
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
     }
     e.st.key_path = "/tikz".into();
+    for (path, value) in super::shapes::INITIAL {
+        e.tex.set_meaning(&Token::cs(&macro_name(path)), macro_from(value), false);
+    }
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
     lexer.push_text(&format!("{DEFINITIONS}{}", super::shapes::DEFINITIONS));
