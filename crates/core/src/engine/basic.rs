@@ -807,6 +807,31 @@ impl Engine {
                     (y, x) => format!("{y} {x}"),
                 };
                 let place = t.apply(at);
+                // a shading as the text: its box, placed by the anchor (its baseline is its bottom)
+                let words: Vec<&Token> = text.iter().filter(|x| !x.is_space()).collect();
+                if let [Token::Cs(cmd), ..] = words[..] {
+                    if &**cmd == "pgfuseshading" {
+                        let name = crate::tex::tokens_to_string(&text).replace("\\pgfuseshading", "").replace(['{', '}'], "");
+                        if let Some((w, h)) = self.shading_half_size(name.trim()) {
+                            let dx = if anchor.contains("west") {
+                                w
+                            } else if anchor.contains("east") {
+                                -w
+                            } else {
+                                0.0
+                            };
+                            let dy = if anchor.contains("north") {
+                                -h
+                            } else if anchor.contains("south") || anchor.contains("base") {
+                                h
+                            } else {
+                                0.0
+                            };
+                            let s = Transform::translation(place.x, place.y).compose(&Transform::rotation(rotate)).compose(&Transform::translation(dx, dy));
+                            return self.draw_shading(name.trim(), &s);
+                        }
+                    }
+                }
                 let options = tikra_tokens(&format!("shape=rectangle,inner sep=0pt,outer sep=0pt,anchor={anchor},rotate={rotate}"));
                 let items = self.node(NodeSpec { options, name: None, at: Some(place), text, place: OnPath::Point(place), point: place, coordinate: false, default_pos: None })?;
                 self.canvas.items.extend(items);

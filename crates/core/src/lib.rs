@@ -62,7 +62,7 @@ pub fn convert(code: &str) -> Result<Output, Error> {
         base = r;
     }
     let text = strip_comments(&base);
-    let input = if text.contains("\\begin{tikzpicture}") || text.contains("\\begin{pgfpicture}") || tikz_command(&text).is_some() {
+    let input = if text.contains("\\begin{tikzpicture}") || text.contains("\\begin{pgfpicture}") || text.contains("\\pgfuseshading") || tikz_command(&text).is_some() {
         base
     } else if text.contains("\\begin{axis}") || ["\\draw", "\\fill", "\\node", "\\path", "\\filldraw", "\\coordinate"].iter().any(|c| text.contains(c)) {
         // an axis or loose statements, with no tikzpicture around them

@@ -101,14 +101,30 @@ impl Engine {
         Ok(())
     }
 
-    /// `\pgfuseshading{name}`: the shading's box, centered at the origin.
+    /// `\pgfuseshading{name}`: the shading's box, centered at the origin; outside a picture, a box
+    /// of its own on the baseline.
     pub fn use_shading(&mut self) -> Result<(), Error> {
         let name = self.argument_string()?;
-        let Some(sh) = self.basic_shadings.get(name.trim()).cloned() else {
+        if self.picture_depth > 0 {
+            let t = self.st.transform;
+            return self.draw_shading(name.trim(), &t);
+        }
+        let Some((w, h)) = self.basic_shadings.get(name.trim()).map(BasicShading::half_size) else {
             self.warn(format!("shading '{}' not declared: ignored", name.trim()));
             return Ok(());
         };
-        let t = self.st.transform;
+        self.begin_picture(None)?;
+        let r = self.draw_shading(name.trim(), &Transform::translation(w, h));
+        self.end_picture();
+        r
+    }
+
+    /// The shading `name` drawn in its box, centered at the origin of `t`.
+    pub fn draw_shading(&mut self, name: &str, t: &Transform) -> Result<(), Error> {
+        let Some(sh) = self.basic_shadings.get(name).cloned() else {
+            self.warn(format!("shading '{name}' not declared: ignored"));
+            return Ok(());
+        };
         let (w, h) = sh.half_size();
         let corners = [Point::new(-w, -h), Point::new(w, -h), Point::new(w, h), Point::new(-w, h)].map(|p| t.apply(p));
         let mut segs = vec![Segment::MoveTo(corners[0])];
@@ -117,9 +133,14 @@ impl Engine {
         if self.counts_for_size() {
             self.canvas.include_path(&segs);
         }
-        let fill = Fill { paint: Paint::Shading(sh.paint(&t)), opacity: self.st.fill_opacity, even_odd: false };
+        let fill = Fill { paint: Paint::Shading(sh.paint(t)), opacity: self.st.fill_opacity, even_odd: false };
         self.canvas.push(Item::Path { segments: segs, fill: Some(fill), stroke: None });
         Ok(())
+    }
+
+    /// The half sizes of a declared shading's box.
+    pub fn shading_half_size(&self, name: &str) -> Option<(f64, f64)> {
+        self.basic_shadings.get(name).map(BasicShading::half_size)
     }
 
     /// `\pgfshadepath{name}{angle}`: the path being built filled with the shading, fitted to it.
