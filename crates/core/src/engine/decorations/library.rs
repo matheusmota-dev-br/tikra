@@ -49,6 +49,8 @@ pub enum Dec {
     KochSnowflake,
     Cantor,
     TextEffects,
+    /// the mindmap library's
+    CircleConnectionBar,
     /// declared in the document with `\pgfdeclaredecoration`, run as TeX
     User(&'static str),
 }
@@ -133,6 +135,7 @@ pub fn lookup(name: &str) -> Option<Dec> {
         "Koch snowflake" => Dec::KochSnowflake,
         "Cantor set" => Dec::Cantor,
         "text effects along path" => Dec::TextEffects,
+        "circle connection bar" => Dec::CircleConnectionBar,
         _ => return None,
     })
 }
@@ -146,7 +149,7 @@ pub fn lookup_meta(name: &str) -> Option<Meta> {
 
 fn initial(d: Dec) -> &'static str {
     match d {
-        Dec::LineTo | Dec::MoveTo | Dec::CurveTo | Dec::Saw | Dec::Snake | Dec::Bumps | Dec::ExpandingWaves | Dec::TextAlongPath => "initial",
+        Dec::LineTo | Dec::MoveTo | Dec::CurveTo | Dec::Saw | Dec::Snake | Dec::Bumps | Dec::ExpandingWaves | Dec::TextAlongPath | Dec::CircleConnectionBar => "initial",
         Dec::Zigzag => "up from center",
         Dec::RandomSteps => "start",
         Dec::Bent => "bent",
@@ -907,6 +910,9 @@ impl<'a> Run<'a> {
             (Dec::Triangles, "last") => vec![Switch(self.ssw, "skip"), Width(rem), Next("final")],
             (Dec::Triangles | Dec::Crosses, _) => vec![Width(rem)],
             (Dec::Koch1 | Dec::Koch2 | Dec::KochSnowflake | Dec::Cantor, _) => vec![Width(seg_rem)],
+            (Dec::CircleConnectionBar, "initial") => vec![Width(0.0), Next("bar")],
+            (Dec::CircleConnectionBar, "bar") => vec![Width(0.0), Next("end")],
+            (Dec::CircleConnectionBar, _) => vec![Width(0.0), Next("final")],
             (Dec::Footprints, "left") => {
                 let w = self.key_pt("stride length", 30.0) / 2.0;
                 vec![Width(w), Next("right")]
@@ -1093,6 +1099,26 @@ impl<'a> Run<'a> {
                 self.w.out.close();
             }
             (Dec::Crosses, "crosses") | (Dec::Crosses, "last") => self.cross(t),
+            (Dec::CircleConnectionBar, state) => {
+                // the start cap, the band, the end cap: all from the start, as their widths are 0
+                let (r1, r2) = (self.key_pt("start radius", 2.5), self.key_pt("end radius", 2.5));
+                let (ang, rem) = (self.s.angle, self.w.remaining);
+                let all = crate::engine::mindmap::bar(r1, r2, a, ang, rem, t);
+                let mut pieces = all.split_inclusive(|s| matches!(s, crate::scene::Segment::Close));
+                let piece = match state {
+                    "initial" => pieces.next(),
+                    "bar" => pieces.nth(1),
+                    _ => pieces.nth(2),
+                };
+                for seg in piece.unwrap_or_default() {
+                    match *seg {
+                        crate::scene::Segment::MoveTo(q) => self.w.out.move_to(q),
+                        crate::scene::Segment::LineTo(q) => self.w.out.line_to(q),
+                        crate::scene::Segment::CurveTo(c1, c2, q) => self.w.out.curve_to(c1, c2, q),
+                        crate::scene::Segment::Close => self.w.out.close(),
+                    }
+                }
+            }
             (Dec::Koch1 | Dec::Koch2 | Dec::KochSnowflake | Dec::Cantor, _) => {
                 let r = self.w.seg_remaining;
                 let pts: &[(f64, f64, bool)] = match dec {

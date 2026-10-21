@@ -10,10 +10,11 @@ use crate::Error;
 
 use super::{macro_from, tikra_tokens, Engine};
 
-/// One child: its options, its body, and whether it is `missing`.
+/// One child: its options and its body, and what `child foreach` defines for it.
 struct Child {
     options: Vec<Token>,
     body: Vec<Token>,
+    define: Vec<Token>,
 }
 
 impl Engine {
@@ -118,14 +119,11 @@ impl Engine {
                     None => Vec::new(),
                 };
                 for item in super::foreach_items(&list) {
-                    // the variable is fixed by a \def at the start of the child
+                    // the variable is defined (a \def) before the child's options are read
                     let mut b = vec![Token::cs("def"), var.clone(), Token::Char('{', Cat::Begin)];
                     b.extend(item);
                     b.push(Token::Char('}', Cat::End));
-                    let mut o = b.clone();
-                    o.extend(options.clone());
-                    b.extend(body.clone());
-                    out.push(Child { options: o, body: b });
+                    out.push(Child { options: options.clone(), body: body.clone(), define: b });
                 }
                 continue;
             }
@@ -138,7 +136,7 @@ impl Engine {
                 }
                 None => Vec::new(),
             };
-            out.push(Child { options, body });
+            out.push(Child { options, body, define: Vec::new() });
         }
     }
 
@@ -167,6 +165,8 @@ impl Engine {
         self.tex.set_meaning(&Token::cs("tikzparentnode"), macro_from(parent), false);
         self.st.pending = Transform::default();
         self.st.child_missing = false;
+        // the variable of `child foreach`, for the options too
+        self.run_tokens(child.define)?;
         let mut options = tikra_tokens("every child/.try,");
         options.extend(child.options);
         self.process_keys(options, Some("/tikz"))?;
@@ -174,20 +174,7 @@ impl Engine {
         if self.st.child_missing {
             return Ok(());
         }
-        // grow: level distance along the direction, then the place among the siblings
-        let polar = |angle: f64, d: f64| {
-            let (s, c) = angle.to_radians().sin_cos();
-            Point::new(d * c, d * s)
-        };
-        let (g, ld, sd) = (self.st.grow_angle, self.st.level_distance, self.st.sibling_distance);
-        let mut t = self.st.transform.compose(&Transform::translation(polar(g, ld).x, polar(g, ld).y));
-        if self.st.special_level != Some(self.st.tree_level) {
-            let (left, right) = if self.st.grow_swapped { (g + 90.0, g - 90.0) } else { (g - 90.0, g + 90.0) };
-            let a = polar(left, (n as f64 + 1.0) * sd / 2.0);
-            let b = polar(right, k as f64 * sd);
-            t = t.compose(&Transform::translation(a.x, a.y)).compose(&Transform::translation(b.x, b.y));
-        }
-        self.st.transform = t;
+        self.st.transform = self.grow(k, n)?;
         // the child's node, named parent-k unless it names itself, then its own children
         let body = keys_trimmed(&child.body);
         let (kind, rest) = split_first_word(&body);
@@ -231,6 +218,98 @@ impl Engine {
         self.run_tokens(edge)
     }
 }
+
+impl Engine {
+    /// Where the `k`-th of `n` children goes: the growth function's transformation, applied to
+    /// the parent's coordinate system.
+    fn grow(&mut self, k: usize, n: usize) -> Result<Transform, Error> {
+        let polar = |angle: f64, d: f64| {
+            let (s, c) = angle.to_radians().sin_cos();
+            Point::new(d * c, d * s)
+        };
+        let shift = |t: &Transform, p: Point| t.compose(&Transform::translation(p.x, p.y));
+        let (g, ld, sd) = (self.st.grow_angle, self.st.level_distance, self.st.sibling_distance);
+        let (k, n) = (k as f64, n as f64);
+        let growth = self.tex.expand_to_string(vec![Token::cs("tikra@growth")])?;
+        let sibling_angle = |e: &mut Engine| -> Result<f64, Error> {
+            let v = crate::keys::value(&e.tex, "/tikz/sibling angle").unwrap_or_default();
+            e.number_of(v)
+        };
+        let t = self.st.transform;
+        let (kind, arg) = growth.trim().split_once(' ').unwrap_or((growth.trim(), ""));
+        Ok(match kind {
+            // grow cyclic: turned by the sibling angle around the parent, then out by the level
+            // distance; the turn stays for the child's own children
+            "cyclic" => {
+                let a = sibling_angle(self)? * (-0.5 - 0.5 * n + k);
+                t.compose(&Transform::rotation(a)).compose(&Transform::translation(ld, 0.0))
+            }
+            "ccw" | "cw" => {
+                let start = self.number(arg)?;
+                let step = sibling_angle(self)? * (k - 1.0);
+                shift(&t, polar(if kind == "ccw" { start + step } else { start - step }, ld))
+            }
+            // grow via three points: one child at a, the first of two at b, the second at c
+            "three" => {
+                let points: Vec<&str> = arg.split('|').collect();
+                let mut p = Vec::new();
+                for q in points.iter().take(3) {
+                    let c = self.coordinate(q)?;
+                    p.push(crate::reader::invert(&t).apply(c.p));
+                }
+                let [a, b, c] = p[..] else { return Ok(t) };
+                let (b, c) = (b.minus(a), c.minus(b));
+                shift(&t, Point::new(a.x + (n - 1.0) * b.x + (k - 1.0) * c.x, a.y + (n - 1.0) * b.y + (k - 1.0) * c.y))
+            }
+            // the default: level distance along the direction, then the place among the siblings
+            _ => {
+                let mut t = shift(&t, polar(g, ld));
+                if self.st.special_level != Some(self.st.tree_level) {
+                    let (left, right) = if self.st.grow_swapped { (g + 90.0, g - 90.0) } else { (g - 90.0, g + 90.0) };
+                    t = shift(&shift(&t, polar(left, (n + 1.0) * sd / 2.0)), polar(right, k * sd));
+                }
+                t
+            }
+        })
+    }
+}
+
+/// `\tikzleveldistance` and `\tikzsiblingdistance`, the registers TikZ keeps the distances in.
+const LEVEL_DISTANCE: u32 = 4030;
+const SIBLING_DISTANCE: u32 = 4031;
+
+pub fn define(e: &mut Engine) {
+    e.tex.define("tikzleveldistance", crate::tex::Meaning::Dimen(LEVEL_DISTANCE));
+    e.tex.define("tikzsiblingdistance", crate::tex::Meaning::Dimen(SIBLING_DISTANCE));
+    set_distance_registers(e);
+}
+
+/// The registers follow `level distance` and `sibling distance`.
+pub fn set_distance_registers(e: &mut Engine) {
+    let sp = |cm: f64| (cm / crate::PT * 65536.0).round() as i64;
+    let (l, s) = (sp(e.st.level_distance), sp(e.st.sibling_distance));
+    e.tex.set_dimen(LEVEL_DISTANCE, l, false);
+    e.tex.set_dimen(SIBLING_DISTANCE, s, false);
+}
+
+/// The trees library: other growth functions (`\tikra@growth`), the forks.
+pub const DEFINITIONS: &str = r"
+\def\tikra@growth{}
+\def\tikra@growthree one child at#1(#2)#3and two children at#4(#5)#6and#7(#8)\relax{\def\tikra@growth{three #2|#5|#8}}
+\tikzset{
+  grow cyclic/.style={edge from parent/.append style={reset cm},tikra@growth=cyclic},
+  tikra@growth/.code={\def\tikra@growth{#1}},
+  sibling angle/.initial=20,
+  counterclockwise from/.code={\def\tikra@growth{ccw #1}},
+  clockwise from/.code={\def\tikra@growth{cw #1}},
+  grow via three points/.code={\tikra@growthree#1\relax},
+  grow siblings on line/.code={\def\tikra@growth{}},
+  edge from parent fork down/.style={edge from parent path={(\tikzparentnode\tikzparentanchor) -- +(0pt,-.5\tikzleveldistance) -| (\tikzchildnode\tikzchildanchor)}},
+  edge from parent fork up/.style={edge from parent path={(\tikzparentnode\tikzparentanchor) -- +(0pt,.5\tikzleveldistance) -| (\tikzchildnode\tikzchildanchor)}},
+  edge from parent fork left/.style={edge from parent path={(\tikzparentnode\tikzparentanchor) -- +(-.5\tikzleveldistance,0pt) |- (\tikzchildnode\tikzchildanchor)}},
+  edge from parent fork right/.style={edge from parent path={(\tikzparentnode\tikzparentanchor) -- +(.5\tikzleveldistance,0pt) |- (\tikzchildnode\tikzchildanchor)}},
+}
+";
 
 fn keys_trimmed(v: &[Token]) -> Vec<Token> {
     crate::keys::trim(v).to_vec()

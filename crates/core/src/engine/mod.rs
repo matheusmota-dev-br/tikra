@@ -12,6 +12,7 @@ pub mod folding;
 pub mod intersections;
 pub mod marks;
 pub mod matrix;
+pub mod mindmap;
 pub mod nodes;
 pub mod options;
 pub mod output;
@@ -418,6 +419,7 @@ impl Engine {
         basic::define(&mut e);
         calendar::define(&mut e);
         folding::define(&mut e);
+        mindmap::define(&mut e);
         options::define_keys(&mut e);
         e
     }
@@ -658,6 +660,10 @@ impl Engine {
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
+                    // `.5\tikzleveldistance`: a factor before a register multiplies it, as TeX reads it
+                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                        s.push('*');
+                    }
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
                 }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),
@@ -716,6 +722,9 @@ impl Engine {
         }
         if folding::is_folding(id) {
             return self.folding_command(id);
+        }
+        if mindmap::is_mindmap(id) {
+            return self.mindmap_command(id);
         }
         let Some(&(_, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
         if let Some(defaults) = path_command(cmd) {
