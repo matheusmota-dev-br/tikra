@@ -31,6 +31,24 @@ fn top_level(t: &str, target: char) -> Option<usize> {
     None
 }
 
+/// Where the `]` that closes the `[` at the start of `t` is (braces and brackets nest).
+fn closing_bracket(t: &str) -> Option<usize> {
+    let mut depth = 0i32;
+    for (i, c) in t.char_indices() {
+        match c {
+            '{' | '[' => depth += 1,
+            '}' | ']' => {
+                depth -= 1;
+                if depth == 0 && c == ']' {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Splits at top-level commas.
 pub fn split_commas(t: &str) -> Vec<String> {
     crate::options::split_top_level(t)
@@ -70,7 +88,7 @@ impl Engine {
         let t = inner.trim();
         // ([options] point): the options transform this point only
         if let Some(rest) = t.strip_prefix('[') {
-            let Some(end) = top_level(&format!("[{rest}"), ']') else { return Err(Error::Figure(format!("unmatched bracket in ({t})"))) };
+            let Some(end) = closing_bracket(t) else { return Err(Error::Figure(format!("unmatched bracket in ({t})"))) };
             let opts = &rest[..end - 1];
             let point = rest[end..].trim().to_string();
             self.begin_group();
@@ -114,6 +132,9 @@ impl Engine {
                 Some((n, a)) if !n.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '+') && self.lookup_node(n.trim()).is_some() => (n.trim(), Some(a.trim())),
                 _ => (t, None),
             };
+            if name == "current subpath start" {
+                return Ok(Coord { p: self.subpath_start, node: None });
+            }
             if let Some(node) = self.lookup_node(name).as_ref() {
                 return Ok(match anchor {
                     Some(a) => Coord { p: node.anchor(a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None },

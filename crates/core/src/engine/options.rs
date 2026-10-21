@@ -1263,6 +1263,15 @@ keyfn!(k_at_empty_cell, |e, v| {
     e.st.matrix.at_empty_cell = v.unwrap_or_default();
     Ok(())
 });
+// `turn`: the coordinate system at the path's last point, its x axis along the path there
+keyfn!(k_turn, |e, _v| {
+    let (last, from) = e.turn_from;
+    let d = last.minus(from);
+    let d = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+    let t = Transform { a: d.x, b: d.y, c: -d.y, d: d.x, e: last.x, f: last.y };
+    e.st.pending = e.st.pending.compose(&t);
+    Ok(())
+});
 keyfn!(k_start_chain, |e, v| {
     let s = text(e, &v)?;
     e.start_chain(&s);
@@ -1776,6 +1785,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/controls", k_controls),
     ("/tikz/to path", k_to_path),
     ("/tikz/start chain", k_start_chain),
+    ("/tikz/turn", k_turn),
     ("/tikz/continue chain", k_continue_chain),
     ("/tikz/chain default direction", k_chain_default_direction),
     ("/tikz/on chain", k_on_chain),

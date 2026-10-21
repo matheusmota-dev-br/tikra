@@ -271,6 +271,10 @@ pub struct Engine {
     pub chain_list: std::collections::HashMap<String, chains::Chain>,
     /// path operations to run after the node just made (`after node path`, joins)
     pub after_node_path: Vec<Token>,
+    /// the path's last point and where it came from, for `turn` in the next coordinate
+    pub turn_from: (crate::scene::Point, crate::scene::Point),
+    /// where the path's subpath started (`current subpath start`)
+    pub subpath_start: crate::scene::Point,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -345,6 +349,8 @@ impl Clone for Engine {
             tree_count: self.tree_count,
             chain_list: self.chain_list.clone(),
             after_node_path: Vec::new(),
+            turn_from: Default::default(),
+            subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
@@ -398,6 +404,8 @@ impl Engine {
             tree_count: 0,
             chain_list: Default::default(),
             after_node_path: Vec::new(),
+            turn_from: Default::default(),
+            subpath_start: Default::default(),
             tree_edge_out: None,
             tree_child_names: Vec::new(),
             forced_box: None,
