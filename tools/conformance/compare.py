@@ -16,11 +16,14 @@ shape, its color and its size:
   other way round; their harmonic mean is the F1 score.
 - pieces: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
-- color: of tikra's ink near TeX's, the share with about the same color as some TeX ink 1 px around
-  (antialiasing puts a line's dark and light pixels at different places in the two).
+- color: of tikra's ink near TeX's, the share with about the same color as some TeX ink 1 px around,
+  both blurred by 0.7 px (antialiasing puts a line's dark and light pixels, and its ink, at different
+  places in the two).
+- ink: the share of each drawing's ink within 2 px of a mark of the other, the smaller of the two (an
+  extra or missing fill, away from the edges).
 - size: width and height within 10% (or 4 px).
 
-A figure *matches* with F1 ≥ 0.9, color ≥ 0.9, the same size and no missing or extra piece; it is
+A figure *matches* with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size and no missing or extra piece; it is
 *close* with F1 ≥ 0.75.
 """
 
@@ -40,7 +43,9 @@ RADIUS = 2.0
 SHIFT = 6
 INK = 40  # how far from white (0–255, on the darkest channel) a pixel must be to count as ink
 COLOR = 90  # largest channel difference for two inks to count as the same color
-MATCH, CLOSE, COLOR_OK = 0.90, 0.75, 0.90
+BLUR = 0.7  # px: the blur both drawings get before their colors are compared
+FAINT = 8  # how far from white a pixel must be to count as a mark, for the ink of the other drawing
+MATCH, CLOSE, COLOR_OK, INK_OK = 0.90, 0.75, 0.90, 0.95
 MIN_PIECE = 20  # pixels of outline for a piece to count
 EDGE = 60  # color difference between neighbor pixels that makes an edge
 
@@ -143,23 +148,33 @@ def measure(ref_path, tik_path):
     if tik_ink_near.any():
         # the same color as some TeX ink in the 3×3 pixels around: the two antialias a line's edge at different
         # phases, so the single nearest TeX pixel can be the light rim of a line tikra draws dark there
+        # both drawings a little blurred: Ghostscript and resvg spread a thin line's ink over the
+        # pixels differently (one dark pixel, or two lighter ones), which is not a color difference
+        ref_b = ndimage.gaussian_filter(ref_c.astype(np.float32), sigma=(BLUR, BLUR, 0))
+        tik_b = ndimage.gaussian_filter(tik_c.astype(np.float32), sigma=(BLUR, BLUR, 0))
         same = np.zeros(tik_ink.shape, dtype=bool)
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
-                ref_s = np.roll(ref_c, (dy, dx), axis=(0, 1))
+                ref_s = np.roll(ref_b, (dy, dx), axis=(0, 1))
                 ink_s = np.roll(ref_ink, (dy, dx), axis=(0, 1))
-                same |= ink_s & (np.abs(ref_s - tik_c).max(axis=2) <= COLOR)
+                same |= ink_s & (np.abs(ref_s - tik_b).max(axis=2) <= COLOR)
         color = float(np.count_nonzero(same & tik_ink_near) / np.count_nonzero(tik_ink_near))
     else:
         color = 0.0
     n_ref, missing = pieces(ref_e, tik_e)
     _, extra = pieces(tik_e, ref_e)
+    # ink: how much of each drawing's ink lies near the other's (a fill one has and the other does
+    # not is mostly away from the edges, where the scores above do not look)
+    # (near any mark of the other at all: a light line can be ink in one and just under INK in the other)
+    near_ref = ndimage.distance_transform_edt(~((255 - ref_c).max(axis=2) > FAINT)) <= RADIUS
+    near_tik = ndimage.distance_transform_edt(~((255 - tik_c).max(axis=2) > FAINT)) <= RADIUS
+    ink_share = min(np.count_nonzero(tik_ink & near_ref) / np.count_nonzero(tik_ink), np.count_nonzero(ref_ink & near_tik) / np.count_nonzero(ref_ink))
     return {**base, "f1": round(f1, 4), "precision": round(precision, 4), "recall": round(recall, 4), "color": round(color, 4),
-            "pieces": n_ref, "missing": missing, "extra": extra}
+            "ink": round(float(ink_share), 4), "pieces": n_ref, "missing": missing, "extra": extra}
 
 
 def category(r):
-    if r["f1"] >= MATCH and r["color"] >= COLOR_OK and r["size_ok"] and r["missing"] == 0 and r["extra"] == 0:
+    if r["f1"] >= MATCH and r["color"] >= COLOR_OK and r.get("ink", 1.0) >= INK_OK and r["size_ok"] and r["missing"] == 0 and r["extra"] == 0:
         return "match"
     if r["f1"] >= CLOSE:
         return "close"
