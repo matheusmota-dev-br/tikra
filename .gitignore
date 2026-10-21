@@ -1,5 +1,5 @@
 /target
-/.cargo/config.toml
+/.cargo/config.toml*
 *.so
 *.pyd
 *.whl

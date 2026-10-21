@@ -8,12 +8,14 @@
 pub mod axes;
 pub mod color;
 pub mod expr;
+pub mod keys;
 pub mod label;
 pub mod options;
 pub mod path;
 pub mod reader;
 pub mod render;
 pub mod scene;
+pub mod tex;
 
 use std::fmt;
 
