@@ -779,7 +779,13 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         frame.origin = frame.origin.plus(base.minus(lo));
     }
     // ticks
-    let hide = [keys::flag(e, "/pgfplots/hide x axis"), keys::flag(e, "/pgfplots/hide y axis"), keys::flag(e, "/pgfplots/hide z axis")];
+    let mut hide = [keys::flag(e, "/pgfplots/hide x axis"), keys::flag(e, "/pgfplots/hide y axis"), keys::flag(e, "/pgfplots/hide z axis")];
+    // an axis of no length on paper (z at view {0}{90}) is hidden (`\pgfplots@hide@ztrue`)
+    for (a, h) in hide.iter_mut().enumerate() {
+        if a < dims && frame.e[a].norm() < 1e-12 {
+            *h = true;
+        }
+    }
     let mut ticks: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut dist = [0.0; 3];
     for a in 0..dims {

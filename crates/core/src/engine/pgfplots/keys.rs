@@ -793,6 +793,48 @@ keyfn!(k_scatter, |e, v| {
     Ok(())
 });
 
+// `color of colormap={300 of viridis}` (0 to 1000), `const color of colormap`, `index of
+// colormap={4 of viridis}` (the colormap's 5th color): the current color, as
+// `\pgfplots@color@of@colormap` sets it.
+keyfn!(k_colormap_color, |e, v| {
+    let name = current_name(e);
+    let s = text(e, &v)?;
+    let (value, map) = match s.split_once(" of ") {
+        Some((a, b)) => (a.trim().to_string(), Some(b.trim().to_string())),
+        None => (s.trim().to_string(), None),
+    };
+    let mut map_name = map.unwrap_or_else(|| keys::value(&e.tex, "/pgfplots/colormap name").map(|v| tex::tokens_to_string(&v)).unwrap_or_default());
+    // `of colormap/cool`: the style defines the map
+    let spec_of = |e: &Engine, n: &str| keys::value(&e.tex, &format!("/pgfplots/@colormaps/{n}")).map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+    let spec = if let Some(style) = map_name.strip_prefix("colormap/").map(str::to_string) {
+        e.begin_group();
+        let r = run(e, &format!("/pgfplots/colormap/{style}"));
+        let spec = spec_of(e, &style);
+        e.end_group();
+        r?;
+        map_name = style;
+        spec
+    } else {
+        spec_of(e, &map_name)
+    };
+    let Some(cm) = super::colormap::Colormap::parse(&spec, &e.colors) else {
+        e.warn(format!("{name}: colormap '{map_name}' not defined"));
+        return Ok(());
+    };
+    let x = e.number(&value)?;
+    let c = if name.starts_with("index") {
+        let k = (x.max(0.0) as usize).min(cm.stops.len() - 1);
+        cm.stops[k].1
+    } else if name.starts_with("const") {
+        cm.at_const(x / 1000.0)
+    } else {
+        cm.at(x / 1000.0)
+    };
+    let id = format!("pgfplots@colormap@{:.0}@{:.0}@{:.0}", c.r * 1e6, c.g * 1e6, c.b * 1e6);
+    e.colors.insert(id.clone(), c);
+    e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
+});
+
 // `group style={…}`: keys of /pgfplots/group.
 keyfn!(k_group_style, |e, v| {
     let saved = e.st.key_path.clone();
@@ -890,6 +932,12 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/axis y line*", k_line_star),
     ("/pgfplots/axis z line*", k_line_star),
     ("/pgfplots/group style", k_group_style),
+    ("/pgfplots/color of colormap", k_colormap_color),
+    ("/pgfplots/const color of colormap", k_colormap_color),
+    ("/pgfplots/index of colormap", k_colormap_color),
+    ("/tikz/color of colormap", k_colormap_color),
+    ("/tikz/const color of colormap", k_colormap_color),
+    ("/tikz/index of colormap", k_colormap_color),
     ("/pgfplots/group/group size", k_group_size),
     ("/tikz/smooth", k_handler),
     ("/tikz/sharp plot", k_handler),

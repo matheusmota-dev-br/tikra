@@ -730,6 +730,12 @@ impl Engine {
     }
 
     pub fn color(&self, text: &str) -> Option<Color> {
+        // `.` is xcolor's current color (`draw=.!60!black`)
+        if text.split('!').any(|p| p.trim() == ".") {
+            let mut colors = self.colors.clone();
+            colors.insert(".".into(), self.st.color);
+            return color::parse(text.trim(), &colors);
+        }
         color::parse(text.trim(), &self.colors)
     }
 

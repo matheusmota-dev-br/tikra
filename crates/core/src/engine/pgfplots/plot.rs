@@ -272,7 +272,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
                         Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
                         _ => return Err(Error::Figure("coordinates without a list".into())),
                     };
-                    plot.coords = coordinates(e, list)?;
+                    (plot.coords, plot.scanlines) = coordinates(e, list)?;
                 }
                 "table" => {
                     (plot.coords, plot.scanlines) = read_table(e, three_d)?;
@@ -468,9 +468,11 @@ fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
 }
 
 /// `coordinates {(x,y) (x,y) +- (ex,ey) [meta] …}`.
-fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
+/// The points of `coordinates {…}`, and where its scanlines (ended by empty lines) end.
+fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usize>), Error> {
     let list = e.tex.expand_fully(list)?;
     let mut out = Vec::new();
+    let mut scanlines: Vec<usize> = Vec::new();
     let mut i = 0;
     let read_paren = |i: &mut usize| -> Option<Vec<Token>> {
         let mut depth = 0i32;
@@ -494,6 +496,13 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
     };
     while i < list.len() {
         let t = &list[i];
+        if t.is_cs("par") {
+            if !out.is_empty() && scanlines.last() != Some(&out.len()) {
+                scanlines.push(out.len());
+            }
+            i += 1;
+            continue;
+        }
         if t.is_char('(') {
             let Some(inside) = read_paren(&mut i) else { break };
             let parts = split_commas(&inside);
@@ -558,7 +567,7 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
         }
         i += 1;
     }
-    Ok(out)
+    Ok((out, scanlines))
 }
 
 fn search_path(e: &mut Engine) -> Vec<String> {
@@ -655,7 +664,9 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sx = pick(e, "x", Some(0));
     let sy = pick(e, "y", Some(1));
     let sz = pick(e, "z", if three_d { Some(2) } else { None });
+    let symbolic = symbolic_meta(e);
     let smeta = match crate::keys::value(&e.tex, "/pgfplots/point meta") {
+        _ if symbolic.is_some() => Src::None,
         Some(v) if tex::tokens_to_string(&v).contains("\\thisrow") => Src::Expr(v),
         _ => pick(e, "meta", None),
     };
@@ -684,6 +695,12 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             if let Some(cell) = t.cell(r, *col) {
                 c.label = add_label(tex::string_tokens(cell));
             }
+        }
+        if let Some((tokens, mathparse)) = &symbolic {
+            let replaced = replace_thisrow(tokens, t, r);
+            let text = e.tex.expand_to_string(replaced).unwrap_or_default();
+            let l = symbolic_label(e, &text, *mathparse, [x, y, z]);
+            c.label = add_label(tex::string_tokens(&l));
         }
         let ey = get(e, &sey);
         let ex = get(e, &sex);
@@ -782,8 +799,49 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     Ok(())
 }
 
+/// `point meta={symbolic={R,G,B}}`: the text of each point's meta, and whether
+/// `mesh/color input=explicit mathparse` evaluates it.
+fn symbolic_meta(e: &mut Engine) -> Option<(Vec<Token>, bool)> {
+    let raw = crate::keys::value(&e.tex, "/pgfplots/point meta")?;
+    let items = crate::keys::split_list(crate::keys::trim(&raw));
+    let item = items.first().filter(|i| i.key == "symbolic" && items.len() == 1)?;
+    let mathparse = keys::value(e, "/pgfplots/mesh/color input") == "explicit mathparse";
+    Some((item.value.clone().unwrap_or_default(), mathparse))
+}
+
+/// A symbolic point meta for a point: with `mathparse`, each part (`R,G,B`, `wave=…`) evaluated.
+fn symbolic_label(e: &mut Engine, text: &str, mathparse: bool, xyz: [f64; 3]) -> String {
+    if !mathparse {
+        return text.trim().to_string();
+    }
+    let mut vars = e.vars();
+    vars.insert("x".into(), xyz[0]);
+    vars.insert("y".into(), xyz[1]);
+    vars.insert("z".into(), xyz[2]);
+    let (model, rest) = match text.split_once('=') {
+        Some((m, r)) if m.trim().chars().all(|c| c.is_ascii_alphanumeric()) => (format!("{}=", m.trim()), r),
+        _ => (String::new(), text),
+    };
+    let parts: Vec<String> =
+        crate::options::split_top_level(rest).iter().map(|p| crate::expr::eval(p.trim(), &vars).map(|v| format!("{v}")).unwrap_or_else(|_| p.trim().to_string())).collect();
+    format!("{model}{}", parts.join(","))
+}
+
 /// `point meta`: the value each point maps to the colormap with.
 fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    if let Some((tokens, mathparse)) = symbolic_meta(e) {
+        // tables have set them row by row
+        if plot.coords.iter().all(|c| c.label == NO_LABEL) {
+            let text = e.tex.expand_to_string(tokens).unwrap_or_default();
+            for i in 0..plot.coords.len() {
+                let c = plot.coords[i];
+                let l = symbolic_label(e, &text, mathparse, [c.x, c.y, c.z]);
+                plot.coords[i].label = add_label(tex::string_tokens(&l));
+            }
+        }
+        plot.has_meta = false;
+        return Ok(());
+    }
     let raw = crate::keys::value(&e.tex, "/pgfplots/point meta").unwrap_or_default();
     let source = tex::tokens_to_string(crate::keys::trim(&raw)).trim().to_string();
     match source.as_str() {
@@ -825,6 +883,8 @@ fn lattice_from_scanlines(e: &mut Engine, plot: &mut Plot) {
     let lattice = match (rows, cols) {
         (_, Some(c)) if c > 0 => Some((n / c, c)),
         (Some(r), _) if r > 0 => Some((r, n / r)),
+        // patches are their own (`mesh input=patches`)
+        _ if plot.patch => None,
         _ => plot.scanlines.first().filter(|c| **c > 0 && n.is_multiple_of(**c)).map(|c| (n / c, *c)),
     };
     if let Some((r, c)) = lattice.filter(|(r, c)| r * c == n && *r > 1 && *c > 1) {

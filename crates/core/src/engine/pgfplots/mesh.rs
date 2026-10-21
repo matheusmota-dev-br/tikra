@@ -135,41 +135,72 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
     }
     let closes = list.first().is_some_and(|q| q.len() > 2);
+    let explicit = keys::value(e, "/pgfplots/mesh/color input").starts_with("explicit");
     for q in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         let metas: Vec<f64> = q.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
-        let mapped = if m.is_finite() { map(f, m) } else { Color::BLACK };
-        // interp: a large rectangle is shaded across, drawn as small bilinear pieces
-        if surf && closes && shader == "interp" && corners.len() == 4 && metas.len() == 4 {
-            let size = (0..4).map(|i| corners[i].minus(corners[(i + 1) % 4]).norm()).fold(0.0, f64::max);
-            let n = if size > 12.0 * crate::PT { ((size / (6.0 * crate::PT)).ceil() as usize).clamp(1, 32) } else { 1 };
+        // `mesh/color input=explicit`: each point has its color
+        let vertex: Option<Vec<Color>> = explicit.then(|| q.iter().map(|&k| vertex_color(e, p, k)).collect());
+        let mapped = match &vertex {
+            Some(v) if shader == "flat corner" => v[0],
+            Some(v) => mean(v),
+            None if m.is_finite() => map(f, m),
+            None => Color::BLACK,
+        };
+        // interp: a large patch is shaded across, drawn as small pieces interpolated between its
+        // corners
+        let interp_ok = vertex.is_some() || metas.len() == corners.len();
+        if closes && shader == "interp" && interp_ok && (corners.len() == 4 || corners.len() == 3) {
+            let size = (0..corners.len()).map(|i| corners[i].minus(corners[(i + 1) % corners.len()]).norm()).fold(0.0, f64::max);
+            let n = if size > 12.0 * crate::PT { ((size / (3.0 * crate::PT)).ceil() as usize).clamp(1, 64) } else { 1 };
             if n > 1 {
-                let bil = |u: f64, v: f64| -> (Point, f64) {
-                    let w = [(1.0 - u) * (1.0 - v), u * (1.0 - v), u * v, (1.0 - u) * v];
-                    let mut p = Point::default();
-                    let mut mm = 0.0;
-                    for k in 0..4 {
-                        p = p.plus(corners[k].scale(w[k]));
-                        mm += metas[k] * w[k];
+                // a point and its color from weights of the corners
+                let at = |w: &[f64]| -> (Point, Color) {
+                    let mut pt = Point::default();
+                    for k in 0..corners.len() {
+                        pt = pt.plus(corners[k].scale(w[k]));
                     }
-                    (p, mm)
+                    let c = match &vertex {
+                        Some(v) => blend(v, w),
+                        None => map(f, (0..corners.len()).map(|k| metas[k] * w[k]).sum()),
+                    };
+                    (pt, c)
                 };
-                for i in 0..n {
-                    for j in 0..n {
-                        let (u0, u1, v0, v1) = (i as f64 / n as f64, (i + 1) as f64 / n as f64, j as f64 / n as f64, (j + 1) as f64 / n as f64);
-                        let pts4 = [bil(u0, v0), bil(u1, v0), bil(u1, v1), bil(u0, v1)];
-                        let mm = pts4.iter().map(|q| q.1).sum::<f64>() / 4.0;
-                        let c = fill.at(map(f, mm));
-                        let mut segs = vec![Segment::MoveTo(pts4[0].0)];
-                        segs.extend(pts4[1..].iter().map(|q| Segment::LineTo(q.0)));
-                        segs.push(Segment::Close);
-                        if !e.canvas_frozen {
-                            e.canvas.include_path(&segs);
+                let mut pieces: Vec<Vec<(Point, Color)>> = Vec::new();
+                let nf = n as f64;
+                if corners.len() == 4 {
+                    let bil = |u: f64, v: f64| [(1.0 - u) * (1.0 - v), u * (1.0 - v), u * v, (1.0 - u) * v];
+                    for i in 0..n {
+                        for j in 0..n {
+                            let (u0, u1, v0, v1) = (i as f64 / nf, (i + 1) as f64 / nf, j as f64 / nf, (j + 1) as f64 / nf);
+                            pieces.push([bil(u0, v0), bil(u1, v0), bil(u1, v1), bil(u0, v1)].iter().map(|w| at(w)).collect());
                         }
-                        let stroke = Stroke { color: c, width: 0.2 * crate::PT, dash: None, cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: opacity.0 };
-                        e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint: Paint::Solid(c), opacity: opacity.1, even_odd: false }), stroke: Some(stroke) });
                     }
+                } else {
+                    let bar = |i: usize, j: usize| {
+                        let (a, b) = (i as f64 / nf, j as f64 / nf);
+                        [1.0 - a - b, a, b]
+                    };
+                    for i in 0..n {
+                        for j in 0..n - i {
+                            pieces.push([bar(i, j), bar(i + 1, j), bar(i, j + 1)].iter().map(|w| at(w)).collect());
+                            if i + j + 1 < n {
+                                pieces.push([bar(i + 1, j), bar(i + 1, j + 1), bar(i, j + 1)].iter().map(|w| at(w)).collect());
+                            }
+                        }
+                    }
+                }
+                for piece in pieces {
+                    let c = fill.at(mean(&piece.iter().map(|q| q.1).collect::<Vec<_>>()));
+                    let mut segs = vec![Segment::MoveTo(piece[0].0)];
+                    segs.extend(piece[1..].iter().map(|q| Segment::LineTo(q.0)));
+                    segs.push(Segment::Close);
+                    if !e.canvas_frozen {
+                        e.canvas.include_path(&segs);
+                    }
+                    let stroke = Stroke { color: c, width: 0.5 * crate::PT, dash: None, cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: opacity.0 };
+                    e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint: Paint::Solid(c), opacity: opacity.1, even_odd: false }), stroke: Some(stroke) });
                 }
                 continue;
             }
@@ -184,7 +215,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         }
         let stroke =
             |c: Color| Stroke { color: c, width, dash: st.dash.clone().filter(|d| !d.0.is_empty()), cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: opacity.0 };
-        let (fill_c, stroke_c) = if surf && closes {
+        let (fill_c, stroke_c) = if closes && (surf || p.patch) {
             match shader.as_str() {
                 // pgfplots shades each patch; flat patches with a hairline of their color have
                 // no seams between them either
@@ -203,4 +234,73 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         e.canvas.push(Item::Path { segments: segs, fill: fill_item, stroke: stroke_item });
     }
     Ok(())
+}
+
+fn mean(v: &[Color]) -> Color {
+    let n = v.len().max(1) as f64;
+    Color { r: v.iter().map(|c| c.r).sum::<f64>() / n, g: v.iter().map(|c| c.g).sum::<f64>() / n, b: v.iter().map(|c| c.b).sum::<f64>() / n }
+}
+
+fn blend(v: &[Color], w: &[f64]) -> Color {
+    let mut c = Color { r: 0.0, g: 0.0, b: 0.0 };
+    for (k, x) in v.iter().zip(w) {
+        c.r += k.r * x;
+        c.g += k.g * x;
+        c.b += k.b * x;
+    }
+    c
+}
+
+/// The color of point `k` of an explicit color input: `color=red`, `rgb=…`, `R,G,B`, `rgb255=`,
+/// `cmyk=`, `gray=`, `wave=` (nanometres), as written or computed by the survey.
+fn vertex_color(e: &Engine, p: &Plot, k: usize) -> Color {
+    let Some(label) = p.coords.get(k).filter(|c| c.label != super::plot::NO_LABEL).and_then(|c| p.labels.get(c.label as usize)) else { return Color::BLACK };
+    explicit_color(e, &crate::tex::tokens_to_string(label)).unwrap_or(Color::BLACK)
+}
+
+pub fn explicit_color(e: &Engine, s: &str) -> Option<Color> {
+    let s = s.trim();
+    let (model, rest) = match s.split_once('=') {
+        Some((m, r)) => (m.trim(), r.trim()),
+        None => ("rgb", s),
+    };
+    // (values of \thisrow come in parentheses)
+    let nums: Vec<f64> = rest.split(',').filter_map(|x| x.trim().trim_start_matches('(').trim_end_matches(')').trim().parse().ok()).collect();
+    let n = |i: usize| nums.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+    Some(match model {
+        "color" => return e.color(rest),
+        "rgb" => Color { r: n(0), g: n(1), b: n(2) },
+        "rgb255" => Color { r: nums.first()? / 255.0, g: nums.get(1)? / 255.0, b: nums.get(2)? / 255.0 },
+        "gray" => Color { r: n(0), g: n(0), b: n(0) },
+        "cmyk" => Color { r: (1.0 - n(0)) * (1.0 - n(3)), g: (1.0 - n(1)) * (1.0 - n(3)), b: (1.0 - n(2)) * (1.0 - n(3)) },
+        "cmy" => Color { r: 1.0 - n(0), g: 1.0 - n(1), b: 1.0 - n(2) },
+        "wave" => wave(*nums.first()?),
+        _ => return None,
+    })
+}
+
+/// xcolor's `wave` model: a wavelength in nm to RGB (Bruton's approximation, as xcolor does).
+fn wave(l: f64) -> Color {
+    let (r, g, b) = if l < 440.0 {
+        ((440.0 - l) / 60.0, 0.0, 1.0)
+    } else if l < 490.0 {
+        (0.0, (l - 440.0) / 50.0, 1.0)
+    } else if l < 510.0 {
+        (0.0, 1.0, (510.0 - l) / 20.0)
+    } else if l < 580.0 {
+        ((l - 510.0) / 70.0, 1.0, 0.0)
+    } else if l < 645.0 {
+        (1.0, (645.0 - l) / 65.0, 0.0)
+    } else {
+        (1.0, 0.0, 0.0)
+    };
+    let f = if l < 420.0 {
+        0.3 + 0.7 * (l - 380.0) / 40.0
+    } else if l > 700.0 {
+        0.3 + 0.7 * (780.0 - l) / 80.0
+    } else {
+        1.0
+    };
+    let c = |v: f64| (v * f).clamp(0.0, 1.0).powf(0.8);
+    Color { r: c(r), g: c(g), b: c(b) }
 }
