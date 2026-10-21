@@ -143,6 +143,8 @@ pub enum Cmd {
     Spy,
     SpyBegin,
     SpyEnd,
+    /// `\quad` and `\qquad` between pictures
+    Quad,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -266,6 +268,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("noindent", Cmd::FontSeries),
     ("maketitle", Cmd::FontSeries),
     ("selectfont", Cmd::FontSeries),
+    ("quad", Cmd::Quad),
+    ("qquad", Cmd::Quad),
     ("spy", Cmd::Spy),
     ("tikra@spybegin", Cmd::SpyBegin),
     ("tikra@spyend", Cmd::SpyEnd),
@@ -405,6 +409,8 @@ enum Layout {
     /// a word of the text around the pictures (in `words`)
     Word(usize),
     Space,
+    /// `\quad`, `\qquad`: glue of that width (cm)
+    Skip(f64),
     Par,
 }
 
@@ -683,8 +689,9 @@ impl Engine {
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {
-            // a space after a picture or a word is TeX's interword space
-            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_))) {
+            // a space after a picture or a word is TeX's interword space; spaces with commands
+            // between them (`\tikzset{…}` on its own line) are glue each
+            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_) | Layout::Space)) {
                 self.layout.push(Layout::Space);
             }
             return;
@@ -1255,6 +1262,14 @@ impl Engine {
                 if let Token::Cs(n) = t {
                     self.st.font_size = font_size(n);
                     self.st.font.push_str(&format!("\\{n}"));
+                }
+                Ok(())
+            }
+            Cmd::Quad => {
+                // 1em and 2em of the 10pt font, as glue between the pictures
+                if self.picture_depth == 0 {
+                    let em = if t.is_cs("qquad") { 2.0 } else { 1.0 };
+                    self.layout.push(Layout::Skip(em * 10.0 * crate::PT));
                 }
                 Ok(())
             }
@@ -2086,6 +2101,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f6
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
+                Layout::Skip(w) if started => x += w,
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));
@@ -2097,6 +2113,10 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f6
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
                     let (Some(min), Some(max)) = (b.canvas.min, b.canvas.max) else {
+                        // an empty picture is still where the line starts: the glue after it counts
+                        if !started {
+                            out.include(Point::new(x, baseline_y));
+                        }
                         started = true;
                         continue;
                     };
