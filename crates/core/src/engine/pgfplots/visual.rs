@@ -593,6 +593,14 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
                     let mapped = super::mesh::map(f, meta);
                     e.st.draw_color = Some(draw.at(mapped));
                     e.st.fill_color = Some(fill.at(mapped));
+                    if name == "ball" {
+                        // `ball color=mapped color`: the shading's color, point by point
+                        e.colors.insert("mapped color".into(), mapped);
+                        if let Some(v) = keys::value_tokens(e, "/pgfplots/scatter/use mapped color") {
+                            e.process_keys(v, Some("/tikz"))?;
+                        }
+                        e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
+                    }
                     draw_mark_set(e, &name, size, &local, std::iter::once(p))?;
                 }
                 Ok(())
@@ -606,6 +614,15 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
 
 /// Marks named `name` of size `size` at `points`, in the current state.
 pub fn draw_mark_set(e: &mut Engine, name: &str, size: f64, local: &Transform, points: impl Iterator<Item = Point>) -> Result<(), Error> {
+    // a shaded ball: the engine's mark, with its `ball color`
+    if name == "ball" {
+        let pts: Vec<Point> = points.collect();
+        let _ = size;
+        let items = e.plot_marks(&pts)?;
+        e.canvas.items.extend(items);
+        let _ = local;
+        return Ok(());
+    }
     let Some((shape, usage)) = marks::mark(name, size) else {
         if name == "text" {
             return Ok(());

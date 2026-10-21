@@ -63,6 +63,9 @@ fn mapped_named(e: &mut Engine, name: &str) -> Option<Linear> {
     Some(Linear::from(a, b?))
 }
 
+/// A patch: its corners (canvas points) and the points its colors come from.
+type PatchSource = (Vec<usize>, Vec<usize>);
+
 /// The colormap's color for meta value `m`.
 pub fn map(f: &Frame, m: f64) -> Color {
     let t = (m - f.meta[0]) / (f.meta[1] - f.meta[0]);
@@ -70,6 +73,39 @@ pub fn map(f: &Frame, m: f64) -> Color {
         Some(c) => c.at(t),
         None => Color::BLACK,
     }
+}
+
+/// `mesh input=image`: the corners of the cells around a lattice of centers, (rows+1) × (cols+1),
+/// halfway between neighbours and as far out at the borders.
+pub fn image_corners(pts: &[[f64; 3]], rows: usize, cols: usize) -> Vec<[f64; 3]> {
+    let c = |r: isize, k: isize| -> [f64; 3] {
+        // a center, extrapolated linearly outside the lattice
+        let (rr, kk) = (r.clamp(0, rows as isize - 1), k.clamp(0, cols as isize - 1));
+        let get = |r: isize, k: isize| pts.get(r as usize * cols + k as usize).copied().unwrap_or([f64::NAN; 3]);
+        let base = get(rr, kk);
+        let mut v = base;
+        if r != rr && rows > 1 {
+            let other = get(if r < 0 { 1 } else { rows as isize - 2 }, kk);
+            for i in 0..3 {
+                v[i] += base[i] - other[i];
+            }
+        }
+        if k != kk && cols > 1 {
+            let other = get(rr, if k < 0 { 1 } else { cols as isize - 2 });
+            for i in 0..3 {
+                v[i] += base[i] - other[i];
+            }
+        }
+        v
+    };
+    let mut out = Vec::with_capacity((rows + 1) * (cols + 1));
+    for r in 0..=rows as isize {
+        for k in 0..=cols as isize {
+            let q = [c(r - 1, k - 1), c(r - 1, k), c(r, k - 1), c(r, k)];
+            out.push([0, 1, 2].map(|i| q.iter().map(|p| p[i]).sum::<f64>() / 4.0));
+        }
+    }
+    out
 }
 
 /// The patches of a plot: corner indices.
@@ -116,15 +152,29 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let zbuffer = keys::value(e, "/pgfplots/z buffer");
     let width = st.line_width;
     let opacity = (st.draw_opacity, st.fill_opacity);
-    let canvas: Vec<Option<Point>> = pts.iter().map(|l| if l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()) { Some(f.at(*l)) } else { None }).collect();
-    let mut list = patches(p, pts.len(), &kind);
+    let to_canvas = |l: &[f64; 3]| if l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()) { Some(f.at(*l)) } else { None };
+    // each patch: its corners (into `canvas`) and the points its colors come from
+    let (canvas, mut list): (Vec<Option<Point>>, Vec<PatchSource>) = match p.lattice.filter(|_| p.image) {
+        Some((rows, cols)) => {
+            let corners = image_corners(pts, rows, cols);
+            let mut v = Vec::new();
+            for r in 0..rows {
+                for c in 0..cols {
+                    let k = r * (cols + 1) + c;
+                    v.push((vec![k, k + 1, k + cols + 2, k + cols + 1], vec![r * cols + c; 4]));
+                }
+            }
+            (corners.iter().map(to_canvas).collect(), v)
+        }
+        None => (pts.iter().map(to_canvas).collect(), patches(p, pts.len(), &kind).into_iter().map(|q| (q.clone(), q)).collect()),
+    };
     // 2d lines through a lattice: a mesh of a one dimensional line has no area
     if f.three_d && zbuffer != "none" {
         let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
         let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
         let d = [az.sin() * el.cos(), -az.cos() * el.cos(), el.sin()];
         let norm = |i: usize, v: f64| (v - f.min[i]) / (f.max[i] - f.min[i]).abs().max(1e-300) * if f.e[i].norm() == 0.0 { 0.0 } else { 1.0 };
-        let depth = |q: &Vec<usize>| -> f64 {
+        let depth = |(q, _): &(Vec<usize>, Vec<usize>)| -> f64 {
             let mut s = 0.0;
             for &k in q {
                 let l = pts[k];
@@ -134,14 +184,14 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         };
         list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
     }
-    let closes = list.first().is_some_and(|q| q.len() > 2);
+    let closes = list.first().is_some_and(|(q, _)| q.len() > 2);
     let explicit = keys::value(e, "/pgfplots/mesh/color input").starts_with("explicit");
-    for q in list {
+    for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
-        let metas: Vec<f64> = q.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
+        let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
         // `mesh/color input=explicit`: each point has its color
-        let vertex: Option<Vec<Color>> = explicit.then(|| q.iter().map(|&k| vertex_color(e, p, k)).collect());
+        let vertex: Option<Vec<Color>> = explicit.then(|| src.iter().map(|&k| vertex_color(e, p, k)).collect());
         let mapped = match &vertex {
             Some(v) if shader == "flat corner" => v[0],
             Some(v) => mean(v),
@@ -151,6 +201,45 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         // interp: a large patch is shaded across, drawn as small pieces interpolated between its
         // corners
         let interp_ok = vertex.is_some() || metas.len() == corners.len();
+        // a parallelogram whose color changes along one side only is an axial shading (as the
+        // colorbar's): exact, without pieces
+        if closes && shader == "interp" && vertex.is_none() && corners.len() == 4 && metas.len() == 4 {
+            if let Some(cm) = &f.colormap {
+                let same = |a: f64, b: f64| (a - b).abs() <= 1e-12 * (a.abs() + b.abs() + 1.0);
+                let pick = if same(metas[0], metas[1]) && same(metas[3], metas[2]) {
+                    Some((corners[0], corners[1], corners[3], corners[2], metas[0], metas[3]))
+                } else if same(metas[0], metas[3]) && same(metas[1], metas[2]) {
+                    Some((corners[0], corners[3], corners[1], corners[2], metas[0], metas[1]))
+                } else {
+                    None
+                };
+                if let Some((a, b, d, c, ma, mb)) = pick {
+                    let flat = c.minus(b.plus(d).minus(a)).norm() < 1e-6 * (b.minus(a).norm() + d.minus(a).norm() + 1e-12);
+                    if flat && !same(ma, mb) {
+                        let (u, v) = (b.minus(a), d.minus(a));
+                        let transform =
+                            crate::scene::Transform { a: u.x / 100.0, b: u.y / 100.0, c: v.x / 100.0, d: v.y / 100.0, e: a.x + 0.5 * (u.x + v.x), f: a.y + 0.5 * (u.y + v.y) };
+                        let (lo_m, hi_m) = (f.meta[0], f.meta[1]);
+                        let mut metas_at: Vec<f64> = vec![ma, mb];
+                        for (p, _) in cm.normalized() {
+                            let m = lo_m + p * (hi_m - lo_m);
+                            if (m - ma) * (m - mb) < 0.0 {
+                                metas_at.push(m);
+                            }
+                        }
+                        let mut stops: Vec<crate::canvas::Stop> = metas_at.iter().map(|m| ((m - ma) / (mb - ma), fill.at(map(f, *m)))).collect();
+                        stops.sort_by(|x, y| x.0.total_cmp(&y.0));
+                        let segs = vec![Segment::MoveTo(a), Segment::LineTo(b), Segment::LineTo(c), Segment::LineTo(d), Segment::Close];
+                        if !e.canvas_frozen {
+                            e.canvas.include_path(&segs);
+                        }
+                        let paint = Paint::Shading(crate::canvas::Shading::Axial { transform, stops });
+                        e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint, opacity: opacity.1, even_odd: false }), stroke: None });
+                        continue;
+                    }
+                }
+            }
+        }
         if closes && shader == "interp" && interp_ok && (corners.len() == 4 || corners.len() == 3) {
             let size = (0..corners.len()).map(|i| corners[i].minus(corners[(i + 1) % corners.len()]).norm()).fold(0.0, f64::max);
             let n = if size > 12.0 * crate::PT { ((size / (3.0 * crate::PT)).ceil() as usize).clamp(1, 64) } else { 1 };

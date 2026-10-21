@@ -4,6 +4,7 @@
 //! the order they came, with the TikZ statements among them), the descriptions and the legend
 //! are drawn ([`draw`]).
 
+pub mod colorbar;
 pub mod colormap;
 pub mod cube;
 pub mod draw;
@@ -161,6 +162,11 @@ impl Engine {
             self.end_group();
         }
         self.end_group();
+        let r = match r {
+            Ok(Some(cb)) => self.draw_colorbar(&cb),
+            Ok(None) => Ok(()),
+            Err(err) => Err(err),
+        };
         if axis.opened_picture {
             self.end_picture();
         }

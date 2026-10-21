@@ -60,6 +60,8 @@ pub struct Frame {
     pub fg: [[bool; 2]; 3],
     pub label_line: [super::cube::Part; 3],
     pub box_line: [super::cube::Part; 3],
+    /// The data's range (merged with given limits), logical.
+    pub data_range: [[f64; 2]; 3],
 }
 
 impl Frame {
@@ -279,7 +281,8 @@ impl Engine {
 }
 
 /// Draws the axis collected by the survey.
-pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<(), Error> {
+/// Draws the axis collected by the survey; returns its colorbar, drawn once its group is closed.
+pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
     let setup = setup(e, axis)?;
     let frame = setup.frame.clone();
     e.frame = Some(frame.clone());
@@ -303,7 +306,17 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<(), Error> {
         Some(v) => {
             let s = e.tex.expand_to_string(v)?;
             let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
-            match e.coordinate(&inner) {
+            // a colorbar's `at` is in its parent's description coordinates
+            let parent = super::colorbar::parent();
+            if let Some(p) = &parent {
+                p.cs.set(Cs::Description);
+                e.frame = Some(p.clone());
+            }
+            let r = e.coordinate(&inner);
+            if parent.is_some() {
+                e.frame = None;
+            }
+            match r {
                 Ok(c) => c.p,
                 Err(err) => {
                     e.warn(format!("axis at={s}: {err}"));
@@ -332,10 +345,12 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<(), Error> {
     let name = keys::value(e, "/pgfplots/name");
     let (lo, hi, blo, bhi) = (lo.plus(d), hi.plus(d), blo.plus(d), bhi.plus(d));
     let shifted = Frame { origin: frame.origin.plus(d), ..clone_frame(&frame) };
-    for n in ["current axis".to_string(), name].into_iter().filter(|n| !n.is_empty()) {
+    let colorbar = super::colorbar::snapshot(e, frame.meta, (hi.x - lo.x, hi.y - lo.y), clone_frame(&shifted));
+    let parent = if colorbar.is_some() { "parent axis".to_string() } else { String::new() };
+    for n in ["current axis".to_string(), name, parent].into_iter().filter(|n| !n.is_empty()) {
         register_axis_node(e, &n, lo, hi, blo, bhi, &shifted);
     }
-    Ok(())
+    Ok(colorbar)
 }
 
 fn clone_frame(f: &Frame) -> Frame {
@@ -354,6 +369,7 @@ fn clone_frame(f: &Frame) -> Frame {
         fg: f.fg,
         label_line: f.label_line,
         box_line: f.box_line,
+        data_range: f.data_range,
         label_shift: f.label_shift,
         meta: f.meta,
         colormap: f.colormap.clone(),
@@ -472,6 +488,16 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     if three_d {
         three_d_descriptions(e, axis)?;
     }
+    // `late options` of the plots (`matrix plot`: `y dir=reverse, axis on top`)
+    for en in &axis.entries {
+        if let Entry::Plot(p) = en {
+            if !p.late.is_empty() {
+                let saved = e.st.key_path.clone();
+                e.process_keys(p.late.clone(), Some("/pgfplots"))?;
+                e.st.key_path = saved;
+            }
+        }
+    }
     let log = [e.pv("xmode") == "log", e.pv("ymode") == "log", e.pv("zmode") == "log"];
     let lg = |a: usize, v: f64| {
         if log[a] {
@@ -532,9 +558,34 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             }
         }
+        // a matrix plot's cells reach halfway to the next point
+        if let Some((rows, cols)) = p.lattice.filter(|_| p.image) {
+            for c in super::mesh::image_corners(&v, rows, cols) {
+                for i in 0..2 {
+                    if c[i].is_finite() {
+                        dmin[i] = dmin[i].min(c[i]);
+                        dmax[i] = dmax[i].max(c[i]);
+                    }
+                }
+            }
+        }
         // bars stand on the zero level: their ends are not data but pgfplots keeps them in view
         points.push(Some((v, base)));
     }
+    // the data range of the tick algorithm: the data, and given limits when there are any
+    let any_given = user.iter().take(if three_d { 3 } else { 2 }).any(|(a, b)| a.is_some() || b.is_some());
+    let data_range = [0, 1, 2].map(|a| {
+        let (mut lo, mut hi) = (dmin[a], dmax[a]);
+        if any_given {
+            if let Some(v) = user[a].0 {
+                lo = lo.min(v);
+            }
+            if let Some(v) = user[a].1 {
+                hi = hi.max(v);
+            }
+        }
+        [lo, hi]
+    });
     // user limits
     let mut min = dmin;
     let mut max = dmax;
@@ -767,6 +818,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         fg: [[false, true]; 3],
         label_line: [*b"v00", *b"0v0", *b"00v"],
         box_line: [*b"v00", *b"0v0", *b"00v"],
+        data_range,
     };
     if three_d {
         super::cube::prepare(e, &mut frame, dir, &lines);
@@ -987,11 +1039,15 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
     if f.log[a] {
         let try_min = keys::number(e, "/pgfplots/try min ticks log").unwrap_or(3.0) as usize;
-        let (t, d, _) = ticks::logarithmic(lo, hi, TickSettings { length_pt, max_space, try_min, distance });
+        let (t, d, _) = ticks::logarithmic(lo, hi, TickSettings { length_pt, max_space, try_min, distance, scale: None });
         Ok((t, d))
     } else {
         let try_min = keys::number(e, "/pgfplots/try min ticks").unwrap_or(4.0) as usize;
-        Ok(ticks::linear(lo, hi, TickSettings { length_pt, max_space, try_min, distance }))
+        // the data scale transformation: the data range (with given limits) and `width`/`height`
+        let size = keys::length(e, if a == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if a == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+        let [dlo, dhi] = f.data_range[a];
+        let scale = Some((dlo, dhi, size));
+        Ok(ticks::linear(lo, hi, TickSettings { length_pt, max_space, try_min, distance, scale }))
     }
 }
 

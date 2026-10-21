@@ -78,6 +78,10 @@ pub struct Plot {
     pub scanlines: Vec<usize>,
     /// The point metas as written, for `point meta=explicit symbolic` (see `Coord::label`).
     pub labels: Vec<Vec<Token>>,
+    /// `mesh input=image` (`matrix plot`): the points are the centers of the cells.
+    pub image: bool,
+    /// `late options`: axis options the plot asks for (`matrix plot`: `y dir=reverse`).
+    pub late: Vec<Token>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -274,6 +278,8 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         _ => None,
     };
     plot.patch = keys::flag(e, "/pgfplots/@patch");
+    plot.image = plot.mesh.is_some() && keys::value(e, "/pgfplots/mesh input") == "image";
+    plot.late = keys::value_tokens(e, "/pgfplots/late options").unwrap_or_default();
     plot.scatter = keys::flag(e, "/pgfplots/scatter");
     plot.handler = keys::value(e, "/tikz/@plot handler");
     plot.stack = match keys::value(e, "/pgfplots/stack plots").as_str() {
@@ -920,7 +926,11 @@ fn lattice_from_scanlines(e: &mut Engine, plot: &mut Plot) {
         (Some(r), _) if r > 0 => Some((r, n / r)),
         // patches are their own (`mesh input=patches`)
         _ if plot.patch => None,
-        _ => plot.scanlines.first().filter(|c| **c > 0 && n.is_multiple_of(**c)).map(|c| (n / c, *c)),
+        _ => plot.scanlines.first().filter(|c| **c > 0 && n.is_multiple_of(**c)).map(|c| (n / c, *c)).or_else(|| {
+            // without scanlines a matrix is square (`matrix delinearize uses sqrt`)
+            let s = (n as f64).sqrt().round() as usize;
+            (plot.image && s * s == n && s > 0).then_some((s, s))
+        }),
     };
     if let Some((r, c)) = lattice.filter(|(r, c)| r * c == n && *r > 1 && *c > 1) {
         plot.lattice = Some((r, c));
