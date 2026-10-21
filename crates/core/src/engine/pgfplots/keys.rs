@@ -429,6 +429,23 @@ const DEFINITIONS: &str = r"
 	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
 	/pgfplots/ybar interval/.default=1,
+	/pgfplots/contour/draw color/.initial=mapped color, /pgfplots/contour/fill color/.initial=mapped color,
+	/pgfplots/contour/label distance/.initial=70pt,
+	/pgfplots/contour/labels/.initial=true, /pgfplots/contour/labels/.default=true,
+	/pgfplots/contour/filled/.initial=false, /pgfplots/contour/filled/.default=true,
+	/pgfplots/contour/number/.initial=5, /pgfplots/contour/levels/.initial=,
+	/pgfplots/contour/levels from colormap/.initial=,
+	/pgfplots/contour/every filled contour plot/.style={/pgfplots/area legend},
+	/pgfplots/contour/every contour plot/.style={},
+	/pgfplots/contour/every contour label/.style={inner sep=2pt, font=\scriptsize,
+		every node/.style={mapped color!50!black, fill=white},
+		/pgf/number format/relative*={\pgfplotspointmetarangeexponent}},
+	/pgfplots/contour/labels over line/.style={/pgfplots/contour/every contour label/.append style={
+		every node/.append style={fill=none, anchor=base, yshift=1pt}}},
+	/pgfplots/contour/contour label style/.style={/pgfplots/contour/every contour label/.append style={#1}},
+	/pgfplots/@contour format/.initial=standard,
+	/pgfplots/contour prepared format/.code={\pgfkeyssetvalue{/pgfplots/@contour format}{#1}},
+	/pgfplots/contour prepared filled/.style={/pgfplots/contour prepared={draw color=mapped color!80!black, labels=false, filled}},
 	/pgfplots/@quiver/.initial=false,
 	/pgfplots/quiver/u/.initial=, /pgfplots/quiver/v/.initial=, /pgfplots/quiver/w/.initial=,
 	/pgfplots/quiver/scale arrows/.initial=1, /pgfplots/quiver/every arrow/.style={},
@@ -930,6 +947,29 @@ keyfn!(k_colormap_color, |e, v| {
     e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
 });
 
+// `contour prepared={…}`: the contour handler, its keys in /pgfplots/contour.
+keyfn!(k_contour_prepared, |e, v| {
+    set(e, "/tikz/@plot handler", "contour prepared");
+    let saved = e.st.key_path.clone();
+    let mut list = super::toks("every contour plot,");
+    list.extend(v.unwrap_or_default());
+    let r = e.process_keys(list, Some("/pgfplots/contour"));
+    e.st.key_path = saved;
+    r
+});
+
+// `contour filled={…}`: a mesh drawn in bands of the levels, its keys in /pgfplots/contour.
+keyfn!(k_contour_filled, |e, v| {
+    run(e, "/pgfplots/surf")?;
+    set(e, "/tikz/@plot handler", "contour filled");
+    let saved = e.st.key_path.clone();
+    let mut list = super::toks("every filled contour plot,");
+    list.extend(v.unwrap_or_default());
+    let r = e.process_keys(list, Some("/pgfplots/contour"));
+    e.st.key_path = saved;
+    r
+});
+
 // `quiver={u=…, v=…}`: arrows from each point by (u, v, w).
 keyfn!(k_quiver, |e, v| {
     set(e, "/pgfplots/@quiver", "true");
@@ -1065,6 +1105,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/group style", k_group_style),
     ("/pgfplots/hist", k_hist),
     ("/pgfplots/quiver", k_quiver),
+    ("/pgfplots/contour prepared", k_contour_prepared),
+    ("/pgfplots/contour filled", k_contour_filled),
     ("/pgfplots/boxplot", k_boxplot),
     ("/pgfplots/boxplot prepared", k_boxplot),
     ("/pgfplots/color of colormap", k_colormap_color),

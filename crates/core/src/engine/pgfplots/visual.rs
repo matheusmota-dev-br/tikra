@@ -118,6 +118,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at begin plot visualization") {
         e.run_tokens(code)?;
     }
+    if p.handler == "contour filled" {
+        super::contour::draw_filled(e, p, pts, f)?;
+        return Ok(None);
+    }
     if p.mesh.is_some() {
         super::mesh::draw(e, p, pts, f, &style)?;
         // marks and nodes near coords on the mesh's points
@@ -150,6 +154,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     match handler.as_str() {
         // box plots draw their box; the points are the outliers' marks
         "boxplot" => super::boxplot::draw(e, p, f, index_of_type)?,
+        "contour prepared" => super::contour::draw(e, p, pts, f)?,
         // an arrow per point, each a path of its own (its tips at its end)
         "quiver" => {
             let color = keys::value(e, "/pgfplots/quiver/arrow color");

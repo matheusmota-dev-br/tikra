@@ -287,6 +287,15 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
     plot.late = keys::value_tokens(e, "/pgfplots/late options").unwrap_or_default();
     plot.scatter = keys::flag(e, "/pgfplots/scatter");
     plot.handler = keys::value(e, "/tikz/@plot handler");
+    // a prepared contour: its level is z in 3d, the third column (point meta=explicit) in 2d
+    if plot.handler == "contour prepared" && keys::value(e, "/pgfplots/point meta").is_empty() {
+        if three_d {
+            keys::set(e, "/pgfplots/point meta", "z");
+        } else if keys::value(e, "/pgfplots/@contour format") != "matlab" {
+            keys::set(e, "/pgfplots/table/meta index", "2");
+            keys::set(e, "/pgfplots/point meta", "explicit");
+        }
+    }
     plot.stack = match keys::value(e, "/pgfplots/stack plots").as_str() {
         "x" => Some('x'),
         "y" => Some('y'),
@@ -388,6 +397,10 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         }
     }
     data_cs(e, plot);
+    if plot.handler == "contour prepared" && keys::value(e, "/pgfplots/@contour format") == "matlab" {
+        super::contour::from_matlab(plot);
+        keys::set(e, "/pgfplots/point meta", "explicit");
+    }
     if keys::flag(e, "/pgfplots/@quiver") {
         quiver_vectors(e, plot);
     }

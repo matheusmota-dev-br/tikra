@@ -359,7 +359,16 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
     let name = keys::value(e, "/pgfplots/name");
     let (lo, hi, blo, bhi) = (lo.plus(d), hi.plus(d), blo.plus(d), bhi.plus(d));
     let shifted = Frame { origin: frame.origin.plus(d), ..clone_frame(&frame) };
-    let colorbar = super::colorbar::snapshot(e, frame.meta, (hi.x - lo.x, hi.y - lo.y), clone_frame(&shifted));
+    let colorbar = super::colorbar::snapshot(e, frame.meta, (hi.x - lo.x, hi.y - lo.y), clone_frame(&shifted)).map(|mut cb| {
+        // a filled contour's colorbar shows its bands
+        cb.bands = axis.entries.iter().find_map(|en| match en {
+            Entry::Plot(p) if p.handler == "contour filled" => {
+                crate::keys::split_list(&p.style).into_iter().find(|i| i.key.trim_start_matches("/pgfplots/") == "contour filled").map(|i| i.value.unwrap_or_default())
+            }
+            _ => None,
+        });
+        cb
+    });
     let parent = if colorbar.is_some() { "parent axis".to_string() } else { String::new() };
     for n in ["current axis".to_string(), name, parent].into_iter().filter(|n| !n.is_empty()) {
         register_axis_node(e, &n, lo, hi, blo, bhi, &shifted);

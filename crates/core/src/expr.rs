@@ -190,24 +190,44 @@ impl Parser<'_> {
     }
 
     fn product(&mut self) -> Result<f64, Error> {
-        let mut v = self.power()?;
+        let mut v = self.signed()?;
         loop {
             self.skip_spaces();
             match self.peek() {
                 Some('*') => {
                     self.pos += 1;
-                    v *= self.power()?;
+                    v *= self.signed()?;
                 }
                 Some('/') => {
                     self.pos += 1;
-                    v /= self.power()?;
+                    v /= self.signed()?;
                 }
                 _ => return Ok(v),
             }
         }
     }
 
+    /// A sign binds less than `^`, as in pgfmath: `-x^2` is `-(x^2)`.
+    fn signed(&mut self) -> Result<f64, Error> {
+        self.skip_spaces();
+        match self.peek() {
+            Some('-') | Some('+') => {
+                let minus = self.peek() == Some('-');
+                self.pos += 1;
+                self.depth += 1;
+                if self.depth > MAX_DEPTH {
+                    return Err(Error::Expression(format!("nesting went past {MAX_DEPTH} levels")));
+                }
+                let v = self.signed();
+                self.depth -= 1;
+                v.map(|v| if minus { -v } else { v })
+            }
+            _ => self.power(),
+        }
+    }
+
     /// `a^b^c` is right-associative; read in a loop so a long `2^2^…^2` does not deepen the stack.
+    /// The exponents may have a sign (`2^-1`).
     fn power(&mut self) -> Result<f64, Error> {
         let mut terms = vec![self.postfix()?];
         self.skip_spaces();
@@ -407,6 +427,11 @@ mod tests {
         assert!((eval("-\\R + 1", &v).unwrap() - 0.6).abs() < 1e-9);
         assert!((eval("2^3", &v).unwrap() - 8.0).abs() < 1e-9);
         assert!((eval_length("10pt", &v).unwrap().0 - 0.3515).abs() < 1e-3);
+        // a sign binds less than ^ (pgfmath's -x^2 is -(x^2)); an exponent may have one
+        assert_eq!(eval("-2^2", &v).unwrap(), -4.0);
+        assert_eq!(eval("1-2^2", &v).unwrap(), -3.0);
+        assert_eq!(eval("2^-1", &v).unwrap(), 0.5);
+        assert_eq!(eval("3*-2^2", &v).unwrap(), -12.0);
     }
 }
 

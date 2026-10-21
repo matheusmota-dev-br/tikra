@@ -7,6 +7,7 @@
 pub mod boxplot;
 pub mod colorbar;
 pub mod colormap;
+pub mod contour;
 pub mod cube;
 pub mod draw;
 pub mod group;

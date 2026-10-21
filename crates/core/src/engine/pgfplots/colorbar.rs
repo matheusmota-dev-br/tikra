@@ -23,6 +23,8 @@ pub struct Colorbar {
     height: f64,
     /// The parent axis, for `at={(0.5,1.03)}` in its description coordinates.
     parent: std::rc::Rc<super::draw::Frame>,
+    /// The options of the axis' `contour filled`: the colorbar shows its bands.
+    pub bands: Option<Vec<Token>>,
 }
 
 thread_local! {
@@ -75,7 +77,7 @@ pub fn snapshot(e: &mut Engine, meta: [f64; 2], box_size: (f64, f64), parent: su
         e.warn("colorbar: the axis has no point meta, it shows 0 to 1");
         [0.0, 1.0]
     };
-    Some(Colorbar { saved, meta, width: box_size.0, height: box_size.1, parent: std::rc::Rc::new(parent) })
+    Some(Colorbar { saved, meta, width: box_size.0, height: box_size.1, parent: std::rc::Rc::new(parent), bands: None })
 }
 
 impl Engine {
@@ -98,9 +100,10 @@ impl Engine {
             let horizontal = keys::value(self, "/pgfplots/@colorbar orientation") == "h";
             self.end_group();
             let sampled = keys::value_tokens(self, "/pgfplots/@colorbar sampled").filter(|v| !pk::trim(v).is_empty());
-            let (style, n) = match &sampled {
-                Some(s) => (crate::tex::tokens_to_string(s), keys::number(self, "/pgfplots/samples").unwrap_or(25.0).max(2.0) as usize),
-                None => ("surf,shader=interp".to_string(), 2),
+            let (style, n) = match (&cb.bands, &sampled) {
+                (Some(b), _) => (format!("contour filled={{{}}}", crate::tex::tokens_to_string(b)), 2),
+                (None, Some(s)) => (crate::tex::tokens_to_string(s), keys::number(self, "/pgfplots/samples").unwrap_or(25.0).max(2.0) as usize),
+                (None, None) => ("surf,shader=interp".to_string(), 2),
             };
             let (lo, hi) = (cb.meta[0], cb.meta[1]);
             let at = |k: usize| lo + (hi - lo) * k as f64 / (n - 1) as f64;
