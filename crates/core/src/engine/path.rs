@@ -390,6 +390,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             pending_op = Some("to".into());
                         }
                     }
+                    "node" | "coordinate" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
                     "node" | "coordinate" => {
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate)?;
@@ -1378,6 +1379,17 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
 
 /// `\foreach` inside a path: its body is more path operations.
 fn path_foreach(e: &mut Engine, b: &mut Builder) -> Result<(), Error> {
+    let (names, list) = foreach_header(e)?;
+    let body = match e.tex.next_nonspace() {
+        Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+        Some(t) => vec![t],
+        None => Vec::new(),
+    };
+    foreach_run(e, b, names, list, body)
+}
+
+/// `\x/\y in {list}` of a `foreach` (the word already read): the variables and the list.
+fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>), Error> {
     let mut vars: Vec<Token> = Vec::new();
     loop {
         let Some(t) = e.tex.get_token() else { return Err(Error::Figure("\\foreach without 'in'".into())) };
@@ -1401,12 +1413,40 @@ fn path_foreach(e: &mut Engine, b: &mut Builder) -> Result<(), Error> {
         Some(t) => vec![t],
         None => Vec::new(),
     };
-    let list = e.tex.expand_fully(list_tokens)?;
-    let body = match e.tex.next_nonspace() {
-        Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
-        Some(t) => vec![t],
-        None => Vec::new(),
-    };
+    Ok((names, e.tex.expand_fully(list_tokens)?))
+}
+
+/// `node foreach \x in {list} [options] at (…) {text}`: the node once for each item.
+fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error> {
+    let (names, list) = foreach_header(e)?;
+    // the rest of the node as it is written, up to its text
+    let mut spec = tikra_tokens(&format!("{kind} "));
+    while let Some(t) = e.tex.get_token() {
+        match &t {
+            Token::Char(_, Cat::Begin) if kind == "node" => {
+                spec.push(t);
+                spec.extend(e.tex.read_group_body()?);
+                spec.push(Token::Char('}', Cat::End));
+                break;
+            }
+            Token::Char('[', _) | Token::Char('(', _) => {
+                let close = if t.is_char('[') { ']' } else { ')' };
+                spec.push(t);
+                spec.extend(e.tex.read_until_char(close, false)?);
+                spec.push(Token::other(close));
+            }
+            Token::Char(_, Cat::Letter) | Token::Char(_, Cat::Space) => spec.push(t),
+            _ => {
+                e.tex.back(t);
+                break;
+            }
+        }
+    }
+    foreach_run(e, b, names, list, spec)
+}
+
+/// The path operations `body` once for each item of `list`, with the variables set.
+fn foreach_run(e: &mut Engine, b: &mut Builder, names: Vec<Token>, list: Vec<Token>, body: Vec<Token>) -> Result<(), Error> {
     for item in super::foreach_items(&list) {
         e.begin_group();
         let parts: Vec<Vec<Token>> = item.split(|t| t.is_char('/')).map(|p| keys::trim(p).to_vec()).collect();
