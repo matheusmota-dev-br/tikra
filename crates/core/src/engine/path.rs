@@ -596,10 +596,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "decorate" => decorate_operation(e, b, depth)?,
                     "lindenmayer" | "l" => lindenmayer_operation(e, b, depth, &w)?,
                     "foreach" => path_foreach(e, b)?,
-                    "svg" => {
-                        e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
-                        return skip_rest(e, depth);
-                    }
+                    "svg" => svg_operation(e, b, depth)?,
                     other => {
                         e.warn(format!("unrecognized path fragment: '{other}'"));
                         return skip_rest(e, depth);
@@ -608,7 +605,21 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
             }
             Token::Cs(name) if &**name == "foreach" => path_foreach(e, b)?,
             Token::Cs(name) if &**name == "pgfextra" => {
-                let code = e.argument()?;
+                // \pgfextra{code}, or \pgfextra code \endpgfextra
+                let code = match e.tex.next_nonspace() {
+                    Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+                    Some(t) => {
+                        let mut v = vec![t];
+                        while let Some(x) = e.tex.get_token() {
+                            if x.is_cs("endpgfextra") {
+                                break;
+                            }
+                            v.push(x);
+                        }
+                        v
+                    }
+                    None => Vec::new(),
+                };
                 e.run_tokens(code)?;
             }
             Token::Cs(name) if matches!(e.tex.meaning(&t), Meaning::Native(_)) && matches!(&**name, "node" | "coordinate") => {
@@ -1226,6 +1237,191 @@ pub fn arc_segments(c: Point, rx: f64, ry: f64, a0: f64, a1: f64, t: &crate::sce
     }
     v.push(piece(a, b));
     v
+}
+
+/// `svg[options] {M 0 0 L 20 20 h 10 a 10 10 0 0 0 -20 0}`: SVG's path data, its unit the pt and its
+/// y axis up (pgf's `\pgfpathsvg`), in the coordinate system the options make; relative commands
+/// start from the path's current point.
+fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
+    e.begin_group();
+    let r = (|| -> Result<(), Error> {
+        if let Some(t) = peek(e, depth)? {
+            if t.is_char('[') {
+                let _ = next(e, depth)?;
+                let o = e.tex.read_until_char(']', false)?;
+                e.process_keys(o, Some("/tikz"))?;
+                e.st.apply_pending();
+            }
+        }
+        let data = match next(e, depth)? {
+            Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+            _ => return Err(Error::Figure("svg without a {path}".into())),
+        };
+        let text = e.tex.expand_to_string(data)?;
+        let t = e.st.transform;
+        // local pt to the canvas
+        let to = |p: Point| t.apply(p.scale(crate::PT));
+        let from = |c: Point| t.inverse().apply(c).scale(1.0 / crate::PT);
+        let mut last = from(b.point());
+        let mut start = last;
+        let mut prev_control: Option<Point> = None;
+        let mut prev_quad: Option<Point> = None;
+        // the numbers and command letters of the data
+        let mut tokens: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for c in text.chars() {
+            let starts_number = c == '-' && !cur.is_empty() && !cur.ends_with(['e', 'E']);
+            if c.is_ascii_alphabetic() && c != 'e' && c != 'E' || c.is_whitespace() || c == ',' || starts_number {
+                if !cur.is_empty() {
+                    tokens.push(std::mem::take(&mut cur));
+                }
+                if c.is_ascii_alphabetic() {
+                    tokens.push(c.to_string());
+                } else if c == '-' {
+                    cur.push(c);
+                }
+            } else {
+                cur.push(c);
+            }
+        }
+        if !cur.is_empty() {
+            tokens.push(cur);
+        }
+        let mut i = 0;
+        let mut cmd = 'M';
+        let num = |i: &mut usize| -> Option<f64> {
+            let v = tokens.get(*i)?.parse().ok()?;
+            *i += 1;
+            Some(v)
+        };
+        while i < tokens.len() {
+            if let Some(c) = tokens[i].chars().next().filter(|c| c.is_ascii_alphabetic()) {
+                cmd = c;
+                i += 1;
+                if c == 'Z' || c == 'z' {
+                    b.segs.push(Segment::Close);
+                    last = start;
+                    b.current = Some(Coord { p: to(last), node: None });
+                    continue;
+                }
+            }
+            let rel = cmd.is_ascii_lowercase();
+            let base = if rel { last } else { Point::default() };
+            let pt = |i: &mut usize| -> Option<Point> { Some(Point::new(num(i)?, num(i)?).plus(base)) };
+            let before = i;
+            match cmd.to_ascii_uppercase() {
+                'M' => {
+                    let Some(p) = pt(&mut i) else { break };
+                    b.move_to(Coord { p: to(p), node: None });
+                    (last, start) = (p, p);
+                    // more pairs after a moveto are lines
+                    cmd = if rel { 'l' } else { 'L' };
+                }
+                'L' => {
+                    let Some(p) = pt(&mut i) else { break };
+                    b.segs.push(Segment::LineTo(to(p)));
+                    last = p;
+                }
+                'H' => {
+                    let Some(x) = num(&mut i) else { break };
+                    last = Point::new(if rel { last.x + x } else { x }, last.y);
+                    b.segs.push(Segment::LineTo(to(last)));
+                }
+                'V' => {
+                    let Some(y) = num(&mut i) else { break };
+                    last = Point::new(last.x, if rel { last.y + y } else { y });
+                    b.segs.push(Segment::LineTo(to(last)));
+                }
+                'C' | 'S' => {
+                    let c1 = if cmd.eq_ignore_ascii_case(&'S') {
+                        prev_control.map_or(last, |c| last.scale(2.0).minus(c))
+                    } else {
+                        let Some(c) = pt(&mut i) else { break };
+                        c
+                    };
+                    let (Some(c2), Some(p)) = (pt(&mut i), pt(&mut i)) else { break };
+                    b.segs.push(Segment::CurveTo(to(c1), to(c2), to(p)));
+                    prev_control = Some(c2);
+                    last = p;
+                }
+                'Q' | 'T' => {
+                    let q = if cmd.eq_ignore_ascii_case(&'T') {
+                        prev_quad.map_or(last, |c| last.scale(2.0).minus(c))
+                    } else {
+                        let Some(c) = pt(&mut i) else { break };
+                        c
+                    };
+                    let Some(p) = pt(&mut i) else { break };
+                    b.segs.push(Segment::CurveTo(to(last.lerp(q, 2.0 / 3.0)), to(p.lerp(q, 2.0 / 3.0)), to(p)));
+                    prev_quad = Some(q);
+                    last = p;
+                }
+                'A' => {
+                    let (Some(rx), Some(ry), Some(phi), Some(large), Some(sweep)) = (num(&mut i), num(&mut i), num(&mut i), num(&mut i), num(&mut i)) else { break };
+                    let Some(p) = pt(&mut i) else { break };
+                    // with y up, pgf turns the other way for the same sweep flag
+                    svg_arc(b, last, p, rx.abs(), ry.abs(), phi, large != 0.0, sweep == 0.0, &t);
+                    last = p;
+                }
+                _ => break,
+            }
+            if !matches!(cmd.to_ascii_uppercase(), 'C' | 'S') {
+                prev_control = None;
+            }
+            if !matches!(cmd.to_ascii_uppercase(), 'Q' | 'T') {
+                prev_quad = None;
+            }
+            if i == before {
+                break;
+            }
+            b.current = Some(Coord { p: to(last), node: None });
+            b.last = Some(OnPath::Point(to(last)));
+        }
+        Ok(())
+    })();
+    e.end_group();
+    r
+}
+
+/// An SVG elliptical arc from `a` to `p` (local pt), as curves on the canvas (SVG's appendix F.6.5).
+#[allow(clippy::too_many_arguments)]
+fn svg_arc(b: &mut Builder, a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) {
+    if rx < 1e-12 || ry < 1e-12 || a.minus(p).norm() < 1e-12 {
+        b.segs.push(Segment::LineTo(t.apply(p.scale(crate::PT))));
+        return;
+    }
+    let (s, c) = phi.to_radians().sin_cos();
+    let d = a.minus(p).scale(0.5);
+    let x1 = Point::new(c * d.x + s * d.y, -s * d.x + c * d.y);
+    let lambda = (x1.x * x1.x) / (rx * rx) + (x1.y * x1.y) / (ry * ry);
+    if lambda > 1.0 {
+        (rx, ry) = (rx * lambda.sqrt(), ry * lambda.sqrt());
+    }
+    let num = (rx * rx * ry * ry - rx * rx * x1.y * x1.y - ry * ry * x1.x * x1.x).max(0.0);
+    let den = rx * rx * x1.y * x1.y + ry * ry * x1.x * x1.x;
+    let mut k = (num / den).sqrt();
+    if large == sweep {
+        k = -k;
+    }
+    let cp = Point::new(k * rx * x1.y / ry, -k * ry * x1.x / rx);
+    let m = a.lerp(p, 0.5);
+    let center = Point::new(c * cp.x - s * cp.y + m.x, s * cp.x + c * cp.y + m.y);
+    let angle = |u: Point| u.y.atan2(u.x).to_degrees();
+    let u = Point::new((x1.x - cp.x) / rx, (x1.y - cp.y) / ry);
+    let v = Point::new((-x1.x - cp.x) / rx, (-x1.y - cp.y) / ry);
+    let theta = angle(u);
+    let mut delta = angle(v) - theta;
+    if sweep && delta < 0.0 {
+        delta += 360.0;
+    } else if !sweep && delta > 0.0 {
+        delta -= 360.0;
+    }
+    let local = arc_segments(Point::default(), rx, ry, theta, theta + delta, &crate::scene::Transform::default());
+    let m = t
+        .compose(&crate::scene::Transform::scaling(crate::PT, crate::PT))
+        .compose(&crate::scene::Transform::translation(center.x, center.y))
+        .compose(&crate::scene::Transform::rotation(phi));
+    b.segs.extend(crate::canvas::transform_segments(&local, &m));
 }
 
 /// `arc (start:end:radius)`, `arc (start:end:rx and ry)`, `arc[start angle=…, end angle=…, radius=…]`.
