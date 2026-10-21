@@ -49,7 +49,9 @@ compares each pair by:
   other way round; their harmonic mean is the F1 score.
 - **pieces**: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
-- **color**: of tikra's ink near TeX's, the share with about the same color as the nearest TeX ink.
+- **color**: of tikra's ink near TeX's, the share with about the same color as some TeX ink in the 3×3
+  pixels around it (the two antialias a line's edge at different phases, so the single nearest TeX
+  pixel can be the light rim of a line tikra draws dark there).
 - **size**: width and height within 10% (or 4 px).
 
 A figure **matches** with F1 ≥ 0.9, color ≥ 0.9, the same size and no missing or extra piece; it is
