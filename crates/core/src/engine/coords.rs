@@ -124,7 +124,18 @@ impl Engine {
         }
         let local = if let (Some(c), 1) = (colon, commas.len()) {
             // polar: (angle:radius), (angle:x radius and y radius)
-            let angle = self.number(strip_braces(&t[..c]))?;
+            // TikZ's names of directions (`\tikz@polar@dir@up`…)
+            let angle = match strip_braces(&t[..c]).trim() {
+                "up" | "north" => 90.0,
+                "down" | "south" => -90.0,
+                "left" | "west" => 180.0,
+                "right" | "east" => 0.0,
+                "north east" => 45.0,
+                "north west" => 135.0,
+                "south east" => -45.0,
+                "south west" => -135.0,
+                a => self.number(a)?,
+            };
             let r = t[c + 1..].trim();
             let (rx, ry, unit) = if let Some((a, b)) = r.split_once(" and ") {
                 let (x, ux) = crate::expr::eval_length(strip_braces(a), &self.vars())?;

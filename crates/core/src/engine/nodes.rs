@@ -186,7 +186,46 @@ impl shapes::Keys for EngineKeys<'_> {
         }
         total
     }
+
+    fn text_box(&mut self, tex: &str) -> BoxSize {
+        let (text, _) = self.0.shape_text(tex);
+        if text.trim().is_empty() {
+            return BoxSize::default();
+        }
+        let mut warnings = Vec::new();
+        let l = label::compose_label(text.trim(), &self.0.st.font, None, 'c', self.0.st.text_paint_color(), &mut warnings);
+        BoxSize { wd: l.width(), ht: l.height(), dp: l.depth() }
+    }
+
+    fn code_paths(&mut self, key: &str, t: Transform) -> Vec<Vec<Segment>> {
+        let e = &mut *self.0;
+        let Some(code) = keys::value(&e.tex, key).filter(|v| !keys::trim(v).is_empty()) else { return Vec::new() };
+        // run where nothing it draws stays or counts for the picture's size
+        let n = e.canvas.items.len();
+        let frozen = e.canvas_frozen;
+        let path = std::mem::take(&mut e.pgf_path);
+        e.begin_group();
+        e.canvas_frozen = true;
+        e.st.transform = t;
+        e.st.mode = Default::default();
+        e.st.mode.draw = true;
+        let r = e.run_tokens(code);
+        e.end_group();
+        e.canvas_frozen = frozen;
+        e.pgf_path = path;
+        if let Err(err) = r {
+            e.warn(format!("{key}: {err}"));
+        }
+        e.canvas.items.split_off(n).into_iter().filter_map(|i| if let Item::Path { segments, stroke: Some(_), .. } = i { Some(segments) } else { None }).collect()
+    }
 }
+
+/// A node's labels to make: the node, their specifications (true for a pin), the last node.
+/// and the values of [`LABEL_KEYS`] in the node.
+type NodeLabels = (NodeInfo, Vec<(Vec<Token>, bool)>, (Option<NodeInfo>, Option<String>), Vec<(&'static str, tex::Meaning)>);
+
+/// The keys of a node's options that its labels read.
+const LABEL_KEYS: [&str; 3] = ["/tikz/label distance", "/tikz/label position", "/tikz/pin distance"];
 
 /// Where a node on a path goes: the path's current point, or along its last segment.
 #[derive(Debug, Clone, Copy)]
@@ -269,10 +308,30 @@ impl Engine {
         self.st.postactions = Default::default();
         let r = self.node_in_group(spec, &outer);
         self.end_group();
-        r
+        let (mut items, labels) = r?;
+        // labels and pins: made after the node, out of its options (TikZ's `append after command`)
+        if let Some((info, labels, last, kept)) = labels {
+            // the label distances and position that the node's options set still hold
+            self.begin_group();
+            for (key, value) in kept {
+                self.tex.set_meaning(&Token::cs(&keys::macro_name(key)), value, false);
+            }
+            let r = (|| {
+                for (spec_tokens, pin) in labels {
+                    items.extend(self.label(&info, spec_tokens, pin)?);
+                }
+                Ok::<(), Error>(())
+            })();
+            self.end_group();
+            r?;
+            (self.last_node, self.last_node_name) = last;
+        }
+        Ok(items)
     }
 
-    fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<Vec<Item>, Error> {
+    /// The node's drawing, and what its labels need: the node, their specifications, and the last
+    /// node to leave after them.
+    fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<(Vec<Item>, Option<NodeLabels>), Error> {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
         }
@@ -333,6 +392,12 @@ impl Engine {
                 None
             } else {
                 let mut warnings = Vec::new();
+                // a text that is all `\textcolor{color}{…}` is in that color
+                let (t, color) = match whole_textcolor(t).and_then(|(c, inner)| self.color(&c).map(|c| (inner, c))) {
+                    Some((inner, c)) => (inner, c),
+                    None => (t.to_string(), color),
+                };
+                let t = t.as_str();
                 let l = label::compose_label(t, &font, text_width, align, color, &mut warnings);
                 for w in warnings {
                     self.warn(w);
@@ -433,12 +498,17 @@ impl Engine {
         let fine = |p: Point| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= limit && p.y.abs() <= limit;
         if !fine(info.center()) || !info.geometry.anchors.iter().all(|(_, p)| fine(t.apply(*p))) {
             self.warn(format!("node '{text}': position or size is not finite or beyond ±{limit} cm: ignored"));
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
-        let mut items = self.draw_shape(&info, labels, text_width, scope)?;
+        let items = self.draw_shape(&info, labels, text_width, scope)?;
         if let Some(n) = &name {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
+            self.tex.define_string("tikzlastnode", &n, true);
+            self.nodes.insert(n, info.clone());
+        } else {
+            // an unnamed node is `\tikzlastnode` by an internal name, as TikZ's `tikz@f@…`
+            let n = format!("tikz@f@{}", self.nodes.len());
             self.tex.define_string("tikzlastnode", &n, true);
             self.nodes.insert(n, info.clone());
         }
@@ -451,15 +521,10 @@ impl Engine {
             *slot = Some(registered.clone().unwrap_or_default());
         }
         let last = (Some(info.clone()), registered);
-        // labels and pins
+        (self.last_node, self.last_node_name) = last.clone();
         let labels = std::mem::take(&mut self.st.node.labels);
-        // they are made after the node, where its own `transform shape` is over
-        self.st.node.transform_shape = scope.node.transform_shape;
-        for (spec_tokens, pin) in labels {
-            items.extend(self.label(&info, spec_tokens, pin)?);
-        }
-        (self.last_node, self.last_node_name) = last;
-        Ok(items)
+        let kept = LABEL_KEYS.iter().map(|k| (*k, self.tex.meaning_of(&keys::macro_name(k)))).collect();
+        Ok((items, Some((info, labels, last, kept))))
     }
 
     /// What a node draws, in pgf's order: behind the background, the background (as the node's
@@ -528,12 +593,51 @@ impl Engine {
             let place = t.compose(&Transform::translation(origin.x + offset, origin.y));
             items.push(Item::Text { label: l, place, opacity: self.st.text_opacity });
         }
+        for st in &g.texts {
+            let (text, own) = self.shape_text(&st.tex);
+            let color = own.or(st.color.clone()).and_then(|c| self.color(&c)).unwrap_or_else(|| self.st.text_paint_color());
+            if text.trim().is_empty() {
+                continue;
+            }
+            let mut warnings = Vec::new();
+            let l = label::compose_label(text.trim(), &self.st.font, None, 'c', color, &mut warnings);
+            for w in warnings {
+                self.warn(w);
+            }
+            items.push(Item::Text { label: l, place: t.compose(&Transform::translation(st.at.x, st.at.y)), opacity: self.st.text_opacity });
+        }
         layer_items(self, &[Layer::BehindForeground, Layer::Foreground, Layer::BeforeForeground], &mut items)?;
         Ok(items)
     }
 
+    /// A shape's own text, expanded, with `\char`\&` as its character and a leading `\color{…}` taken
+    /// out as its color.
+    fn shape_text(&mut self, tex: &str) -> (String, Option<String>) {
+        let mut text = self.tex.expand_to_string(tikra_tokens(tex)).unwrap_or_else(|_| tex.to_string());
+        while let Some(i) = text.find("\\char") {
+            let rest = text[i + 5..].trim_start();
+            let rest = rest.strip_prefix('`').unwrap_or(rest);
+            let rest = rest.strip_prefix('\\').unwrap_or(rest);
+            let Some(ch) = rest.chars().next() else { break };
+            let after = rest[ch.len_utf8()..].to_string();
+            let ch = if "&%$#_{}".contains(ch) { format!("\\{ch}") } else { ch.to_string() };
+            text = format!("{}{ch}{after}", &text[..i]);
+        }
+        let mut color = None;
+        if let Some(rest) = text.trim_start().strip_prefix("\\color") {
+            let rest = rest.trim_start();
+            if let Some(r) = rest.strip_prefix('{') {
+                if let Some(j) = r.find('}') {
+                    color = Some(r[..j].to_string());
+                    text = r[j + 1..].to_string();
+                }
+            }
+        }
+        (text, color)
+    }
+
     /// `label=[options]angle:text`, `pin=…`: another node next to this one.
-    fn label(&mut self, info: &NodeInfo, spec: Vec<Token>, pin: bool) -> Result<Vec<Item>, Error> {
+    pub(super) fn label(&mut self, info: &NodeInfo, spec: Vec<Token>, pin: bool) -> Result<Vec<Item>, Error> {
         let mut v = keys::trim(&spec).to_vec();
         let mut opts = Vec::new();
         if v.first().is_some_and(|t| t.is_char('[')) {
@@ -563,6 +667,15 @@ impl Engine {
         // a direction among the label's options (`"text" above` with quotes) is its position
         let directions = ["above", "below", "left", "right", "above left", "above right", "below left", "below right"];
         let mut given = None;
+        // `label position` among the label's options is its default position (`\tikz@label@angle`
+        // expands it after them)
+        for i in keys::split_list(&opts) {
+            if i.key == "label position" {
+                if let Some(v) = &i.value {
+                    given = Some(tex::tokens_to_string(v).trim().to_string());
+                }
+            }
+        }
         // `pin edge={…}`: options of the pin's edge, not of its label
         let mut edge_options = Vec::new();
         let items = keys::split_list(&opts);
@@ -717,6 +830,32 @@ fn direction_anchor(angle: f64) -> &'static str {
         274..=356 => "north west",
         _ => "west",
     }
+}
+
+/// `\textcolor{color}{text}` as the whole text: (color, text).
+fn whole_textcolor(t: &str) -> Option<(String, String)> {
+    let rest = t.trim().strip_prefix("\\textcolor")?.trim_start();
+    let group = |s: &str| -> Option<(String, usize)> {
+        let s2 = s.strip_prefix('{')?;
+        let mut depth = 1;
+        for (i, ch) in s2.char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some((s2[..i].to_string(), i + 2));
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    };
+    let (c, n) = group(rest)?;
+    let rest = rest[n..].trim_start();
+    let (inner, m) = group(rest)?;
+    rest[m..].trim().is_empty().then_some((c, inner))
 }
 
 /// `30:text` → (`30`, `text`): split at the first colon outside braces.

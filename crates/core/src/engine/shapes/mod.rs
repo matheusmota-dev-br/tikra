@@ -9,12 +9,14 @@
 mod arrows;
 mod basic;
 mod callouts;
+mod ee;
+mod gates;
 mod geometric;
 mod misc;
 mod multipart;
 mod symbols;
 
-use crate::scene::{Point, Segment};
+use crate::scene::{Point, Segment, Transform};
 
 /// Width, height and depth of a node part's text box, in cm.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -38,6 +40,15 @@ pub trait Keys {
     fn flag(&mut self, name: &str) -> bool;
     /// A TikZ coordinate stored in a key (`(a.east)`, `(0,-1)`), on the canvas; None if unset.
     fn point(&mut self, key: &str) -> Option<Point>;
+    /// The box of a text typeset in the node's font (the symbol of an IEC gate).
+    fn text_box(&mut self, _tex: &str) -> BoxSize {
+        BoxSize::default()
+    }
+    /// The paths that the basic-layer code stored in a key strokes, run with `t` from its frame to
+    /// the node's coordinates (`/pgf/generic circle IEC/before background`).
+    fn code_paths(&mut self, _key: &str, _t: Transform) -> Vec<Vec<Segment>> {
+        Vec::new()
+    }
 }
 
 /// What a shape is computed from.
@@ -169,6 +180,15 @@ pub struct ShapePath {
     pub usage: Usage,
 }
 
+/// A text that a shape typesets itself (an IEC gate's symbol): TeX, where the origin of its box goes,
+/// and its color if not the node's.
+#[derive(Debug, Clone)]
+pub struct ShapeText {
+    pub tex: String,
+    pub at: Point,
+    pub color: Option<String>,
+}
+
 /// A shape, computed for one node, in the node's coordinate system.
 #[derive(Debug, Clone)]
 pub struct Geometry {
@@ -182,12 +202,14 @@ pub struct Geometry {
     pub paths: Vec<ShapePath>,
     /// the background is made of straight lines only, so `rounded corners` apply to it
     pub roundable: bool,
+    /// texts of its own, drawn in the foreground
+    pub texts: Vec<ShapeText>,
 }
 
 impl Geometry {
     /// A geometry with its center and border; anchors and paths are added by the shape.
     pub fn new(center: Point, border: Border) -> Geometry {
-        Geometry { center, anchors: Vec::new(), border, parts: vec![("text".into(), Point::new(0.0, 0.0))], paths: Vec::new(), roundable: false }
+        Geometry { center, anchors: Vec::new(), border, parts: vec![("text".into(), Point::new(0.0, 0.0))], paths: Vec::new(), roundable: false, texts: Vec::new() }
     }
 
     pub fn anchor_at(&mut self, name: &str, p: Point) {
@@ -319,6 +341,15 @@ pub const INITIAL: &[(&str, &str)] = &[
     ("/pgf/rectangle split empty part height", "1ex"),
     ("/pgf/rectangle split empty part depth", "0ex"),
     ("/pgf/rectangle split part fill", "none"),
+    ("/pgf/logic gate input sep", "0.125cm"),
+    ("/pgf/logic gate inputs", "normal,normal"),
+    ("/pgf/logic gate inverted radius", "2pt"),
+    ("/pgf/logic gate IEC symbol align", "top"),
+    ("/pgf/logic gate IEC symbol color", ""),
+    ("/pgf/direction ee arrow", "direction ee"),
+    ("/pgf/arrow options/direction ee", "4pt"),
+    ("/pgf/generic circle IEC/before background", ""),
+    ("/pgf/generic diode IEC/before background", ""),
 ];
 
 pub const DEFINITIONS: &str = r"
@@ -336,6 +367,14 @@ pub const DEFINITIONS: &str = r"
 \newif\ifpgfrectanglesplitignoreemptyparts
 \newif\ifpgfrectanglesplitusecustomfill
 \newif\ifpgfcloudanchorsuseellipse
+\newif\ifpgfgateanchorsuseboundingrectangle
+\pgfkeys{/pgf/.cd,
+  and gate IEC symbol/.initial=$\char`\&$, nand gate IEC symbol/.initial=$\char`\&$,
+  or gate IEC symbol/.initial=$\geq1$, nor gate IEC symbol/.initial=$\geq1$,
+  xor gate IEC symbol/.initial={$=1$}, xnor gate IEC symbol/.initial={$=1$},
+  not gate IEC symbol/.initial=1, buffer gate IEC symbol/.initial=1,
+  logic gate anchors use bounding box/.is if=pgfgateanchorsuseboundingrectangle,
+}
 \def\tikz@atbegin@node{}
 \def\tikz@atend@node{}
 \tikzset{
@@ -418,6 +457,38 @@ const NAMES: &[&str] = &[
     "ellipse split",
     "diamond split",
     "rectangle split",
+    "and gate US",
+    "nand gate US",
+    "or gate US",
+    "nor gate US",
+    "xor gate US",
+    "xnor gate US",
+    "not gate US",
+    "buffer gate US",
+    "and gate CDH",
+    "nand gate CDH",
+    "and gate IEC",
+    "nand gate IEC",
+    "or gate IEC",
+    "nor gate IEC",
+    "xor gate IEC",
+    "xnor gate IEC",
+    "not gate IEC",
+    "buffer gate IEC",
+    "rectangle ee",
+    "circle ee",
+    "direction ee",
+    "var resistor IEC",
+    "inductor IEC",
+    "capacitor IEC",
+    "ground IEC",
+    "battery IEC",
+    "breakdown diode IEC",
+    "generic circle IEC",
+    "generic diode IEC",
+    "make contact IEC",
+    "var make contact IEC",
+    "break contact IEC",
 ];
 
 /// Computes the shape `name` for a node; None if the shape is not known.
@@ -460,6 +531,31 @@ pub fn compute(name: &str, input: &mut Input) -> Option<Geometry> {
         "ellipse split" => multipart::ellipse_split(input),
         "diamond split" => multipart::diamond_split(input),
         "rectangle split" => multipart::rectangle_split(input),
+        "and gate US" => gates::and_gate_us(input, false),
+        "nand gate US" => gates::and_gate_us(input, true),
+        "or gate US" => gates::or_gate_us(input, "or"),
+        "nor gate US" => gates::or_gate_us(input, "nor"),
+        "xor gate US" => gates::or_gate_us(input, "xor"),
+        "xnor gate US" => gates::or_gate_us(input, "xnor"),
+        "not gate US" => gates::not_gate_us(input, true),
+        "buffer gate US" => gates::not_gate_us(input, false),
+        "and gate CDH" => gates::and_gate_cdh(input, false),
+        "nand gate CDH" => gates::and_gate_cdh(input, true),
+        n if n.ends_with(" gate IEC") => gates::gate_iec(input, n.trim_end_matches(" gate IEC")),
+        "rectangle ee" => ee::rectangle_ee(input),
+        "circle ee" => ee::circle_ee(input),
+        "direction ee" => ee::direction_ee(input),
+        "var resistor IEC" => ee::var_resistor(input),
+        "inductor IEC" => ee::inductor(input),
+        "capacitor IEC" => ee::capacitor(input),
+        "ground IEC" => ee::ground(input),
+        "battery IEC" => ee::battery(input),
+        "breakdown diode IEC" => ee::breakdown_diode(input),
+        "generic circle IEC" => ee::generic_circle(input),
+        "generic diode IEC" => ee::generic_diode(input),
+        "make contact IEC" => ee::make_contact(input),
+        "var make contact IEC" => ee::var_make_contact(input),
+        "break contact IEC" => ee::break_contact(input),
         _ => return None,
     })
 }

@@ -49,6 +49,10 @@ impl Engine {
             out.extend(group(tex::string_tokens(p)));
         }
         for item in keys::split_list(&list) {
+            // a style called without a value passes `\pgfkeysnovalue` on: pgfkeys skips it
+            if item.key.trim() == "\\pgfkeysnovalue" && item.value.is_none() {
+                continue;
+            }
             out.push(Token::cs("tikra@key"));
             out.extend(group(tikra_tokens(&item.key)));
             out.extend(group(item.value.unwrap_or_else(|| vec![Token::cs("pgfkeysnovalue")])));
@@ -315,6 +319,18 @@ impl Engine {
                 };
                 let body = if h.contains("style") { Self::style_body(body) } else { body };
                 self.define_code(base, n, body);
+            }
+            ".code args" | ".style args" | ".ecode args" | ".estyle args" => {
+                // as pgf: a macro with the parameter text, called with the value and \pgfeov
+                let args = split_arguments(&v, 2);
+                let body = if h.contains("style") { Self::style_body(args[1].clone()) } else { args[1].clone() };
+                let aux = Token::cs(&macro_name(&format!("{base}/.@args")));
+                let mut def = vec![Token::cs("def"), aux.clone()];
+                def.extend(args[0].clone());
+                def.push(Token::cs("pgfeov"));
+                def.extend(group(body));
+                self.run_tokens(def)?;
+                self.define_code(base, 1, vec![aux, Token::Char('#', Cat::Param), Token::other('1'), Token::cs("pgfeov")]);
             }
             ".tip" => {
                 // `name/.tip=spec`: \pgfdeclarearrow{name=name, means=spec}, the name being the last part of the path
@@ -1066,6 +1082,8 @@ keyfn!(k_below_left, |e, v| placement(e, "below left", v));
 keyfn!(k_below_right, |e, v| placement(e, "below right", v));
 
 keyfn!(k_pos, |e, v| {
+    // `pos=` (empty): not on the path
+    let v = v.filter(|v| !keys::trim(v).is_empty());
     e.st_node().pos = number(e, &v)?;
     Ok(())
 });
@@ -1905,8 +1923,10 @@ const DEFINITIONS: &str = r"
   diamond/.style={shape=diamond},
   behind path/.style={}, in front of path/.style={},
   execute at begin node/.code={}, execute at end node/.code={},
+  execute at begin to/.code={\expandafter\def\expandafter\tikz@atbegin@to\expandafter{\tikz@atbegin@to#1}},
+  execute at end to/.code={\expandafter\def\expandafter\tikz@atend@to\expandafter{\tikz@atend@to#1}},
   style/.code={\pgfkeysalso{#1}},
-  every shadow/.style={}, alias/.code={},
+  every shadow/.style={},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
@@ -1916,7 +1936,7 @@ const DEFINITIONS: &str = r"
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
-\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
 \def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
 \def\pgfmatrixnextcell{\tikra@nextcell}
@@ -1950,7 +1970,7 @@ pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
     super::decorations::define(e);
-    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::circuits::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
@@ -1966,6 +1986,7 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
+    lexer.push_text(super::circuits::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
