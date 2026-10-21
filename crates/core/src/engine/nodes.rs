@@ -34,6 +34,8 @@ pub struct NodeSetup {
     pub labels: Vec<(Vec<Token>, bool)>,
     /// `fit`: the width and height of the fitted area, which become the text box
     pub fit: Option<(f64, f64)>,
+    /// `circle through`: the point on the circle (canvas)
+    pub through: Option<Point>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -371,6 +373,14 @@ impl Engine {
             }
             boxes.push((part.clone(), BoxSize { wd, ht, dp }));
             labels.push((part.clone(), lbl));
+        }
+        if let Some(p) = self.st.node.through {
+            // the through library: as wide as twice the distance from the node's position
+            let at = self.st.node.at.or(spec.at).unwrap_or(spec.point);
+            let size = format!("{}pt", 2.0 * p.minus(at).norm() / PT);
+            for key in ["/pgf/minimum width", "/pgf/minimum height"] {
+                self.tex.define_string(&keys::macro_name(key), &size, false);
+            }
         }
         let xsep = self.key_length("/pgf/inner xsep", 0.3333 * 0.3515);
         let ysep = self.key_length("/pgf/inner ysep", 0.3333 * 0.3515);

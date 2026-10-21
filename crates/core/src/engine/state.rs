@@ -192,6 +192,9 @@ pub struct GState {
     pub canvas_transform: Option<Transform>,
     /// the box of the path being used (`current path bounding box`), for its actions
     pub path_box: Option<(Point, Point)>,
+    /// the perspective library's matrix, and the points of `plane origin`, `plane x`, `plane y`
+    pub perspective: super::three_d::Perspective,
+    pub plane: [Option<String>; 3],
     /// `growth function=\macro`: places the children instead of `grow` (the petri library's tokens)
     pub growth_function: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
@@ -299,6 +302,8 @@ impl Default for GState {
             child_missing: false,
             edge_from_parent_path: None,
             growth_function: None,
+            perspective: super::three_d::NO_PERSPECTIVE,
+            plane: [None, None, None],
             canvas_transform: None,
             path_box: None,
             pic_mode: Mode::default(),

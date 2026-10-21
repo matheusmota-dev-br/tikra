@@ -104,3 +104,58 @@ fn options_of_a_coordinate_move_a_node_anchor() {
     let (a, b, c) = (point(&p[0][0]), point(&p[0][1]), point(&p[0][2]));
     assert!(near(b.minus(a), 1.0, 0.0) && near(c.minus(a), 1.0, 1.0), "{p:?}");
 }
+
+#[test]
+fn a_plane_at_z_becomes_the_canvas() {
+    // with z=(1,1)cm, the xy plane at z=1 is the xy plane moved by (1,1)
+    let p = paths(r"\draw (0,0) -- (1,0); \begin{scope}[z={(1cm,1cm)},canvas is xy plane at z=1] \draw (0,0) -- (2,0); \end{scope}");
+    let (o, a, b) = (first_point(&p[0]), first_point(&p[1]), point(&p[1][1]));
+    assert!(near(a.minus(o), 1.0, 1.0) && near(b.minus(a), 2.0, 0.0), "{p:?}");
+}
+
+#[test]
+fn cylindrical_and_spherical_coordinates() {
+    let p = paths(r"\draw (0,0,0) -- (xyz cylindrical cs:radius=2,angle=90,z=1) -- (xyz spherical cs:radius=1,longitude=90);");
+    let o = first_point(&p[0]);
+    // z is (-3.85mm, -3.85mm) by default; longitude 90 is along x
+    let z = -0.385;
+    assert!(near(point(&p[0][1]).minus(o), z, 2.0 + z) && near(point(&p[0][2]).minus(o), 1.0, 0.0), "{p:?}");
+}
+
+#[test]
+fn three_point_perspective() {
+    // with a vanishing point at x=10, x=5 is halfway there
+    let p = paths(r"\begin{scope}[perspective={p={(10,0,0)}}] \draw (tpp cs:x=0) -- (tpp cs:x=5) -- (tpp cs:x=5,y=1); \end{scope}");
+    let o = first_point(&p[0]);
+    assert!(near(point(&p[0][1]).minus(o), 10.0 / 3.0, 0.0) && near(point(&p[0][2]).minus(o), 10.0 / 3.0, 2.0 / 3.0), "{p:?}");
+}
+
+#[test]
+fn a_3d_view_sets_the_unit_vectors() {
+    let p = paths(r"\draw[3d view={90}{0}] (0,0,0) -- (1,0,0) -- (1,1,0) -- (1,1,1);");
+    let o = first_point(&p[0]);
+    // azimuth 90: x points down the page, y right; elevation 0: z up
+    assert!(near(point(&p[0][1]).minus(o), 0.0, 0.0) && near(point(&p[0][2]).minus(o), 1.0, 0.0) && near(point(&p[0][3]).minus(o), 1.0, 1.0), "{p:?}");
+}
+
+#[test]
+fn a_circle_through_a_point() {
+    // radius 1: the circle's rightmost point is 1 right of the center
+    let p = paths(r"\coordinate (a) at (1,0); \node[draw,circle through=(a)] (c) at (0,0) {}; \draw (c.center) -- (c.east);");
+    let line = p.last().unwrap();
+    assert!(near(point(&line[1]).minus(point(&line[0])), 1.0, 0.0), "{line:?}");
+}
+
+#[test]
+fn delimiters_beside_a_matrix() {
+    let r = tikra::convert(r"\begin{tikzpicture}\matrix[left delimiter=(,right delimiter={]}] (m) {\node{a}; & \node{b};\\ \node{c}; & \node{d};\\};\end{tikzpicture}").unwrap();
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    // the two delimiters are drawn as text, left and right of the four cells
+    assert_eq!(r.svg.matches("<g transform").count(), 6, "{}", r.svg);
+}
+
+#[test]
+fn pgfmath_results_with_units_are_in_points() {
+    let p = paths(r"\pgfmathsetmacro\l{1cm} \draw (0,0) -- (\l pt,0);");
+    assert!(near(point(&p[0][1]).minus(point(&p[0][0])), 1.0, 0.0), "{p:?}");
+}

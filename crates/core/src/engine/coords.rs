@@ -116,9 +116,12 @@ impl Engine {
         // (a |- b), (a -| b)
         for op in ["|-", "-|"] {
             if let Some(i) = find_perpendicular(t, op) {
-                let a = self.coordinate(&t[..i])?.p;
-                let b = self.coordinate(&t[i + 2..])?.p;
-                return Ok(Coord { p: if op == "|-" { Point::new(a.x, b.y) } else { Point::new(b.x, a.y) }, node: None });
+                // in the current coordinate system, as pgf's points are before they are transformed
+                let current = self.st.transform;
+                let inv = crate::reader::invert(&current);
+                let a = inv.apply(self.coordinate(&t[..i])?.p);
+                let b = inv.apply(self.coordinate(&t[i + 2..])?.p);
+                return Ok(Coord { p: current.apply(if op == "|-" { Point::new(a.x, b.y) } else { Point::new(b.x, a.y) }), node: None });
             }
         }
         // a coordinate system: (canvas cs:x=1cm,y=2cm)
@@ -216,7 +219,10 @@ impl Engine {
                 };
                 Ok(Coord { p, node: None })
             }
-            other => Err(Error::Figure(format!("coordinate system '{other}' not supported"))),
+            other => match self.three_d_coordinate(other, &items)? {
+                Some(c) => Ok(c),
+                None => Err(Error::Figure(format!("coordinate system '{other}' not supported"))),
+            },
         }
     }
 

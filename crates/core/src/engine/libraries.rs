@@ -1,6 +1,7 @@
 //! TikZ libraries that are styles on top of nodes, paths and trees: `automata` (states, initial and
 //! accepting marks), `petri` (places, transitions, tokens), `er` (entities, relationships,
-//! attributes) and `shadows` (copies of a node's background drawn behind it). Their keys are TikZ
+//! attributes), `shadows` (copies of a node's background drawn behind it) and `through` (a circle
+//! node through a point), and the matrix library's delimiters. Their keys are TikZ
 //! styles with the values of `tikzlibraryautomata.code.tex`, `tikzlibrarypetri.code.tex`,
 //! `tikzlibraryer.code.tex` and `tikzlibraryshadows.code.tex`; what they need from TikZ itself
 //! (`append after command`, `prefix after command`, `growth function`) is here too.
@@ -43,8 +44,22 @@ keyfn!(k_growth_function, |e, v| {
     Ok(())
 });
 
-pub const KEYS: &[(&str, KeyFn)] =
-    &[("/tikz/append after command", k_append_after_command), ("/tikz/prefix after command", k_prefix_after_command), ("/tikz/growth function", k_growth_function)];
+// the through library: `circle through=(a)` makes the node a circle around its position through
+// the point
+keyfn!(k_circle_through, |e, v| {
+    e.process_keys(super::tikra_tokens("shape=circle,inner sep=0pt,outer sep=0pt"), Some("/tikz"))?;
+    let s = e.tex.expand_to_string(v.unwrap_or_default())?;
+    let inner = crate::options::strip_braces(s.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+    e.st.node.through = Some(e.coordinate(&inner)?.p);
+    Ok(())
+});
+
+pub const KEYS: &[(&str, KeyFn)] = &[
+    ("/tikz/append after command", k_append_after_command),
+    ("/tikz/prefix after command", k_prefix_after_command),
+    ("/tikz/growth function", k_growth_function),
+    ("/tikz/circle through", k_circle_through),
+];
 
 /// The libraries' styles, read as TeX with `@` a letter.
 pub const DEFINITIONS: &str = r"
@@ -153,6 +168,22 @@ pub const DEFINITIONS: &str = r"
   general shadow/.default=, drop shadow/.default=, circular drop shadow/.default=, circular glow/.default=,
   copy shadow/.default=, double copy shadow/.default=,
 }
+\tikzset{
+  every delimiter/.style={}, every left delimiter/.style={}, every right delimiter/.style={},
+  every above delimiter/.style={}, every below delimiter/.style={},
+  left delimiter/.code={\tikzset{append after command={\tikra@delimiter{south east}{south west}
+    {every delimiter,every left delimiter}{south}{north}{#1}{.}{y}}}},
+  right delimiter/.code={\tikzset{append after command={\tikra@delimiter{south west}{south east}
+    {every delimiter,every right delimiter}{south}{north}{.}{#1}{y}}}},
+  above delimiter/.code={\tikzset{append after command={\tikra@delimiter{south east}{north west}
+    {every delimiter,every above delimiter,rotate=-90}{west}{east}{#1}{.}{x}}}},
+  below delimiter/.code={\tikzset{append after command={\tikra@delimiter{south west}{south west}
+    {every delimiter,every below delimiter,rotate=-90}{west}{east}{.}{#1}{x}}}},
+}
+\def\tikra@delimiter#1#2#3#4#5#6#7#8{{let \p1=($(\tikzlastnode.#5)-(\tikzlastnode.#4)$) in
+  \pgfextra{\pgfmathsetmacro\tikra@size{abs(\csname #81\endcsname)}\pgfmathsetmacro\tikra@raise{2.5-\tikra@size/2}}
+  node[outer sep=0pt,inner sep=0pt,draw=none,fill=none,anchor=#1,at=(\tikzlastnode.#2),#3]
+  {$\left#6\rule[\tikra@raise pt]{0pt}{\tikra@size pt}\right#7$}}}
 ";
 
 /// Shape keys with nothing set: every key at its default.

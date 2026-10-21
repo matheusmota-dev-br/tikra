@@ -1993,7 +1993,7 @@ pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
     super::decorations::define(e);
-    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::libraries::KEYS) {
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::libraries::KEYS).chain(super::three_d::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));

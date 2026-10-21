@@ -409,6 +409,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 if let Some(info) = e.last_node.clone() {
                                     let n = format!("tikra@fig@{}", e.steps);
                                     e.nodes.insert(n.clone(), info);
+                                    e.tex.define_string("tikzlastnode", &n, false);
                                     e.last_node_name = Some(n);
                                 }
                             }

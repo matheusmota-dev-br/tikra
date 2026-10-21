@@ -18,6 +18,7 @@ pub mod path;
 pub mod pics;
 pub mod shapes;
 pub mod state;
+pub mod three_d;
 pub mod trees;
 
 use std::collections::HashMap;
@@ -872,10 +873,8 @@ impl Engine {
                 let expr = self.argument()?;
                 let Some(name) = name.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
                 let text = self.math_string(expr)?;
-                let v = match cmd {
-                    Cmd::Pgfmathsetlengthmacro => crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }),
-                    _ => crate::expr::eval(&text, &self.vars()),
-                };
+                // a result with units is in pt, as pgfmath gives it
+                let v = crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v });
                 match v {
                     Ok(v) if v.is_finite() => {
                         let s = match cmd {
@@ -894,7 +893,7 @@ impl Engine {
             Cmd::Pgfmathparse => {
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                match crate::expr::eval(&text, &self.vars()) {
+                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
                     Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }
