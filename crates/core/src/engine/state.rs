@@ -81,10 +81,12 @@ pub struct GState {
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
+    /// `decorate`: the path is decorated when used (reset by each path)
     pub decorate: bool,
-    pub decoration: String,
-    pub amplitude: f64,
-    pub segment_length: f64,
+    pub decoration: super::decorations::Settings,
+    /// `preaction=` and `postaction=` options, in order (reset by each path)
+    pub preactions: Rc<Vec<Vec<crate::tex::Token>>>,
+    pub postactions: Rc<Vec<Vec<crate::tex::Token>>>,
     /// `declare function`
     pub functions: Rc<HashMap<String, (Vec<String>, String)>>,
     /// settings of the node being created
@@ -153,9 +155,9 @@ impl Default for GState {
             plot_mark: None,
             only_marks: false,
             decorate: false,
-            decoration: String::new(),
-            amplitude: 2.5 * PT,
-            segment_length: 10.0 * PT,
+            decoration: Default::default(),
+            preactions: Rc::default(),
+            postactions: Rc::default(),
             functions: Rc::new(HashMap::new()),
             node: Default::default(),
             baseline: None,

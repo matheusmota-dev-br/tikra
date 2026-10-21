@@ -18,8 +18,6 @@ use super::{macro_from, tikra_tokens, Engine};
 pub const MAX_COORDINATE: f64 = 100_000.0;
 /// Cap on `grid` lines in each direction.
 pub const MAX_GRID_LINES: usize = 10_000;
-/// Cap on decoration steps per segment.
-pub const MAX_DECORATION_STEPS: usize = 10_000;
 
 pub fn valid_point(p: Point) -> bool {
     p.x.is_finite() && p.y.is_finite() && p.x.abs() <= MAX_COORDINATE && p.y.abs() <= MAX_COORDINATE
@@ -70,14 +68,24 @@ impl Builder {
 /// A path statement (`\draw`, `\fill`, `\path`, `\node`…): `defaults` are the command's options.
 pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     e.begin_group();
+    // the state before the path's options: decorations and preactions draw with its graphics
+    let outer = e.st.clone();
     e.st.mode = Mode::default();
     e.st.pending = crate::scene::Transform::default();
-    let r = statement_in_group(e, defaults);
+    reset_path_settings(e);
+    let r = statement_in_group(e, defaults, &outer);
     e.end_group();
     r
 }
 
-fn statement_in_group(e: &mut Engine, defaults: &str) -> Result<(), Error> {
+/// What `\path` resets: `decorate`, `preaction`, `postaction` belong to one path.
+fn reset_path_settings(e: &mut Engine) {
+    e.st.decorate = false;
+    e.st.preactions = Default::default();
+    e.st.postactions = Default::default();
+}
+
+fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> Result<(), Error> {
     e.process_keys(tikra_tokens("every path/.try"), Some("/tikz"))?;
     if !defaults.is_empty() {
         e.process_keys(tikra_tokens(defaults), Some("/tikz"))?;
@@ -106,7 +114,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
     }
-    e.use_path(segs, "path")?;
+    e.finish_path(segs, outer, "path")?;
     for (segs, options, items) in std::mem::take(&mut b.edges) {
         edge_path(e, segs, options)?;
         e.canvas.items.extend(items);
@@ -118,11 +126,13 @@ fn statement_in_group(e: &mut Engine, defaults: &str) -> Result<(), Error> {
 
 fn edge_path(e: &mut Engine, segs: Vec<Segment>, options: Vec<Token>) -> Result<(), Error> {
     e.begin_group();
+    let outer = e.st.clone();
     e.st.mode = Mode::default();
+    reset_path_settings(e);
     let r = (|| {
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(options, Some("/tikz"))?;
-        e.use_path(segs, "edge")
+        e.finish_path(segs, &outer, "edge")
     })();
     e.end_group();
     r
@@ -333,8 +343,10 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate)?;
                         if at.is_some() || pending_op.is_none() {
-                            let place = b.last.unwrap_or(OnPath::Point(b.point()));
-                            let items = e.node(NodeSpec { options, name, at, text, place, point: b.point(), coordinate, default_pos: None })?;
+                            // before any point, a node is at the origin of the current coordinate system
+                            let point = if b.current.is_some() { b.point() } else { e.st.transform.apply(Point::default()) };
+                            let place = b.last.unwrap_or(OnPath::Point(point));
+                            let items = e.node(NodeSpec { options, name, at, text, place, point, coordinate, default_pos: None })?;
                             b.node_items.extend(items);
                         } else {
                             b.mid_nodes.push(MidNode { options, name, text, coordinate });
@@ -387,7 +399,8 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "parabola" => parabola(e, b, depth)?,
                     "let" => let_operation(e, depth)?,
                     "in" => {}
-                    "pic" | "child" | "svg" | "decorate" => {
+                    "decorate" => decorate_operation(e, b, depth)?,
+                    "pic" | "child" | "svg" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);
                     }
@@ -413,6 +426,50 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
             }
         }
     }
+}
+
+/// `decorate[options]{subpath}`: the subpath, built with the options, is replaced by its
+/// decoration (`\tikz@lib@decoration`).
+fn decorate_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
+    let options = match peek(e, depth)? {
+        Some(t) if t.is_char('[') => {
+            let _ = next(e, depth)?;
+            e.tex.read_until_char(']', false)?
+        }
+        _ => Vec::new(),
+    };
+    let body = match next(e, depth)? {
+        Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+        other => {
+            if let Some(t) = other {
+                e.tex.back(t);
+            }
+            e.warn("a decoration must begin with a brace: decorate ignored");
+            return Ok(());
+        }
+    };
+    let start = b.segs.len();
+    let existing = b.current.as_ref().map(|c| c.p);
+    e.begin_group();
+    let r = (|| {
+        e.process_keys(options, Some("/tikz"))?;
+        e.st.apply_pending();
+        let d = e.tex.depth();
+        e.tex.push_frame(body);
+        let r = operations(e, b, Some(d));
+        e.tex.drain_to(d);
+        r?;
+        let sub: Vec<Segment> = b.segs.split_off(start);
+        if sub.is_empty() || !sub.iter().all(valid_segment) {
+            b.segs.extend(sub);
+            return Ok(());
+        }
+        let decorated = e.decorate_segments(&sub, if start > 0 { existing } else { None })?;
+        b.segs.extend(decorated);
+        Ok(())
+    })();
+    e.end_group();
+    r
 }
 
 /// After an error inside a path: skips to its `;`.

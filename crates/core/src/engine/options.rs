@@ -1206,24 +1206,6 @@ keyfn!(k_only_marks, |e, _v| {
     Ok(())
 });
 
-keyfn!(k_decorate, |e, _v| {
-    e.st.decorate = true;
-    Ok(())
-});
-keyfn!(k_decoration, |e, v| {
-    // decoration={zigzag, amplitude=2pt, segment length=5pt} or decoration=zigzag
-    let Some(v) = v else { return Ok(()) };
-    for item in keys::split_list(&v) {
-        match (item.key.as_str(), item.value) {
-            ("amplitude", Some(x)) => e.st.amplitude = e.length_of(x)?,
-            ("segment length", Some(x)) => e.st.segment_length = e.length_of(x)?,
-            (name, None) => e.st.decoration = name.to_string(),
-            (other, Some(_)) => e.warn(format!("decoration option '{other}' not supported: ignored")),
-        }
-    }
-    Ok(())
-});
-
 keyfn!(k_declare_function, |e, v| {
     let s = text(e, &v)?;
     for def in s.split(';') {
@@ -1398,8 +1380,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/tension", k_tension),
     ("/tikz/mark", k_mark),
     ("/tikz/only marks", k_only_marks),
-    ("/tikz/decorate", k_decorate),
-    ("/tikz/decoration", k_decoration),
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_ignore),
@@ -1482,7 +1462,8 @@ const DEFINITIONS: &str = r"
 pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
-    for (path, f) in NATIVE {
+    super::decorations::define(e);
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
@@ -1491,6 +1472,8 @@ pub fn define_keys(e: &mut Engine) {
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
     lexer.push_text(DEFINITIONS);
+    lexer.push_text(super::decorations::DEFINITIONS);
+    lexer.push_text(super::decorations::DECLARATIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
