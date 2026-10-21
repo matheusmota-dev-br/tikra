@@ -49,6 +49,10 @@ impl Engine {
             out.extend(group(tex::string_tokens(p)));
         }
         for item in keys::split_list(&list) {
+            // a style called without a value passes `\pgfkeysnovalue` on: pgfkeys skips it
+            if item.key.trim() == "\\pgfkeysnovalue" && item.value.is_none() {
+                continue;
+            }
             out.push(Token::cs("tikra@key"));
             out.extend(group(tikra_tokens(&item.key)));
             out.extend(group(item.value.unwrap_or_else(|| vec![Token::cs("pgfkeysnovalue")])));
@@ -185,6 +189,13 @@ impl Engine {
         if name.starts_with('"') {
             return self.quotes(&name, value);
         }
+        // `myself:rotate={…}`, `:fill={…}`: an animated attribute
+        if let (Some(v), true) = (&value, name.contains(':')) {
+            if let Some(o) = self.animation_option(&name, v.clone())? {
+                self.process_keys(o, Some("/tikz"))?;
+            }
+            return Ok(());
+        }
         if value.is_none() {
             if let Some(c) = self.color(&name) {
                 self.st.color = c;
@@ -238,8 +249,10 @@ impl Engine {
             o.extend(tikra_tokens(&options));
             self.st.quoted.push((tikra_tokens(&text), o));
         } else {
-            let spec = format!("[every label quotes/.try,{options}]{text}");
-            self.st.node.labels.push((tikra_tokens(&spec), false));
+            // `quotes mean pin`: pins instead of labels
+            let pin = matches!(self.tex.meaning_of("tikra@quotes@pin"), Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
+            let spec = format!("[every {} quotes/.try,{options}]{text}", if pin { "pin" } else { "label" });
+            self.st.node.labels.push((tikra_tokens(&spec), pin));
         }
         Ok(())
     }
@@ -333,6 +346,18 @@ impl Engine {
                 };
                 let body = if h.contains("style") { Self::style_body(body) } else { body };
                 self.define_code(base, n, body);
+            }
+            ".code args" | ".style args" | ".ecode args" | ".estyle args" => {
+                // as pgf: a macro with the parameter text, called with the value and \pgfeov
+                let args = split_arguments(&v, 2);
+                let body = if h.contains("style") { Self::style_body(args[1].clone()) } else { args[1].clone() };
+                let aux = Token::cs(&macro_name(&format!("{base}/.@args")));
+                let mut def = vec![Token::cs("def"), aux.clone()];
+                def.extend(args[0].clone());
+                def.push(Token::cs("pgfeov"));
+                def.extend(group(body));
+                self.run_tokens(def)?;
+                self.define_code(base, 1, vec![aux, Token::Char('#', Cat::Param), Token::other('1'), Token::cs("pgfeov")]);
             }
             ".tip" => {
                 // `name/.tip=spec`: \pgfdeclarearrow{name=name, means=spec}, the name being the last part of the path
@@ -514,7 +539,7 @@ fn shift_vector(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<Point, Error> 
     let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
     // in the coordinate system as it is: shifts given before (still pending) do not change it
-    Ok(crate::reader::invert(&e.st.transform).apply(p))
+    Ok(e.st.transform.inverse().apply(p))
 }
 
 fn dash_from(e: &mut Engine, spec: &str) -> Result<Option<Vec<f64>>, Error> {
@@ -790,6 +815,10 @@ keyfn!(k_shorten_start, |e, v| {
 
 keyfn!(k_double, |e, v| {
     let s = text(e, &v)?;
+    if s == "none" {
+        e.st.double = None;
+        return Ok(());
+    }
     e.st.double = Some(if s.is_empty() { crate::color::Color::WHITE } else { e.color(&s).unwrap_or(crate::color::Color::WHITE) });
     Ok(())
 });
@@ -802,6 +831,32 @@ keyfn!(k_double_distance, |e, v| {
     Ok(())
 });
 
+// the distance between the two lines' centers: the gap is that less one line width
+keyfn!(k_double_distance_centers, |e, v| {
+    e.st.double_distance = (length(e, &v)?.unwrap_or(0.6 * PT) - e.st.line_width).max(0.0);
+    if e.st.double.is_none() {
+        e.st.double = Some(crate::color::Color::WHITE);
+    }
+    Ok(())
+});
+// `shift only`: the transformation keeps only where it moves the origin
+keyfn!(k_shift_only, |e, _v| {
+    let full = e.st.transform.compose(&e.st.pending);
+    e.st.pending = e.st.transform.inverse().compose(&Transform::translation(full.e, full.f));
+    Ok(())
+});
+keyfn!(k_allow_upside_down, |e, v| {
+    e.st.allow_upside_down = text(e, &v)? != "false";
+    Ok(())
+});
+keyfn!(k_nodes_in_empty_cells, |e, v| {
+    e.st.matrix.nodes_in_empty_cells = text(e, &v)? != "false";
+    Ok(())
+});
+keyfn!(k_matrix_anchor, |e, v| {
+    e.st.matrix.anchor = Some(text(e, &v)?);
+    Ok(())
+});
 keyfn!(k_shift, |e, v| {
     let p = shift_vector(e, &v)?;
     add_transform(e, Transform::translation(p.x, p.y));
@@ -867,6 +922,17 @@ keyfn!(k_rotate_around, |e, v| {
     Ok(())
 });
 
+keyfn!(k_scale_around, |e, v| {
+    // scale around={factor:(point)}
+    let s = text(e, &v)?;
+    let Some((f, p)) = s.split_once(':') else { return Ok(()) };
+    let factor = e.number(f)?;
+    let tv = Some(tikra_tokens(p.trim()));
+    let c = shift_vector(e, &tv)?;
+    add_transform(e, Transform::translation(c.x, c.y).compose(&Transform::scaling(factor, factor)).compose(&Transform::translation(-c.x, -c.y)));
+    Ok(())
+});
+
 keyfn!(k_cm, |e, v| {
     // cm={a,b,c,d,(tx,ty)}
     let s = text(e, &v)?;
@@ -890,7 +956,7 @@ fn unit_vector(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<Po
     let s = text(e, v)?;
     let t = s.trim();
     if t.starts_with('(') || t.starts_with('{') {
-        let inner = crate::options::strip_braces(t).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+        let inner = crate::keys::strip_braces(t).trim().trim_start_matches('(').trim_end_matches(')').to_string();
         // a point, in canvas units without the current transformation
         let saved = e.st.transform;
         e.st.transform = Transform::default();
@@ -943,13 +1009,12 @@ keyfn!(k_minimum_size, |e, v| {
 
 keyfn!(k_font, |e, v| {
     let s = text(e, &v)?;
-    // the font commands, for the node's text
-    for name in ["tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge"] {
-        if s.contains(&format!("\\{name}")) && !s.contains(&format!("\\{name}er")) {
-            e.st.font_size = super::font_size(name);
-        }
-    }
-    e.st.font.push_str(&s);
+    // `font=` replaces the font of the nodes (`\tikz@textfont`), and the fonts selected around
+    // the picture stay: what came before the last `font=` is kept, the rest replaced
+    const MARK: &str = "\\tikz@textfont ";
+    let around = e.st.font.find(MARK).map_or(e.st.font.as_str(), |i| &e.st.font[..i]).to_string();
+    e.st.font = format!("{around}{MARK}{s}");
+    e.st.font_size = 10.0 * crate::label::font_size(&e.st.font);
     Ok(())
 });
 
@@ -1009,7 +1074,9 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         let m = place_length(e, &dist, 1)?;
         (m, if target.is_some() { m } else { place_length(e, &dist, 0)? })
     };
-    let diagonal = sx != 0.0 && sy != 0.0 && !dist.contains(" and ") && !dist.is_empty();
+    // a single distance (given, or the node distance) along a diagonal is measured along it
+    let single = if dist.is_empty() { !node_distance_text(e).contains(" and ") } else { !dist.contains(" and ") };
+    let diagonal = sx != 0.0 && sy != 0.0 && single;
     let offset = if diagonal && target.is_some() {
         // a single distance along a diagonal is measured along it
         Point::new(sx * h_ * std::f64::consts::FRAC_1_SQRT_2, sy * v_ * std::f64::consts::FRAC_1_SQRT_2)
@@ -1035,10 +1102,16 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         Some((n, a)) if e.nodes.contains_key(n.trim()) => (n.trim().to_string(), Some(a.trim().to_string())),
         _ => (target.trim_start_matches('(').trim_end_matches(')').to_string(), None),
     };
+    // `on grid`: from center to center
+    let on_grid = e.tex.meaning_of("iftikz@lib@ignore@size") == e.tex.meaning_of("iftrue");
     let base = match e.nodes.get(&name) {
+        Some(n) if on_grid => n.center(),
         Some(n) => n.anchor(explicit.as_deref().unwrap_or(target_anchor)).unwrap_or(n.center()),
         None => e.coordinate(&name)?.p,
     };
+    if on_grid && e.nodes.contains_key(&name) {
+        set_value(e, "/tikz/anchor", "center");
+    }
     e.st_node().at = Some(base.plus(offset));
     Ok(())
 }
@@ -1056,8 +1129,12 @@ fn place_length(e: &mut Engine, text: &str, axis: usize) -> Result<f64, Error> {
     })
 }
 
+fn node_distance_text(e: &Engine) -> String {
+    keys::value(&e.tex, "/tikz/node distance").map(|v| tex::tokens_to_string(&v)).unwrap_or_else(|| "1cm".into())
+}
+
 fn node_distance(e: &mut Engine) -> Result<(f64, f64), Error> {
-    let s = keys::value(&e.tex, "/tikz/node distance").map(|v| tex::tokens_to_string(&v)).unwrap_or_else(|| "1cm".into());
+    let s = node_distance_text(e);
     let read = |e: &mut Engine, t: &str| match place_length(e, t, 1) {
         Ok(v) => v,
         Err(err) => {
@@ -1084,6 +1161,8 @@ keyfn!(k_below_left, |e, v| placement(e, "below left", v));
 keyfn!(k_below_right, |e, v| placement(e, "below right", v));
 
 keyfn!(k_pos, |e, v| {
+    // `pos=` (empty): not on the path
+    let v = v.filter(|v| !keys::trim(v).is_empty());
     e.st_node().pos = number(e, &v)?;
     Ok(())
 });
@@ -1282,6 +1361,37 @@ keyfn!(k_at_empty_cell, |e, v| {
     Ok(())
 });
 // `turn`: the coordinate system at the path's last point, its x axis along the path there
+// `transform canvas={…}`: the transformations of the options applied to what the scope draws, as a
+// whole (line widths and text too)
+keyfn!(k_transform_canvas, |e, v| {
+    let saved = std::mem::take(&mut e.st.pending);
+    let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    let t = std::mem::replace(&mut e.st.pending, saved);
+    r?;
+    // the transformations act on the canvas around the current origin, as pgf's low level does
+    e.open_in_scope(crate::canvas::Item::Transform { transform: t });
+    Ok(())
+});
+keyfn!(k_snapshot, |e, v| {
+    let s = text(e, &v)?;
+    e.set_snapshot(&s);
+    Ok(())
+});
+keyfn!(k_animate, |e, v| e.animate_key(v.unwrap_or_default()));
+// the math library's `evaluate={…}`: \tikzmath statements
+keyfn!(k_evaluate, |e, v| e.math_statements(&v.unwrap_or_default()));
+keyfn!(k_trim_left, |e, v| {
+    e.st.trim_left = Some(text(e, &v)?);
+    Ok(())
+});
+keyfn!(k_trim_right, |e, v| {
+    e.st.trim_right = Some(text(e, &v)?);
+    Ok(())
+});
+keyfn!(k_path_picture, |e, v| {
+    e.st.mode.picture = v;
+    Ok(())
+});
 keyfn!(k_turn, |e, _v| {
     let (last, from) = e.turn_from;
     let d = last.minus(from);
@@ -1361,7 +1471,7 @@ keyfn!(k_step, |e, v| {
     let s = text(e, &v)?;
     if s.starts_with('(') {
         let p = e.coordinate(s.trim_start_matches('(').trim_end_matches(')'))?.p;
-        let inv = crate::reader::invert(&e.st.transform);
+        let inv = e.st.transform.inverse();
         let d = inv.apply(p);
         e.st.grid_step = (d.x.abs(), d.y.abs());
     } else {
@@ -1535,10 +1645,12 @@ keyfn!(k_pic_actions, |e, _v| {
 
 keyfn!(k_level_distance, |e, v| {
     e.st.level_distance = length(e, &v)?.unwrap_or(1.5);
+    super::trees::set_distance_registers(e);
     Ok(())
 });
 keyfn!(k_sibling_distance, |e, v| {
     e.st.sibling_distance = length(e, &v)?.unwrap_or(1.5);
+    super::trees::set_distance_registers(e);
     Ok(())
 });
 
@@ -1557,7 +1669,10 @@ fn set_grow(e: &mut Engine, v: &Option<Vec<Token>>, swapped: bool) -> Result<(),
         other => e.number(other)?,
     };
     e.st.grow_swapped = swapped;
+    e.st.growth_function = None;
     e.st.special_level = Some(e.st.tree_level);
+    // the growth function is the direction's again (not `grow cyclic`'s)
+    e.tex.define_string("tikra@growth", "", false);
     Ok(())
 }
 keyfn!(k_grow, |e, v| set_grow(e, &v, false));
@@ -1737,6 +1852,11 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/shorten <", k_shorten_start),
     ("/tikz/double", k_double),
     ("/tikz/double distance", k_double_distance),
+    ("/tikz/double distance between line centers", k_double_distance_centers),
+    ("/tikz/shift only", k_shift_only),
+    ("/tikz/allow upside down", k_allow_upside_down),
+    ("/tikz/nodes in empty cells", k_nodes_in_empty_cells),
+    ("/tikz/matrix anchor", k_matrix_anchor),
     ("/tikz/shift", k_shift),
     ("/tikz/xshift", k_xshift),
     ("/tikz/yshift", k_yshift),
@@ -1747,6 +1867,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/xslant", k_xslant),
     ("/tikz/yslant", k_yslant),
     ("/tikz/rotate around", k_rotate_around),
+    ("/tikz/scale around", k_scale_around),
     ("/tikz/cm", k_cm),
     ("/tikz/reset cm", k_reset_cm),
     ("/tikz/x", k_x),
@@ -1804,6 +1925,16 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/to path", k_to_path),
     ("/tikz/start chain", k_start_chain),
     ("/tikz/turn", k_turn),
+    ("/tikz/path picture", k_path_picture),
+    ("/tikz/trim left", k_trim_left),
+    ("/tikz/evaluate", k_evaluate),
+    ("/tikz/make snapshot of", k_snapshot),
+    ("/tikz/make snapshot after", k_snapshot),
+    ("/tikz/make snapshot if necessary", k_ignore),
+    ("/tikz/animate", k_animate),
+    ("/tikz/transform canvas", k_transform_canvas),
+    ("/tikz/trim right", k_trim_right),
+    ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
     ("/tikz/chain default direction", k_chain_default_direction),
     ("/tikz/on chain", k_on_chain),
@@ -1836,7 +1967,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_ignore),
-    ("/tikz/on grid", k_ignore),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
@@ -1885,7 +2015,7 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  every edge/.style={draw}, every to/.style={}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},
@@ -1911,7 +2041,7 @@ const DEFINITIONS: &str = r"
   very nearly transparent/.style={opacity=0.1}, nearly transparent/.style={opacity=0.25},
   semitransparent/.style={opacity=0.5}, nearly opaque/.style={opacity=0.75},
   very nearly opaque/.style={opacity=0.9}, ultra nearly opaque/.style={opacity=0.95}, opaque/.style={opacity=1},
-  rounded corners/.default=4pt, double/.default=white, 
+  rounded corners/.default=4pt, double/.default=white, cap/.style={line cap=#1}, join/.style={line join=#1},
   draw opacity/.default=1, help lines/.append style={},
   text centered/.style={align=center}, text ragged/.style={align=left}, text badly ragged/.style={align=left},
   text justified/.style={align=justify}, text ragged left/.style={align=right},
@@ -1933,8 +2063,10 @@ const DEFINITIONS: &str = r"
   diamond/.style={shape=diamond},
   behind path/.style={}, in front of path/.style={},
   execute at begin node/.code={}, execute at end node/.code={},
+  execute at begin to/.code={\expandafter\def\expandafter\tikz@atbegin@to\expandafter{\tikz@atbegin@to#1}},
+  execute at end to/.code={\expandafter\def\expandafter\tikz@atend@to\expandafter{\tikz@atend@to#1}},
   style/.code={\pgfkeysalso{#1}},
-  every shadow/.style={}, alias/.code={},
+  every shadow/.style={}, cap/.style={line cap=#1},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
@@ -1942,9 +2074,12 @@ const DEFINITIONS: &str = r"
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
-  every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
+  every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
 }
-\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
+\def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
+\newif\iftikz@lib@ignore@size
+\tikzset{on grid/.is if=tikz@lib@ignore@size}
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
 \def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
 \def\pgfmatrixnextcell{\tikra@nextcell}
@@ -1977,8 +2112,9 @@ const DEFINITIONS: &str = r"
 pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
+    super::trees::define(e);
     super::decorations::define(e);
-    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::circuits::KEYS).chain(super::libraries::KEYS).chain(super::three_d::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
@@ -1994,6 +2130,16 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
+    lexer.push_text(super::calendar::DEFINITIONS);
+    lexer.push_text(&super::folding::definitions());
+    lexer.push_text(super::mindmap::DEFINITIONS);
+    lexer.push_text(super::trees::DEFINITIONS);
+    lexer.push_text(super::turtle::DEFINITIONS);
+    lexer.push_text(super::lsystem::DEFINITIONS);
+    let circuits = super::circuits::definitions();
+    lexer.push_text(&circuits);
+    lexer.push_text(super::libraries::DEFINITIONS);
+    lexer.push_text(super::spy::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

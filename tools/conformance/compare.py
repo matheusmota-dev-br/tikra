@@ -212,13 +212,19 @@ def main():
         results.append(r)
     (work / "results.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
     timing_path = work / "timing.json"
-    summary = report_md(results, json.loads(timing_path.read_text()) if timing_path.exists() else None)
+    timing = json.loads(timing_path.read_text()) if timing_path.exists() else None
+    startup_path = work / "tikra" / "startup.json"
+    if timing is not None and startup_path.exists():
+        timing = {**timing, **json.loads(startup_path.read_text())}
+    summary = report_md(results, timing)
     Path(a.docs or work / "report.md").write_text(summary)
     report_html(results, work)
     print(summary.split("\n## ")[0])
 
 
 CATS = ["match", "close", "different", "fails"]
+# what counts as a figure: TikZ pictures and the basic layer's pgfpicture
+FIGURE_KINDS = ("tikz", "pgf")
 
 
 def table_row(name, rs):
@@ -230,7 +236,7 @@ def table_row(name, rs):
 
 
 def report_md(results, timing=None):
-    figures = [r for r in results if r["kind"] == "tikz"]
+    figures = [r for r in results if r["kind"] in FIGURE_KINDS]
     counted = [r for r in figures if r["category"] != "excluded"]
     excluded = Counter(r["reason"] for r in figures if r["category"] == "excluded")
     c = Counter(r["category"] for r in counted)
@@ -256,10 +262,12 @@ def report_md(results, timing=None):
         "*Fails*: tikra returned an error, panicked or took more than 10 s. Mean F1 counts a failure as 0.",
         "",
         "Not counted: " + ", ".join(f"{n} where {reason.lower()}" for reason, n in excluded.most_common()) + ", "
-        f"and {sum(1 for r in results if r['kind'] != 'tikz')} examples that are not TikZ figures (pgf basic layer, text, tables).",
+        f"and {sum(1 for r in results if r['kind'] not in FIGURE_KINDS)} examples that are not figures (text, tables, key listings).",
         "",
     ]
     if timing:
+        startup_ms = timing.get("startup_us", None)
+        startup_ms = startup_ms / 1000 if startup_ms is not None else None
         same = [r for r in counted if r["hash"] in timing["ms"] and r.get("svg_us")]
         tex = sorted(timing["ms"][r["hash"]] for r in same)
         tik = sorted(r["svg_us"] / 1000 for r in same)
@@ -278,7 +286,8 @@ def report_md(results, timing=None):
                 "",
                 f"Median ratio: tikra is **{mid(sorted(t / k for t, k in zip([timing['ms'][r['hash']] for r in same], [r['svg_us'] / 1000 for r in same]))):.0f}× faster**. "
                 "pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user",
-                "waits for; tikra's is the conversion inside a running process (the command line adds a few ms to start).",
+                "waits for; tikra's is the conversion inside a running process"
+                + (f": the first figure of a process also builds the engine, {startup_ms:.1f} ms more." if startup_ms is not None else "."),
                 "",
             ]
     out += ["## By chapter", "", "Sorted by how many figures do not match, the work left.", "",
@@ -321,7 +330,7 @@ def report_md(results, timing=None):
 def report_html(results, work):
     rows = []
     order = {"fails": 0, "different": 1, "close": 2, "match": 3}
-    shown = [r for r in results if r["kind"] == "tikz" and r["category"] in order]
+    shown = [r for r in results if r["kind"] in FIGURE_KINDS and r["category"] in order]
     for r in sorted(shown, key=lambda r: (order[r["category"]], r["manual"], r["file"], r["line"])):
         score = f"F1 {r['f1']:.2f} · color {r['color']:.2f} · missing {r['missing']} of {r['pieces']} pieces · extra {r['extra']}" + ("" if r.get("size_ok") else " · size differs") if "f1" in r else html.escape(r.get("reason", ""))
         warnings = "".join(f"<li>{html.escape(w)}</li>" for w in r["warnings"][:8])

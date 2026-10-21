@@ -53,11 +53,15 @@ fn hairlines_to_pixels(svg: &str) -> String {
     out
 }
 
+/// A figure that builds the engine of a thread.
+const WARM_UP: &str = r"\tikz \draw (0,0) -- (1,0);";
+
 fn run(code: String) -> Outcome {
     let caught = std::panic::catch_unwind(move || {
+        // the thread's engine is built by a first conversion: what is timed is one in a running process
+        let _ = tikra::convert(WARM_UP);
         let start = Instant::now();
-        // TIKRA_LEGACY=1: the earlier interpreter, to compare the two
-        let r = if std::env::var_os("TIKRA_LEGACY").is_some() { tikra::convert_legacy(&code) } else { tikra::convert(&code) };
+        let r = tikra::convert(&code);
         let svg_us = start.elapsed().as_secs_f64() * 1e6;
         match r {
             Ok(out) => Outcome::Drawn { png: tikra::png(&hairlines_to_pixels(&out.svg), DPI, true).map_err(|e| e.to_string()), warnings: out.warnings, svg_us },
@@ -77,6 +81,15 @@ fn main() {
     std::panic::set_hook(Box::new(|_| {}));
     let mut files: Vec<_> = fs::read_dir(input).expect("input folder").filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "tex")).collect();
     files.sort();
+    // the start of a process: the first figure builds the engine (its TeX definitions)
+    let startup_us = thread::spawn(|| {
+        let start = Instant::now();
+        let _ = tikra::convert(WARM_UP);
+        start.elapsed().as_secs_f64() * 1e6
+    })
+    .join()
+    .unwrap_or(0.0);
+    fs::write(format!("{output}/startup.json"), format!("{{\"startup_us\": {startup_us:.1}}}\n")).expect("write startup");
     let mut lines = String::new();
     for path in &files {
         let hash = path.file_stem().unwrap().to_string_lossy().to_string();

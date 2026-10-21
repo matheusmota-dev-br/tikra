@@ -55,7 +55,7 @@ fn eval_at(text: &str, vars: &Variables, depth: usize) -> Result<f64, Error> {
 fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool), Error> {
     let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth, units: false };
     p.skip_spaces();
-    let v = p.sum()?;
+    let v = p.ternary()?;
     p.skip_spaces();
     if p.pos < p.c.len() {
         return Err(Error::Expression(format!("leftover '{}' in '{text}'", p.c[p.pos..].iter().collect::<String>())));
@@ -67,10 +67,12 @@ fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool),
 /// and one with a unit is converted to cm. Returns (value, had_unit).
 pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
     let t = text.trim();
-    // units inside the expression, each number with its own (`1cm+.5pt`)
-    if let Ok((v, true)) = eval_units(t, vars, 0) {
-        return Ok((v, true));
+    // once: an expression with `rnd` draws a new number each time it is evaluated
+    let first = eval_units(t, vars, 0);
+    if first.is_ok() {
+        return first;
     }
+    // a unit after the whole expression (`2*\x cm`)
     for u in ["cm", "mm", "pt", "bp", "in", "em", "ex", "pc"] {
         if let Some(n) = t.strip_suffix(u) {
             if let Ok(v) = eval(n, vars) {
@@ -78,8 +80,7 @@ pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
             }
         }
     }
-    // a unit inside the expression (`85pt/3`): the value is a length, already in cm
-    eval_units(t, vars, 0)
+    first
 }
 
 struct Parser<'a> {
@@ -100,6 +101,74 @@ impl Parser<'_> {
 
     fn peek(&self) -> Option<char> {
         self.c.get(self.pos).copied()
+    }
+
+    /// `c ? a : b`, then `||`, `&&` and the comparisons, which give 1 or 0, as pgfmath has them.
+    fn ternary(&mut self) -> Result<f64, Error> {
+        let c = self.or()?;
+        self.skip_spaces();
+        if self.peek() != Some('?') {
+            return Ok(c);
+        }
+        self.pos += 1;
+        let a = self.ternary()?;
+        self.skip_spaces();
+        if self.peek() != Some(':') {
+            return Err(Error::Expression("'?' without ':'".into()));
+        }
+        self.pos += 1;
+        let b = self.ternary()?;
+        Ok(if c != 0.0 { a } else { b })
+    }
+
+    fn starts(&self, s: &str) -> bool {
+        s.chars().enumerate().all(|(i, c)| self.c.get(self.pos + i) == Some(&c))
+    }
+
+    fn or(&mut self) -> Result<f64, Error> {
+        let mut v = self.and()?;
+        loop {
+            self.skip_spaces();
+            if !self.starts("||") {
+                return Ok(v);
+            }
+            self.pos += 2;
+            let w = self.and()?;
+            v = f64::from(v != 0.0 || w != 0.0);
+        }
+    }
+
+    fn and(&mut self) -> Result<f64, Error> {
+        let mut v = self.comparison()?;
+        loop {
+            self.skip_spaces();
+            if !self.starts("&&") {
+                return Ok(v);
+            }
+            self.pos += 2;
+            let w = self.comparison()?;
+            v = f64::from(v != 0.0 && w != 0.0);
+        }
+    }
+
+    fn comparison(&mut self) -> Result<f64, Error> {
+        let v = self.sum()?;
+        self.skip_spaces();
+        for op in ["==", "!=", "<=", ">=", "<", ">"] {
+            if self.starts(op) {
+                self.pos += op.len();
+                let w = self.sum()?;
+                return Ok(f64::from(match op {
+                    "==" => v == w,
+                    "!=" => v != w,
+                    "<=" => v <= w,
+                    ">=" => v >= w,
+                    "<" => v < w,
+                    _ => v > w,
+                }));
+            }
+        }
+        Ok(v)
     }
 
     fn sum(&mut self) -> Result<f64, Error> {
@@ -140,15 +209,26 @@ impl Parser<'_> {
 
     /// `a^b^c` is right-associative; read in a loop so a long `2^2^…^2` does not deepen the stack.
     fn power(&mut self) -> Result<f64, Error> {
-        let mut terms = vec![self.unary()?];
+        let mut terms = vec![self.postfix()?];
         self.skip_spaces();
         while self.peek() == Some('^') {
             self.pos += 1;
-            terms.push(self.unary()?);
+            terms.push(self.postfix()?);
             self.skip_spaces();
         }
         let last = terms.pop().unwrap_or_default();
         Ok(terms.into_iter().rev().fold(last, |e, base| base.powf(e)))
+    }
+
+    /// A factor and pgfmath's postfix `r` (radians to degrees: `sin(2 r)`).
+    fn postfix(&mut self) -> Result<f64, Error> {
+        let v = self.unary()?;
+        self.skip_spaces();
+        if self.peek() == Some('r') && !self.c.get(self.pos + 1).is_some_and(|c| c.is_ascii_alphanumeric()) {
+            self.pos += 1;
+            return Ok(v.to_degrees());
+        }
+        Ok(v)
     }
 
     fn unary(&mut self) -> Result<f64, Error> {
@@ -182,7 +262,7 @@ impl Parser<'_> {
             Some('(') | Some('{') => {
                 let close = if self.peek() == Some('(') { ')' } else { '}' };
                 self.pos += 1;
-                let v = self.sum()?;
+                let v = self.ternary()?;
                 self.skip_spaces();
                 if self.peek() != Some(close) {
                     return Err(Error::Expression(format!("missing '{close}'")));
@@ -254,7 +334,7 @@ impl Parser<'_> {
                         return eval_at(&body, self.vars, self.depth + 1);
                     }
                     return match name.as_str() {
-                        "rand" => Ok(pseudo_random() * 2.0 - 1.0),
+                        "rand" => Ok(pseudo_random_signed()),
                         "rnd" => Ok(pseudo_random()),
                         "true" => Ok(1.0),
                         "false" => Ok(0.0),
@@ -262,11 +342,11 @@ impl Parser<'_> {
                     };
                 }
                 self.pos += 1;
-                let mut args = vec![self.sum()?];
+                let mut args = vec![self.ternary()?];
                 self.skip_spaces();
                 while self.peek() == Some(',') {
                     self.pos += 1;
-                    args.push(self.sum()?);
+                    args.push(self.ternary()?);
                     self.skip_spaces();
                 }
                 if self.peek() != Some(')') {
@@ -345,22 +425,42 @@ fn sin_degrees(a: f64) -> f64 {
 }
 
 thread_local! {
-    static SEED: std::cell::Cell<u64> = const { std::cell::Cell::new(0x2545_F491_4F6C_DD1D) };
+    static SEED: std::cell::Cell<i64> = const { std::cell::Cell::new(1) };
 }
 
-/// pgfmath's `rnd`: a number in [0, 1). Deterministic, so a figure always draws the same.
-fn pseudo_random() -> f64 {
+/// pgf's pseudo-random numbers (`\pgfmathgeneratepseudorandomnumber`): the Park–Miller "minimal
+/// standard" generator with Schrage's factoring, a = 69621, m = 2^31 - 1, so that `\pgfmathsetseed`
+/// gives TeX's sequence.
+pub fn next_random() -> i64 {
     SEED.with(|s| {
-        let mut x = s.get();
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        s.set(x);
-        (x >> 11) as f64 / (1u64 << 53) as f64
+        let (a, q, r, m) = (69_621i64, 30_845i64, 23_902i64, 2_147_483_647i64);
+        let z = s.get();
+        let mut n = a * (z % q) - r * (z / q);
+        if n < 0 {
+            n += m;
+        }
+        s.set(n);
+        n
     })
+}
+
+/// `\pgfmathsetseed{n}`.
+pub fn set_seed(seed: i64) {
+    SEED.with(|s| s.set(seed));
+}
+
+/// pgfmath's `rnd`: [0, 1] in steps of 1/100000, as pgf scales the generator's number.
+fn pseudo_random() -> f64 {
+    (next_random() % 100_001) as f64 / 100_000.0
+}
+
+/// pgfmath's `rand`: [-1, 1].
+pub fn pseudo_random_signed() -> f64 {
+    (next_random() % 200_001 - 100_000) as f64 / 100_000.0
 }
 
 /// Starts `rnd` and `rand` over: each figure draws the same numbers.
 pub fn reset_random() {
-    SEED.with(|s| s.set(0x2545_F491_4F6C_DD1D));
+    // pgf seeds with \time * \year; a document here always starts from the same seed
+    set_seed(1);
 }

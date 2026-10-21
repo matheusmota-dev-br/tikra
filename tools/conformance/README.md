@@ -24,8 +24,9 @@ example, honoring the block's options as the manual's macros do:
 - `preamble`, `pre`, `post`, `render instead`, `vbox`: applied as in the manual;
 - every document loads the libraries that the manual loads for all its examples, on one line.
 
-The same document goes to pdflatex and to tikra. Only TikZ figures count (code with a `tikzpicture`,
-`\tikz` or a pgfplots axis); examples of the pgf basic layer, of text or of tables are listed apart.
+The same document goes to pdflatex and to tikra. Only figures count (code with a `tikzpicture`,
+`\tikz`, a pgfplots axis or the basic layer's `pgfpicture`); examples of text or of tables are listed
+apart.
 
 ## The reference
 

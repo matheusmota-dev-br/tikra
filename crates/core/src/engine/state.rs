@@ -66,6 +66,8 @@ pub struct Mode {
     pub shade: bool,
     /// `use as bounding box`
     pub bounding_box: bool,
+    /// `path picture={…}`: drawn inside the path, clipped to it
+    pub picture: Option<Vec<Token>>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +126,8 @@ pub struct GState {
     pub variable: String,
     /// the plot handler: `sharp plot`, `smooth`, `smooth cycle`, `ycomb`, `ybar`, `const plot`…
     pub plot_handler: String,
+    /// the basic layer's plot handler (`\pgfplothandlerlineto`) and a mark handler's code
+    pub basic_plot: (String, Vec<Token>),
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
@@ -189,6 +193,15 @@ pub struct GState {
     pub child_anchor: String,
     pub child_missing: bool,
     pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
+    /// the box of the path being used (`current path bounding box`), for its actions
+    pub path_box: Option<(Point, Point)>,
+    /// the perspective library's matrix, and the points of `plane origin`, `plane x`, `plane y`
+    pub perspective: super::three_d::Perspective,
+    pub plane: [Option<String>; 3],
+    /// `insert path={…}`: path operations the options put where they are
+    pub insert_path: Vec<Token>,
+    /// `growth function=\macro`: places the children instead of `grow` (the petri library's tokens)
+    pub growth_function: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
     /// the chains library: the current chain, the direction of new ones, the node's chain
@@ -200,6 +213,13 @@ pub struct GState {
     pub after_node_path: Vec<crate::tex::Token>,
     /// `alias=name`: more names for the node
     pub aliases: Vec<String>,
+    /// `trim left` and `trim right` of the picture
+    pub trim_left: Option<String>,
+    /// `allow upside down`: sloped nodes are not turned the right way up
+    pub allow_upside_down: bool,
+    /// `make snapshot of`: the time (s) the animations are shown at
+    pub snapshot: Option<f64>,
+    pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
     /// `/pgf/number format`: how `\pgfmathprintnumber` writes numbers
@@ -248,6 +268,7 @@ impl Default for GState {
             samples: 25,
             variable: "x".into(),
             plot_handler: "sharp plot".into(),
+            basic_plot: ("sharp plot".into(), Vec::new()),
             tension: 0.5,
             plot_mark: None,
             only_marks: false,
@@ -273,6 +294,10 @@ impl Default for GState {
             pending_joins: Vec::new(),
             after_node_path: Vec::new(),
             aliases: Vec::new(),
+            trim_left: None,
+            allow_upside_down: false,
+            snapshot: None,
+            trim_right: None,
             matrix: Default::default(),
             path_fading: None,
             transparency_group: false,
@@ -295,6 +320,11 @@ impl Default for GState {
             child_anchor: String::new(),
             child_missing: false,
             edge_from_parent_path: None,
+            growth_function: None,
+            insert_path: Vec::new(),
+            perspective: super::three_d::NO_PERSPECTIVE,
+            plane: [None, None, None],
+            path_box: None,
             pic_mode: Mode::default(),
             pic_text: None,
             quotes_in_pic: false,

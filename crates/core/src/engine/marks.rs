@@ -191,7 +191,7 @@ impl Engine {
             None => Some(crate::color::Color::WHITE),
         };
         for (k, p) in points.iter().enumerate() {
-            if !chosen(k + 1, repeat, phase, &indices) {
+            if !p.x.is_finite() || !chosen(k + 1, repeat, phase, &indices) {
                 continue;
             }
             let t = Transform::translation(p.x, p.y).compose(&linear);

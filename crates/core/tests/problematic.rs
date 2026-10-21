@@ -75,9 +75,8 @@ fn unbalanced_braces_brackets_and_parentheses() {
 fn huge_and_nested_foreach() {
     // 10 thousand × 10 thousand iterations: the statement cap cuts it off
     fails(&figure(r"\foreach \i in {1,...,10000} { \foreach \j in {1,...,10000} { \draw (\i,\j) -- (0,0); } }"), "too large");
-    // an ellipsis with a tiny step: the list cap cuts at 10 thousand items
-    let l = tikra::reader::expand_list("0,0.0000001,...,1000");
-    assert!(l.len() <= 10_003, "{}", l.len());
+    // an ellipsis with a tiny step (ten billion items): a cap cuts it off, quickly and with an error
+    fails(&figure(r"\foreach \x in {0,0.0000001,...,1000} { \draw (\x,0) -- (0,0); }"), "too large");
     // deep \foreach nesting
     let deep = "\\foreach \\x in {1} {".repeat(200) + &"}".repeat(200);
     fails(&figure(&deep), "nesting");

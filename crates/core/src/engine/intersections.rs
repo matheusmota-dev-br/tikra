@@ -152,7 +152,7 @@ pub fn name_intersections(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), E
             ("of", Some((s, _))) => of = s.split_once(" and ").map(|(a, b)| (a.trim().to_string(), b.trim().to_string())),
             ("name", Some((s, _))) => prefix = s.trim().to_string(),
             ("total", Some((_, t))) => total = Some(t),
-            ("by", Some((s, _))) => by = crate::options::split_top_level(&s).into_iter().map(|x| x.trim().to_string()).collect(),
+            ("by", Some((s, _))) => by = crate::keys::split_top_level(&s).into_iter().map(|x| x.trim().to_string()).collect(),
             ("sort by", Some((s, _))) => sort_by = Some(s.trim().to_string()),
             (other, _) => e.warn(format!("name intersections: '{other}' not supported: ignored")),
         }

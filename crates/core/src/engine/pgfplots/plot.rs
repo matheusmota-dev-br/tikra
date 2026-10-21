@@ -1026,7 +1026,7 @@ fn symbolic_label(e: &mut Engine, text: &str, mathparse: bool, xyz: [f64; 3]) ->
         _ => (String::new(), text),
     };
     let parts: Vec<String> =
-        crate::options::split_top_level(rest).iter().map(|p| crate::expr::eval(p.trim(), &vars).map(|v| format!("{v}")).unwrap_or_else(|_| p.trim().to_string())).collect();
+        crate::keys::split_top_level(rest).iter().map(|p| crate::expr::eval(p.trim(), &vars).map(|v| format!("{v}")).unwrap_or_else(|_| p.trim().to_string())).collect();
     format!("{model}{}", parts.join(","))
 }
 

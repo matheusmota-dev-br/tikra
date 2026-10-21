@@ -2,15 +2,23 @@
 //! from the token stream, the way `tikz.code.tex` does; options are pgfkeys; the graphic state is
 //! saved with TeX groups; what is drawn goes to a [`Canvas`].
 
+pub mod animations;
 pub mod arrows;
 pub mod basic;
+pub mod calendar;
 pub mod chains;
+pub mod circuits;
 pub mod coords;
+pub mod datavis;
 pub mod decorations;
+pub mod folding;
 pub mod graphs;
 pub mod intersections;
+pub mod libraries;
+pub mod lsystem;
 pub mod marks;
 pub mod matrix;
+pub mod mindmap;
 pub mod nodes;
 pub mod options;
 pub mod output;
@@ -18,8 +26,12 @@ pub mod path;
 pub mod pgfplots;
 pub mod pics;
 pub mod shapes;
+pub mod spy;
 pub mod state;
+pub mod three_d;
+pub mod tikzmath;
 pub mod trees;
+pub mod turtle;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -50,6 +62,8 @@ pub enum Cmd {
     Matrix,
     PgfMatrix,
     Chainin,
+    TikzMath,
+    SetSeed,
     Pic,
     Graph,
     Tikz,
@@ -99,6 +113,12 @@ pub enum Cmd {
     DecorationBegin,
     DecorationEnd,
     DecorateCurrentPath,
+    /// the commands of data visualizations, dispatched by name (`datavis`)
+    DataVis,
+    /// the spy library: `\spy`, and what a spy scope does at its start and end
+    Spy,
+    SpyBegin,
+    SpyEnd,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -121,6 +141,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("matrix", Cmd::Matrix),
     ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
+    ("tikzmath", Cmd::TikzMath),
+    ("tikra@setseed", Cmd::SetSeed),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -200,9 +222,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("noindent", Cmd::FontSeries),
     ("maketitle", Cmd::FontSeries),
     ("selectfont", Cmd::FontSeries),
-    ("datavisualization", Cmd::Unsupported),
-    ("calendar", Cmd::Unsupported),
-    ("spy", Cmd::Unsupported),
+    ("spy", Cmd::Spy),
+    ("tikra@spybegin", Cmd::SpyBegin),
+    ("tikra@spyend", Cmd::SpyEnd),
 ];
 
 /// Commands that the drawing layer turns into a path statement, with their default options.
@@ -257,6 +279,8 @@ pub struct Engine {
     nesting: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
+    /// the points of `\pgfplotstreampoint` since `\pgfplotstreamstart`, on the canvas
+    pub plot_stream: Vec<crate::scene::Point>,
     /// `execute at end scope` code of the open scopes, innermost last
     scope_ends: Vec<Vec<Token>>,
     /// for each `{` in a picture: whether it opened a scope (`{[options] …}`, the scopes library)
@@ -271,6 +295,8 @@ pub struct Engine {
     tree_count: usize,
     /// the chains of the chains library (global, as TikZ keeps their counts)
     pub chain_list: std::collections::HashMap<String, chains::Chain>,
+    /// the types `\tikzmath` declarations gave variables
+    pub math_kinds: HashMap<String, tikzmath::Kind>,
     /// path operations to run after the node just made (`after node path`, joins)
     pub after_node_path: Vec<Token>,
     /// the path's last point and where it came from, for `turn` in the next coordinate
@@ -292,8 +318,12 @@ pub struct Engine {
     /// pictures already drawn, and how the document lays them out
     boxes: Vec<PictureBox>,
     layout: Vec<Layout>,
+    /// the words of the text around the pictures
+    words: Vec<String>,
     /// keys run so far
     pub keys_run: usize,
+    /// the data visualizations being run, innermost last
+    pub datavis: Vec<datavis::Dv>,
     /// the full path of the native key being run (natives that share code tell keys apart by it)
     pub current_key: String,
     /// the `axis` environment being read, and the one being drawn
@@ -303,6 +333,8 @@ pub struct Engine {
     pub plot_group: Option<Box<pgfplots::group::Group>>,
     /// the graphs being read (`\graph`)
     pub graphs: graphs::State,
+    /// the open spy scopes, innermost last
+    pub spy_scopes: Vec<spy::SpyScope>,
 }
 
 /// A finished picture: its canvas and the height of its baseline in it (cm).
@@ -316,6 +348,8 @@ struct PictureBox {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Layout {
     Picture(usize),
+    /// a word of the text around the pictures (in `words`)
+    Word(usize),
     Space,
     Par,
 }
@@ -352,13 +386,16 @@ impl Clone for Engine {
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
+            datavis: self.datavis.clone(),
             pgf_path: self.pgf_path.clone(),
+            plot_stream: Vec::new(),
             decoration_envs: self.decoration_envs.clone(),
             named_paths: self.named_paths.clone(),
             last_node: self.last_node.clone(),
             last_node_name: self.last_node_name.clone(),
             tree_count: self.tree_count,
             chain_list: self.chain_list.clone(),
+            math_kinds: self.math_kinds.clone(),
             after_node_path: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
@@ -373,11 +410,13 @@ impl Clone for Engine {
             on_layer: self.on_layer.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
+            words: self.words.clone(),
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
             plot_group: self.plot_group.clone(),
             graphs: self.graphs.clone(),
+            spy_scopes: self.spy_scopes.clone(),
         }
     }
 }
@@ -412,13 +451,16 @@ impl Engine {
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
+            datavis: Vec::new(),
             pgf_path: basic::PgfPath::default(),
+            plot_stream: Vec::new(),
             decoration_envs: Vec::new(),
             named_paths: HashMap::new(),
             last_node: None,
             last_node_name: None,
             tree_count: 0,
             chain_list: Default::default(),
+            math_kinds: Default::default(),
             after_node_path: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
@@ -433,18 +475,25 @@ impl Engine {
             on_layer: Vec::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
+            words: Vec::new(),
             current_key: String::new(),
             axis: None,
             frame: None,
             plot_group: None,
             graphs: graphs::State::default(),
+            spy_scopes: Vec::new(),
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
         }
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
+        calendar::define(&mut e);
+        folding::define(&mut e);
+        mindmap::define(&mut e);
+        lsystem::define(&mut e);
         options::define_keys(&mut e);
+        datavis::define(&mut e);
         pgfplots::define(&mut e);
         graphs::define(&mut e);
         e
@@ -566,9 +615,20 @@ impl Engine {
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {
-            // a space between two pictures is TeX's interword space
-            if matches!(self.layout.last(), Some(Layout::Picture(_))) {
+            // a space after a picture or a word is TeX's interword space
+            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_))) {
                 self.layout.push(Layout::Space);
+            }
+            return;
+        }
+        if self.picture_depth == 0 {
+            // text of the paragraph, set word by word around the pictures
+            match self.layout.last() {
+                Some(Layout::Word(i)) => self.words[*i].push(c),
+                _ => {
+                    self.layout.push(Layout::Word(self.words.len()));
+                    self.words.push(c.to_string());
+                }
             }
             return;
         }
@@ -685,11 +745,11 @@ impl Engine {
                 Meaning::Count(r) if matches!(x, Token::Cs(_)) => s.push_str(&self.tex.counts.get(&r).copied().unwrap_or(0).to_string()),
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
-                    let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
-                    // `1.2\baselineskip`: a factor times the register, as TeX reads it
-                    if s.trim_end().ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                    // `2\baselineskip` is a product
+                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
                         s.push('*');
                     }
+                    let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
                 }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),
@@ -749,6 +809,21 @@ impl Engine {
         if basic::is_basic(id) {
             return self.basic_command(id);
         }
+        if id == Cmd::DataVis as u16 {
+            return self.datavis_command(t);
+        }
+        if calendar::is_calendar(id) {
+            return self.calendar_command(id);
+        }
+        if folding::is_folding(id) {
+            return self.folding_command(id);
+        }
+        if mindmap::is_mindmap(id) {
+            return self.mindmap_command(id);
+        }
+        if lsystem::is_lsystem(id) {
+            return self.lsystem_command(id);
+        }
         if pgfplots::is_command(id) {
             return self.pgfplots_command(id);
         }
@@ -785,6 +860,14 @@ impl Engine {
             Cmd::Matrix => self.matrix(),
             Cmd::PgfMatrix => self.pgf_matrix(),
             Cmd::Chainin => self.chainin(),
+            Cmd::TikzMath => self.tikzmath(),
+            Cmd::SetSeed => {
+                // \pgfmathsetseed: the integer part of the value
+                let v = self.argument_string()?;
+                let n: f64 = v.trim().parse().unwrap_or(1.0);
+                crate::expr::set_seed(n.trunc() as i64);
+                Ok(())
+            }
             Cmd::Graph => {
                 self.tex.push_tokens(tikra_tokens("graph "));
                 let r = path::statement(self, "");
@@ -802,10 +885,39 @@ impl Engine {
             Cmd::DecorationBegin => self.decoration_begin(),
             Cmd::DecorationEnd => self.decoration_end(),
             Cmd::DecorateCurrentPath => self.decorate_current_path(),
+            Cmd::Spy => self.spy_command(),
+            Cmd::SpyBegin => {
+                self.spy_begin();
+                Ok(())
+            }
+            Cmd::SpyEnd => self.spy_end(),
             Cmd::Begin => self.begin_environment(),
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {
-                let o = self.optional()?;
+                let mut o = self.optional()?;
+                // `\scoped :rotate = {…}`: animated options of the scope
+                while let Some(t) = self.tex.next_nonspace() {
+                    if !t.is_char(':') {
+                        self.tex.back(t);
+                        break;
+                    }
+                    if let Some(a) = self.read_animation()? {
+                        let v = o.get_or_insert_with(Vec::new);
+                        if !v.is_empty() {
+                            v.push(Token::other(','));
+                        }
+                        // a scope's transformation is animated on the canvas, text and all
+                        let name = tex::tokens_to_string(&a);
+                        if ["rotate", "shift", "xshift", "yshift", "scale", "xscale", "yscale", "xslant", "yslant"].iter().any(|k| name.starts_with(&format!("{k}="))) {
+                            v.extend(tikra_tokens("transform canvas="));
+                            v.push(Token::Char('{', Cat::Begin));
+                            v.extend(a);
+                            v.push(Token::Char('}', Cat::End));
+                        } else {
+                            v.extend(a);
+                        }
+                    }
+                }
                 self.open_tikz_scope(o, false)?;
                 // the next statement or group is the content
                 let body = self.next_statement()?;
@@ -917,10 +1029,8 @@ impl Engine {
                 let expr = self.argument()?;
                 let Some(name) = name.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
                 let text = self.math_string(expr)?;
-                let v = match cmd {
-                    Cmd::Pgfmathsetlengthmacro => crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }),
-                    _ => crate::expr::eval(&text, &self.vars()),
-                };
+                // a result with units is in pt, as pgfmath gives it
+                let v = crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v });
                 match v {
                     Ok(v) if v.is_finite() => {
                         let s = match cmd {
@@ -939,7 +1049,7 @@ impl Engine {
             Cmd::Pgfmathparse => {
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                match crate::expr::eval(&text, &self.vars()) {
+                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
                     Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }
@@ -1163,8 +1273,11 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
-        let begin = std::mem::take(&mut self.st.at_begin_picture);
-        let end = std::mem::take(&mut self.st.at_end_picture);
+        // a picture is a scope too: `execute at begin scope` first, its end last
+        let mut begin = std::mem::take(&mut self.st.at_begin_scope);
+        begin.append(&mut self.st.at_begin_picture);
+        let mut end = std::mem::take(&mut self.st.at_end_picture);
+        end.append(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
         self.run_tokens(begin)
     }
@@ -1323,6 +1436,9 @@ impl Engine {
             }
         }
         let baseline = if outermost { self.picture_baseline() } else { 0.0 };
+        if outermost {
+            self.trim_picture();
+        }
         self.end_group();
         self.picture_depth = self.picture_depth.saturating_sub(1);
         self.depth = self.depth.saturating_sub(1);
@@ -1331,6 +1447,26 @@ impl Engine {
             let canvas = std::mem::replace(&mut self.canvas, Canvas { margin, ..Canvas::default() });
             self.layout.push(Layout::Picture(self.boxes.len()));
             self.boxes.push(PictureBox { canvas, baseline });
+        }
+    }
+
+    /// `trim left=x`, `trim right=x`: the picture's box starts or ends there (what is drawn beyond
+    /// it sticks out, cut off with the page).
+    fn trim_picture(&mut self) {
+        for (spec, left) in [(self.st.trim_left.clone(), true), (self.st.trim_right.clone(), false)] {
+            let Some(spec) = spec else { continue };
+            let s = spec.trim();
+            let x = match s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+                Some(inner) => self.coordinate(inner).map(|c| c.p.x),
+                None if s.is_empty() => Ok(0.0),
+                None => self.length(s),
+            };
+            let Ok(x) = x else { continue };
+            match (left, self.canvas.min.as_mut(), self.canvas.max.as_mut()) {
+                (true, Some(m), _) => m.x = x,
+                (false, _, Some(m)) => m.x = x,
+                _ => {}
+            }
         }
     }
 
@@ -1351,6 +1487,18 @@ impl Engine {
     /// `\tikz[options]{…}` or `\tikz[options] statement;`
     fn tikz_command(&mut self) -> Result<(), Error> {
         let o = self.optional()?;
+        // a data visualization reads its data line by line: it reads its own input
+        if let Some(t) = self.tex.next_nonspace() {
+            let dv = t.is_cs("datavisualization");
+            self.tex.back(t);
+            if dv {
+                let _ = self.tex.get_token();
+                self.begin_picture(o)?;
+                let r = self.datavisualization();
+                self.end_picture();
+                return r;
+            }
+        }
         let body = self.next_statement()?;
         self.begin_picture(o)?;
         self.run_tokens(body)?;
@@ -1727,7 +1875,7 @@ const LINE_SKIP: f64 = 1.0 * crate::PT;
 
 /// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
-fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
+fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f64) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
     let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
     for l in layout {
@@ -1736,16 +1884,27 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
             other => lines.last_mut().expect("a line").push(*other),
         }
     }
+    // the words as TeX sets them, in the text font
+    let mut warnings = Vec::new();
+    let labels: Vec<crate::scene::Label> = words.iter().map(|w| crate::label::compose_label(w, "", None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
     let mut baseline_y = 0.0;
     let mut previous_depth: Option<f64> = None;
-    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_)))) {
+    let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
+    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && l.iter().any(|x| matches!(x, Layout::Word(_))))) {
         let (mut height, mut depth) = (0.0f64, 0.0f64);
         for l in line {
-            if let Layout::Picture(i) = l {
-                let b = &boxes[*i];
-                let (lo, hi) = (b.canvas.min.map_or(0.0, |m| m.y), b.canvas.max.map_or(0.0, |m| m.y));
-                height = height.max(hi - b.baseline);
-                depth = depth.max(b.baseline - lo);
+            match l {
+                Layout::Picture(i) => {
+                    let b = &boxes[*i];
+                    let (lo, hi) = (b.canvas.min.map_or(0.0, |m| m.y), b.canvas.max.map_or(0.0, |m| m.y));
+                    height = height.max(hi - b.baseline);
+                    depth = depth.max(b.baseline - lo);
+                }
+                Layout::Word(i) => {
+                    height = height.max(labels[*i].height());
+                    depth = depth.max(labels[*i].depth());
+                }
+                _ => {}
             }
         }
         if let Some(d) = previous_depth {
@@ -1757,6 +1916,14 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
+                Layout::Word(i) => {
+                    let label = &labels[*i];
+                    out.include(Point::new(x, baseline_y - label.depth()));
+                    out.include(Point::new(x + label.width(), baseline_y + label.height()));
+                    out.items.push(Item::Text { label: label.clone(), place: crate::scene::Transform::translation(x, baseline_y), opacity: 1.0 });
+                    x += label.width();
+                    started = true;
+                }
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
                     let (Some(min), Some(max)) = (b.canvas.min, b.canvas.max) else {
@@ -1798,7 +1965,7 @@ pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
         e.end_scope();
     }
     let margin = e.canvas.margin;
-    e.canvas = typeset(&e.boxes, &e.layout, margin);
+    e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
     let _ = Transform::default();

@@ -1269,7 +1269,7 @@ impl Engine {
         let s = self.gvalue_string(key);
         let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
         let p = self.coordinate(&inner)?.p;
-        let p = crate::reader::invert(&self.st.transform).apply(p);
+        let p = self.st.transform.inverse().apply(p);
         Ok(crate::scene::Point::new(p.x / PT, p.y / PT))
     }
 
@@ -1481,7 +1481,7 @@ fn k_sep(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let sep = e.length_of(a[2].clone())? / PT;
     let size = match e.nodes.get(&name) {
         Some(n) => {
-            let inv = crate::reader::invert(&e.st.transform);
+            let inv = e.st.transform.inverse();
             let at = |a: &str| inv.apply(n.anchor(a).unwrap_or(n.center()));
             if axis == "x" {
                 at("east").x - at("west").x

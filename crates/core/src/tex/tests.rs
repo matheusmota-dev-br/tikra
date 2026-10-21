@@ -101,6 +101,8 @@ fn conditionals() {
     assert_eq!(run(r"\ifdefined\nothing a\else b\fi\ifdefined\relax c\fi"), "bc");
     assert_eq!(run(r"\ifcsname relax\endcsname a\fi\ifcsname nothing\endcsname b\fi"), "a");
     assert_eq!(run(r"\unless\ifnum 1=2 not\fi"), "not");
+    // the number of an \ifcase ends at an \or right after it
+    assert_eq!(run(r"\def\m{02}\ifcase\m\or a\or b\or c\fi\ifcase1\or d\fi"), "bd");
     assert_eq!(run(r"\ifthenelse{\equal{a}{a}}{yes}{no}"), "yes");
     assert_eq!(run(r"\ifthenelse{3 > 5 \or 1=1}{yes}{no}"), "yes");
     assert_eq!(run(r"\ifthenelse{\not 3 > 5 \and \isodd{3}}{yes}{no}"), "yes");

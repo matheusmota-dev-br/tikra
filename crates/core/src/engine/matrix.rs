@@ -277,9 +277,16 @@ impl Engine {
         self.forced_box = Some((width, height, depth));
         let cells_every_node = self.tex.meaning(&every_node);
         self.tex.set_meaning(&every_node, outer_every_node, false);
+        let mut options = options;
+        if let Some(a) = &settings.anchor {
+            options.extend(tikra_tokens(&format!(",anchor={a}")));
+        }
         let items =
             self.node(NodeSpec { options, name: name.clone(), at: Some(at), text: Vec::new(), place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         self.forced_box = None;
+        // what comes after the matrix's node (`append after command`, the delimiters), drawn after the cells
+        let after = std::mem::take(&mut self.after_node_path);
+        let matrix_node = self.last_node.clone();
         self.tex.set_meaning(&every_node, cells_every_node, false);
         self.canvas.items.extend(items);
         let placed = match &name {
@@ -293,6 +300,23 @@ impl Engine {
                 let t = placed.compose(&Transform::translation(xs[c], ys[r]));
                 self.draw_cell(name.as_deref(), &settings, r + 1, c + 1, cell, t)?;
             }
+        }
+        if !after.is_empty() {
+            let node = match &name {
+                Some(n) => n.clone(),
+                None => {
+                    let n = format!("tikra@fig@{}", self.steps);
+                    if let Some(info) = matrix_node {
+                        self.nodes.insert(n.clone(), info);
+                    }
+                    n
+                }
+            };
+            self.tex.define_string("tikzlastnode", &node, false);
+            let mut path = tikra_tokens("\\path ");
+            path.extend(after);
+            path.extend(tikra_tokens(";"));
+            self.run_tokens(path)?;
         }
         Ok(())
     }
@@ -326,12 +350,14 @@ impl Engine {
     fn draw_cell(&mut self, matrix: Option<&str>, settings: &MatrixSettings, r: usize, c: usize, cell: &[Token], place: Transform) -> Result<(), Error> {
         let mut cell = crate::keys::trim(cell).to_vec();
         let empty = cell.is_empty();
-        if empty {
+        let empty_node = empty && settings.of_nodes && settings.nodes_in_empty_cells && settings.at_empty_cell.is_empty();
+        if empty && !empty_node {
             if settings.at_empty_cell.is_empty() {
                 return Ok(());
             }
             cell = settings.at_empty_cell.clone();
         }
+        let empty = empty && !empty_node;
         self.begin_group();
         self.begin_scope();
         let res = (|| -> Result<(), Error> {
@@ -437,6 +463,9 @@ pub struct MatrixSettings {
     pub at_end_cell: Vec<Token>,
     pub at_empty_cell: Vec<Token>,
     pub ampersand: Option<String>,
+    /// `nodes in empty cells`, and `matrix anchor` (the matrix node's own anchor)
+    pub nodes_in_empty_cells: bool,
+    pub anchor: Option<String>,
 }
 
 #[allow(dead_code)]

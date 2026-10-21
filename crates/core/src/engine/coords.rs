@@ -23,7 +23,13 @@ fn top_level(t: &str, target: char) -> Option<usize> {
     for (i, c) in t.char_indices() {
         match c {
             '{' | '(' | '[' => depth += 1,
-            '}' | ')' | ']' => depth -= 1,
+            '}' | ')' | ']' => {
+                depth -= 1;
+                // a closing target: the one that closes the first opening
+                if c == target && depth == 0 {
+                    return Some(i);
+                }
+            }
             c if c == target && depth == 0 => return Some(i),
             _ => {}
         }
@@ -51,11 +57,11 @@ fn closing_bracket(t: &str) -> Option<usize> {
 
 /// Splits at top-level commas.
 pub fn split_commas(t: &str) -> Vec<String> {
-    crate::options::split_top_level(t)
+    crate::keys::split_top_level(t)
 }
 
 fn strip_braces(t: &str) -> &str {
-    crate::options::strip_braces(t)
+    crate::keys::strip_braces(t)
 }
 
 impl Engine {
@@ -99,7 +105,16 @@ impl Engine {
                 // the point in the system with the extra transformations, as TikZ applies them
                 self.st.transform = before.compose(&pending);
                 self.st.pending = Transform::default();
-                self.coordinate(&point)
+                let moved = self.coordinate(&point)?;
+                // a node's point does not follow the transformation: the options move it as TikZ
+                // does, from the current coordinate system
+                self.st.transform = before;
+                let fixed = self.coordinate(&point)?;
+                if moved.p.minus(fixed.p).norm() < 1e-9 && pending != Transform::default() {
+                    let t = before.compose(&pending).compose(&before.inverse());
+                    return Ok(Coord { p: t.apply(moved.p), node: None });
+                }
+                Ok(moved)
             });
             self.end_group();
             return r;
@@ -113,9 +128,12 @@ impl Engine {
         // (a |- b), (a -| b)
         for op in ["|-", "-|"] {
             if let Some(i) = find_perpendicular(t, op) {
-                let a = self.coordinate(&t[..i])?.p;
-                let b = self.coordinate(&t[i + 2..])?.p;
-                return Ok(Coord { p: if op == "|-" { Point::new(a.x, b.y) } else { Point::new(b.x, a.y) }, node: None });
+                // in the current coordinate system, as pgf's points are before they are transformed
+                let current = self.st.transform;
+                let inv = current.inverse();
+                let a = inv.apply(self.coordinate(&t[..i])?.p);
+                let b = inv.apply(self.coordinate(&t[i + 2..])?.p);
+                return Ok(Coord { p: current.apply(if op == "|-" { Point::new(a.x, b.y) } else { Point::new(b.x, a.y) }), node: None });
             }
         }
         // a coordinate system: (canvas cs:x=1cm,y=2cm)
@@ -151,7 +169,18 @@ impl Engine {
         }
         let local = if let (Some(c), 1) = (colon, commas.len()) {
             // polar: (angle:radius), (angle:x radius and y radius)
-            let angle = self.number(strip_braces(&t[..c]))?;
+            // TikZ's names of directions (`\tikz@polar@dir@up`…)
+            let angle = match strip_braces(&t[..c]).trim() {
+                "up" | "north" => 90.0,
+                "down" | "south" => -90.0,
+                "left" | "west" => 180.0,
+                "right" | "east" => 0.0,
+                "north east" => 45.0,
+                "north west" => 135.0,
+                "south east" => -45.0,
+                "south west" => -135.0,
+                a => self.number(a)?,
+            };
             let r = t[c + 1..].trim();
             let (rx, ry, unit) = if let Some((a, b)) = r.split_once(" and ") {
                 let (x, ux) = crate::expr::eval_length(strip_braces(a), &self.vars())?;
@@ -215,6 +244,7 @@ impl Engine {
                 let local = if system == "canvas polar" { Point::new(rx * c, ry * s) } else { self.st.x.scale(rx * c).plus(self.st.y.scale(ry * s)) };
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
             }
+            "visualization" => Ok(Coord { p: self.visualization_cs(args)?, node: None }),
             "node" => {
                 let name = get("name").unwrap_or_default();
                 let node = self.nodes.get(&name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
@@ -227,7 +257,10 @@ impl Engine {
             }
             other => match self.pgfplots_cs(other, args) {
                 Some(r) => r,
-                None => Err(Error::Figure(format!("coordinate system '{other}' not supported"))),
+                None => match self.three_d_coordinate(other, &items)? {
+                    Some(c) => Ok(c),
+                    None => Err(Error::Figure(format!("coordinate system '{other}' not supported"))),
+                },
             },
         }
     }

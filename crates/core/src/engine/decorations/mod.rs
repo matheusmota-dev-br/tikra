@@ -568,6 +568,9 @@ impl Engine {
     /// postactions. `outer` is the state before the path's options.
     pub fn finish_path(&mut self, segments: Vec<Segment>, outer: &GState, command: &str) -> Result<(), Error> {
         let mut segs = segments;
+        let mut b = crate::canvas::Canvas::default();
+        b.include_path(&segs);
+        self.st.path_box = b.min.zip(b.max);
         if self.st.decorate && !segs.is_empty() && segs.iter().all(super::path::valid_segment) {
             // pgf counts a path in the picture's size as it is built, before it is decorated
             if self.counts_for_size() {
@@ -584,9 +587,57 @@ impl Engine {
         for a in pre.iter() {
             self.action(&segs, a.clone(), Some(outer), command)?;
         }
-        self.use_path(segs.clone(), command)?;
+        match self.st.mode.picture.take() {
+            Some(code) => self.path_picture(&segs, code, command)?,
+            None => self.use_path(segs.clone(), command)?,
+        }
         for a in post.iter() {
             self.action(&segs, a.clone(), None, command)?;
+        }
+        Ok(())
+    }
+
+    /// A path with a `path picture`, in `\tikz@finish`'s order: the fill, the picture clipped to the
+    /// path (with the node `path picture bounding box` around it), then the stroke.
+    fn path_picture(&mut self, segs: &[Segment], code: Vec<Token>, command: &str) -> Result<(), Error> {
+        let mode = self.st.mode.clone();
+        if mode.fill || mode.shade || mode.pattern {
+            self.st.mode = Mode { draw: false, clip: false, ..mode.clone() };
+            self.use_path(segs.to_vec(), command)?;
+        }
+        let mut c = crate::canvas::Canvas::default();
+        c.include_path(segs);
+        if let (Some(lo), Some(hi)) = (c.min, c.max) {
+            self.begin_group();
+            self.begin_scope();
+            let r = (|| {
+                self.open_in_scope(crate::canvas::Item::Clip { segments: segs.to_vec(), even_odd: self.st.even_odd });
+                if let Some(s) = self.scopes.last_mut() {
+                    s.clipped = true;
+                }
+                self.st.mode = Mode::default();
+                let at = lo.lerp(hi, 0.5);
+                let size = format!("shape=rectangle,inner sep=0pt,outer sep=0pt,minimum width={}pt,minimum height={}pt", (hi.x - lo.x) / crate::PT, (hi.y - lo.y) / crate::PT);
+                let items = self.node(super::nodes::NodeSpec {
+                    options: tikra_tokens(&size),
+                    name: Some("path picture bounding box".into()),
+                    at: Some(at),
+                    text: Vec::new(),
+                    place: super::nodes::OnPath::Point(at),
+                    point: at,
+                    coordinate: false,
+                    default_pos: None,
+                })?;
+                self.canvas.items.extend(items);
+                self.run_tokens(code)
+            })();
+            self.end_scope();
+            self.end_group();
+            r?;
+        }
+        if mode.draw || mode.clip {
+            self.st.mode = Mode { fill: false, shade: false, pattern: false, ..mode };
+            self.use_path(segs.to_vec(), command)?;
         }
         Ok(())
     }
@@ -597,6 +648,17 @@ impl Engine {
         self.begin_scope();
         let r = (|| {
             if let Some(g) = graphics {
+                // the path's own colors stay known as `\tikz@fillcolor` and `\tikz@strokecolor` (the shadows library copies them)
+                let (fill, stroke) = (self.st.mode.fill.then(|| self.st.fill_paint_color()), self.st.mode.draw.then(|| self.st.stroke_color()));
+                for (name, c) in [("fillcolor", fill), ("strokecolor", stroke)] {
+                    match c {
+                        Some(c) => {
+                            self.colors.insert(format!("tikra@{name}"), c);
+                            self.tex.define_string(&format!("tikz@{name}"), &format!("tikra@{name}"), false);
+                        }
+                        None => self.tex.define_string(&format!("tikz@{name}"), "none", false),
+                    }
+                }
                 take_graphics(&mut self.st, g);
             }
             let outer = self.st.clone();

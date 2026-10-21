@@ -54,6 +54,8 @@ struct Builder {
     origin: Point,
     /// the operation's target was `cycle`: close the subpath once it is done
     close_after: bool,
+    /// the node just made: a `to` or `edge` right after it starts there (`\tikz@to@use@last@fig@name`)
+    to_start: Option<Coord>,
 }
 
 impl Builder {
@@ -98,6 +100,65 @@ pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     r
 }
 
+/// `lindenmayer system [options]` and `l-system [options]`: the system's drawing, from the current
+/// point.
+fn lindenmayer_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>, w: &str) -> Result<(), Error> {
+    let rest = if w == "l" {
+        match next(e, depth)? {
+            Some(t) if t.is_char('-') => match next(e, depth)? {
+                Some(Token::Char(c, Cat::Letter)) => word(e, c),
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    } else {
+        match next(e, depth)? {
+            Some(Token::Char(c, Cat::Letter)) => word(e, c),
+            _ => String::new(),
+        }
+    };
+    if rest != "system" {
+        e.warn(format!("unrecognized path fragment: '{w}'"));
+        return skip_rest(e, depth);
+    }
+    if let Some(t) = peek(e, depth)? {
+        if t.is_char('[') {
+            let _ = next(e, depth)?;
+            let o = e.tex.read_until_char(']', false)?;
+            e.process_keys(o, Some("/tikz"))?;
+        }
+    }
+    let segs = e.lindenmayer_path(b.point())?;
+    for s in segs {
+        match s {
+            Segment::MoveTo(p) => {
+                b.segs.push(s);
+                b.subpath_start = Some(p);
+                b.current = Some(Coord { p, node: None });
+            }
+            Segment::LineTo(p) => {
+                let from = b.point();
+                b.segs.push(s);
+                b.last = Some(OnPath::Segment(from, None, p));
+                b.current = Some(Coord { p, node: None });
+            }
+            _ => b.segs.push(s),
+        }
+    }
+    Ok(())
+}
+
+/// `insert path={…}` in options just read: the path operations go on from there.
+fn insert_path(e: &mut Engine) {
+    if let Meaning::Macro(m) = e.tex.meaning_of("tikra@insertpath") {
+        if !m.body.is_empty() {
+            let v = tex::substitute(&m.body, &[]);
+            e.tex.define_string("tikra@insertpath", "", false);
+            e.tex.push_tokens(v);
+        }
+    }
+}
+
 /// What `\path` resets: `decorate`, `preaction`, `postaction` belong to one path.
 fn reset_path_settings(e: &mut Engine) {
     e.st.decorate = false;
@@ -126,6 +187,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         }
     }
     e.st.apply_pending();
+    insert_path(e);
     let mut b = Builder {
         segs: Vec::new(),
         current: None,
@@ -137,6 +199,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         relative_base: None,
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
+        to_start: None,
     };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
@@ -294,12 +357,14 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = coordinate(e)?;
                 b.relative_base = None;
+                b.to_start = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('+', _) => {
                 e.turn_from = b.tangent();
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = relative(e, b, depth)?;
+                b.to_start = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('-', _) => match e.tex.get_token() {
@@ -380,6 +445,13 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 let o = e.tex.read_until_char(']', false)?;
                 e.process_keys(o, Some("/tikz"))?;
                 e.st.apply_pending();
+                insert_path(e);
+            }
+            Token::Char(':', _) => {
+                if let Some(o) = e.read_animation()? {
+                    e.process_keys(o, Some("/tikz"))?;
+                    e.st.apply_pending();
+                }
             }
             Token::Char(_, Cat::Begin) => e.begin_group(),
             Token::Char(_, Cat::End) => e.end_group(),
@@ -440,6 +512,17 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             let place = b.last.unwrap_or(OnPath::Point(point));
                             let items = e.node(NodeSpec { options, name, at, text, place, point, coordinate, default_pos: None })?;
                             b.node_items.extend(items);
+                            if e.last_node_name.is_none() {
+                                // what follows may refer to the node (an edge, `after node path`): it gets a
+                                // name, as `\tikz@fig@mustbenamed` gives one
+                                if let Some(info) = e.last_node.clone() {
+                                    let n = format!("tikra@fig@{}", e.steps);
+                                    e.nodes.insert(n.clone(), info);
+                                    e.tex.define_string("tikzlastnode", &n, false);
+                                    e.last_node_name = Some(n);
+                                }
+                            }
+                            b.to_start = e.last_node_name.clone().and_then(|n| e.nodes.get(&n).map(|info| Coord { p: info.center(), node: Some(n) }));
                             // `after node path` and the chains' joins continue the path
                             let after = std::mem::take(&mut e.after_node_path);
                             e.tex.push_tokens(after);
@@ -462,7 +545,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let r = target(e, b, depth, "rectangle")?;
                         let a = b.point();
                         let t = e.st.transform;
-                        let inv = crate::reader::invert(&t);
+                        let inv = t.inverse();
                         let (la, lb) = (inv.apply(a), inv.apply(r.p));
                         b.segs.push(Segment::MoveTo(a));
                         // in the order of `\tikz@rectB`: first to (a.x, b.y)
@@ -502,10 +585,17 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                     "graph" => e.graph()?,
                     "child" => {
+                        if b.segs.is_empty() {
+                            // a path that only makes nodes: they are drawn before the children (the
+                            // petri library's tokens lie on their place)
+                            e.canvas.items.append(&mut b.node_items);
+                        }
                         let parent = e.last_node_name.clone();
                         e.children(parent)?;
                     }
                     "decorate" => decorate_operation(e, b, depth)?,
+                    "lindenmayer" | "l" => lindenmayer_operation(e, b, depth, &w)?,
+                    "foreach" => path_foreach(e, b)?,
                     "svg" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);
@@ -847,18 +937,34 @@ fn to_path(e: &mut Engine, b: &mut Builder, r: Coord) -> Result<(), Error> {
     Ok(())
 }
 
+/// `execute at begin to` and `execute at end to`: the code they collect, run in the `to`'s group.
+fn run_hook(e: &mut Engine, name: &str) -> Result<(), Error> {
+    match e.tex.meaning_of(name) {
+        Meaning::Macro(m) if !m.body.is_empty() => {
+            let code = tex::substitute(&m.body, &[]);
+            e.run_tokens(code)
+        }
+        _ => Ok(()),
+    }
+}
+
 fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(), Error> {
+    if let Some(s) = b.to_start.take() {
+        b.move_to(s);
+    }
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
     let res = (|| {
+        run_hook(e, "tikz@atbegin@to")?;
         e.process_keys(tikra_tokens("every to/.try"), Some("/tikz"))?;
         e.process_keys(opts, Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
             b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
         }
         to_path(e, b, r)?;
-        place_mid_nodes(e, b, Some(0.5))
+        place_mid_nodes(e, b, Some(0.5))?;
+        run_hook(e, "tikz@atend@to")
     })();
     e.end_group();
     res
@@ -878,18 +984,26 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         relative_base: None,
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
+        to_start: None,
     };
-    if let Some(c) = &saved_current {
-        sub.move_to(c.clone());
+    if let Some(c) = b.to_start.clone().or_else(|| saved_current.clone()) {
+        sub.move_to(c);
     }
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
+    let mut opts = opts;
     let res = (|| {
+        run_hook(e, "tikz@atbegin@to")?;
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(opts.clone(), Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
             sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+        }
+        // options that start the to path are the edge path's own, as TikZ runs it in `\path[…]`
+        if let Some(leading) = e.st.to.path.as_deref().and_then(leading_options) {
+            opts.push(Token::other(','));
+            opts.extend(leading);
         }
         to_path(e, &mut sub, r.clone())?;
         place_mid_nodes(e, &mut sub, Some(0.5))
@@ -899,6 +1013,24 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
     b.edges.push((sub.segs, opts, sub.node_items));
     b.current = saved_current;
     Ok(())
+}
+
+/// `[options]` at the start of a path, without the brackets.
+fn leading_options(path: &[Token]) -> Option<Vec<Token>> {
+    let path = crate::keys::trim(path);
+    if !path.first()?.is_char('[') {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (i, t) in path.iter().enumerate().skip(1) {
+        match t {
+            Token::Char(_, Cat::Begin) => depth += 1,
+            Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
+            t if depth == 0 && t.is_char(']') => return Some(path[1..i].to_vec()),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Nodes between `edge` and its target.
@@ -944,6 +1076,14 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
             Some(t) if t.is_char('(') => {
                 let n = read_coordinate_tokens(e)?;
                 name = Some(e.tex.expand_to_string(n)?.trim().to_string());
+            }
+            Some(t) if t.is_char(':') => {
+                if let Some(o) = e.read_animation()? {
+                    if !options.is_empty() {
+                        options.push(Token::other(','));
+                    }
+                    options.extend(o);
+                }
             }
             Some(Token::Char('a', Cat::Letter)) => {
                 // `at (x,y)`
@@ -1049,7 +1189,7 @@ fn radii(e: &mut Engine) -> Result<(f64, f64), Error> {
 impl Engine {
     /// A radius: with a unit in cm, without one in the x unit (as TikZ scales circle radii).
     fn radius_length(&mut self, text: &str) -> Result<f64, Error> {
-        let (v, unit) = crate::expr::eval_length(crate::options::strip_braces(text.trim()), &self.vars())?;
+        let (v, unit) = crate::expr::eval_length(crate::keys::strip_braces(text.trim()), &self.vars())?;
         Ok(if unit { v } else { v * self.st.x.norm() })
     }
 }
@@ -1201,7 +1341,7 @@ fn grid(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Err
     let step = res?;
     let r = target(e, b, depth, "grid")?;
     let t = e.st.transform;
-    let inv = crate::reader::invert(&t);
+    let inv = t.inverse();
     let (la, lb) = (inv.apply(b.point()), inv.apply(r.p));
     let (x0, x1) = (la.x.min(lb.x), la.x.max(lb.x));
     let (y0, y1) = (la.y.min(lb.y), la.y.max(lb.y));
@@ -1228,6 +1368,7 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
     e.begin_group();
     type Plot = (Vec<Point>, Vec<Segment>, Vec<crate::canvas::Item>, bool);
     let res = (|| -> Result<Plot, Error> {
+        e.process_keys(tikra_tokens("every plot/.try"), Some("/tikz"))?;
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
@@ -1259,9 +1400,35 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
                 }
             }
             Some(Token::Char('f', Cat::Letter)) => {
+                // `plot file {name}`, and `plot function {…}`, which reads the table gnuplot wrote
+                // for it (`prefix` and `id` name it), as TeX does when it does not call gnuplot
                 let w = word(e, 'f');
-                let _ = e.argument();
-                return Err(Error::Figure(format!("plot {w} (external data) not supported")));
+                let arg = e.argument()?;
+                let name = match w.as_str() {
+                    "file" => e.tex.expand_to_string(arg)?.trim().to_string(),
+                    "function" => {
+                        let key = |e: &mut Engine, k: &str| crate::keys::value(&e.tex, k).map(|v| e.tex.expand_to_string(v).unwrap_or_default()).unwrap_or_default();
+                        let (prefix, id) = (key(e, "/tikz/prefix"), key(e, "/tikz/id"));
+                        format!("{prefix}{}.table", if id.is_empty() { "plot" } else { id.trim() })
+                    }
+                    _ => return Err(Error::Figure(format!("plot {w} not supported"))),
+                };
+                let text = super::pgfplots::table::read_file(&name, &[]).map_err(|m| Error::Figure(format!("plot {w}: {m}")))?;
+                for line in text.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') || line.starts_with('%') {
+                        continue;
+                    }
+                    let f: Vec<&str> = line.split_whitespace().collect();
+                    let (Some(x), Some(y)) = (f.first().and_then(|v| v.parse::<f64>().ok()), f.get(1).and_then(|v| v.parse::<f64>().ok())) else { continue };
+                    // `u`: undefined, the line breaks there
+                    if f.get(2) == Some(&"u") {
+                        points.push(Point::new(f64::NAN, f64::NAN));
+                        continue;
+                    }
+                    let r = e.coordinate(&format!("{},{}", super::pgf_number(x), super::pgf_number(y)))?;
+                    points.push(r.p);
+                }
             }
             Some(t) if t.is_char('(') => {
                 let tokens = read_coordinate_tokens(e)?;
@@ -1284,7 +1451,7 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         }
         // the marks, drawn after the path, in the plot's own settings
         let marks = e.plot_marks(&points)?;
-        let segs = plot_handler(e, &points)?;
+        let segs = plot_segments(e, &points)?;
         Ok((points, segs, marks, e.st.only_marks))
     })();
     e.end_group();
@@ -1306,7 +1473,11 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         b.subpath_start = Some(*p);
     }
     b.segs.extend(segs);
+    let points: Vec<Point> = points.into_iter().filter(|p| p.x.is_finite()).collect();
     let n = points.len();
+    if n == 0 {
+        return Ok(());
+    }
     b.last = Some(OnPath::Segment(points[n.saturating_sub(2)], None, points[n - 1]));
     b.current = Some(Coord { p: points[n - 1], node: None });
     Ok(())
@@ -1314,9 +1485,17 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
 
 /// The path of a plot's points (canvas coordinates) as its handler makes it, in the plot's own
 /// coordinate system (where the zero level of combs and bars is, and bar widths are measured).
-fn plot_handler(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
+pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
+    // an undefined point breaks the plot: each run is plotted on its own
+    if points.iter().any(|p| !p.x.is_finite()) {
+        let mut out = Vec::new();
+        for run in points.split(|p| !p.x.is_finite()).filter(|r| !r.is_empty()) {
+            out.extend(plot_segments(e, run)?);
+        }
+        return Ok(out);
+    }
     let t = e.st.transform;
-    let inv = crate::reader::invert(&t);
+    let inv = t.inverse();
     let q: Vec<Point> = points.iter().map(|p| inv.apply(*p)).collect();
     let n = q.len();
     if n == 0 {

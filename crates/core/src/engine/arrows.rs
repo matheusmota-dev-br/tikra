@@ -160,6 +160,8 @@ enum Old {
     FastCap,
     FastCapReversed,
     Implies,
+    /// the circuits' `direction ee`, as long as its `length` (`\pgfsetarrowoptions`)
+    DirectionEe,
 }
 
 fn code(name: &str) -> Option<Kind> {
@@ -221,6 +223,7 @@ fn code(name: &str) -> Option<Kind> {
         "fast cap" => Old(self::Old::FastCap),
         "fast cap reversed" => Old(self::Old::FastCapReversed),
         "implies" => Old(self::Old::Implies),
+        "tikra direction ee" => Old(self::Old::DirectionEe),
         _ => {
             if let Some(a) = name.strip_prefix("angle ").and_then(angle) {
                 Old(self::Old::Angle(a))
@@ -271,6 +274,7 @@ fn definition(name: &str, user: &UserTips, depth: usize) -> Option<Def> {
         "Turned Square" => "Kite[length=+3pt 4,width'= +0pt 1,inset'= +0pt 0.5]",
         "Bracket" => "Tee Barb[inset'=+0pt +1,length=+0.75pt +1]",
         "Parenthesis" => "Arc Barb[arc=+120,length=+1.725pt +2.3]",
+        "direction ee" => "tikra direction ee[length=4pt]",
         // the arrows library's brackets
         "]" => "square bracket",
         "[" => "][reversed]",
@@ -962,6 +966,7 @@ fn ratio(a: f64, b: f64) -> f64 {
 /// The setup and drawing code of a tip, then its reversal (`\pgf@arrows@handle@reverse`).
 fn geometry(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
     let mut g = match kind {
+        Kind::Old(Old::DirectionEe) => direction_ee(k.length, lw),
         Kind::Old(o) => old(o, lw, k.reversed),
         _ => meta(kind, k, lw),
     };
@@ -1518,6 +1523,16 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
     Geometry { tip, back, line, visual_tip: tip, visual_back: visual_back.unwrap_or(back), hull, shapes }
 }
 
+/// `direction ee` of `pgflibraryshapes.gates.ee`: a triangle `d` long, filled and stroked with
+/// round joins, from `-d/2` to `d/2`.
+fn direction_ee(d: f64, lw: Widths) -> Geometry {
+    let mut p = Pen::default();
+    let k = 0.38268343237 * d;
+    p.m(-0.5 * d, k).l(0.5 * d, 0.0).l(-0.5 * d, -k).z();
+    let shapes = vec![Shape { segs: p.take(), fill: true, stroke: true, width: lw.line, cap: None, join: Some(Join::Round) }];
+    Geometry { tip: 0.5 * d, back: -0.5 * d, line: 0.0, visual_tip: 0.5 * d, visual_back: -0.5 * d, hull: Vec::new(), shapes }
+}
+
 /// The tips declared with `\pgfarrowsdeclare`: their extents (left and right) and drawing; the line
 /// ends at 0 and they have no hull, so they leave the bounding box alone.
 fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
@@ -1774,6 +1789,8 @@ fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
             push(p.take(), false, true, b, Some(Cap::Round), Some(Join::Round));
             (-1.36 * a - 0.5 * b, 2.06 * a + 0.5 * b)
         }
+        // drawn by `direction_ee`, with its length
+        DirectionEe => (0.0, 0.0),
     };
     Geometry { tip, back, line: 0.0, visual_tip: tip, visual_back: back, hull: Vec::new(), shapes }
 }
