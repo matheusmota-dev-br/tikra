@@ -1835,6 +1835,11 @@ keyfn!(k_path_fading, |e, v| {
     e.st.path_fading = if s.is_empty() || s == "none" { None } else { Some(s) };
     Ok(())
 });
+keyfn!(k_fading_angle, |e, v| {
+    let s = text(e, &v)?;
+    e.st.fading_angle = e.number(&s)?;
+    Ok(())
+});
 keyfn!(k_fit_fading, |e, v| {
     e.st.fit_fading = text(e, &v)? != "false";
     Ok(())
@@ -2038,6 +2043,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
     ("/tikz/fit fading", k_fit_fading),
+    ("/tikz/fading angle", k_fading_angle),
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
     ("/tikz/shading", k_shading),

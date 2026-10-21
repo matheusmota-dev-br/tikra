@@ -218,6 +218,7 @@ impl Engine {
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let t = if fit { f.fit(lo, hi) } else { self.st.transform };
+        let t = t.compose(&Transform::rotation(self.st.fading_angle));
         Some(f.mask(&t))
     }
 }

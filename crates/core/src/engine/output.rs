@@ -138,8 +138,9 @@ impl Engine {
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let center = lo.lerp(hi, 0.5);
-        let fit =
-            crate::scene::Transform::translation(center.x, center.y).compose(&crate::scene::Transform::scaling(((hi.x - lo.x) / 50.0).max(1e-9), ((hi.y - lo.y) / 50.0).max(1e-9)));
+        let fit = crate::scene::Transform::translation(center.x, center.y)
+            .compose(&crate::scene::Transform::scaling(((hi.x - lo.x) / 50.0).max(1e-9), ((hi.y - lo.y) / 50.0).max(1e-9)))
+            .compose(&crate::scene::Transform::rotation(self.st.fading_angle));
         let axial = |angle: f64, from: crate::color::Color, to: crate::color::Color| crate::canvas::Shading::Axial {
             transform: fit.compose(&crate::scene::Transform::rotation(angle)),
             stops: vec![(0.0, from), (0.25, from), (0.75, to), (1.0, to)],
