@@ -40,8 +40,29 @@ pub fn font_size(text: &str) -> f64 {
 /// Removes font commands that do not change mathra's drawing (family, series, size).
 fn clean(text: &str) -> String {
     const COMMANDS: &[&str] = &[
-        "tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge", "sffamily", "rmfamily",
-        "ttfamily", "itshape", "mdseries", "upshape", "centering", "raggedright", "raggedleft", "it", "sf", "tt", "rm",
+        "tiny",
+        "scriptsize",
+        "footnotesize",
+        "small",
+        "normalsize",
+        "large",
+        "Large",
+        "LARGE",
+        "huge",
+        "Huge",
+        "sffamily",
+        "rmfamily",
+        "ttfamily",
+        "itshape",
+        "mdseries",
+        "upshape",
+        "centering",
+        "raggedright",
+        "raggedleft",
+        "it",
+        "sf",
+        "tt",
+        "rm",
     ];
     let c: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());

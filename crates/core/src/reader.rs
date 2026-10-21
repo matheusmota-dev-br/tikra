@@ -600,7 +600,11 @@ pub fn expand_list(list: &str) -> Vec<String> {
 pub fn format_number(v: f64) -> String {
     let r = (v * 1e6).round() / 1e6;
     // integer only while it fits exactly in an i64; above that f64's Display already has no exponent
-    if r.fract() == 0.0 && r.abs() < 1e15 { format!("{}", r as i64) } else { format!("{r}") }
+    if r.fract() == 0.0 && r.abs() < 1e15 {
+        format!("{}", r as i64)
+    } else {
+        format!("{r}")
+    }
 }
 
 fn unit_vector(env: &Env, v: &str, x_axis: bool) -> Result<Point, Error> {

@@ -171,7 +171,11 @@ fn clean_preamble(p: &str) -> String {
     p.lines()
         .filter(|l| {
             let t = l.trim_start();
-            !(t.starts_with("\\documentclass") || t.starts_with("\\usepackage") || t.starts_with("\\begin{document}") || t.starts_with("\\usetikzlibrary") || t.starts_with("\\pgfplotsset"))
+            !(t.starts_with("\\documentclass")
+                || t.starts_with("\\usepackage")
+                || t.starts_with("\\begin{document}")
+                || t.starts_with("\\usetikzlibrary")
+                || t.starts_with("\\pgfplotsset"))
         })
         .collect::<Vec<_>>()
         .join("\n")

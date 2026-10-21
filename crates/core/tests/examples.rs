@@ -6,16 +6,8 @@
 use std::path::PathBuf;
 
 /// Corpus figures shown in the README, by file name without `.tex`.
-const EXAMPLES: &[&str] = &[
-    "01-triangle-angles",
-    "03-unit-circle",
-    "05-pgfplots-legend",
-    "07-flowchart",
-    "08-graph-nodes",
-    "11-spring-decorations",
-    "16-bar-chart",
-    "25-standalone-document",
-];
+const EXAMPLES: &[&str] =
+    &["01-triangle-angles", "03-unit-circle", "05-pgfplots-legend", "07-flowchart", "08-graph-nodes", "11-spring-decorations", "16-bar-chart", "25-standalone-document"];
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

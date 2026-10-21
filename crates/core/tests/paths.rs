@@ -138,7 +138,16 @@ fn rectangle_circle_ellipse() {
 
 #[test]
 fn shape_errors() {
-    for bad in [r"(0,0) rectangle", r"(0,0) circle (1", r"(0,0) circle [radius=zz]", r"(0,0) circle [x radius=zz]", r"(0,0) circle [y radius=zz]", r"(0,0) ellipse (zz and 1)", r"(0,0) ellipse (1 and zz)", r"(0,0) circle (zz)"] {
+    for bad in [
+        r"(0,0) rectangle",
+        r"(0,0) circle (1",
+        r"(0,0) circle [radius=zz]",
+        r"(0,0) circle [x radius=zz]",
+        r"(0,0) circle [y radius=zz]",
+        r"(0,0) ellipse (zz and 1)",
+        r"(0,0) ellipse (1 and zz)",
+        r"(0,0) circle (zz)",
+    ] {
         let (_, w) = scene_and_warnings(&format!(r"\draw {bad};"));
         assert!(!w.is_empty(), "{bad}");
     }
@@ -165,7 +174,20 @@ fn arcs_by_parentheses_and_by_options() {
 
 #[test]
 fn arc_errors() {
-    for bad in [r"(0,0) arc (0:90:1", r"(0,0) arc (zz:90:1)", r"(0,0) arc (0:zz:1)", r"(0,0) arc (0:90:zz)", r"(0,0) arc (0:90:zz and 1)", r"(0,0) arc (0:90:1 and zz)", r"(0,0) arc [start angle=zz]", r"(0,0) arc [end angle=zz]", r"(0,0) arc [delta angle=zz]", r"(0,0) arc [radius=zz]", r"(0,0) arc [x radius=zz]", r"(0,0) arc [y radius=zz]"] {
+    for bad in [
+        r"(0,0) arc (0:90:1",
+        r"(0,0) arc (zz:90:1)",
+        r"(0,0) arc (0:zz:1)",
+        r"(0,0) arc (0:90:zz)",
+        r"(0,0) arc (0:90:zz and 1)",
+        r"(0,0) arc (0:90:1 and zz)",
+        r"(0,0) arc [start angle=zz]",
+        r"(0,0) arc [end angle=zz]",
+        r"(0,0) arc [delta angle=zz]",
+        r"(0,0) arc [radius=zz]",
+        r"(0,0) arc [x radius=zz]",
+        r"(0,0) arc [y radius=zz]",
+    ] {
         let (_, w) = scene_and_warnings(&format!(r"\draw {bad};"));
         assert!(!w.is_empty(), "{bad}");
     }
@@ -424,5 +446,7 @@ fn translate_moves_every_kind_of_element() {
         el.translate(Point::new(1.0, 2.0));
     }
     let moved = |p: &Point| p.x == 1.0 && p.y == 2.0;
-    assert!(matches!(&els[0], Element::Clip(segs) if matches!(segs[0], Segment::MoveTo(p) if moved(&p)) && matches!(segs[1], Segment::CurveTo(a, b, c) if [a, b, c].iter().all(moved))));
+    assert!(
+        matches!(&els[0], Element::Clip(segs) if matches!(segs[0], Segment::MoveTo(p) if moved(&p)) && matches!(segs[1], Segment::CurveTo(a, b, c) if [a, b, c].iter().all(moved)))
+    );
 }

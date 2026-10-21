@@ -14,7 +14,11 @@ const CM: f64 = 1.0 / PT; // points per cm
 
 fn n(v: f64) -> String {
     let r = (v * 1000.0).round() / 1000.0;
-    if r.fract() == 0.0 && r.abs() < 1e15 { format!("{}", r as i64) } else { format!("{r}") }
+    if r.fract() == 0.0 && r.abs() < 1e15 {
+        format!("{}", r as i64)
+    } else {
+        format!("{r}")
+    }
 }
 
 /// A scene point (cm, y up) in SVG coordinates.
@@ -109,7 +113,13 @@ fn start_point(segs: &[Segment]) -> Option<(Point, Point)> {
     match segs.get(1)? {
         Segment::LineTo(p) => Some((*a, a.minus(*p))),
         Segment::CurveTo(c1, c2, p) => {
-            let target = if c1.minus(*a).norm() > 1e-9 { *c1 } else if c2.minus(*a).norm() > 1e-9 { *c2 } else { *p };
+            let target = if c1.minus(*a).norm() > 1e-9 {
+                *c1
+            } else if c2.minus(*a).norm() > 1e-9 {
+                *c2
+            } else {
+                *p
+            };
             Some((*a, a.minus(target)))
         }
         _ => None,
@@ -121,7 +131,15 @@ fn tip_svg(p: Point, d: Point, kind: Tip, e: &Style, color: &str) -> String {
     let len = tip_length(kind, e);
     let u = d.scale(1.0 / d.norm().max(1e-12));
     let nrm = Point::new(-u.y, u.x);
-    let pts = |v: &[Point]| v.iter().map(|q| { let (x, y) = sx(*q); format!("{},{}", n(x), n(y)) }).collect::<Vec<_>>().join(" ");
+    let pts = |v: &[Point]| {
+        v.iter()
+            .map(|q| {
+                let (x, y) = sx(*q);
+                format!("{},{}", n(x), n(y))
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
     match kind {
         Tip::Latex => {
             let base = p.minus(u.scale(len));
@@ -262,7 +280,12 @@ fn math_box_svg(c: &mathra::layout::MathBox, origin: Point, scale: f64, glyphs: 
                 let _ = write!(
                     s,
                     r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="{}"/>"#,
-                    n(a.0), n(a.1), n(b.0), n(b.1), color.as_deref().unwrap_or("currentColor"), n(*thickness as f64 * k)
+                    n(a.0),
+                    n(a.1),
+                    n(b.0),
+                    n(b.1),
+                    color.as_deref().unwrap_or("currentColor"),
+                    n(*thickness as f64 * k)
                 );
             }
             Item::Ellipse { cx, cy, rx, ry, thickness, color } => {
@@ -270,7 +293,12 @@ fn math_box_svg(c: &mathra::layout::MathBox, origin: Point, scale: f64, glyphs: 
                 let _ = write!(
                     s,
                     r#"<ellipse cx="{}" cy="{}" rx="{}" ry="{}" fill="none" stroke="{}" stroke-width="{}"/>"#,
-                    n(px), n(py), n(*rx as f64 * k), n(*ry as f64 * k), color.as_deref().unwrap_or("currentColor"), n(*thickness as f64 * k)
+                    n(px),
+                    n(py),
+                    n(*rx as f64 * k),
+                    n(*ry as f64 * k),
+                    color.as_deref().unwrap_or("currentColor"),
+                    n(*thickness as f64 * k)
                 );
             }
         }
@@ -392,7 +420,8 @@ pub fn svg(scene: &Scene, source: &str, description: &str) -> String {
                         let _ = write!(body, r#"<path d="{d}" fill="{}"/>"#, c.hex());
                     }
                     if let Some(c) = node.style.stroke {
-                        let dash = node.style.dash.as_ref().map(|v| format!(r#" stroke-dasharray="{}""#, v.iter().map(|x| n(x * CM)).collect::<Vec<_>>().join(" "))).unwrap_or_default();
+                        let dash =
+                            node.style.dash.as_ref().map(|v| format!(r#" stroke-dasharray="{}""#, v.iter().map(|x| n(x * CM)).collect::<Vec<_>>().join(" "))).unwrap_or_default();
                         let _ = write!(body, r#"<path d="{d}" fill="none" stroke="{}" stroke-width="{}"{dash}/>"#, c.hex(), n(node.style.line_width * CM));
                     }
                 }
@@ -418,7 +447,12 @@ pub fn svg(scene: &Scene, source: &str, description: &str) -> String {
     let _ = write!(
         s,
         r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="img" aria-labelledby="tr-title">"#,
-        n(x0 * CM), n(-y1 * CM), n(width), n(height), n(width), n(height)
+        n(x0 * CM),
+        n(-y1 * CM),
+        n(width),
+        n(height),
+        n(width),
+        n(height)
     );
     let _ = write!(s, r#"<title id="tr-title">{}</title>"#, escape(description));
     let _ = write!(s, r#"<metadata><tikra:source type="tikz">{}</tikra:source></metadata>"#, escape(source));

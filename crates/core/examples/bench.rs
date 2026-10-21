@@ -22,7 +22,8 @@ fn summary(mut v: Vec<f64>) -> (f64, f64) {
 
 fn main() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus");
-    let mut files: Vec<_> = std::fs::read_dir(dir).expect("corpus/ exists").filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "tex")).collect();
+    let mut files: Vec<_> =
+        std::fs::read_dir(dir).expect("corpus/ exists").filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "tex")).collect();
     files.sort();
     let (mut clean, mut warned, mut failed) = (0, 0, 0);
     let (mut svg_ms, mut png_ms) = (Vec::new(), Vec::new());
@@ -42,11 +43,17 @@ fn main() {
             warned += 1;
             eprintln!("warning  {}: {}", f.display(), out.warnings.join("; "));
         }
-        let time = |job: &dyn Fn()| median((0..RUNS).map(|_| {
-            let t = Instant::now();
-            job();
-            t.elapsed().as_secs_f64() * 1000.0
-        }).collect());
+        let time = |job: &dyn Fn()| {
+            median(
+                (0..RUNS)
+                    .map(|_| {
+                        let t = Instant::now();
+                        job();
+                        t.elapsed().as_secs_f64() * 1000.0
+                    })
+                    .collect(),
+            )
+        };
         svg_ms.push(time(&|| {
             tikra::convert(&tex).unwrap();
         }));
