@@ -350,6 +350,16 @@ pub const INITIAL: &[(&str, &str)] = &[
     ("/pgf/arrow options/direction ee", "4pt"),
     ("/pgf/generic circle IEC/before background", ""),
     ("/pgf/generic diode IEC/before background", ""),
+    ("/pgf/generic circle IEC/tikra mark", ""),
+    ("/pgf/generic diode IEC/tikra mark", ""),
+    ("/pgf/and gate IEC symbol", "$\\char`\\&$"),
+    ("/pgf/nand gate IEC symbol", "$\\char`\\&$"),
+    ("/pgf/or gate IEC symbol", "$\\geq1$"),
+    ("/pgf/nor gate IEC symbol", "$\\geq1$"),
+    ("/pgf/xor gate IEC symbol", "$=1$"),
+    ("/pgf/xnor gate IEC symbol", "$=1$"),
+    ("/pgf/not gate IEC symbol", "1"),
+    ("/pgf/buffer gate IEC symbol", "1"),
 ];
 
 pub const DEFINITIONS: &str = r"
@@ -367,14 +377,8 @@ pub const DEFINITIONS: &str = r"
 \newif\ifpgfrectanglesplitignoreemptyparts
 \newif\ifpgfrectanglesplitusecustomfill
 \newif\ifpgfcloudanchorsuseellipse
-\newif\ifpgfgateanchorsuseboundingrectangle
-\pgfkeys{/pgf/.cd,
-  and gate IEC symbol/.initial=$\char`\&$, nand gate IEC symbol/.initial=$\char`\&$,
-  or gate IEC symbol/.initial=$\geq1$, nor gate IEC symbol/.initial=$\geq1$,
-  xor gate IEC symbol/.initial={$=1$}, xnor gate IEC symbol/.initial={$=1$},
-  not gate IEC symbol/.initial=1, buffer gate IEC symbol/.initial=1,
-  logic gate anchors use bounding box/.is if=pgfgateanchorsuseboundingrectangle,
-}
+\newif\iftikra@gatebox
+\pgfkeys{/pgf/logic gate anchors use bounding box/.is if=tikra@gatebox}
 \def\tikz@atbegin@node{}
 \def\tikz@atend@node{}
 \tikzset{

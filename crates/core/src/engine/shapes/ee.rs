@@ -6,8 +6,9 @@
 //! Most of them are a rectangle of the node's minimum size, whose `input` and `output` are its west
 //! and east ends; what they draw in it is in pgf's code, by the corners without outer sep. The
 //! inductor and the contacts stand on their base line instead (their center is the origin), and the
-//! two generic shapes run the basic-layer code of a key (`/pgf/generic circle IEC/before
-//! background`) in a frame where 1pt is their size.
+//! two generic shapes draw a mark of lines (`/pgf/generic circle IEC/tikra mark`) and run the
+//! basic-layer code of a key (`/pgf/generic circle IEC/before background`) in a frame where 1pt is
+//! their size.
 
 use crate::scene::{Point, Segment, Transform};
 use crate::PT;
@@ -219,10 +220,33 @@ pub fn breakdown_diode(input: &mut Input) -> Geometry {
     g
 }
 
-/// The paths that the basic-layer code of `key` strokes, in a frame at `origin` where 1pt is `size`.
-fn key_code(input: &mut Input, g: &mut Geometry, key: &str, origin: Point, size: f64) {
+/// What a generic shape draws in its frame at `origin`, where 1 (1pt for code) is `size`: the lines
+/// of its `tikra mark` (`x,y x,y; …`, or `wave`, the sign of alternating current), then the paths
+/// that the basic-layer code of its `before background` key strokes.
+fn key_code(input: &mut Input, g: &mut Geometry, shape: &str, origin: Point, size: f64) {
+    let p = |x: f64, y: f64| origin.plus(Point::new(x * size, y * size));
+    let mark = input.keys.text(&format!("/pgf/{shape}/tikra mark"));
+    let mut v = Vec::new();
+    if mark.trim() == "wave" {
+        // two quadratic arcs through the center, as cubic curves
+        let q = |a: (f64, f64), c: (f64, f64), b: (f64, f64)| {
+            Segment::CurveTo(p(a.0 + 2.0 / 3.0 * (c.0 - a.0), a.1 + 2.0 / 3.0 * (c.1 - a.1)), p(b.0 + 2.0 / 3.0 * (c.0 - b.0), b.1 + 2.0 / 3.0 * (c.1 - b.1)), p(b.0, b.1))
+        };
+        v.extend([Segment::MoveTo(p(0.7, 0.0)), q((0.7, 0.0), (0.35, -0.5), (0.0, 0.0)), q((0.0, 0.0), (-0.35, 0.5), (-0.7, 0.0))]);
+    } else {
+        for line in mark.split(';') {
+            let pts: Vec<Point> =
+                line.split_whitespace().filter_map(|xy| xy.split_once(',')).filter_map(|(x, y)| Some(p(x.trim().parse().ok()?, y.trim().parse().ok()?))).collect();
+            for (k, q) in pts.iter().enumerate() {
+                v.push(if k == 0 { Segment::MoveTo(*q) } else { Segment::LineTo(*q) });
+            }
+        }
+    }
+    if !v.is_empty() {
+        g.path(Layer::BeforeBackground, v, Usage::Stroke);
+    }
     let t = Transform::translation(origin.x, origin.y).compose(&Transform::scaling(size / PT, size / PT));
-    for segs in input.keys.code_paths(key, t) {
+    for segs in input.keys.code_paths(&format!("/pgf/{shape}/before background"), t) {
         g.path(Layer::BeforeBackground, segs, Usage::Stroke);
     }
 }
@@ -232,7 +256,7 @@ pub fn generic_circle(input: &mut Input) -> Geometry {
     let mut g = circle_ee(input);
     let c = g.center;
     let r = g.anchor("east").expect("circle").x - c.x - input.outer_sep();
-    key_code(input, &mut g, "/pgf/generic circle IEC/before background", c, r);
+    key_code(input, &mut g, "generic circle IEC", c, r);
     g
 }
 
@@ -245,7 +269,7 @@ pub fn generic_diode(input: &mut Input) -> Geometry {
     let p = Point::new;
     g.background(vec![Segment::MoveTo(p(xa, ya)), Segment::LineTo(p(xa, yb)), Segment::LineTo(p(xb - 0.5 * input.line_width, yc)), Segment::Close]);
     g.path(Layer::BeforeBackground, line((xa, yc), (xb, yc)).to_vec(), Usage::Stroke);
-    key_code(input, &mut g, "/pgf/generic diode IEC/before background", p(xb, yc), 0.5 * (yb - ya));
+    key_code(input, &mut g, "generic diode IEC", p(xb, yc), 0.5 * (yb - ya));
     g
 }
 

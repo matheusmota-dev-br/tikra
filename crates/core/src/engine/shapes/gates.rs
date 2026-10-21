@@ -198,7 +198,7 @@ pub fn and_gate_us(input: &mut Input, nand: bool) -> Geometry {
     let u = us_dimensions(input, &cm, true);
     let c = cm.c;
     let (h, w, hh, ox) = (u.h, u.w, u.hh, u.ox);
-    let bb = input.keys.flag("pgfgateanchorsuseboundingrectangle");
+    let bb = input.keys.flag("tikra@gatebox");
     let east = Point::new(c.x + (w - ox) / 3.0 + w, c.y);
     let nw = Point::new(c.x - 1.16666 * h - ox, c.y + hh);
     let sw = Point::new(nw.x, c.y - hh);
@@ -274,7 +274,7 @@ pub fn or_gate_us(input: &mut Input, kind: &str) -> Geometry {
     let u = us_dimensions(input, &cm, false);
     let c = cm.c;
     let (h, w, hh, ox, lw) = (u.h, u.w, u.hh, u.ox, cm.lw);
-    let bb = input.keys.flag("pgfgateanchorsuseboundingrectangle");
+    let bb = input.keys.flag("tikra@gatebox");
     let east = c.plus(u.tip);
     // the corners at the back: the or gate's are on its arc, the xor gate's on its second line
     let back = |bb: bool, s: f64| {
@@ -382,7 +382,7 @@ pub fn not_gate_us(input: &mut Input, not: bool) -> Geometry {
     let u = us_dimensions(input, &cm, false);
     let c = cm.c;
     let (h, w, hh, ox, oy) = (u.h, u.w, u.hh, u.ox, u.oy);
-    let bb = input.keys.flag("pgfgateanchorsuseboundingrectangle");
+    let bb = input.keys.flag("tikra@gatebox");
     let tip = c.plus(u.tip);
     let far_tip = tip.plus(Point::new(2.350943 * ox, 0.0));
     let x_back = c.x - 0.833333 * h - ox;
@@ -446,7 +446,7 @@ pub fn and_gate_cdh(input: &mut Input, nand: bool) -> Geometry {
     let u = us_dimensions(input, &cm, false);
     let c = cm.c;
     let (h, w, hh, ox, oy) = (u.h, u.w, u.hh, u.ox, u.oy);
-    let bb = input.keys.flag("pgfgateanchorsuseboundingrectangle");
+    let bb = input.keys.flag("tikra@gatebox");
     let east = c.plus(u.tip);
     let border = sampled(|d| if d.x < 0.0 { c.plus(super::border_rectangle(d, Point::new(0.166666 * h + w, hh))) } else { or_front_border(c, d, &u) });
     let mut g = Geometry::new(c, border);

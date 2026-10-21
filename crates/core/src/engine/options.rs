@@ -242,8 +242,10 @@ impl Engine {
             o.extend(tikra_tokens(&options));
             self.st.quoted.push((tikra_tokens(&text), o));
         } else {
-            let spec = format!("[every label quotes/.try,{options}]{text}");
-            self.st.node.labels.push((tikra_tokens(&spec), false));
+            // `quotes mean pin`: pins instead of labels
+            let pin = matches!(self.tex.meaning_of("tikra@quotes@pin"), Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
+            let spec = format!("[every {} quotes/.try,{options}]{text}", if pin { "pin" } else { "label" });
+            self.st.node.labels.push((tikra_tokens(&spec), pin));
         }
         Ok(())
     }
@@ -2022,7 +2024,7 @@ const DEFINITIONS: &str = r"
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
-  every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
+  every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
@@ -2074,7 +2076,8 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
-    lexer.push_text(super::circuits::DEFINITIONS);
+    let circuits = super::circuits::definitions();
+    lexer.push_text(&circuits);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
