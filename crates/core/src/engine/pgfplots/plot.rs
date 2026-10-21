@@ -19,11 +19,29 @@ pub struct Coord {
     pub meta: f64,
     /// error bars: x minus, x plus, y minus, y plus (NaN: none)
     pub err: [f64; 4],
+    /// The point meta as written (`[label]`, a table cell): an index into the plot's labels.
+    pub label: u32,
+}
+
+/// No label.
+pub const NO_LABEL: u32 = u32::MAX;
+
+thread_local! {
+    /// The labels of the plot being read.
+    static LABELS: std::cell::RefCell<Vec<Vec<Token>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn add_label(tokens: Vec<Token>) -> u32 {
+    LABELS.with(|l| {
+        let mut l = l.borrow_mut();
+        l.push(tokens);
+        (l.len() - 1) as u32
+    })
 }
 
 impl Coord {
     pub fn new(x: f64, y: f64, z: f64) -> Coord {
-        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4] }
+        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL }
     }
 }
 
@@ -58,6 +76,8 @@ pub struct Plot {
     pub has_meta: bool,
     /// Where the input's scanlines end (empty lines in tables and coordinates).
     pub scanlines: Vec<usize>,
+    /// The point metas as written, for `point meta=explicit symbolic` (see `Coord::label`).
+    pub labels: Vec<Vec<Token>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -204,6 +224,14 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
         e.run_tokens(code)?;
     }
     let mut plot = Plot { three_d, ..Default::default() };
+    LABELS.with(|l| l.borrow_mut().clear());
+    let r = survey_input(e, &mut plot, three_d);
+    plot.labels = LABELS.with(|l| std::mem::take(&mut *l.borrow_mut()));
+    r?;
+    Ok(plot)
+}
+
+fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Error> {
     plot.forget = keys::flag(e, "/pgfplots/forget plot");
     plot.mesh = match keys::value(e, "/pgfplots/@mesh").as_str() {
         "m" => Some('m'),
@@ -224,7 +252,7 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
         Token::Char('(', _) => {
             let tokens = super::super::coords::read_coordinate_tokens(e)?;
             let parts = split_commas(&tokens);
-            plot.coords = sample(e, &parts, &mut plot)?;
+            plot.coords = sample(e, &parts, plot)?;
         }
         Token::Char(_, Cat::Begin) => {
             let body = e.tex.read_group_body()?;
@@ -232,7 +260,7 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
             if three_d {
                 parts = vec![super::toks("x"), super::toks("y"), parts.pop().unwrap_or_default()];
             }
-            plot.coords = sample(e, &parts, &mut plot)?;
+            plot.coords = sample(e, &parts, plot)?;
         }
         Token::Char(c, Cat::Letter) => {
             e.tex.back(t.clone());
@@ -259,7 +287,7 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
                         _ => return Err(Error::Figure("expression without a formula".into())),
                     };
                     let parts = if three_d { vec![super::toks("x"), super::toks("y"), body] } else { vec![super::toks("x"), body] };
-                    plot.coords = sample(e, &parts, &mut plot)?;
+                    plot.coords = sample(e, &parts, plot)?;
                 }
                 "file" => {
                     let _ = e.optional()?;
@@ -313,13 +341,13 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
             break;
         }
     }
-    point_meta(e, &mut plot)?;
-    lattice_from_scanlines(e, &mut plot);
-    filter(e, &mut plot)?;
+    point_meta(e, plot)?;
+    lattice_from_scanlines(e, plot);
+    filter(e, plot)?;
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at end plot") {
         e.run_tokens(code)?;
     }
-    Ok(plot)
+    Ok(())
 }
 
 fn word_after_space(e: &mut Engine) -> String {
@@ -519,7 +547,9 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
                 while k < list.len() && !list[k].is_char(']') {
                     k += 1;
                 }
-                c.meta = value(e, &list[start..k.min(list.len())]);
+                let written = &list[start..k.min(list.len())];
+                c.meta = value(e, written);
+                c.label = add_label(crate::keys::trim(written).to_vec());
                 j = k + 1;
             }
             i = j;
@@ -650,6 +680,11 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         let z = if matches!(sz, Src::None) { 0.0 } else { get(e, &sz) };
         let mut c = Coord::new(x, y, z);
         c.meta = get(e, &smeta);
+        if let Src::Col(Some(col)) = &smeta {
+            if let Some(cell) = t.cell(r, *col) {
+                c.label = add_label(tex::string_tokens(cell));
+            }
+        }
         let ey = get(e, &sey);
         let ex = get(e, &sex);
         c.err = [ex, ex, ey, ey];

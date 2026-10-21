@@ -7,6 +7,7 @@ use crate::scene::{Point, Segment, Transform};
 use crate::tex::{self, Token};
 use crate::{Error, PT};
 
+use super::super::nodes::{NodeSpec, OnPath};
 use super::draw::Frame;
 use super::keys;
 use super::marks::{self, Use};
@@ -21,6 +22,25 @@ pub struct Marks {
     pub points: Vec<(Point, f64)>,
     /// `scatter`: each mark in the colormap's color for its point meta.
     pub scatter: bool,
+    /// `nodes near coords`: what the nodes say, and the nodes.
+    pub node_text: Vec<Token>,
+    pub nodes: Vec<NearNode>,
+}
+
+/// A node of `nodes near coords`.
+#[derive(Debug, Clone)]
+pub struct NearNode {
+    /// The point it belongs to (kept or dropped with it), and where the node is.
+    pub point: Point,
+    pub at: Point,
+    /// Alignment options (`above`, `anchor=center`…).
+    pub align: String,
+    pub meta: f64,
+    /// The point meta as written, for symbolic point meta.
+    pub label: Option<Vec<Token>>,
+    pub index: usize,
+    /// `/data point/x` and its friends.
+    pub data: [f64; 3],
 }
 
 /// The canvas points of a plot (None at jumps).
@@ -100,7 +120,14 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     }
     if p.mesh.is_some() {
         super::mesh::draw(e, p, pts, f, &style)?;
-        return Ok(None);
+        // marks and nodes near coords on the mesh's points
+        let (node_text, nodes) = near_nodes(e, p, pts, &[], f, "", 0.0)?;
+        if e.st.plot_mark.is_none() && nodes.is_empty() {
+            return Ok(None);
+        }
+        let cp = canvas_points(f, pts);
+        let points = cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect();
+        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes }));
     }
     let handler = keys::value(e, "/tikz/@plot handler");
     let cp = canvas_points(f, pts);
@@ -257,12 +284,128 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         }
     }
     error_bars(e, p, pts, f)?;
-    match mark {
-        Some(_) => {
-            Ok(Some(Marks { style, points: cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect(), scatter: p.scatter }))
-        }
-        None => Ok(None),
+    let (node_text, nodes) = near_nodes(e, p, pts, base, f, &handler, bar_shift)?;
+    if mark.is_none() && nodes.is_empty() {
+        return Ok(None);
     }
+    let points = cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect();
+    Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes }))
+}
+
+/// The anchors `nodes near coords align` may name.
+const ANCHORS: &[&str] =
+    &["north", "south", "east", "west", "north east", "north west", "south east", "south west", "center", "base", "base east", "base west", "mid", "mid east", "mid west"];
+
+/// `nodes near coords`: one node per point (`scatter/@post marker code`), aligned by
+/// `nodes near coords/@@eval alignment`; bars move them by their bar shift, stacked bars (since
+/// compat 1.9) put them in the middle of their bar.
+#[allow(clippy::too_many_arguments)]
+fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Frame, handler: &str, bar_shift: f64) -> Result<(Vec<Token>, Vec<NearNode>), Error> {
+    let Some(text) = keys::value_tokens(e, "/pgfplots/@nodes near coords") else { return Ok((Vec::new(), Vec::new())) };
+    if crate::keys::trim(&text).is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let source = keys::value(e, "/pgfplots/point meta");
+    let symbolic = source == "explicit symbolic";
+    let align = keys::value(e, "/pgfplots/nodes near coords align");
+    let align = if align == "auto" {
+        if source == "x" {
+            "horizontal".to_string()
+        } else {
+            "vertical".to_string()
+        }
+    } else {
+        align
+    };
+    let compat = keys::compat(e);
+    let stacked = p.stack.is_some() && compat >= 109 && matches!(handler, "ybar" | "xbar");
+    let offset = keys::number(e, "/pgfplots/nodes near coords bar offset").unwrap_or(0.5);
+    let shift = match handler {
+        "ybar" => unit(f.e[0]).scale(bar_shift),
+        "xbar" => unit(f.e[1]).scale(bar_shift),
+        _ => Point::default(),
+    };
+    let mut nodes = Vec::new();
+    for (i, l) in pts.iter().enumerate() {
+        if !l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()) {
+            continue;
+        }
+        let point = f.at(*l);
+        let c = p.coords.get(i).copied().unwrap_or_else(|| super::plot::Coord::new(f64::NAN, f64::NAN, f64::NAN));
+        let label = (c.label != super::plot::NO_LABEL).then(|| p.labels.get(c.label as usize).cloned()).flatten();
+        let meta = c.meta;
+        let at = if stacked {
+            let b = base.get(i).copied().unwrap_or(0.0);
+            if handler == "ybar" {
+                f.at([l[0], offset * l[1] + (1.0 - offset) * b, l[2]])
+            } else {
+                f.at([offset * l[0] + (1.0 - offset) * b, l[1], l[2]])
+            }
+        } else {
+            point
+        };
+        let a = if stacked {
+            "anchor=center".to_string()
+        } else {
+            match align.as_str() {
+                "horizontal" if symbolic => "above".into(),
+                "horizontal" => (if meta < 0.0 { "left" } else { "right" }).into(),
+                "vertical" if symbolic => "above".into(),
+                "vertical" => (if meta < 0.0 { "below" } else { "above" }).into(),
+                other if ANCHORS.contains(&other) => format!("anchor={other}"),
+                other => other.to_string(),
+            }
+        };
+        nodes.push(NearNode { point, at: at.plus(shift), align: a, meta, label, index: i, data: [c.x, c.y, c.z] });
+    }
+    Ok((text, nodes))
+}
+
+/// Draws the nodes of `nodes near coords`, in the plot's style.
+pub fn draw_near_nodes(e: &mut Engine, m: &Marks) -> Result<(), Error> {
+    if m.nodes.is_empty() {
+        return Ok(());
+    }
+    e.begin_group();
+    let r = (|| -> Result<(), Error> {
+        e.st.mode = Default::default();
+        e.st.pending = Transform::default();
+        e.process_keys(m.style.clone(), Some("/pgfplots"))?;
+        e.st.apply_pending();
+        let default = tex::tokens_to_string(&m.node_text).replace(' ', "") == "\\pgfmathprintnumber\\pgfplotspointmeta";
+        for n in &m.nodes {
+            e.begin_group();
+            let r = (|| -> Result<(), Error> {
+                let meta = match &n.label {
+                    Some(l) if !n.meta.is_finite() => tex::tokens_to_string(l),
+                    _ => super::super::pgf_number(n.meta),
+                };
+                define(e, "pgfplotspointmeta", &meta);
+                define(e, "coordindex", &n.index.to_string());
+                for (k, c) in ['x', 'y', 'z'].iter().enumerate() {
+                    super::keys::set(e, &format!("/data point/{c}"), &super::super::pgf_number(n.data[k]));
+                }
+                // symbolic point meta is shown as written
+                let text = match (&n.label, default && !n.meta.is_finite()) {
+                    (Some(l), true) => l.clone(),
+                    _ => {
+                        // `\pgfmathprintnumber\pgfplotspointmeta` takes the macro, then the rest
+                        let t = super::draw::print_numbers(e, &m.node_text)?;
+                        e.tex.expand_fully(t)?
+                    }
+                };
+                let options = toks(&format!("{},/pgfplots/every node near coord", n.align));
+                let items = e.node(NodeSpec { options, name: None, at: Some(n.at), text, place: OnPath::Point(n.at), point: n.at, coordinate: false, default_pos: None })?;
+                e.canvas.items.extend(items);
+                Ok(())
+            })();
+            e.end_group();
+            r?;
+        }
+        Ok(())
+    })();
+    e.end_group();
+    r
 }
 
 fn unit(p: Point) -> Point {

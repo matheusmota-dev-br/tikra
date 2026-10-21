@@ -92,6 +92,31 @@ impl Frame {
         self.at(l)
     }
 
+    /// The lower left and upper right corners of the box as drawn (a 3d box's projection).
+    pub fn bbox(&self) -> (Point, Point) {
+        let mut lo = Point::new(f64::INFINITY, f64::INFINITY);
+        let mut hi = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for i in 0..8 {
+            if !self.three_d && i >= 4 {
+                break;
+            }
+            let p = self.rel([(i & 1) as f64, ((i >> 1) & 1) as f64, ((i >> 2) & 1) as f64]);
+            lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+            hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+        }
+        (lo, hi)
+    }
+
+    /// `axis description cs`: (0,0) the lower left corner of the box as drawn, (1,1) the upper right
+    /// one (`\pgfplotspointdescriptionxy`).
+    pub fn desc(&self, x: f64, y: f64) -> Point {
+        if !self.three_d {
+            return self.rel([x, y, 0.0]);
+        }
+        let (lo, hi) = self.bbox();
+        Point::new(lo.x + x * (hi.x - lo.x), lo.y + y * (hi.y - lo.y))
+    }
+
     /// The outward unit normal of the line that holds axis `a`'s tick labels.
     pub fn normal(&self, a: usize) -> Point {
         if self.three_d {
@@ -269,9 +294,7 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<(), Error> {
     };
     // where the axis goes: `at` (in the picture), by `anchor`
     let anchor = keys::value(e, "/pgfplots/anchor");
-    let box_min = frame.at(frame.min);
-    let box_max = frame.at(frame.max);
-    let (lo, hi) = (Point::new(box_min.x.min(box_max.x), box_min.y.min(box_max.y)), Point::new(box_min.x.max(box_max.x), box_min.y.max(box_max.y)));
+    let (lo, hi) = frame.bbox();
     let (blo, bhi) = bbox.unwrap_or((lo, hi));
     let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).unwrap_or(lo);
     e.frame = None;
@@ -1063,12 +1086,13 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         // marks outside the axis are not drawn, those on its border are drawn whole
         if clip && !f.three_d {
             m.points.retain(|(p, _)| inside(p));
+            m.nodes.retain(|n| inside(&n.point));
         }
         super::visual::draw_marks(e, &m, &f)?;
+        super::visual::draw_near_nodes(e, &m)?;
     }
     // `current axis` exists for the descriptions (`current axis.right of origin`)
-    let (a, b) = (f.at(f.min), f.at(f.max));
-    let (lo, hi) = (Point::new(a.x.min(b.x), a.y.min(b.y)), Point::new(a.x.max(b.x), a.y.max(b.y)));
+    let (lo, hi) = f.bbox();
     let (blo, bhi) = e.canvas.min.zip(e.canvas.max).unwrap_or((lo, hi));
     register_axis_node(e, "current axis", lo, hi, blo, bhi, &f);
     // descriptions, in description coordinates
@@ -1378,7 +1402,20 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
             while j < tokens.len() && tokens[j].is_space() {
                 j += 1;
             }
-            let (arg, end) = group_at(tokens, j);
+            let (mut arg, mut end) = group_at(tokens, j);
+            // an expanded `\pgfmathprintnumber\tick`: the number's characters, unbraced
+            let numeric = |t: &Token, first: bool| match t {
+                Token::Char(c, tex::Cat::Other | tex::Cat::Letter) => c.is_ascii_digit() || matches!(c, '-' | '+' | '.') || (!first && matches!(c, 'e' | 'E')),
+                _ => false,
+            };
+            if arg.len() == 1 && numeric(&arg[0], true) {
+                let mut k = j;
+                while k < tokens.len() && numeric(&tokens[k], k == j) {
+                    k += 1;
+                }
+                arg = tokens[j..k].to_vec();
+                end = k;
+            }
             let saved = e.st.number_format.clone();
             if !opts.is_empty() {
                 e.process_keys(opts, Some("/pgf/number format"))?;
@@ -1598,7 +1635,7 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
         let text = tex::string_tokens(&label);
         let options = toks(&format!("/pgfplots/every tick label,/pgfplots/every {c} tick label,/pgfplots/every {c} tick scale label"));
         f.cs.set(Cs::Description);
-        let p = f.rel([0.0, 0.0, 0.0]);
+        let p = f.desc(0.0, 0.0);
         let items = e.node(NodeSpec { options, name: None, at: None, text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None });
         f.cs.set(Cs::Plain);
         e.canvas.items.extend(items?);
@@ -1617,14 +1654,14 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
             continue;
         }
         f.label_axis.set(a);
-        let p = f.rel([0.0; 3]);
+        let p = f.desc(0.0, 0.0);
         let options = toks(&format!("/pgfplots/every axis label,/pgfplots/every axis {c} label"));
         let text = print_numbers(e, &text)?;
         let items = e.node(NodeSpec { options, name: None, at: None, text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None })?;
         e.canvas.items.extend(items);
     }
     if let Some(text) = keys::value_tokens(&*e, "/pgfplots/title") {
-        let p = f.rel([0.0; 3]);
+        let p = f.desc(0.0, 0.0);
         let text = print_numbers(e, &text)?;
         let items =
             e.node(NodeSpec { options: toks("/pgfplots/every axis title"), name: None, at: None, text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None })?;
@@ -1666,11 +1703,16 @@ impl Engine {
                     let l = [f.logical(0, x), f.logical(1, y), if f.three_d { f.logical(2, z) } else { f.min[2] }];
                     Ok(f.at(l))
                 }
-                "rel axis" | "axis description" => {
+                "rel axis" => {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);
                     let y = value(self, 1, "y")?.unwrap_or(0.0);
                     let z = value(self, 2, "z")?.unwrap_or(0.0);
                     Ok(f.rel([x, y, z]))
+                }
+                "axis description" => {
+                    let x = value(self, 0, "x")?.unwrap_or(0.0);
+                    let y = value(self, 1, "y")?.unwrap_or(0.0);
+                    Ok(f.desc(x, y))
                 }
                 "axis direction" => {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);
@@ -1741,7 +1783,7 @@ impl Engine {
                     for (i, p) in parts.iter().enumerate().take(3) {
                         v[i] = self.number(crate::options::strip_braces(p.trim()))?;
                     }
-                    Ok(if cs == Cs::Axis { f.at([f.logical(0, v[0]), f.logical(1, v[1]), if f.three_d { f.logical(2, v[2]) } else { f.min[2] }]) } else { f.rel(v) })
+                    Ok(if cs == Cs::Axis { f.at([f.logical(0, v[0]), f.logical(1, v[1]), if f.three_d { f.logical(2, v[2]) } else { f.min[2] }]) } else { f.desc(v[0], v[1]) })
                 })();
                 Some(r)
             }

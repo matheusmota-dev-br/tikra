@@ -203,3 +203,19 @@ fn three_d_axis_and_surface() {
     assert!(w.is_empty(), "{w:?}");
     assert!(strokes(&c2) > strokes(&c), "{} {}", strokes(&c2), strokes(&c));
 }
+
+#[test]
+fn nodes_near_coords() {
+    // one node per point with its y value, above the points and below for negative ones
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty, nodes near coords", r"\addplot coordinates {(0,1) (1,-1) (2,0.5)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 3);
+    // symbolic point meta is shown as written
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot[nodes near coords, point meta=explicit symbolic] coordinates {(0,1) [a] (1,2) [b]};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 2);
+    // and the text can be anything, with \coordindex
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[ybar, nodes near coords={(\coordindex)}] coordinates {(0,1) (1,2)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 2);
+}

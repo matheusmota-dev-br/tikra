@@ -46,6 +46,8 @@ pub fn mapped_colors(e: &mut Engine, mut f: impl FnMut(&mut Engine) -> Result<()
         r?;
         states.push(st);
     }
+    // what is drawn later with `mapped color` (nodes near coords) gets TeX's black
+    e.colors.insert("mapped color".into(), Color::BLACK);
     let draw = Linear::from(states[0].stroke_color(), states[1].stroke_color());
     let fill = Linear::from(states[0].fill_paint_color(), states[1].fill_paint_color());
     Ok((draw, fill, states.swap_remove(1)))
@@ -56,8 +58,9 @@ fn mapped_named(e: &mut Engine, name: &str) -> Option<Linear> {
     e.colors.insert("mapped color".into(), Color::BLACK);
     let a = e.color(name)?;
     e.colors.insert("mapped color".into(), Color::WHITE);
-    let b = e.color(name)?;
-    Some(Linear::from(a, b))
+    let b = e.color(name);
+    e.colors.insert("mapped color".into(), Color::BLACK);
+    Some(Linear::from(a, b?))
 }
 
 /// The colormap's color for meta value `m`.
@@ -137,6 +140,40 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         let metas: Vec<f64> = q.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
         let mapped = if m.is_finite() { map(f, m) } else { Color::BLACK };
+        // interp: a large rectangle is shaded across, drawn as small bilinear pieces
+        if surf && closes && shader == "interp" && corners.len() == 4 && metas.len() == 4 {
+            let size = (0..4).map(|i| corners[i].minus(corners[(i + 1) % 4]).norm()).fold(0.0, f64::max);
+            let n = if size > 12.0 * crate::PT { ((size / (6.0 * crate::PT)).ceil() as usize).clamp(1, 32) } else { 1 };
+            if n > 1 {
+                let bil = |u: f64, v: f64| -> (Point, f64) {
+                    let w = [(1.0 - u) * (1.0 - v), u * (1.0 - v), u * v, (1.0 - u) * v];
+                    let mut p = Point::default();
+                    let mut mm = 0.0;
+                    for k in 0..4 {
+                        p = p.plus(corners[k].scale(w[k]));
+                        mm += metas[k] * w[k];
+                    }
+                    (p, mm)
+                };
+                for i in 0..n {
+                    for j in 0..n {
+                        let (u0, u1, v0, v1) = (i as f64 / n as f64, (i + 1) as f64 / n as f64, j as f64 / n as f64, (j + 1) as f64 / n as f64);
+                        let pts4 = [bil(u0, v0), bil(u1, v0), bil(u1, v1), bil(u0, v1)];
+                        let mm = pts4.iter().map(|q| q.1).sum::<f64>() / 4.0;
+                        let c = fill.at(map(f, mm));
+                        let mut segs = vec![Segment::MoveTo(pts4[0].0)];
+                        segs.extend(pts4[1..].iter().map(|q| Segment::LineTo(q.0)));
+                        segs.push(Segment::Close);
+                        if !e.canvas_frozen {
+                            e.canvas.include_path(&segs);
+                        }
+                        let stroke = Stroke { color: c, width: 0.2 * crate::PT, dash: None, cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: opacity.0 };
+                        e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint: Paint::Solid(c), opacity: opacity.1, even_odd: false }), stroke: Some(stroke) });
+                    }
+                }
+                continue;
+            }
+        }
         let mut segs = vec![Segment::MoveTo(corners[0])];
         segs.extend(corners[1..].iter().map(|c| Segment::LineTo(*c)));
         if closes {

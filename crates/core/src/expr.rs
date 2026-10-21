@@ -270,8 +270,8 @@ impl Parser<'_> {
                 let g = |x: f64| x.to_radians();
                 let a = args[0];
                 Ok(match name.as_str() {
-                    "sin" => g(a).sin(),
-                    "cos" => g(a).cos(),
+                    "sin" => sin_degrees(a),
+                    "cos" => sin_degrees(a + 90.0),
                     "tan" => g(a).tan(),
                     "asin" => a.asin().to_degrees(),
                     "acos" => a.acos().to_degrees(),
@@ -314,6 +314,20 @@ mod tests {
         assert!((eval("-\\R + 1", &v).unwrap() - 0.6).abs() < 1e-9);
         assert!((eval("2^3", &v).unwrap() - 8.0).abs() < 1e-9);
         assert!((eval_length("10pt", &v).unwrap().0 - 0.3515).abs() < 1e-3);
+    }
+}
+
+/// The sine of degrees, exact at multiples of 90 as pgfmath's (`sin(360)` is 0, not -2.4e-16).
+fn sin_degrees(a: f64) -> f64 {
+    let r = a.rem_euclid(360.0);
+    if r == 0.0 || r == 180.0 {
+        0.0
+    } else if r == 90.0 {
+        1.0
+    } else if r == 270.0 {
+        -1.0
+    } else {
+        a.to_radians().sin()
     }
 }
 

@@ -52,7 +52,7 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         e.st.pending = Transform::default();
         e.st.node = Default::default();
         e.process_keys(toks("/pgfplots/every axis legend"), Some("/tikz"))?;
-        let at = e.st.node.at.unwrap_or_else(|| f.rel([0.98, 0.98, 0.0]));
+        let at = e.st.node.at.unwrap_or_else(|| f.desc(0.98, 0.98));
         let anchor = keys::value(e, "/tikz/anchor");
         let xsep = keys::length(e, "/pgf/inner xsep").unwrap_or(3.0 * PT);
         let ysep = keys::length(e, "/pgf/inner ysep").unwrap_or(2.0 * PT);
