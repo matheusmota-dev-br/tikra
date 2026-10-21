@@ -18,6 +18,7 @@ pub mod mesh;
 pub mod number;
 pub mod plot;
 pub mod polar;
+pub mod smith;
 pub mod symbolic;
 pub mod table;
 pub mod ternary;
@@ -125,9 +126,6 @@ impl Engine {
 
     /// An axis with these options (`\nextgroupplot` makes them).
     pub fn begin_axis_with(&mut self, kind: &str, o: Vec<Token>) -> Result<(), Error> {
-        if kind == "smithchart" {
-            self.warn(format!("{kind} not supported: drawn as a cartesian axis"));
-        }
         if self.axis.is_some() {
             self.warn("nested axis environments are not supported (pgfplots refuses them too): the inner one is drawn on its own");
         }
@@ -139,6 +137,7 @@ impl Engine {
         let mut axis = Axis { kind: kind.to_string(), opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
             "polaraxis" => "enlarge x limits=false,every polar axis",
+            "smithchart" => "every smithchart axis",
             "ternaryaxis" => {
                 "enlargelimits=false,xmin=0,xmax=1,ymin=0,ymax=1,zmin=0,zmax=1,\
                  footnotesize/.append style={every axis title shift=15pt},tiny/.append style={every axis title shift=15pt},every ternary axis"
@@ -163,6 +162,22 @@ impl Engine {
         };
         keys::set(self, "/pgfplots/@axis type", if kind == "polaraxis" { "polar" } else { "cart" });
         self.process_keys(o, Some("/pgfplots")).map_err(|err| Error::Figure(format!("axis options: {err}")))?;
+        if kind == "smithchart" {
+            // the ticks by size, unless given
+            let width = keys::length(self, "/pgfplots/width").unwrap_or(207.0 * crate::PT);
+            keys::run(self, smith::size_style(width))?;
+            let given = [keys::value(self, "/pgfplots/xtick").is_empty(), keys::value(self, "/pgfplots/ytick").is_empty()];
+            if given[0] {
+                keys::run(self, "default smithchart xtick")?;
+            }
+            if given[1] {
+                keys::run(self, "default smithchart ytick")?;
+            }
+            if given[0] && given[1] {
+                keys::run(self, "default smithchart xytick")?;
+            }
+            keys::set(self, "/pgfplots/is smithchart cs", "false");
+        }
         if kind == "ternaryaxis" {
             // percentages: whole numbers, never scaled
             if keys::flag(self, "/pgfplots/ternary limits relative") {

@@ -69,6 +69,15 @@ pub struct Frame {
     /// logical unit. Tick labels are percentages of the ranges with relative limits.
     pub ternary: bool,
     pub ternary_relative: bool,
+    /// `smithchart`: points at their reflection coefficient, `origin` the center and `e` the
+    /// radii (x negative for `smithchart mirrored`).
+    pub smith: bool,
+    /// While a tick label is placed: the direction `sloped like y axis` follows (a smith chart's
+    /// circle there), and the anchor code it keeps for an upside down label.
+    pub slope: Cell<Option<Point>>,
+    pub upside_down: RefCell<Option<Vec<Token>>>,
+    /// `x dir=reverse` and its friends.
+    pub reversed: [bool; 3],
 }
 
 impl Frame {
@@ -84,6 +93,9 @@ impl Frame {
     pub fn at(&self, l: [f64; 3]) -> Point {
         if self.ternary {
             return super::ternary::at(self, l);
+        }
+        if self.smith {
+            return super::smith::at(self, l);
         }
         if self.polar {
             let (s, c) = super::polar::sin_cos(l[0]);
@@ -113,6 +125,9 @@ impl Frame {
     pub fn bbox(&self) -> (Point, Point) {
         let mut lo = Point::new(f64::INFINITY, f64::INFINITY);
         let mut hi = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+        if self.smith {
+            return super::smith::bbox(self);
+        }
         if self.ternary {
             for p in super::ternary::corners(self) {
                 lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
@@ -141,7 +156,7 @@ impl Frame {
     /// `axis description cs`: (0,0) the lower left corner of the box as drawn, (1,1) the upper right
     /// one (`\pgfplotspointdescriptionxy`).
     pub fn desc(&self, x: f64, y: f64) -> Point {
-        if !self.three_d && !self.polar {
+        if !self.three_d && !self.polar && !self.smith {
             return self.rel([x, y, 0.0]);
         }
         let (lo, hi) = self.bbox();
@@ -152,6 +167,13 @@ impl Frame {
     pub fn normal(&self, a: usize) -> Point {
         if self.ternary {
             return super::ternary::normal(self, a);
+        }
+        if self.smith {
+            // at the tick being labelled: outwards of the circle
+            if let (1, Some(u)) = (a, self.slope.get()) {
+                return Point::new(u.y, -u.x);
+            }
+            return super::smith::normal(self, a);
         }
         if self.three_d {
             return super::cube::outer_normal(&self.e, self.label_line[a], self.box_line[a]);
@@ -166,9 +188,21 @@ impl Frame {
         u.scale(side * sign)
     }
 
-    /// pgfplots' `near ticklabel` anchors: the border point of a node facing the axis, as an angle
-    /// anchor in the node's own (possibly rotated) coordinates.
-    pub fn near_anchor(&self, name: &str, rotation: &Transform) -> Option<String> {
+    /// The direction axis `a` grows in on paper (at the tick being labelled, for a smith chart's
+    /// circle).
+    fn direction(&self, a: usize) -> Point {
+        if self.smith && a == 1 {
+            return self.slope.get().unwrap_or(Point::new(0.0, -1.0));
+        }
+        unit(self.e[a])
+    }
+
+    /// pgfplots' `near ticklabel` anchors (`\pgfplots@borderanchor@for@axis@`): in the node's own
+    /// (possibly rotated) coordinates, the compass anchor that faces the axis is snapped to, then
+    /// moved along the line through it parallel to the axis to where the line from the node's
+    /// `near ticklabel align` anchor (center, by default) towards the axis meets it.
+    /// `local` gives the node's named anchors.
+    pub fn near_point(&self, name: &str, rotation: &Transform, align: &str, local: &dyn Fn(&str) -> Option<Point>) -> Option<Point> {
         let rest = name.strip_prefix("near ")?;
         let (axis_part, opposite) = match rest.strip_suffix(" opposite") {
             Some(r) => (r, true),
@@ -181,17 +215,40 @@ impl Frame {
             "zticklabel" => 2,
             _ => return None,
         };
-        let n = self.normal(a);
-        // facing the axis: against the outward normal
-        let d = if opposite { n } else { n.scale(-1.0) };
-        let lin = Transform { e: 0.0, f: 0.0, ..*rotation };
-        let local = lin.inverse().apply(d);
-        let angle = local.y.atan2(local.x).to_degrees();
-        let r = (angle / 90.0).round();
-        if (angle - r * 90.0).abs() < 1e-6 {
-            return Some(["east", "north", "west", "south"][((r as i64).rem_euclid(4)) as usize].to_string());
+        let lin = Transform { e: 0.0, f: 0.0, ..*rotation }.inverse();
+        // towards the axis (away from it for `opposite`)
+        let n = lin.apply(self.normal(a).scale(if opposite { 1.0 } else { -1.0 }));
+        let d = lin.apply(self.direction(a));
+        let snap = |v: Point| -> &'static str {
+            const T: f64 = 0.17;
+            match (v.y > T, v.y < -T, v.x > T, v.x < -T) {
+                (true, _, true, _) => "north east",
+                (true, _, _, true) => "north west",
+                (true, ..) => "north",
+                (_, true, true, _) => "south east",
+                (_, true, _, true) => "south west",
+                (_, true, ..) => "south",
+                (.., true, _) => "east",
+                (.., true) => "west",
+                _ => "center",
+            }
+        };
+        let reversed = self.reversed[a];
+        let inner = match align.trim() {
+            "inside" => snap(if reversed { d.scale(-1.0) } else { d }),
+            "outside" => snap(if reversed { d } else { d.scale(-1.0) }),
+            _ => "center",
+        };
+        let at = local(snap(n))?;
+        let from = local(inner)?;
+        let det = n.x * d.y - n.y * d.x;
+        if (n.x * d.x + n.y * d.y).abs() >= 0.8 || det.abs() < 1e-12 {
+            return Some(at);
         }
-        Some(format!("{angle}"))
+        // from + r·n = at + s·d
+        let rhs = at.minus(from);
+        let r = (rhs.x * d.y - rhs.y * d.x) / det;
+        Some(from.plus(n.scale(r)))
     }
 }
 
@@ -413,6 +470,10 @@ fn clone_frame(f: &Frame) -> Frame {
         polar: f.polar,
         ternary: f.ternary,
         ternary_relative: f.ternary_relative,
+        smith: f.smith,
+        slope: Cell::new(f.slope.get()),
+        upside_down: RefCell::new(f.upside_down.borrow().clone()),
+        reversed: f.reversed,
         label_shift: f.label_shift,
         meta: f.meta,
         colormap: f.colormap.clone(),
@@ -528,6 +589,7 @@ fn register_axis_node(e: &mut Engine, name: &str, lo: Point, hi: Point, blo: Poi
 /// Limits, scaling and ticks.
 fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let ternary = axis.kind == "ternaryaxis";
+    let smith = axis.kind == "smithchart";
     let three_d = ternary || axis.entries.iter().any(|en| matches!(en, Entry::Plot(p) if p.three_d)) || !e.pv("zmin").is_empty() || !e.pv("zmax").is_empty();
     if three_d {
         three_d_descriptions(e, axis)?;
@@ -705,7 +767,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
     }
     // enlargelimits (none on a polar axis)
-    for a in 0..if polar || ternary { 0 } else { dims } {
+    for a in 0..if polar || ternary || smith { 0 } else { dims } {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
@@ -778,7 +840,23 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         })
     };
     let units = [user_unit(e, 'x'), user_unit(e, 'y'), user_unit(e, 'z')];
-    if ternary {
+    if smith {
+        // the diameter is `width` (less the labels' room), the height that of the width
+        let (w, h) = (keys::length(e, "/pgfplots/width"), keys::length(e, "/pgfplots/height"));
+        let (mut pw, mut ph) = match (w, h) {
+            (None, None) => (207.0 * PT, 207.0 * PT),
+            (Some(w), None) => (w, w),
+            (None, Some(h)) => (h, h),
+            (Some(w), Some(h)) => (w, h),
+        };
+        if !keys::flag(e, "/pgfplots/scale only axis") {
+            pw = (pw - 45.0 * PT).max(0.0);
+            ph = (ph - 45.0 * PT).max(0.0);
+        }
+        let mirrored = if keys::flag(e, "/pgfplots/smithchart mirrored") { -1.0 } else { 1.0 };
+        ev[0] = Point::new(mirrored * pw / 2.0, 0.0);
+        ev[1] = Point::new(0.0, ph / 2.0);
+    } else if ternary {
         // a triangle of side `width` (less the labels' room)
         let v = super::ternary::vectors(width);
         for a in 0..3 {
@@ -931,8 +1009,15 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         polar,
         ternary,
         ternary_relative: ternary && keys::flag(e, "/pgfplots/ternary limits relative"),
+        smith,
+        slope: Cell::new(None),
+        upside_down: RefCell::new(None),
+        reversed: dir,
     };
-    if ternary {
+    if smith {
+        // the chart's lower left corner at the origin
+        frame.origin = base.plus(Point::new(frame.e[0].norm(), frame.e[1].norm()));
+    } else if ternary {
         // the lower left corner is at the origin already
     } else if three_d {
         super::cube::prepare(e, &mut frame, dir, &lines);
@@ -1228,9 +1313,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         let rect = box_path(&f);
         e.draw_with("draw=none,/pgfplots/axis background", rect)?;
     }
-    if f.ternary {
+    if f.ternary || f.smith {
         if !on_top {
-            super::ternary::draw_axis(e, s)?;
+            other_axis(e, s)?;
         }
     } else if f.polar && !on_top {
         super::polar::draw_axis(e, s)?;
@@ -1244,7 +1329,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let clip = keys::flag(e, "/pgfplots/clip");
     e.begin_scope();
     if clip {
-        let segs = if f.ternary {
+        let segs = if f.smith {
+            super::smith::clip_path(&f)
+        } else if f.ternary {
             super::ternary::outline(&f)
         } else if f.polar {
             super::polar::clip_path(&f)
@@ -1309,8 +1396,8 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         super::cube::draw(e, s, true)?;
     }
     if on_top {
-        if f.ternary {
-            super::ternary::draw_axis(e, s)?;
+        if f.ternary || f.smith {
+            other_axis(e, s)?;
         } else if f.polar {
             super::polar::draw_axis(e, s)?;
         } else if f.three_d {
@@ -1325,7 +1412,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let inside = |p: &Point| p.x >= a.x.min(b.x) - tol && p.x <= a.x.max(b.x) + tol && p.y >= a.y.min(b.y) - tol && p.y <= a.y.max(b.y) + tol;
     for mut m in marks {
         // marks outside the axis are not drawn, those on its border are drawn whole
-        if clip && !f.three_d && !f.polar {
+        if clip && !f.three_d && !f.polar && !f.smith {
             m.points.retain(|(p, _)| inside(p));
             m.nodes.retain(|n| inside(&n.point));
         }
@@ -1340,7 +1427,19 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     f.cs.set(Cs::Description);
     descriptions(e, axis, s)?;
     f.cs.set(Cs::Plain);
+    if f.smith && keys::flag(e, "/pgfplots/show origin") {
+        super::smith::show_origin(e, &f)?;
+    }
     Ok(())
+}
+
+/// The axes of the libraries that draw their own.
+fn other_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
+    if s.frame.smith {
+        super::smith::draw_axis(e, s)
+    } else {
+        super::ternary::draw_axis(e, s)
+    }
 }
 
 /// A style's code, if it does something.
@@ -1963,6 +2062,11 @@ impl Engine {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);
                     let y = value(self, 1, "y")?.unwrap_or(0.0);
                     Ok(super::ternary::cartesian(&f, x, y))
+                }
+                "cartesian" if f.smith => {
+                    let x = value(self, 0, "x")?.unwrap_or(0.0);
+                    let y = value(self, 1, "y")?.unwrap_or(0.0);
+                    Ok(super::smith::canvas(&f, x, y))
                 }
                 "axis" => {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);

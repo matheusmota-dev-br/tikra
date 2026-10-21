@@ -622,6 +622,63 @@ const DEFINITIONS: &str = r"
 		every axis legend/.style={shape=rectangle, draw=black, fill=white, anchor=north west, at={(1.03,1.03)},
 			cells={anchor=center}, inner xsep=3pt, inner ysep=2pt, nodes={inner sep=2pt, text depth=0.15em}},
 	},
+	% smith charts: where grid lines stop, the input's plane, the ring at the center
+	/pgfplots/xgrid each nth passes y/.initial=, /pgfplots/xgrid each nth passes y start/.initial=0,
+	/pgfplots/ygrid each nth passes x/.initial=, /pgfplots/ygrid each nth passes x start/.initial=0,
+	/pgfplots/xgrid stop at y/.initial=, /pgfplots/ygrid stop at x/.initial=,
+	/pgfplots/smithchart mirrored/.initial=false, /pgfplots/smithchart mirrored/.default=true,
+	/pgfplots/is smithchart cs/.initial=false, /pgfplots/is smithchart cs/.default=true,
+	/pgfplots/show origin/.initial=false, /pgfplots/show origin/.default=true,
+	/pgfplots/every smithchart axis/.style={
+		xmin=0, xmax=16000, ymin=-16000, ymax=16000, grid=both, scaled ticks=false,
+		xtick align=center, ytick align=center, major tick style={draw=black},
+		legend style={anchor=center}, every axis title shift=1.2\baselineskip,
+	},
+	% the ticks by the chart's size: few below 14cm, many below 20cm, dense beyond
+	/pgfplots/default smithchart xtick/.style={}, /pgfplots/default smithchart ytick/.style={},
+	/pgfplots/default smithchart xytick/.style={},
+	/pgfplots/few smithchart ticks*/.style={
+		default smithchart xtick/.style={xtick={0.2,0.5,1,2,5}},
+		default smithchart ytick/.style={ytick={0,0.2,0.5,1,2,5,-0.2,-0.5,-1,-2,-5}},
+		default smithchart xytick/.style={xgrid each nth passes y={2}, ygrid each nth passes x={2}},
+	},
+	/pgfplots/few smithchart ticks/.style={/pgfplots/few smithchart ticks*},
+	/pgfplots/many smithchart ticks*/.style={
+		default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,1,1.5,2,3,4,5,10,20},
+			minor xtick={0.6,0.7,0.8,0.9,1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
+		default smithchart ytick/.style={
+			ytick={0,0.1,0.2,...,1,1.5,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.5,-2,-3,-4,-5,-10,-20},
+			minor ytick={1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
+				-1.1,-1.2,-1.3,-1.4,-1.6,-1.7,-1.8,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
+		default smithchart xytick/.style={xgrid each nth passes y={1,2,4,5,10,20}, ygrid each nth passes x={1,2,3,5,10:3,20:3}},
+	},
+	/pgfplots/many smithchart ticks/.style={many smithchart ticks*, every axis title shift=6pt, yticklabel in circle, show origin=true},
+	/pgfplots/dense smithchart ticks*/.style={
+		default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20},
+			minor xtick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
+				0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.52,0.55,0.65,0.75,0.85,0.95,
+				1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
+		default smithchart ytick/.style={
+			ytick={0,0.1,0.2,...,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.2,-1.4,-1.6,-1.8,-2,-3,-4,-5,-10,-20},
+			minor ytick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
+				0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.55,0.65,0.75,0.85,0.95,
+				1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
+				-0.01,-0.02,-0.03,-0.04,-0.05,-0.06,-0.07,-0.08,-0.09,-0.11,-0.12,-0.13,-0.14,-0.15,-0.16,-0.17,-0.18,-0.19,
+				-0.22,-0.24,-0.26,-0.28,-0.32,-0.34,-0.36,-0.38,-0.42,-0.44,-0.46,-0.48,-0.55,-0.65,-0.75,-0.85,-0.95,
+				-1.1,-1.3,-1.5,-1.7,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
+		default smithchart xytick/.style={
+			xgrid each nth passes y={0.2 if < 0.2001,0.5 if < 0.50001,1 if < 1.001,2,4,5,10,20},
+			ygrid each nth passes x={0.2 if < 0.2001,0.52 if < 0.52001,1 if < 1.001,2,3,5,10:3,20:3}},
+	},
+	/pgfplots/dense smithchart ticks/.style={yticklabel in circle, every axis title shift=6pt,
+		dense smithchart ticks*, show origin=true, every major grid/.style={black!60}},
+	% y tick labels along the circle, inside or around it
+	/pgfplots/yticklabel in circle/.style={ytick align=inside, yticklabel style={rotate=90,
+		sloped like y axis={execute for upside down={\tikzset{anchor=north east}}, reset nontranslations=false}, anchor=south west}},
+	/pgfplots/yticklabel around circle/.style={ytick align=center, yticklabel style={rotate=90,
+		sloped like y axis={execute for upside down={\tikzset{anchor=south west}}, reset nontranslations=false}, anchor=south east}},
+	/pgfplots/yticklabel around circle*/.style={ytick align=center, yticklabel style={rotate=90,
+		sloped like y axis={execute for upside down={\tikzset{anchor=north west}}, reset nontranslations=false}, anchor=north east}},
 	% tieline plots: each table row has a point and its tie's other end
 	/pgfplots/tieline/every tieline/.style={}, /pgfplots/tieline/every curve/.style={},
 	/pgfplots/tieline/tieline style/.style={/pgfplots/tieline/every tieline/.append style={#1}},
@@ -996,20 +1053,39 @@ keyfn!(k_contour_filled, |e, v| {
 
 // `sloped like x axis`: the node turned to the axis' direction on paper, never upside down; it
 // replaces rotations given before (`\pgfplotstransformtoaxisdirection`).
-fn sloped_like(e: &mut Engine, a: usize) -> Result<(), Error> {
+// Its options: `execute for upside down={…}` (kept for after the node's other options, as
+// pgfplots runs it when the node is placed), `allow upside down`, `reset nontranslations=false`.
+fn sloped_like(e: &mut Engine, a: usize, v: Option<Vec<Token>>) -> Result<(), Error> {
     let Some(f) = e.frame.clone() else { return Ok(()) };
-    let d = f.e[a].scale(if f.max[a] < f.min[a] { -1.0 } else { 1.0 });
+    let (code, allow, reset) = super::smith::sloped_options(&v.unwrap_or_default());
+    // the direction at the tick being labelled (a smith chart's circle), else the axis'
+    let d = f.slope.get().unwrap_or_else(|| f.e[a].scale(if f.max[a] < f.min[a] { -1.0 } else { 1.0 }));
     if d.norm() < 1e-12 {
         return Ok(());
     }
-    let d = if d.x < 0.0 { d.scale(-1.0) } else { d };
+    let mut d = d;
+    if d.x < 0.0 {
+        if let Some(code) = code {
+            // `\tikzset{anchor=…}`: its keys
+            let t = crate::keys::trim(&code).to_vec();
+            let keys = match t.split_first() {
+                Some((first, rest)) if first.is_cs("tikzset") => crate::tex::strip_outer_braces(crate::keys::trim(rest).to_vec()),
+                _ => t,
+            };
+            f.upside_down.replace(Some(keys));
+        }
+        if !allow {
+            d = d.scale(-1.0);
+        }
+    }
     let p = e.st.pending;
-    e.st.pending = crate::scene::Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, ..p }.compose(&crate::scene::Transform::rotation(d.y.atan2(d.x).to_degrees()));
+    let base = if reset { crate::scene::Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, ..p } } else { p };
+    e.st.pending = base.compose(&crate::scene::Transform::rotation(d.y.atan2(d.x).to_degrees()));
     Ok(())
 }
-keyfn!(k_sloped_x, |e, _v| sloped_like(e, 0));
-keyfn!(k_sloped_y, |e, _v| sloped_like(e, 1));
-keyfn!(k_sloped_z, |e, _v| sloped_like(e, 2));
+keyfn!(k_sloped_x, |e, v| sloped_like(e, 0, v));
+keyfn!(k_sloped_y, |e, v| sloped_like(e, 1, v));
+keyfn!(k_sloped_z, |e, v| sloped_like(e, 2, v));
 
 // `tieline={…}`: the curve through the ties' ends, and the ties.
 keyfn!(k_tieline, |e, v| {

@@ -397,6 +397,12 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         }
     }
     data_cs(e, plot);
+    // `is smithchart cs`: the input is in the unit circle's plane
+    if e.axis.as_ref().is_some_and(|a| a.kind == "smithchart") && keys::flag(e, "/pgfplots/is smithchart cs") {
+        for c in plot.coords.iter_mut() {
+            (c.x, c.y) = super::smith::impedance(c.x, c.y);
+        }
+    }
     if plot.handler == "contour prepared" && keys::value(e, "/pgfplots/@contour format") == "matlab" {
         super::contour::from_matlab(plot);
         keys::set(e, "/pgfplots/point meta", "explicit");
@@ -553,6 +559,7 @@ fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
 /// `coordinates {(x,y) (x,y) +- (ex,ey) [meta] …}`.
 /// The points of `coordinates {…}`, and where its scanlines (ended by empty lines) end.
 fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usize>), Error> {
+    let explicit_symbolic = keys::value(e, "/pgfplots/point meta").trim() == "explicit symbolic";
     let list = e.tex.expand_fully(list)?;
     let mut out = Vec::new();
     let mut scanlines: Vec<usize> = Vec::new();
@@ -640,7 +647,10 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
                     k += 1;
                 }
                 let written = &list[start..k.min(list.len())];
-                c.meta = value(e, written);
+                // `explicit symbolic`: the text as written, never a number
+                if !explicit_symbolic {
+                    c.meta = value(e, written);
+                }
                 c.label = add_label(crate::keys::trim(written).to_vec());
                 j = k + 1;
             }
