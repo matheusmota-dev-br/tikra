@@ -93,45 +93,54 @@ fn clean(text: &str) -> String {
     out
 }
 
-/// Typewriter text (`\\texttt{…}`, or all of it under `\\ttfamily`) as math's monospace letters,
-/// the closest the math font has to TeX's typewriter font; its spaces kept.
-fn typewriter(text: &str, all: bool) -> String {
-    let mono = |t: &str| -> String {
-        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\mathtt{{{p}}}")).collect();
+/// Text in another family (`\texttt{…}`, `\textit{…}`, `\emph{…}`, `\textsf{…}`, or all of it
+/// under `\ttfamily`, `\itshape`, `\sffamily`) as the math font's letters of that family, the
+/// closest it has to TeX's typewriter, italic and sans serif fonts; its spaces kept.
+fn families(text: &str, all: Option<&str>) -> String {
+    let set = |t: &str, family: &str| -> String {
+        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\{family}{{{p}}}")).collect();
         if parts.is_empty() {
             String::new()
         } else {
             format!("${}$", parts.join("\\ "))
         }
     };
-    if all && !text.contains('$') && !text.contains('\\') {
-        return mono(text);
-    }
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(i) = rest.find("\\texttt{") {
-        out.push_str(&rest[..i]);
-        let body = &rest[i + "\\texttt{".len()..];
-        // to the matching brace
-        let mut depth = 1;
-        let mut end = body.len();
-        for (k, c) in body.char_indices() {
-            match c {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = k;
-                        break;
-                    }
-                }
-                _ => {}
-            }
+    if let Some(family) = all {
+        if !text.contains('$') && !text.contains('\\') {
+            return set(text, family);
         }
-        out.push_str(&mono(&body[..end]));
-        rest = body.get(end + 1..).unwrap_or("");
     }
-    out.push_str(rest);
+    let mut out = text.to_string();
+    for (command, family) in [("texttt", "mathtt"), ("textit", "mathit"), ("emph", "mathit"), ("textsf", "mathsf")] {
+        let open = format!("\\{command}{{");
+        let mut done = String::new();
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(&open) {
+            done.push_str(&rest[..i]);
+            let body = &rest[i + open.len()..];
+            // to the matching brace
+            let mut depth = 1;
+            let mut end = body.len();
+            for (k, c) in body.char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = k;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let inner = &body[..end];
+            done.push_str(&if inner.contains('$') || inner.contains('\\') { inner.to_string() } else { set(inner, family) });
+            rest = body.get(end + 1..).unwrap_or("");
+        }
+        done.push_str(rest);
+        out = done;
+    }
     out
 }
 
@@ -265,8 +274,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
-    let mono = font.contains("\\ttfamily") || text.contains("\\ttfamily");
-    let text = typewriter(&rules(&clean(text), size), mono);
+    let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
+    let text = families(&rules(&clean(text), size), all);
     let space = 333.0f32;
     let mut boxes = Vec::new();
     for line in manual_lines(&text) {
