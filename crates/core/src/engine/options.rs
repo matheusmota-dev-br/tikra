@@ -1857,6 +1857,14 @@ keyfn!(k_local_bounding_box, |e, v| {
     e.open_local_box(s.trim().to_string());
     Ok(())
 });
+keyfn!(k_meet, |e, v| {
+    let s = text(e, &v)?;
+    e.view_key(&s, false)
+});
+keyfn!(k_slice, |e, v| {
+    let s = text(e, &v)?;
+    e.view_key(&s, true)
+});
 keyfn!(k_fit_fading, |e, v| {
     e.st.fit_fading = text(e, &v)? != "false";
     Ok(())
@@ -2064,6 +2072,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
     ("/tikz/fit fading", k_fit_fading),
+    ("/tikz/meet", k_meet),
+    ("/tikz/slice", k_slice),
     ("/tikz/local bounding box", k_local_bounding_box),
     ("/tikz/fading angle", k_fading_angle),
     ("/tikz/scope fading", k_scope_fading),

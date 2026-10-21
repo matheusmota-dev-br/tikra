@@ -36,6 +36,7 @@ pub mod three_d;
 pub mod tikzmath;
 pub mod trees;
 pub mod turtle;
+pub mod views;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -1737,6 +1738,7 @@ impl Engine {
                 self.begin_on_layer(layer);
                 Ok(())
             }
+            "pgfviewboxscope" => self.begin_view_box_scope(),
             "tikzfadingfrompicture" => {
                 // its \end is read with its body
                 self.tex.env_stack.pop();
@@ -1786,7 +1788,7 @@ impl Engine {
             "tikzpicture" | "pgfpicture" => self.end_picture(),
             n if pgfplots::is_axis(n) => self.end_axis()?,
             "groupplot" => self.end_groupplot()?,
-            "pgfscope" => {
+            "pgfscope" | "pgfviewboxscope" => {
                 self.end_scope();
                 self.end_group();
             }
