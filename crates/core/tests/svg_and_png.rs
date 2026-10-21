@@ -29,7 +29,7 @@ fn svg_with_opacities_dashes_and_drawn_nodes() {
 fn multiline_label_and_alignments() {
     for a in ["left", "right", "center"] {
         let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node[align={a}] {{line one\\ two}}; \end{{tikzpicture}}"));
-        assert!(r.svg.contains("<g fill="), "{a}");
+        assert!(r.svg.contains("<g transform="), "{a}");
     }
     // math with a fraction and a root: mathra's rules and lines
     let r = no_warnings(r"\begin{tikzpicture} \node {$\frac{a}{b} + \sqrt{x} + \overline{y}$}; \end{tikzpicture}");

@@ -35,13 +35,32 @@ enum Outcome {
     Panic(String),
 }
 
+/// Strokes thinner than a pixel drawn one pixel wide, as Ghostscript draws TeX's reference: the
+/// comparison is about geometry, and a hairline would otherwise vanish in antialiasing.
+fn hairlines_to_pixels(svg: &str) -> String {
+    let pixel = 72.0 / f64::from(DPI);
+    let mut out = String::with_capacity(svg.len());
+    let mut rest = svg;
+    while let Some(i) = rest.find("stroke-width=\"") {
+        let start = i + "stroke-width=\"".len();
+        out.push_str(&rest[..start]);
+        let end = rest[start..].find('"').map_or(rest.len(), |e| start + e);
+        let value: f64 = rest[start..end].parse().unwrap_or(pixel);
+        out.push_str(&format!("{}", value.max(pixel)));
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn run(code: String) -> Outcome {
     let caught = std::panic::catch_unwind(move || {
         let start = Instant::now();
-        let r = tikra::convert(&code);
+        // TIKRA_LEGACY=1: the earlier interpreter, to compare the two
+        let r = if std::env::var_os("TIKRA_LEGACY").is_some() { tikra::convert_legacy(&code) } else { tikra::convert(&code) };
         let svg_us = start.elapsed().as_secs_f64() * 1e6;
         match r {
-            Ok(out) => Outcome::Drawn { png: tikra::png(&out.svg, DPI, true).map_err(|e| e.to_string()), warnings: out.warnings, svg_us },
+            Ok(out) => Outcome::Drawn { png: tikra::png(&hairlines_to_pixels(&out.svg), DPI, true).map_err(|e| e.to_string()), warnings: out.warnings, svg_us },
             Err(e) => Outcome::Error(e.to_string()),
         }
     });

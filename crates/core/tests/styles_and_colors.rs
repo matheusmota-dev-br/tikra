@@ -118,7 +118,8 @@ fn every_tip_in_the_svg() {
         let r = no_warnings(&format!(
             r"\begin{{tikzpicture}} \draw[{op}] (0,0) -- (1,0); \draw[{op}] (0,1) .. controls (1,2) and (2,2) .. (3,1); \draw[{op}] (0,2) .. controls (0,2) and (0,2) .. (1,3); \end{{tikzpicture}}"
         ));
-        assert!(r.svg.contains("<poly") || r.svg.contains("<circle"), "{op}");
+        // a tip: a filled path, or a chevron or bar stroked on its own
+        assert!(r.svg.contains(r##"fill="#000000"/>"##) || r.svg.contains(r#"stroke-linecap="round""#) || r.svg.matches("<path").count() > 3, "{op}");
     }
     // an arrow on a closed path: no tip
     no_warnings(r"\begin{tikzpicture} \draw[->] (0,0) -- (1,0) -- (1,1) -- cycle; \draw[<-] (0,0) circle (1); \end{tikzpicture}");
@@ -248,5 +249,6 @@ fn double_tip() {
     let t = first_path(r"\draw[<<-] (0,0) -- (1,0);");
     assert_eq!(t.style.start_tip, Some(tikra::scene::Tip::Double));
     let r = no_warnings(r"\begin{tikzpicture}\draw[->>] (0,0) -- (1,0);\end{tikzpicture}");
-    assert_eq!(r.svg.matches("<polyline").count(), 2, "two chevrons");
+    // two chevrons, stroked with round caps (the line itself has butt caps)
+    assert_eq!(r.svg.matches(r#"stroke-linecap="round""#).count(), 2, "two chevrons");
 }

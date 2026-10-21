@@ -323,12 +323,14 @@ impl Prim {
 }
 
 /// Where tokens come from: a token list, or text read with the current category codes.
+#[derive(Clone)]
 enum Frame {
     Tokens(VecDeque<Token>),
     Text { chars: Rc<Vec<char>>, pos: usize, skip_blanks: bool },
 }
 
 /// One value saved on entering a group, put back when it ends.
+#[derive(Clone)]
 enum Saved {
     Meaning(Rc<str>, Option<Meaning>),
     Active(char, Option<Meaning>),
@@ -336,7 +338,6 @@ enum Saved {
     Dimen(u32, Option<i64>),
     Toks(u32, Option<Rc<Vec<Token>>>),
     Catcode(char, Option<Cat>),
-    Key(Rc<str>, Option<crate::keys::Entry>),
 }
 
 /// Cap on expansions per figure: `\def\a{\a}\a` stops with an error instead of hanging.
@@ -345,6 +346,7 @@ pub const MAX_EXPANSIONS: usize = 2_000_000;
 pub const MAX_TOKENS: usize = 1_000_000;
 
 /// The state of TeX: input, meanings, registers, groups.
+#[derive(Clone)]
 pub struct Tex {
     input: Vec<Frame>,
     meanings: HashMap<Rc<str>, Meaning>,
@@ -354,8 +356,6 @@ pub struct Tex {
     pub dimens: HashMap<u32, i64>,
     pub toks: HashMap<u32, Rc<Vec<Token>>>,
     catcodes: HashMap<char, Cat>,
-    /// pgfkeys: the key tree, local to groups like any macro.
-    pub keys: HashMap<Rc<str>, crate::keys::Entry>,
     save: Vec<Vec<Saved>>,
     /// a `\global` prefix is pending
     global: bool,
@@ -363,6 +363,8 @@ pub struct Tex {
     conds: usize,
     next_register: u32,
     pub expansions: usize,
+    /// expansions since the drawing layer last called [`Tex::new_statement`]
+    pub statement_expansions: usize,
     after_group: Vec<Vec<Token>>,
     after_assignment: Option<Token>,
     pub warnings: Vec<String>,
@@ -391,12 +393,12 @@ impl Tex {
             dimens: HashMap::new(),
             toks: HashMap::new(),
             catcodes: HashMap::new(),
-            keys: HashMap::new(),
             save: Vec::new(),
             global: false,
             conds: 0,
             next_register: FIRST_FREE_REGISTER,
             expansions: 0,
+            statement_expansions: 0,
             after_group: Vec::new(),
             after_assignment: None,
             warnings: Vec::new(),
@@ -582,6 +584,32 @@ impl Tex {
         self.dimens.insert(245, 65536);
     }
 
+    /// A Tex that only reads tokens, with `@` a letter (for text written by tikra itself).
+    pub fn new_lexer() -> Tex {
+        let mut t = Tex {
+            input: Vec::new(),
+            meanings: HashMap::new(),
+            active: HashMap::new(),
+            counts: HashMap::new(),
+            dimens: HashMap::new(),
+            toks: HashMap::new(),
+            catcodes: HashMap::new(),
+            save: Vec::new(),
+            global: false,
+            conds: 0,
+            next_register: FIRST_FREE_REGISTER,
+            expansions: 0,
+            statement_expansions: 0,
+            after_group: Vec::new(),
+            after_assignment: None,
+            warnings: Vec::new(),
+            environments: HashMap::new(),
+            env_stack: Vec::new(),
+        };
+        t.catcodes.insert('@', Cat::Letter);
+        t
+    }
+
     /// Defines macros from TeX source (at load time; errors are bugs).
     pub fn define_text(&mut self, text: &str) {
         let saved_catcode = self.catcodes.get(&'@').copied();
@@ -659,7 +687,7 @@ impl Tex {
     }
 
     /// Pushes tokens as a frame of their own (never joined to the one below), for bounded reading.
-    fn push_frame(&mut self, tokens: Vec<Token>) {
+    pub fn push_frame(&mut self, tokens: Vec<Token>) {
         self.input.push(Frame::Tokens(tokens.into_iter().collect()));
     }
 
@@ -689,6 +717,24 @@ impl Tex {
         self.push_tokens([t]);
     }
 
+    /// The number of input frames (for reading only what was pushed after this point).
+    pub fn depth(&self) -> usize {
+        self.input.len()
+    }
+
+    /// Like [`Tex::get_x_token`], but only from frames above `depth`.
+    pub fn get_x_token_until(&mut self, depth: usize) -> Result<Option<Token>, Error> {
+        loop {
+            let Some(t) = self.get_token_until(depth) else { return Ok(None) };
+            let m = self.meaning(&t);
+            if m.is_expandable() {
+                self.expand(&t, &m)?;
+                continue;
+            }
+            return Ok(Some(t));
+        }
+    }
+
     /// Whether input is left (at any depth).
     pub fn has_input(&mut self) -> bool {
         if let Some(t) = self.get_token() {
@@ -705,7 +751,7 @@ impl Tex {
     }
 
     /// A token from frames above `depth` only.
-    fn get_token_until(&mut self, depth: usize) -> Option<Token> {
+    pub fn get_token_until(&mut self, depth: usize) -> Option<Token> {
         while self.input.len() > depth {
             let from_list = match self.input.last_mut()? {
                 Frame::Tokens(list) => Some(list.pop_front()),
@@ -904,7 +950,6 @@ impl Tex {
                 Saved::Dimen(n, old) => restore(&mut self.dimens, n, old),
                 Saved::Toks(n, old) => restore(&mut self.toks, n, old),
                 Saved::Catcode(c, old) => restore(&mut self.catcodes, c, old),
-                Saved::Key(k, old) => restore(&mut self.keys, k, old),
             }
         }
         if let Some(after) = self.after_group.pop() {
@@ -950,20 +995,6 @@ impl Tex {
         self.run_after_assignment();
     }
 
-    /// Sets a pgfkeys entry, locally unless `global`.
-    pub fn set_key(&mut self, path: &str, e: Option<crate::keys::Entry>, global: bool) {
-        let k: Rc<str> = Rc::from(path);
-        if global {
-            self.forget_saved(|s| matches!(s, Saved::Key(x, _) if *x == k));
-        } else if let Some(level) = self.save.last_mut() {
-            level.push(Saved::Key(k.clone(), self.keys.get(&k).cloned()));
-        }
-        match e {
-            Some(e) => self.keys.insert(k, e),
-            None => self.keys.remove(&k),
-        };
-    }
-
     fn run_after_assignment(&mut self) {
         if let Some(t) = self.after_assignment.take() {
             self.back(t);
@@ -986,10 +1017,19 @@ impl Tex {
 
     fn count_expansion(&mut self) -> Result<(), Error> {
         self.expansions += 1;
-        if self.expansions > MAX_EXPANSIONS {
+        self.statement_expansions += 1;
+        if self.expansions > 10 * MAX_EXPANSIONS {
+            return Err(Error::Figure(format!("figure too large: more than {} macro expansions", 10 * MAX_EXPANSIONS)));
+        }
+        if self.statement_expansions > MAX_EXPANSIONS {
             return Err(Error::Figure(format!("macro expansion did not end (more than {MAX_EXPANSIONS} steps)")));
         }
         Ok(())
+    }
+
+    /// A new statement starts: its expansions are counted afresh (the figure's total still is).
+    pub fn new_statement(&mut self) {
+        self.statement_expansions = 0;
     }
 
     /// The next token after expanding macros and expandable primitives.
@@ -1101,7 +1141,7 @@ impl Tex {
         let mut out = Vec::new();
         let mut depth = 1usize;
         loop {
-            let t = self.get_token().ok_or_else(|| Error::Figure("a group '{' never closes".into()))?;
+            let t = self.get_token().ok_or_else(|| Error::Figure("unmatched brace: a group '{' never closes".into()))?;
             match t {
                 Token::Char(_, Cat::Begin) => depth += 1,
                 Token::Char(_, Cat::End) => {
@@ -1146,7 +1186,7 @@ impl Tex {
         let mut out = Vec::new();
         let mut depth = 0usize;
         loop {
-            let t = self.get_token().ok_or_else(|| Error::Figure(format!("'{c}' missing")))?;
+            let t = self.get_token().ok_or_else(|| Error::Figure(if c == ']' { "unmatched bracket: ']' missing".into() } else { format!("'{c}' missing") }))?;
             match t {
                 Token::Char(_, Cat::Begin) => depth += 1,
                 Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
@@ -1155,7 +1195,7 @@ impl Tex {
             }
             out.push(t);
             if out.len() > MAX_TOKENS {
-                return Err(Error::Figure(format!("'{c}' missing")));
+                return Err(Error::Figure(if c == ']' { "unmatched bracket: ']' missing".into() } else { format!("'{c}' missing") }));
             }
         }
     }
@@ -1616,7 +1656,7 @@ impl Tex {
     }
 
     /// `{…}` after optional spaces and `\relax` (for `\unexpanded`, `\detokenize`), unexpanded.
-    fn read_general_text(&mut self) -> Result<Vec<Token>, Error> {
+    pub fn read_general_text(&mut self) -> Result<Vec<Token>, Error> {
         loop {
             let t = self.get_x_token()?.ok_or_else(|| Error::Figure("missing '{'".into()))?;
             if t.is_space() || t.is_cs("relax") {
@@ -1644,9 +1684,17 @@ impl Tex {
     /// protected macros, and `\the` of a token register (inserted as is).
     pub fn expand_fully(&mut self, tokens: Vec<Token>) -> Result<Vec<Token>, Error> {
         let depth = self.input.len();
-        let mut marker_needed = true;
-        // an end marker frame so we never read past our tokens
+        // a frame of its own, so we never read past our tokens
         self.input.push(Frame::Tokens(tokens.into_iter().collect()));
+        let r = self.expand_frame(depth);
+        if r.is_err() {
+            // what was left of the expansion goes, so the error does not come back
+            self.drain_to(depth);
+        }
+        r
+    }
+
+    fn expand_frame(&mut self, depth: usize) -> Result<Vec<Token>, Error> {
         let mut out = Vec::new();
         while self.input.len() > depth {
             let Some(t) = self.get_token_until(depth) else { break };
@@ -1670,9 +1718,7 @@ impl Tex {
             if out.len() > MAX_TOKENS {
                 return Err(Error::Figure("expansion too long".into()));
             }
-            marker_needed = false;
         }
-        let _ = marker_needed;
         Ok(out)
     }
 
@@ -2352,7 +2398,7 @@ impl Tex {
     }
 
     /// Reads and drops what is left above `depth` (after reading a value from a pushed list).
-    fn drain_to(&mut self, depth: usize) {
+    pub fn drain_to(&mut self, depth: usize) {
         while self.input.len() > depth {
             if self.get_token_until(depth).is_none() {
                 break;
@@ -2508,7 +2554,7 @@ fn compare(a: i64, rel: char, b: i64) -> bool {
 }
 
 /// `#1` → argument, `##` → `#`.
-fn parse_body(raw: Vec<Token>) -> Vec<Body> {
+pub fn parse_body(raw: Vec<Token>) -> Vec<Body> {
     let mut out = Vec::with_capacity(raw.len());
     let mut it = raw.into_iter().peekable();
     while let Some(t) = it.next() {
@@ -2533,7 +2579,7 @@ fn parse_body(raw: Vec<Token>) -> Vec<Body> {
     out
 }
 
-fn substitute(body: &[Body], args: &[Vec<Token>]) -> Vec<Token> {
+pub fn substitute(body: &[Body], args: &[Vec<Token>]) -> Vec<Token> {
     let mut out = Vec::with_capacity(body.len());
     for b in body {
         match b {

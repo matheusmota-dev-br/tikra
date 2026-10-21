@@ -75,7 +75,8 @@ fn flowchart_with_positioning_and_elbows() {
         \draw[arrow] (c.south) -| (d.north);
       \end{tikzpicture}",
     );
-    assert!(r.svg.contains("<polygon"), "the Stealth tip is drawn");
+    // the Stealth tips: closed paths, filled and not stroked
+    assert!(r.svg.contains(r##"Z" fill="#000000"/>"##), "the Stealth tip is drawn");
 }
 
 #[test]

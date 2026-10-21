@@ -287,9 +287,25 @@ def report_md(results, timing=None):
         for k in {warning_key(w) for w in r["warnings"]}:
             warn[k] += 1
     errors = Counter(warning_key(r["reason"]) for r in counted if r["category"] == "fails")
+    options, commands = Counter(), Counter()
+    for r in counted:
+        if r["category"] == "match":
+            continue
+        for w in set(r["warnings"]):
+            m = re.match(r"option '([^']*)' not supported", w)
+            if m:
+                options[m.group(1)] += 1
+            m = re.match(r"(\\[A-Za-z@]+) (?:is )?not supported", w) or re.match(r"environment (\S+) not supported", w) or re.match(r"path operation '([^']*)' not supported", w)
+            if m:
+                commands[m.group(1)] += 1
     out += ["", "## What tikra reported", "", "Warnings, by how many figures they appear in (the varying part replaced by …):", "",
             "| Figures | Warning |", "|---:|---|"]
     out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in warn.most_common(40)]
+    out += ["", "Options tikra does not know, in figures that do not match, by how many figures they appear in:", "",
+            "| Figures | Option |", "|---:|---|"]
+    out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in options.most_common(60)]
+    out += ["", "Commands, environments and path operations tikra does not know, likewise:", "", "| Figures | Command |", "|---:|---|"]
+    out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in commands.most_common(40)]
     out += ["", "Errors of the figures that fail:", "", "| Figures | Error |", "|---:|---|"]
     out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in errors.most_common(20)]
     out.append("")

@@ -1,22 +1,13 @@
-//! pgfkeys: the key tree TikZ options live in, stored the way pgfkeys stores it.
-//!
-//! A key `K` keeps its value in `K`, its code in `K/.@cmd` and its default value in `K/.@def`;
-//! `K/.style` becomes code that runs `\pgfkeysalso` on the style. The tree lives in [`Tex::keys`],
-//! saved and restored with groups like any TeX macro, so `\begin{scope}[thick]` ends where the scope
-//! ends. Running the keys is done by the engine, which knows what each built-in key draws.
+//! pgfkeys: the key tree TikZ options live in, stored the way pgfkeys stores it: a key `K` keeps
+//! its value in the macro `\pgfk@K`, its code in `\pgfk@K/.@cmd` and its default in `\pgfk@K/.@def`.
+//! Being macros, keys are saved and restored with groups, so `\begin{scope}[thick]` ends where the
+//! scope ends. Running the keys is done by the engine, which knows what each built-in key draws.
 
-use std::rc::Rc;
+use crate::tex::{Cat, Meaning, Tex, Token};
 
-use crate::tex::{Cat, Macro, Tex, Token};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Entry {
-    /// A stored value (`.initial`, or assigned with `key=value`).
-    Value(Vec<Token>),
-    /// TeX code run with the value as `#1` (and `#2`… for `.code n args`).
-    Code(Rc<Macro>),
-    /// A built-in key, by number.
-    Native(u16),
+/// The macro holding a key's value, code (`/.@cmd`) or default (`/.@def`).
+pub fn macro_name(path: &str) -> String {
+    format!("pgfk@{path}")
 }
 
 /// One item of a key list: the key and, if `=` was given, the value (one pair of braces removed).
@@ -149,10 +140,10 @@ pub fn parent(path: &str) -> &str {
     }
 }
 
-/// Reads the stored value of a key as text, if it has one.
-pub fn value_text(tex: &Tex, path: &str) -> Option<String> {
-    match tex.keys.get(path) {
-        Some(Entry::Value(v)) => Some(crate::tex::tokens_to_string(v)),
+/// The stored value of a key, as tokens, if it has one.
+pub fn value(tex: &Tex, path: &str) -> Option<Vec<Token>> {
+    match tex.meaning_of(&macro_name(path)) {
+        Meaning::Macro(m) if m.params.is_empty() => Some(crate::tex::substitute(&m.body, &[])),
         _ => None,
     }
 }

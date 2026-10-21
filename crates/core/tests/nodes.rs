@@ -139,8 +139,8 @@ fn figure_node_distance() {
           \end{tikzpicture}",
     );
     assert!(r.svg.contains("<path"));
-    // an invalid node distance: 1cm
-    no_warnings(r"\begin{tikzpicture}[node distance=zz] \node (a) {A}; \node[below=of a] {B}; \end{tikzpicture}");
+    // an invalid node distance: 1cm, with a warning
+    with_warning(r"\begin{tikzpicture}[node distance=zz] \node (a) {A}; \node[below=of a] {B}; \end{tikzpicture}", "node distance");
 }
 
 #[test]
@@ -218,7 +218,8 @@ fn node_rotation_and_scale() {
     assert!(close(a.width(), 2.0 * b.width()) && close(a.line_height, 2.0 * b.line_height), "{} {}", a.width(), b.width());
     node_with(r"\node[rotate=zz, scale=zz, pos=zz] {bad};", "bad");
     let r = no_warnings(r"\begin{tikzpicture}\node[draw, rotate=45, dashed] {x};\end{tikzpicture}");
-    assert!(r.svg.contains("rotate(-45"));
+    // the text turns with the node
+    assert!(r.svg.contains("matrix(0.70711 -0.70711 0.70711 0.70711"), "{}", r.svg);
 }
 
 #[test]

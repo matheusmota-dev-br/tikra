@@ -6,7 +6,11 @@
 //! ```
 
 pub mod axes;
+pub mod axes_bridge;
+pub mod canvas;
 pub mod color;
+pub mod driver;
+pub mod engine;
 pub mod expr;
 pub mod keys;
 pub mod label;
@@ -52,6 +56,35 @@ pub struct Output {
 
 /// Accepts a full `standalone` document, a bare `tikzpicture`, an inline `\tikz` or an `axis`.
 pub fn convert(code: &str) -> Result<Output, Error> {
+    let mut early = Vec::new();
+    // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
+    let repaired = mathra::input::latex::undo_doubled_backslashes(code);
+    if repaired.is_some() {
+        early.push("doubled backslashes (code escaped twice): undid one level".to_string());
+    }
+    let mut base = repaired.unwrap_or_else(|| code.to_string());
+    if let Some(r) = repair_markdown(&base) {
+        early.push("TikZ escaped for Markdown (```, \\\\draw, \\[ \\]): undone".to_string());
+        base = r;
+    }
+    let text = reader::strip_comments(&base);
+    let input = if text.contains("\\begin{tikzpicture}") || tikz_command(&text).is_some() {
+        base
+    } else if text.contains("\\begin{axis}") || ["\\draw", "\\fill", "\\node", "\\path", "\\filldraw", "\\coordinate"].iter().any(|c| text.contains(c)) {
+        // an axis or loose statements, with no tikzpicture around them
+        format!("\\begin{{tikzpicture}}\\relax\n{base}\n\\end{{tikzpicture}}")
+    } else {
+        return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
+    };
+    let (canvas, warnings) = engine::run_document(&input)?;
+    let svg = driver::svg(&canvas, code, "Figure");
+    let mut all = early;
+    all.extend(warnings);
+    Ok(Output { svg, warnings: all })
+}
+
+/// The earlier interpreter, kept while the engine replaces it.
+pub fn convert_legacy(code: &str) -> Result<Output, Error> {
     let mut env = reader::Env::new();
     // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
     let repaired = mathra::input::latex::undo_doubled_backslashes(code);
