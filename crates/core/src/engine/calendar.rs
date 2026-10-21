@@ -37,6 +37,26 @@ pub fn define(e: &mut Engine) {
     for (i, name) in COMMANDS.iter().enumerate() {
         e.tex.define(name, Meaning::Native(BASE + i as u16));
     }
+    // TeX's \year, \month, \day and \time: the date of the run (UTC)
+    let (y, m, d, minutes) = today();
+    for (name, v) in [("year", y), ("month", m), ("day", d), ("time", minutes)] {
+        let r = e.tex.new_register();
+        e.tex.define(name, Meaning::Count(r));
+        e.tex.set_count(r, v, true);
+    }
+}
+
+/// Today's date and the minutes since midnight; on the web, where there is no clock to read
+/// without a host, the first of January 2000.
+fn today() -> (i64, i64, i64, i64) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Ok(t) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        let secs = t.as_secs() as i64;
+        // the Julian day of 1970-01-01 is 2440588
+        let (y, m, d) = date(2440588 + secs / 86400);
+        return (y, m, d, secs % 86400 / 60);
+    }
+    (2000, 1, 1, 0)
 }
 
 pub fn is_calendar(id: u16) -> bool {
@@ -195,8 +215,8 @@ impl Engine {
             "calendar" => self.calendar(),
             "pgfcalendar" => {
                 let prefix = self.argument_string()?;
-                let start = self.argument_string()?;
-                let end = self.argument_string()?;
+                let start = self.date_argument()?;
+                let end = self.date_argument()?;
                 let code = self.argument()?;
                 self.pgfcalendar(&prefix, &start, &end, code)
             }
@@ -210,7 +230,7 @@ impl Engine {
                 Ok(())
             }
             "pgfcalendarifdate" => {
-                let d = self.argument_string()?;
+                let d = self.date_argument()?;
                 let tests = self.argument()?;
                 let yes = self.argument()?;
                 let no = self.argument()?;
@@ -220,7 +240,7 @@ impl Engine {
                 Ok(())
             }
             "pgfcalendardatetojulian" => {
-                let d = self.argument_string()?;
+                let d = self.date_argument()?;
                 let target = self.argument()?;
                 let j = parse_date(&d, None).ok_or_else(|| Error::Figure(format!("not a date: '{d}'")))?;
                 self.set_int(target, j);
@@ -279,6 +299,12 @@ impl Engine {
         self.tex.expand_to_string(vec![Token::cs(name)]).ok()?.trim().parse().ok()
     }
 
+    /// A date argument: its macros expanded and its registers read (`\the\year-01-01`, `\year-\month-\day`).
+    fn date_argument(&mut self) -> Result<String, Error> {
+        let a = self.argument()?;
+        Ok(self.math_string(a)?.trim().to_string())
+    }
+
     /// The text of a macro, expanded.
     fn macro_text(&mut self, name: &str) -> String {
         self.tex.expand_to_string(vec![Token::cs(name)]).map(|s| s.trim().to_string()).unwrap_or_default()
@@ -333,7 +359,7 @@ impl Engine {
         let mut matches = false;
         for item in crate::keys::split_list(&tests) {
             let value = match item.value {
-                Some(v) => Some(self.tex.expand_to_string(v)?.trim().to_string()),
+                Some(v) => Some(self.math_string(v)?.trim().to_string()),
                 None => None,
             };
             let at = |s: &str| parse_date(s, Some(year)).ok_or_else(|| Error::Figure(format!("not a date: '{s}'")));
@@ -433,7 +459,8 @@ impl Engine {
             let local = crate::reader::invert(&self.st.transform).apply(p);
             self.st.transform = self.st.transform.compose(&Transform::translation(local.x, local.y));
         }
-        let dates = self.macro_text("tikra@cal@dates");
+        let dates = self.math_string(vec![Token::cs("tikra@cal@dates")])?;
+        let dates = dates.trim();
         let Some((start, end)) = dates.split_once("to") else {
             return Err(Error::Figure(format!("\\calendar: dates={dates} is not 'start to end'")));
         };
