@@ -261,6 +261,8 @@ impl Engine {
         self.st.node = NodeSetup::default();
         self.st.mode = Default::default();
         self.st.pending = Transform::default();
+        self.st.preactions.clear();
+        self.st.postactions.clear();
         self.st.start_arrow = None;
         self.st.end_arrow = None;
         let r = self.node_in_group(spec);

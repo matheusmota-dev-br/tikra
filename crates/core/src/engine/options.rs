@@ -1243,6 +1243,26 @@ keyfn!(k_controls, |e, v| {
     e.st.to.curve = true;
     Ok(())
 });
+keyfn!(k_at_begin_cell, |e, v| {
+    e.st.matrix.at_begin_cell.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_end_cell, |e, v| {
+    e.st.matrix.at_end_cell.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_empty_cell, |e, v| {
+    e.st.matrix.at_empty_cell = v.unwrap_or_default();
+    Ok(())
+});
+keyfn!(k_preaction, |e, v| {
+    e.st.preactions.push(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_postaction, |e, v| {
+    e.st.postactions.push(v.unwrap_or_default());
+    Ok(())
+});
 keyfn!(k_to_path, |e, v| {
     e.st.to.path = v;
     Ok(())
@@ -1714,6 +1734,11 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/out control", k_out_control),
     ("/tikz/controls", k_controls),
     ("/tikz/to path", k_to_path),
+    ("/tikz/preaction", k_preaction),
+    ("/tikz/execute at begin cell", k_at_begin_cell),
+    ("/tikz/execute at end cell", k_at_end_cell),
+    ("/tikz/execute at empty cell", k_at_empty_cell),
+    ("/tikz/postaction", k_postaction),
     ("/tikz/line to", k_line_to),
     ("/tikz/curve to", k_curve_to),
     ("/tikz/loop", k_loop),

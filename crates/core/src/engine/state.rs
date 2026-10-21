@@ -182,6 +182,9 @@ pub struct GState {
     pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
+    /// `preaction={…}` and `postaction={…}`: options of the path used again before and after
+    pub preactions: Vec<Vec<crate::tex::Token>>,
+    pub postactions: Vec<Vec<crate::tex::Token>>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
 }
@@ -242,6 +245,8 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            preactions: Vec::new(),
+            postactions: Vec::new(),
             matrix: Default::default(),
             path_fading: None,
             transparency_group: false,

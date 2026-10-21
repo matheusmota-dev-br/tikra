@@ -29,6 +29,33 @@ impl Engine {
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);
         }
+        if self.st.preactions.is_empty() && self.st.postactions.is_empty() {
+            return self.use_built_path(segs);
+        }
+        // `preaction` and `postaction`: the path used again before and after, each time as a new
+        // \path with those options (its own mode, no decoration) in the path's graphic state
+        let (pre, post) = (std::mem::take(&mut self.st.preactions), std::mem::take(&mut self.st.postactions));
+        for options in pre {
+            self.path_action(&segs, options, command)?;
+        }
+        self.use_built_path(segs.clone())?;
+        for options in post {
+            self.path_action(&segs, options, command)?;
+        }
+        Ok(())
+    }
+
+    fn path_action(&mut self, segs: &[Segment], options: Vec<crate::tex::Token>, command: &str) -> Result<(), Error> {
+        self.begin_group();
+        self.st.mode = Default::default();
+        self.st.decorate = false;
+        let r = self.process_keys(options, Some("/tikz")).and_then(|_| self.use_path(segs.to_vec(), command));
+        self.end_group();
+        r
+    }
+
+    /// The path, decorated and with its corners rounded, used as the mode says.
+    fn use_built_path(&mut self, mut segs: Vec<Segment>) -> Result<(), Error> {
         let mode = self.st.mode.clone();
         // the bounding box grows as the path is built: before any shortening
         if mode.bounding_box {

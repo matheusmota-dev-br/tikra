@@ -205,9 +205,13 @@ impl Engine {
 
     /// One cell, drawn with its origin at `place`.
     fn draw_cell(&mut self, matrix: Option<&str>, settings: &MatrixSettings, r: usize, c: usize, cell: &[Token], place: Transform) -> Result<(), Error> {
-        let cell = crate::keys::trim(cell).to_vec();
-        if cell.is_empty() {
-            return Ok(());
+        let mut cell = crate::keys::trim(cell).to_vec();
+        let empty = cell.is_empty();
+        if empty {
+            if settings.at_empty_cell.is_empty() {
+                return Ok(());
+            }
+            cell = settings.at_empty_cell.clone();
         }
         self.begin_group();
         self.begin_scope();
@@ -227,7 +231,7 @@ impl Engine {
                 v.push(Token::Char('}', Cat::End));
                 self.process_keys(v, Some("/tikz"))?;
             }
-            if settings.of_nodes {
+            if settings.of_nodes && !empty {
                 // |[options]| text
                 let (opts, text) = cell_options(&cell);
                 let mut statement = tikra_tokens("\\node[anchor=base");
@@ -248,8 +252,13 @@ impl Engine {
                 statement.push(Token::Char('}', Cat::End));
                 statement.extend(tikra_tokens(";"));
                 self.run_tokens(statement)
-            } else {
+            } else if empty {
                 self.run_tokens(cell)
+            } else {
+                let mut v = settings.at_begin_cell.clone();
+                v.extend(cell);
+                v.extend(settings.at_end_cell.clone());
+                self.run_tokens(v)
             }
         })();
         self.end_scope();
@@ -258,14 +267,38 @@ impl Engine {
     }
 }
 
-/// `|[red]| text` → (`red`, `text`).
+/// `|(name) [red]| text` → (`name=name,red`, `text`).
 fn cell_options(cell: &[Token]) -> (Vec<Token>, Vec<Token>) {
     let t = crate::keys::trim(cell);
     if t.first().is_some_and(|x| x.is_char('|')) {
         if let Some(end) = t.iter().skip(1).position(|x| x.is_char('|')) {
             let inner = crate::keys::trim(&t[1..end + 1]);
-            let inner = if inner.first().is_some_and(|x| x.is_char('[')) && inner.last().is_some_and(|x| x.is_char(']')) { &inner[1..inner.len() - 1] } else { inner };
-            return (inner.to_vec(), crate::keys::trim(&t[end + 2..]).to_vec());
+            let mut options = Vec::new();
+            let mut i = 0;
+            while i < inner.len() {
+                let close = if inner[i].is_char('[') {
+                    ']'
+                } else if inner[i].is_char('(') {
+                    ')'
+                } else {
+                    i += 1;
+                    continue;
+                };
+                let Some(len) = inner[i + 1..].iter().position(|x| x.is_char(close)) else { break };
+                if !options.is_empty() {
+                    options.push(Token::other(','));
+                }
+                if close == ')' {
+                    options.extend(tikra_tokens("name="));
+                    options.push(Token::Char('{', Cat::Begin));
+                    options.extend(inner[i + 1..i + 1 + len].iter().cloned());
+                    options.push(Token::Char('}', Cat::End));
+                } else {
+                    options.extend(inner[i + 1..i + 1 + len].iter().cloned());
+                }
+                i += len + 2;
+            }
+            return (options, crate::keys::trim(&t[end + 2..]).to_vec());
         }
     }
     (Vec::new(), t.to_vec())
@@ -279,6 +312,10 @@ pub struct MatrixSettings {
     pub of_nodes: bool,
     pub math: bool,
     pub nodes_style: Vec<Token>,
+    /// `execute at begin cell`, `execute at end cell`, `execute at empty cell`
+    pub at_begin_cell: Vec<Token>,
+    pub at_end_cell: Vec<Token>,
+    pub at_empty_cell: Vec<Token>,
 }
 
 #[allow(dead_code)]

@@ -867,15 +867,18 @@ fn coordinate_point(e: &mut Engine) -> Result<Point, Error> {
 fn circle(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
     e.begin_group();
     let res = (|| -> Result<(f64, f64), Error> {
+        // `circle[options]`, or the old `circle (radius)`: a point after the options is the next one
+        let mut options = false;
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
                 let o = e.tex.read_until_char(']', false)?;
                 e.process_keys(o, Some("/tikz"))?;
+                options = true;
             }
         }
         let (mut rx, mut ry) = radii(e)?;
-        if let Some(t) = peek(e, depth)? {
+        if let Some(t) = peek(e, depth)?.filter(|_| !options) {
             if t.is_char('(') {
                 let _ = next(e, depth)?;
                 let tokens = read_coordinate_tokens(e)?;

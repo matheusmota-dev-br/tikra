@@ -48,7 +48,7 @@ pub fn eval(text: &str, vars: &Variables) -> Result<f64, Error> {
 }
 
 fn eval_at(text: &str, vars: &Variables, depth: usize) -> Result<f64, Error> {
-    let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth };
+    let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth, units: false };
     p.skip_spaces();
     let v = p.sum()?;
     p.skip_spaces();
@@ -62,6 +62,15 @@ fn eval_at(text: &str, vars: &Variables, depth: usize) -> Result<f64, Error> {
 /// and one with a unit is converted to cm. Returns (value, had_unit).
 pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
     let t = text.trim();
+    // units inside the expression: each number with its own
+    let mut p = Parser { c: t.chars().collect(), pos: 0, vars, depth: 0, units: false };
+    p.skip_spaces();
+    if let Ok(v) = p.sum() {
+        p.skip_spaces();
+        if p.pos == p.c.len() && p.units {
+            return Ok((v, true));
+        }
+    }
     for u in ["cm", "mm", "pt", "bp", "in", "em", "ex", "pc"] {
         if let Some(n) = t.strip_suffix(u) {
             if let Ok(v) = eval(n, vars) {
@@ -77,6 +86,8 @@ struct Parser<'a> {
     pos: usize,
     vars: &'a Variables,
     depth: usize,
+    /// a unit was glued to a number somewhere (`1cm+.5pt`)
+    units: bool,
 }
 
 impl Parser<'_> {
@@ -201,6 +212,7 @@ impl Parser<'_> {
                     if !self.c.get(self.pos + 2).is_some_and(|c| c.is_ascii_alphabetic()) {
                         self.pos += 2;
                         v *= f;
+                        self.units = true;
                     }
                 }
                 Ok(v)

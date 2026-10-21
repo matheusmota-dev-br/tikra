@@ -235,6 +235,8 @@ pub struct Engine {
     pub pgf_path: basic::PgfPath,
     /// `execute at end scope` code of the open scopes, innermost last
     scope_ends: Vec<Vec<Token>>,
+    /// for each `{` in a picture: whether it opened a scope (`{[options] …}`, the scopes library)
+    brace_scopes: Vec<bool>,
     /// layers: their order, the items of each but main, and what `\pgfonlayer` set aside
     layer_order: Vec<String>,
     layers: HashMap<String, Vec<Item>>,
@@ -317,6 +319,7 @@ impl Clone for Engine {
             forced_box: self.forced_box,
             fadings: self.fadings.clone(),
             scope_ends: self.scope_ends.clone(),
+            brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
             layers: self.layers.clone(),
             on_layer: self.on_layer.clone(),
@@ -366,6 +369,7 @@ impl Engine {
             forced_box: None,
             fadings: HashMap::new(),
             scope_ends: Vec::new(),
+            brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
             layers: HashMap::new(),
             on_layer: Vec::new(),
@@ -429,6 +433,32 @@ impl Engine {
     pub fn execute(&mut self, t: Token) -> Result<(), Error> {
         let m = self.tex.meaning(&t);
         match m {
+            Meaning::Char(_, Cat::Begin) if self.picture_depth > 0 => {
+                // the scopes library: `{[options] …}` is a scope
+                match self.tex.next_nonspace() {
+                    Some(n) if n.is_char('[') => {
+                        let o = self.tex.read_until_char(']', false)?;
+                        self.brace_scopes.push(true);
+                        let r = self.open_tikz_scope(Some(o), false);
+                        self.recover(r, &t)?;
+                    }
+                    other => {
+                        if let Some(n) = other {
+                            self.tex.back(n);
+                        }
+                        self.brace_scopes.push(false);
+                        self.begin_group();
+                    }
+                }
+            }
+            Meaning::Char(_, Cat::End) if self.picture_depth > 0 => {
+                if self.brace_scopes.pop() == Some(true) {
+                    let r = self.close_tikz_scope();
+                    self.recover(r, &t)?;
+                } else {
+                    self.end_group();
+                }
+            }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
