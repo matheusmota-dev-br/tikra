@@ -539,7 +539,7 @@ fn shift_vector(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<Point, Error> 
     let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
     // in the coordinate system as it is: shifts given before (still pending) do not change it
-    Ok(crate::reader::invert(&e.st.transform).apply(p))
+    Ok(e.st.transform.inverse().apply(p))
 }
 
 fn dash_from(e: &mut Engine, spec: &str) -> Result<Option<Vec<f64>>, Error> {
@@ -842,7 +842,7 @@ keyfn!(k_double_distance_centers, |e, v| {
 // `shift only`: the transformation keeps only where it moves the origin
 keyfn!(k_shift_only, |e, _v| {
     let full = e.st.transform.compose(&e.st.pending);
-    e.st.pending = crate::reader::invert(&e.st.transform).compose(&Transform::translation(full.e, full.f));
+    e.st.pending = e.st.transform.inverse().compose(&Transform::translation(full.e, full.f));
     Ok(())
 });
 keyfn!(k_allow_upside_down, |e, v| {
@@ -956,7 +956,7 @@ fn unit_vector(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<Po
     let s = text(e, v)?;
     let t = s.trim();
     if t.starts_with('(') || t.starts_with('{') {
-        let inner = crate::options::strip_braces(t).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+        let inner = crate::keys::strip_braces(t).trim().trim_start_matches('(').trim_end_matches(')').to_string();
         // a point, in canvas units without the current transformation
         let saved = e.st.transform;
         e.st.transform = Transform::default();
@@ -1471,7 +1471,7 @@ keyfn!(k_step, |e, v| {
     let s = text(e, &v)?;
     if s.starts_with('(') {
         let p = e.coordinate(s.trim_start_matches('(').trim_end_matches(')'))?.p;
-        let inv = crate::reader::invert(&e.st.transform);
+        let inv = e.st.transform.inverse();
         let d = inv.apply(p);
         e.st.grid_step = (d.x.abs(), d.y.abs());
     } else {

@@ -54,7 +54,7 @@ keyfn!(k_insert_path, |e, v| {
 keyfn!(k_circle_through, |e, v| {
     e.process_keys(super::tikra_tokens("shape=circle,inner sep=0pt,outer sep=0pt"), Some("/tikz"))?;
     let s = e.tex.expand_to_string(v.unwrap_or_default())?;
-    let inner = crate::options::strip_braces(s.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+    let inner = crate::keys::strip_braces(s.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
     e.st.node.through = Some(e.coordinate(&inner)?.p);
     Ok(())
 });

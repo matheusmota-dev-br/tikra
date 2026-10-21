@@ -402,7 +402,7 @@ impl Engine {
                         node.anchor(a.trim()).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{}", a.trim())))?
                     }
                 };
-                crate::reader::invert(&self.st.transform).apply(canvas)
+                self.st.transform.inverse().apply(canvas)
             }
             "pgfpointintersectionoflines" => {
                 let mut p = Vec::new();
@@ -445,7 +445,7 @@ impl Engine {
     }
 
     fn last_local(&self) -> Point {
-        crate::reader::invert(&self.st.transform).apply(self.pgf_path.last.unwrap_or_default())
+        self.st.transform.inverse().apply(self.pgf_path.last.unwrap_or_default())
     }
 
     /// Uses the basic layer's path with `actions` (`fill`, `stroke`, `draw`, `clip`, `discard`…).

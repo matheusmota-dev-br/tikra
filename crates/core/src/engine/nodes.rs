@@ -54,7 +54,7 @@ impl NodeInfo {
 
     /// The border point toward canvas point `p` (where a line to the node stops).
     pub fn border_toward(&self, p: Point) -> Point {
-        let inv = crate::reader::invert(&self.transform);
+        let inv = self.transform.inverse();
         let q = inv.apply(p);
         let b = self.geometry.border_point(q.minus(self.geometry.center));
         self.transform.apply(b)
@@ -172,7 +172,7 @@ impl shapes::Keys for EngineKeys<'_> {
 
     fn point(&mut self, key: &str) -> Option<Point> {
         let text = self.text(key);
-        let text = crate::options::strip_braces(text.trim()).trim().to_string();
+        let text = crate::keys::strip_braces(text.trim()).trim().to_string();
         if text.is_empty() {
             return None;
         }
@@ -503,7 +503,7 @@ impl Engine {
         // computed again with it in node coordinates (its other anchors do not depend on it)
         if shape.ends_with("callout") {
             if let Some(p) = shapes::Keys::point(&mut EngineKeys(self), "/pgf/callout pointer@absolute") {
-                let local = crate::reader::invert(&t).apply(p);
+                let local = t.inverse().apply(p);
                 info.geometry = Rc::new(compute(self, Some(local)));
             }
         }

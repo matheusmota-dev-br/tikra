@@ -456,7 +456,7 @@ impl Engine {
         self.st.apply_pending();
         // `at (point)` or `at=`: where the calendar's origin goes
         if let Some(p) = self.st.node.at.take() {
-            let local = crate::reader::invert(&self.st.transform).apply(p);
+            let local = self.st.transform.inverse().apply(p);
             self.st.transform = self.st.transform.compose(&Transform::translation(local.x, local.y));
         }
         let dates = self.math_string(vec![Token::cs("tikra@cal@dates")])?;

@@ -152,7 +152,7 @@ impl Frame {
         // facing the axis: against the outward normal
         let d = if opposite { n } else { n.scale(-1.0) };
         let lin = Transform { e: 0.0, f: 0.0, ..*rotation };
-        let local = crate::reader::invert(&lin).apply(d);
+        let local = lin.inverse().apply(d);
         let angle = local.y.atan2(local.x).to_degrees();
         let r = (angle / 90.0).round();
         if (angle - r * 90.0).abs() < 1e-6 {
@@ -627,7 +627,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
         let t = s.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string();
         if let Some(inner) = t.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
-            let parts = crate::options::split_top_level(inner);
+            let parts = crate::keys::split_top_level(inner);
             let x = parts.first().and_then(|p| e.length(p).ok()).unwrap_or(0.0);
             let y = parts.get(1).and_then(|p| e.length(p).ok()).unwrap_or(0.0);
             return Some(Point::new(x, y));
@@ -1690,13 +1690,13 @@ pub fn solid(color: crate::color::Color, opacity: f64) -> Fill {
 impl Engine {
     pub fn pgfplots_cs(&mut self, system: &str, args: &str) -> Option<Result<TikzCoord, Error>> {
         let f = self.frame.clone()?;
-        let parts = crate::options::split_top_level(args);
+        let parts = crate::keys::split_top_level(args);
         let named = |k: &str| parts.iter().find_map(|p| p.split_once('=').filter(|(a, _)| a.trim() == k).map(|(_, b)| b.trim().to_string()));
         let positional = parts.iter().all(|p| !p.contains('='));
         let value = |e: &mut Engine, i: usize, k: &str| -> Result<Option<f64>, Error> {
             let t = if positional { parts.get(i).cloned() } else { named(k) };
             match t {
-                Some(t) if !t.trim().is_empty() => Ok(Some(e.number(crate::options::strip_braces(t.trim()))?)),
+                Some(t) if !t.trim().is_empty() => Ok(Some(e.number(crate::keys::strip_braces(t.trim()))?)),
                 _ => Ok(None),
             }
         };
@@ -1787,7 +1787,7 @@ impl Engine {
                 let r = (|| -> Result<Point, Error> {
                     let mut v = [0.0; 3];
                     for (i, p) in parts.iter().enumerate().take(3) {
-                        v[i] = self.number(crate::options::strip_braces(p.trim()))?;
+                        v[i] = self.number(crate::keys::strip_braces(p.trim()))?;
                     }
                     Ok(if cs == Cs::Axis { f.at([f.logical(0, v[0]), f.logical(1, v[1]), if f.three_d { f.logical(2, v[2]) } else { f.min[2] }]) } else { f.desc(v[0], v[1]) })
                 })();

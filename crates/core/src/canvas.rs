@@ -198,7 +198,7 @@ impl Item {
             Item::Text { place, .. } => *place = t.compose(place),
             Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             // a transformed group inside: the outer transformation around it
-            Item::Transform { transform } => *transform = t.compose(transform).compose(&crate::reader::invert(t)),
+            Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),
             Item::Group { .. } | Item::End => {}
         }
     }

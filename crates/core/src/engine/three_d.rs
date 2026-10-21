@@ -58,9 +58,9 @@ impl Engine {
     /// A point of the picture in the current coordinate system, before the transformation, as
     /// `\tikz@scan@one@point` gives it.
     fn local_point(&mut self, text: &str) -> Result<Point, Error> {
-        let inner = crate::options::strip_braces(text.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+        let inner = crate::keys::strip_braces(text.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
         let p = self.coordinate(&inner)?.p;
-        Ok(crate::reader::invert(&self.st.transform.compose(&self.st.pending)).apply(p))
+        Ok(self.st.transform.compose(&self.st.pending).inverse().apply(p))
     }
 
     /// `\tikz@canvas@is@plane`: the plane through `origin` with `x` and `y` at its (1,0) and (0,1)
@@ -187,7 +187,7 @@ keyfn!(k_isometric_view, |e, _v| {
 /// `p={(x,y,z)}`, `q=…`, `r=…`: the vanishing point of the x, y or z direction (a column of the
 /// matrix); one at 0 along its own axis leaves that direction without one.
 fn vanishing_point(e: &mut Engine, axis: usize, value: &str) -> Result<(), Error> {
-    let inner = crate::options::strip_braces(value.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
+    let inner = crate::keys::strip_braces(value.trim()).trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let parts = super::coords::split_commas(&inner);
     if parts.len() != 3 {
         return Err(Error::Figure(format!("vanishing point '{value}': three coordinates expected")));

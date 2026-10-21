@@ -448,7 +448,7 @@ impl<'a> Run<'a> {
     /// coordinates of `t`), `\pgfmetadecorated…`.
     fn install_points(&mut self, t: &Transform) {
         super::set_registers(self.e, &self.w);
-        let inv = crate::reader::invert(t);
+        let inv = t.inverse();
         let w = &self.w;
         let points = [
             ("pgfpointdecoratedpathfirst", w.path_first),

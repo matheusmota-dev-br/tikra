@@ -10,6 +10,52 @@ pub fn macro_name(path: &str) -> String {
     format!("pgfk@{path}")
 }
 
+/// Splits text at top-level commas, respecting `{}`, `()` and `[]`; trims the parts and drops the
+/// empty ones (for lists read as text: `by={a, b}`, coordinate lists, plot arguments).
+pub fn split_top_level(text: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut level = 0i32;
+    for c in text.chars() {
+        match c {
+            '{' | '(' | '[' => level += 1,
+            '}' | ')' | ']' => level -= 1,
+            ',' if level == 0 => {
+                parts.push(std::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.push(c);
+    }
+    parts.push(current);
+    parts.into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+}
+
+/// Strips one pair of outer braces: `{a, b}` → `a, b` (not `{a}{b}`, whose first brace closes early).
+pub fn strip_braces(v: &str) -> &str {
+    let t = v.trim();
+    if t.starts_with('{') && t.ends_with('}') && t.len() >= 2 {
+        let inner = &t[1..t.len() - 1];
+        // only when the opening brace closes at the end
+        let mut level = 0;
+        for (i, c) in inner.char_indices() {
+            match c {
+                '{' => level += 1,
+                '}' => {
+                    level -= 1;
+                    if level < 0 && i < inner.len() {
+                        return t;
+                    }
+                }
+                _ => {}
+            }
+        }
+        return inner.trim();
+    }
+    t
+}
+
 /// One item of a key list: the key and, if `=` was given, the value (one pair of braces removed).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
@@ -170,6 +216,16 @@ mod tests {
         assert_eq!(crate::tex::tokens_to_string(items[1].value.as_ref().unwrap()), "2pt");
         assert_eq!(crate::tex::tokens_to_string(items[2].value.as_ref().unwrap()), "above:{a, b}");
         assert!(items[0].value.is_none());
+    }
+
+    #[test]
+    fn text_lists_and_braces() {
+        assert_eq!(split_top_level("a, {b, c}, (1,2), [x, y],, d "), ["a", "{b, c}", "(1,2)", "[x, y]", "d"]);
+        assert!(split_top_level(" ").is_empty());
+        assert_eq!(strip_braces(" {a, b} "), "a, b");
+        assert_eq!(strip_braces("{a}{b}"), "{a}{b}");
+        assert_eq!(strip_braces("{{a}}"), "{a}");
+        assert_eq!(strip_braces("a"), "a");
     }
 
     #[test]
