@@ -405,6 +405,29 @@ impl Parser<'_> {
                     "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
                     "mod" => a % args.get(1).copied().unwrap_or(1.0),
                     "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
+                    // pgfmath's hyperbolic and other functions
+                    "sinh" => a.sinh(),
+                    "cosh" => a.cosh(),
+                    "tanh" => a.tanh(),
+                    "cot" => 1.0 / g(a).tan(),
+                    "sec" => 1.0 / sin_degrees(a + 90.0),
+                    "cosec" => 1.0 / sin_degrees(a),
+                    "log2" => a.log2(),
+                    "int" => a.trunc(),
+                    "frac" => a - a.trunc(),
+                    "real" => a,
+                    "neg" => -a,
+                    "sign" => {
+                        if a > 0.0 {
+                            1.0
+                        } else if a < 0.0 {
+                            -1.0
+                        } else {
+                            0.0
+                        }
+                    }
+                    "iseven" => f64::from(a.trunc() % 2.0 == 0.0),
+                    "isodd" => f64::from(a.trunc() % 2.0 != 0.0),
                     other => return Err(Error::Expression(format!("unknown function: {other}"))),
                 })
             }

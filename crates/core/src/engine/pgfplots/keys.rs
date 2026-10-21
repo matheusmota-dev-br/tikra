@@ -343,7 +343,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/every non boxed y axis/.style={ytick align=center,enlarge y limits=false,y axis line style={-stealth}},
 	/pgfplots/every non boxed z axis/.style={ztick align=center,enlarge z limits=false,z axis line style={-stealth}},
 	/pgfplots/every boxed x axis/.style={}, /pgfplots/every boxed y axis/.style={}, /pgfplots/every boxed z axis/.style={},
-	/pgfplots/axis x line shift/.initial=, /pgfplots/axis y line shift/.initial=,
+	/pgfplots/axis x line shift/.initial=, /pgfplots/axis y line shift/.initial=, /pgfplots/axis z line shift/.initial=,
 	/pgfplots/axis line shift/.style={/pgfplots/axis x line shift={#1},/pgfplots/axis y line shift={#1},/pgfplots/axis z line shift={#1}},
 	/pgfplots/@x line/.initial=box, /pgfplots/@y line/.initial=box, /pgfplots/@z line/.initial=box,
 	/pgfplots/axis lines/.style={axis x line=#1,axis y line=#1,axis z line=#1},

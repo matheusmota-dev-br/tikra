@@ -116,6 +116,11 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     style.extend(p.style.clone());
     e.process_keys(style.clone(), Some("/pgfplots"))?;
     e.st.apply_pending();
+    // `only marks` or `scatter` without a mark: `mark=*` (`\pgfplots@markers@check@for@default@plot@mark`)
+    if (e.st.only_marks || p.scatter) && e.st.plot_mark.as_deref().is_none_or(|m| m.trim().is_empty() || m.trim() == "none") {
+        e.process_keys(toks("/tikz/mark=*"), Some("/tikz"))?;
+        style.extend(toks(",/tikz/mark=*"));
+    }
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at begin plot visualization") {
         e.run_tokens(code)?;
     }

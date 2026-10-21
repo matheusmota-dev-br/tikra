@@ -1147,9 +1147,15 @@ fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         _ => {
             // \thisrow{…} is evaluated with the table's rows
             if !source.contains("\\thisrow") {
-                let text = e.math_string(raw.clone())?;
+                // `\coordindex` is the point's number
+                let per_point = source.contains("\\coordindex");
+                let mut text = if per_point { String::new() } else { e.math_string(raw.clone())? };
                 let mut vars = e.vars();
-                for c in plot.coords.iter_mut() {
+                for (i, c) in plot.coords.iter_mut().enumerate() {
+                    if per_point {
+                        e.tex.define_string("coordindex", &i.to_string(), false);
+                        text = e.math_string(raw.clone())?;
+                    }
                     vars.insert("x".into(), c.x);
                     vars.insert("y".into(), c.y);
                     vars.insert("z".into(), c.z);

@@ -390,12 +390,18 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
     let (blo, bhi) = bbox.unwrap_or((lo, hi));
     let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).unwrap_or(lo);
     e.frame = None;
+    // whether the axis' own `xshift` moves it: not when a colorbar is placed at plain description
+    // coordinates of its parent (as pgfplots' `colorbar top` customizations show)
+    let mut shifts = true;
     let at = match keys::value_tokens(e, "/pgfplots/at") {
         Some(v) => {
             let s = e.tex.expand_to_string(v)?;
             let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
             // a colorbar's `at` is in its parent's description coordinates
             let parent = super::colorbar::parent();
+            if parent.is_some() && inner.chars().all(|c| c.is_ascii_digit() || ".,-+ ".contains(c)) {
+                shifts = false;
+            }
             if let Some(p) = &parent {
                 p.cs.set(Cs::Description);
                 e.frame = Some(p.clone());
@@ -414,7 +420,9 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
         }
         None => e.st.transform.apply(Point::default()),
     };
-    let d = at.minus(anchor_point);
+    // `xshift`, `yshift` and `shift` in the axis options move it (`colorbar shift`)
+    let p = e.st.pending;
+    let d = at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() });
     for mut it in items {
         it.translate(d);
         e.canvas.items.push(it);
@@ -1625,6 +1633,7 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
     let reversed_b = (f.max[b] - f.min[b]) * if f.e[b].x + f.e[b].y < 0.0 { -1.0 } else { 1.0 } < 0.0;
     let (lower, upper) = if reversed_b && !center { (upper, lower) } else { (lower, upper) };
     let ub = unit(f.e[b]).scale(if f.max[b] >= f.min[b] { 1.0 } else { -1.0 });
+    let sh = line_shift(e, f, a);
     let mut kinds = Vec::new();
     if keys::flag(e, &format!("/pgfplots/{c}minorticks")) && extra.is_empty() {
         let m = minor_ticks(e, s, a, list);
@@ -1648,12 +1657,13 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
         for t in ticks {
             if lower {
                 let bv = if center { f.zero[b] } else { f.min[b] };
-                let p = on_axis(f, a, t, bv);
+                let out = if center { f.normal(a) } else { ub.scale(-1.0) };
+                let p = on_axis(f, a, t, bv).plus(out.scale(sh));
                 segs.push(Segment::MoveTo(p.plus(ub.scale(-off))));
                 segs.push(Segment::LineTo(p.plus(ub.scale(len - off))));
             }
             if upper {
-                let p = on_axis(f, a, t, f.max[b]);
+                let p = on_axis(f, a, t, f.max[b]).plus(ub.scale(sh));
                 segs.push(Segment::MoveTo(p.plus(ub.scale(off))));
                 segs.push(Segment::LineTo(p.plus(ub.scale(off - len))));
             }
@@ -1685,7 +1695,8 @@ fn obscured(s: &Setup, a: usize, t: f64) -> bool {
 /// The axis lines: a closed box, or separate lines (with arrows) for `axis lines=…`.
 fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
     let f = &s.frame;
-    if s.line[0] == "box" && s.line[1] == "box" && !keys::flag(e, "/pgfplots/separate axis lines") {
+    let shift = [line_shift(e, f, 0), line_shift(e, f, 1)];
+    if s.line[0] == "box" && s.line[1] == "box" && !keys::flag(e, "/pgfplots/separate axis lines") && shift == [0.0, 0.0] {
         if s.hide[0] && s.hide[1] {
             return Ok(());
         }
@@ -1702,13 +1713,25 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         }
         return e.draw_with("/pgfplots/every outer x axis line,/pgfplots/every outer y axis line", segs);
     }
-    for a in 0..2 {
+    for (a, &sa) in shift.iter().enumerate() {
         if s.hide[a] {
             continue;
         }
         let c = axis_char(a);
         let b = 1 - a;
-        let line = |bv: f64| vec![Segment::MoveTo(on_axis(f, a, f.min[a], bv)), Segment::LineTo(on_axis(f, a, f.max[a], bv))];
+        // shifted outwards: away from the other axis' middle, along the normal for a centered line
+        let ub = unit(f.e[b]).scale(if f.max[b] >= f.min[b] { 1.0 } else { -1.0 });
+        let line = |bv: f64| {
+            let out = if bv == f.max[b] {
+                ub
+            } else if bv == f.min[b] {
+                ub.scale(-1.0)
+            } else {
+                f.normal(a)
+            };
+            let d = out.scale(sa);
+            vec![Segment::MoveTo(on_axis(f, a, f.min[a], bv).plus(d)), Segment::LineTo(on_axis(f, a, f.max[a], bv).plus(d))]
+        };
         match s.line[a].as_str() {
             "center" => e.draw_with(&format!("/pgfplots/every inner {c} axis line"), line(f.zero[b]))?,
             "box" => {
@@ -1896,7 +1919,22 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
     } else {
         f.min[b]
     };
-    tick_labels_at(e, s, a, list, extra, &|t| on_axis(&f, a, t, bv), n.scale(off), off)
+    let sh = n.scale(line_shift(e, &f, a));
+    tick_labels_at(e, s, a, list, extra, &|t| on_axis(&f, a, t, bv).plus(sh), n.scale(off), off)
+}
+
+/// `axis x line shift=10pt`: how far axis `a`'s line, ticks and tick labels move outwards; a
+/// number without a unit is in units of the other axis (`\pgfplots@init@axis@shift`).
+pub(super) fn line_shift(e: &mut Engine, f: &Frame, a: usize) -> f64 {
+    let v = keys::value(e, &format!("/pgfplots/axis {} line shift", axis_char(a)));
+    let v = v.trim();
+    if v.is_empty() {
+        return 0.0;
+    }
+    if let Ok(n) = v.parse::<f64>() {
+        return if f.three_d { 0.0 } else { n * f.e[1 - a].norm() };
+    }
+    e.length(v).unwrap_or(0.0)
 }
 
 /// How far tick labels move out for the tick lines (`tick align`).
