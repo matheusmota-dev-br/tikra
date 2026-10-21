@@ -1384,6 +1384,36 @@ keyfn!(k_mark, |e, v| {
     e.st.plot_mark = if s == "none" || s.is_empty() { None } else { Some(s) };
     Ok(())
 });
+keyfn!(k_mark_size, |e, v| {
+    if let Some(d) = length(e, &v)? {
+        e.st.mark_size = d;
+    }
+    Ok(())
+});
+keyfn!(k_mark_repeat, |e, v| {
+    e.st.mark_repeat = number(e, &v)?.unwrap_or(1.0).max(1.0) as usize;
+    Ok(())
+});
+keyfn!(k_mark_phase, |e, v| {
+    e.st.mark_phase = number(e, &v)?.unwrap_or(1.0).max(0.0) as usize;
+    Ok(())
+});
+keyfn!(k_mark_indices, |e, v| {
+    let list = e.tex.expand_fully(v.unwrap_or_default())?;
+    let mut out = Vec::new();
+    for item in super::foreach_items(&list) {
+        if let Ok(n) = e.tex.expand_to_string(item)?.trim().parse::<f64>() {
+            out.push(n as usize);
+        }
+    }
+    e.st.mark_indices = if out.is_empty() { None } else { Some(out) };
+    Ok(())
+});
+keyfn!(k_mark_color, |e, v| {
+    let s = text(e, &v)?;
+    e.st.mark_color = if s.is_empty() { None } else { Some(s) };
+    Ok(())
+});
 keyfn!(k_only_marks, |e, _v| {
     e.st.only_marks = true;
     Ok(())
@@ -1774,6 +1804,11 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/tension", k_tension),
     ("/tikz/mark", k_mark),
     ("/tikz/only marks", k_only_marks),
+    ("/tikz/mark size", k_mark_size),
+    ("/tikz/mark repeat", k_mark_repeat),
+    ("/tikz/mark phase", k_mark_phase),
+    ("/tikz/mark indices", k_mark_indices),
+    ("/pgf/mark color", k_mark_color),
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_ignore),
@@ -1826,7 +1861,8 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, every curve to/.style={},
+  every edge/.style={draw}, every to/.style={}, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},
   loop below/.style={below,out=285,in=255,loop}, move to/.style={to path={(\tikztotarget) \tikztonodes}}, every circle node/.style={}, every rectangle node/.style={},

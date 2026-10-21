@@ -1182,7 +1182,7 @@ fn grid(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Err
 /// `plot[options] coordinates {…}` and `plot[options] (expression)`.
 fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) -> Result<(), Error> {
     e.begin_group();
-    let res = (|| -> Result<(Vec<Point>, bool), Error> {
+    let res = (|| -> Result<(Vec<Point>, bool, Vec<crate::canvas::Item>, bool), Error> {
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
@@ -1238,11 +1238,17 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
             }
             _ => return Err(Error::Figure("plot without an expression".into())),
         }
-        Ok((points, smooth))
+        // the marks, drawn after the path, in the plot's own settings
+        let marks = e.plot_marks(&points)?;
+        Ok((points, smooth, marks, e.st.only_marks))
     })();
     e.end_group();
-    let (points, smooth) = res?;
-    if points.is_empty() {
+    let (points, smooth, marks, only_marks) = res?;
+    b.node_items.extend(marks);
+    if points.is_empty() || only_marks {
+        if let Some(p) = points.last() {
+            b.current = Some(Coord { p: *p, node: None });
+        }
         return Ok(());
     }
     if continues && b.current.is_some() {

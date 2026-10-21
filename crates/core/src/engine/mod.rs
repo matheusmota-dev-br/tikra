@@ -8,6 +8,7 @@ pub mod chains;
 pub mod coords;
 pub mod decorations;
 pub mod intersections;
+pub mod marks;
 pub mod matrix;
 pub mod nodes;
 pub mod options;
