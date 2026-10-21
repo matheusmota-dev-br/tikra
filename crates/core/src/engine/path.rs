@@ -464,6 +464,9 @@ fn decorate_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> 
             b.segs.extend(sub);
             return Ok(());
         }
+        if !e.canvas_frozen {
+            e.canvas.include_path(&sub);
+        }
         let decorated = e.decorate_segments(&sub, if start > 0 { existing } else { None })?;
         b.segs.extend(decorated);
         Ok(())

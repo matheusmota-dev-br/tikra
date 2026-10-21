@@ -77,7 +77,8 @@ impl Engine {
             return Ok(());
         }
         let path = keys::full_path(&self.st.key_path, key);
-        if let Some((base, h)) = keys::handler(&path) {
+        // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
+        if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
             let (base, h) = (base.to_string(), h.to_string());
             return self.handler(&base, &h, value);
         }
@@ -1474,6 +1475,7 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(DEFINITIONS);
     lexer.push_text(super::decorations::DEFINITIONS);
     lexer.push_text(super::decorations::DECLARATIONS);
+    lexer.push_text(super::decorations::textfx::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

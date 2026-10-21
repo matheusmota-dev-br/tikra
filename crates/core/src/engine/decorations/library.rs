@@ -48,6 +48,7 @@ pub enum Dec {
     Koch2,
     KochSnowflake,
     Cantor,
+    TextEffects,
     /// declared in the document with `\pgfdeclaredecoration`, run as TeX
     User(&'static str),
 }
@@ -131,6 +132,7 @@ pub fn lookup(name: &str) -> Option<Dec> {
         "Koch curve type 2" => Dec::Koch2,
         "Koch snowflake" => Dec::KochSnowflake,
         "Cantor set" => Dec::Cantor,
+        "text effects along path" => Dec::TextEffects,
         _ => return None,
     })
 }
@@ -156,6 +158,7 @@ fn initial(d: Dec) -> &'static str {
         Dec::ShowPathConstruction => "check for moveto",
         Dec::Markings | Dec::Triangles | Dec::Crosses | Dec::Koch1 | Dec::Koch2 | Dec::KochSnowflake | Dec::Cantor => "init",
         Dec::ShapeBackgrounds => "initialise",
+        Dec::TextEffects => "setup",
         Dec::Footprints => "left",
         Dec::User(_) => "initial",
     }
@@ -249,6 +252,7 @@ pub struct Run<'a> {
     // shape backgrounds
     shape: ShapeRun,
     text: TextState,
+    pub(super) te: super::textfx::State,
     // declared decorations: the persistent computations of the state
     user_pre: Vec<Token>,
     user_post: Vec<Token>,
@@ -301,6 +305,7 @@ impl<'a> Run<'a> {
             text: TextState::default(),
             user_pre: Vec::new(),
             user_post: Vec::new(),
+            te: Default::default(),
         }
     }
 
@@ -778,6 +783,10 @@ impl<'a> Run<'a> {
         }
     }
 
+    pub(super) fn set_next_state(&mut self, state: &'static str) {
+        self.next_state = state;
+    }
+
     fn switch_to(&mut self, state: &'static str) {
         self.state = state;
         self.repeat = -1;
@@ -911,6 +920,11 @@ impl<'a> Run<'a> {
             (Dec::ShapeBackgrounds, "shape") => vec![Width(0.0), Next("after shape")],
             (Dec::ShapeBackgrounds, "after shape") => vec![Width(self.shape.after - SP), Next("sep"), Pre],
             (Dec::ShapeBackgrounds, _) => vec![Width(self.shape.sep), Next("before shape"), Pre],
+            (Dec::TextEffects, "setup") => vec![Width(0.0), Next("scan"), Pre],
+            (Dec::TextEffects, "scan") => vec![Width(0.0), Next("pre token"), Pre],
+            (Dec::TextEffects, "pre token") => vec![Width(self.te_current().map_or(0.0, |c| c.pre)), Next("token")],
+            (Dec::TextEffects, "token") => vec![Width(0.0), Next("post token")],
+            (Dec::TextEffects, _) => vec![Width(self.te_current().map_or(0.0, |c| c.post)), Next("scan")],
             (Dec::TextAlongPath, "initial") => vec![Width(0.0), Next("left indent"), Pre],
             (Dec::TextAlongPath, "left indent") => vec![Width(self.text.indent_left), Next("scan")],
             (Dec::TextAlongPath, "scan") => vec![Width(0.0), Next("before typeset"), Pre],
@@ -950,6 +964,8 @@ impl<'a> Run<'a> {
                 self.set_mark_info()?;
             }
             (Dec::ShapeBackgrounds, s) => self.shape_precompute(s)?,
+            (Dec::TextEffects, "setup") => self.te_setup()?,
+            (Dec::TextEffects, _) => self.te_scan(),
             (Dec::TextAlongPath, "initial") => self.text_initial()?,
             (Dec::TextAlongPath, "scan") => self.text_scan()?,
             (Dec::TextAlongPath, _) => {
@@ -1104,6 +1120,11 @@ impl<'a> Run<'a> {
             }
             (Dec::ShapeBackgrounds, "shape") => self.shape_code(t),
             (Dec::TextAlongPath, "typeset") => self.text_typeset(t),
+            (Dec::TextEffects, "token") => {
+                if let Some(i) = self.te.count.checked_sub(1).filter(|i| *i < self.te.chars.len()) {
+                    self.te_node(i, Some(t))?;
+                }
+            }
             _ => {}
         }
         Ok(())

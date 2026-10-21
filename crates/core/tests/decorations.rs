@@ -194,3 +194,20 @@ fn unknown_names_and_keys_are_reported() {
     let (items, _) = picture(r"\begin{scope}[decorate, decoration=zigzag]\draw (0,0) -- (1,0);\end{scope}");
     assert_eq!(ends(&paths(&items)[0]).len(), 2);
 }
+
+#[test]
+fn text_effects_make_a_node_per_character() {
+    let (items, w) = picture(
+        r"\path[decoration={text effects along path, text={ab-c}, text effects/.cd, word separator=-,
+            every letter/.style={fill=blue}, text along path}, decorate] (0,0) -- (3,0);",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let texts = items.iter().filter(|i| matches!(i, Item::Text { .. })).count();
+    assert_eq!(texts, 4);
+    // the three letters are filled, the separator is not
+    let fills = items.iter().filter(|i| matches!(i, Item::Path { fill: Some(_), .. })).count();
+    assert_eq!(fills, 3);
+    // path from text: a lone point becomes a line as long as the text
+    let (items, _) = picture(r"\path[decoration={text effects along path, text={abc}, text effects/.cd, path from text}, decorate] (0,0);");
+    assert_eq!(items.iter().filter(|i| matches!(i, Item::Text { .. })).count(), 3);
+}

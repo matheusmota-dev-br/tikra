@@ -5,6 +5,7 @@
 
 pub mod feet;
 pub mod library;
+pub mod textfx;
 pub mod walker;
 
 use std::rc::Rc;
@@ -64,6 +65,7 @@ pub struct Settings {
     pub shape_scaled: bool,
     pub shape_sep: String,
     pub shape_spread: String,
+    pub te: textfx::Settings,
 }
 
 impl Default for Settings {
@@ -93,6 +95,7 @@ impl Default for Settings {
             shape_scaled: false,
             shape_sep: ".25cm, between centers".into(),
             shape_spread: String::new(),
+            te: Default::default(),
         }
     }
 }
@@ -201,7 +204,7 @@ fn boolean(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<bool, Error> {
     Ok(!matches!(text(e, v)?.as_str(), "false"))
 }
 
-fn current_name(e: &Engine) -> String {
+pub fn current_name(e: &Engine) -> String {
     let name = keys::value(&e.tex, "pgfkeyscurrentname").or_else(|| match e.tex.meaning_of("pgfkeyscurrentname") {
         Meaning::Macro(m) => Some(tex::substitute(&m.body, &[])),
         _ => None,
@@ -414,6 +417,29 @@ pub const KEYS: &[(&str, super::options::KeyFn)] = &[
     ("/pgf/decoration/shape scaled", k_shape_scaled),
     ("/pgf/decoration/shape sep", k_shape_sep),
     ("/pgf/decoration/shape evenly spread", k_shape_spread),
+    ("/tikz/text effects", textfx::k_text_effects),
+    ("/pgf/decoration/text effects/.unknown", textfx::key_unknown),
+    ("/pgf/decoration/text effects/path from text", textfx::k_path_from_text),
+    ("/pgf/decoration/text effects/path from text angle", textfx::k_path_from_text_angle),
+    ("/pgf/decoration/text effects/fit text to path", textfx::k_fit),
+    ("/pgf/decoration/text effects/scale text to path", textfx::k_scale),
+    ("/pgf/decoration/text effects/segment from width", textfx::k_segment_from_width),
+    ("/pgf/decoration/text effects/word separator", textfx::k_word_separator),
+    ("/pgf/decoration/text effects/character command", textfx::k_character_command),
+    ("/pgf/decoration/text effects/reverse text", textfx::k_reverse),
+    ("/pgf/decoration/text effects/group letters into words", textfx::k_group),
+    ("/pgf/decoration/text effects/group letters", textfx::k_group),
+    ("/pgf/decoration/text effects/repeat text", textfx::k_repeat),
+    ("/pgf/decoration/text effects/character count", textfx::k_character_count),
+    ("/pgf/decoration/text effects/character total", textfx::k_character_total),
+    ("/pgf/decoration/text effects/letter count", textfx::k_letter_count),
+    ("/pgf/decoration/text effects/letter total", textfx::k_letter_total),
+    ("/pgf/decoration/text effects/word count", textfx::k_word_count),
+    ("/pgf/decoration/text effects/word total", textfx::k_word_total),
+    ("/pgf/decoration/text effects/style characters", textfx::k_style_characters),
+    ("/pgf/decoration/text effects/replace characters", textfx::k_replace_characters),
+    ("/pgf/decoration/text effects/characters/.append", textfx::k_characters_append),
+    ("/pgf/decoration/text effects/character widths/.append", textfx::k_widths_append),
 ];
 
 /// The keys pgf defines as values and styles (`.initial`, `.style`), from its own definitions.
@@ -536,6 +562,10 @@ impl Engine {
     pub fn finish_path(&mut self, segments: Vec<Segment>, outer: &GState, command: &str) -> Result<(), Error> {
         let mut segs = segments;
         if self.st.decorate && !segs.is_empty() && segs.iter().all(super::path::valid_segment) {
+            // pgf counts a path in the picture's size as it is built, before it is decorated
+            if !self.canvas_frozen {
+                self.canvas.include_path(&segs);
+            }
             self.begin_group();
             take_graphics(&mut self.st, outer);
             let r = self.decorate_segments(&segs, None);
@@ -598,6 +628,21 @@ impl Engine {
     fn decorate_how(&mut self, segs: &[Segment], existing: Option<Point>, how: How) -> Result<Vec<Segment>, Error> {
         let existing = existing.unwrap_or_default().scale(1.0 / PT);
         let mut pts = transform_segments(segs, &Transform::scaling(1.0 / PT, 1.0 / PT));
+        // `path from text`: a lone moveto becomes a line as long as the text
+        let mut prepared = None;
+        if let (How::Tikz(name), [Segment::MoveTo(q)]) = (&how, pts.as_slice()) {
+            if name.trim() == "text effects along path" && self.st.decoration.te.path_from_text {
+                let q = *q;
+                let probe = Walker::new(walker::parse(&[Segment::MoveTo(q), Segment::LineTo(Point::new(q.x + 1.0, q.y))], q), q);
+                let mut run = Run::new(self, probe, self.st.decoration.clone());
+                run.te_prepare()?;
+                let width: f64 = run.te.chars.iter().map(|c| c.pre + c.post).sum();
+                let te = std::mem::take(&mut run.te);
+                let a = self.st.decoration.te.path_from_text_angle.to_radians();
+                pts.push(Segment::LineTo(Point::new(q.x + width * a.cos(), q.y + width * a.sin())));
+                prepared = Some(te);
+            }
+        }
         // a lone moveto becomes a tiny line
         if let [Segment::MoveTo(q)] = pts.as_slice() {
             let q = *q;
@@ -614,6 +659,9 @@ impl Engine {
         }
         let w = Walker::new(parsed, existing);
         let mut run = Run::new(self, w, s);
+        if let Some(te) = prepared {
+            run.te = te;
+        }
         match how {
             How::Tikz(name) => {
                 let pre = run.key_text("pre length");
