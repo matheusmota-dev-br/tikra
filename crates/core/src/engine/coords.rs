@@ -111,7 +111,7 @@ impl Engine {
         if commas.len() == 1 && colon.is_none() {
             // a node: name, name.anchor, name.angle
             let (name, anchor) = match t.split_once('.') {
-                Some((n, a)) if !n.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '-' || c == '+') && self.nodes.contains_key(n.trim()) => (n.trim(), Some(a.trim())),
+                Some((n, a)) if !n.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '+') && self.lookup_node(n.trim()).is_some() => (n.trim(), Some(a.trim())),
                 _ => (t, None),
             };
             // pgfplots' extra anchors of an axis are coordinates of their own
@@ -120,7 +120,7 @@ impl Engine {
                     return Ok(Coord { p: node.center(), node: None });
                 }
             }
-            if let Some(node) = self.nodes.get(name) {
+            if let Some(node) = self.lookup_node(name).as_ref() {
                 return Ok(match anchor {
                     Some(a) => Coord { p: node.anchor(a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None },
                     None => Coord { p: node.center(), node: Some(name.to_string()) },

@@ -4,14 +4,21 @@
 
 pub mod arrows;
 pub mod basic;
+pub mod chains;
 pub mod coords;
+pub mod decorations;
 pub mod intersections;
+pub mod marks;
+pub mod matrix;
 pub mod nodes;
 pub mod options;
 pub mod output;
 pub mod path;
 pub mod pgfplots;
+pub mod pics;
+pub mod shapes;
 pub mod state;
+pub mod trees;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -40,6 +47,8 @@ pub enum Cmd {
     Coordinate,
     Useasboundingbox,
     Matrix,
+    PgfMatrix,
+    Chainin,
     Pic,
     Graph,
     Tikz,
@@ -76,9 +85,27 @@ pub enum Cmd {
     FontSize,
     FontSeries,
     Unsupported,
+    OnLayer,
+    EndOnLayer,
+    NamePrefix,
+    Tikzfading,
+    SetLayers,
+    Frame,
+    /// `\arrow` and `\arrowreversed` of markings
+    Arrow,
+    ArrowReversed,
+    /// the basic layer's decorations: `\pgfdecoration` … `\endpgfdecoration`, `\pgfdecoratecurrentpath`
+    DecorationBegin,
+    DecorationEnd,
+    DecorateCurrentPath,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
+    ("tikra@arrow", Cmd::Arrow),
+    ("tikra@arrowreversed", Cmd::ArrowReversed),
+    ("tikra@decoration", Cmd::DecorationBegin),
+    ("tikra@enddecoration", Cmd::DecorationEnd),
+    ("tikra@decoratecurrentpath", Cmd::DecorateCurrentPath),
     ("path", Cmd::Path),
     ("draw", Cmd::Draw),
     ("fill", Cmd::Fill),
@@ -91,6 +118,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("coordinate", Cmd::Coordinate),
     ("useasboundingbox", Cmd::Useasboundingbox),
     ("matrix", Cmd::Matrix),
+    ("pgfmatrix", Cmd::PgfMatrix),
+    ("chainin", Cmd::Chainin),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -132,7 +161,12 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("hspace", Cmd::Ignore1),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
-    ("pgfsetlayers", Cmd::Ignore1),
+    ("pgfsetlayers", Cmd::SetLayers),
+    ("pgfonlayer", Cmd::OnLayer),
+    ("endpgfonlayer", Cmd::EndOnLayer),
+    ("tikra@frame", Cmd::Frame),
+    ("tikra@nameprefix", Cmd::NamePrefix),
+    ("tikzfading", Cmd::Tikzfading),
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
@@ -190,6 +224,8 @@ fn path_command(cmd: Cmd) -> Option<&'static str> {
 #[derive(Debug, Clone, Default)]
 struct PgfScope {
     ends: usize,
+    /// a path clipped it: what it draws after does not make the picture larger
+    pub clipped: bool,
 }
 
 /// Cap on statements per figure: nested loops do not hang the caller.
@@ -220,6 +256,32 @@ pub struct Engine {
     nesting: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
+    /// `execute at end scope` code of the open scopes, innermost last
+    scope_ends: Vec<Vec<Token>>,
+    /// for each `{` in a picture: whether it opened a scope (`{[options] …}`, the scopes library)
+    brace_scopes: Vec<bool>,
+    /// layers: their order, the items of each but main, and what `\pgfonlayer` set aside
+    layer_order: Vec<String>,
+    layers: HashMap<String, Vec<Item>>,
+    on_layer: Vec<(String, Vec<Item>)>,
+    /// the last node made (a tree's parent), its name, and how many tree parents were named
+    pub last_node: Option<nodes::NodeInfo>,
+    pub last_node_name: Option<String>,
+    tree_count: usize,
+    /// the chains of the chains library (global, as TikZ keeps their counts)
+    pub chain_list: std::collections::HashMap<String, chains::Chain>,
+    /// path operations to run after the node just made (`after node path`, joins)
+    pub after_node_path: Vec<Token>,
+    /// fadings defined by `\tikzfading`, in their 100 bp box
+    pub fadings: HashMap<String, crate::canvas::Shading>,
+    /// the text box a node must take (a matrix's cells), instead of its text's
+    pub forced_box: Option<(f64, f64, f64)>,
+    /// the name of each child being grown, set by the first node its statement makes
+    pub tree_child_names: Vec<Option<String>>,
+    /// a child's `edge from parent[…]`, read inside its statement
+    pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
+    /// open `\pgfdecoration`s
+    pub decoration_envs: Vec<decorations::Env>,
     /// paths kept by `name path`
     pub named_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// pictures already drawn, and how the document lays them out
@@ -282,7 +344,22 @@ impl Clone for Engine {
             nesting: self.nesting,
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
+            decoration_envs: self.decoration_envs.clone(),
             named_paths: self.named_paths.clone(),
+            last_node: self.last_node.clone(),
+            last_node_name: self.last_node_name.clone(),
+            tree_count: self.tree_count,
+            chain_list: self.chain_list.clone(),
+            after_node_path: Vec::new(),
+            tree_edge_out: self.tree_edge_out.clone(),
+            tree_child_names: self.tree_child_names.clone(),
+            forced_box: self.forced_box,
+            fadings: self.fadings.clone(),
+            scope_ends: self.scope_ends.clone(),
+            brace_scopes: Vec::new(),
+            layer_order: self.layer_order.clone(),
+            layers: self.layers.clone(),
+            on_layer: self.on_layer.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
             current_key: self.current_key.clone(),
@@ -323,7 +400,22 @@ impl Engine {
             nesting: 0,
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
+            decoration_envs: Vec::new(),
             named_paths: HashMap::new(),
+            last_node: None,
+            last_node_name: None,
+            tree_count: 0,
+            chain_list: Default::default(),
+            after_node_path: Vec::new(),
+            tree_edge_out: None,
+            tree_child_names: Vec::new(),
+            forced_box: None,
+            fadings: HashMap::new(),
+            scope_ends: Vec::new(),
+            brace_scopes: Vec::new(),
+            layer_order: vec!["background".into(), "main".into()],
+            layers: HashMap::new(),
+            on_layer: Vec::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
             current_key: String::new(),
@@ -388,6 +480,32 @@ impl Engine {
     pub fn execute(&mut self, t: Token) -> Result<(), Error> {
         let m = self.tex.meaning(&t);
         match m {
+            Meaning::Char(_, Cat::Begin) if self.picture_depth > 0 => {
+                // the scopes library: `{[options] …}` is a scope
+                match self.tex.next_nonspace() {
+                    Some(n) if n.is_char('[') => {
+                        let o = self.tex.read_until_char(']', false)?;
+                        self.brace_scopes.push(true);
+                        let r = self.open_tikz_scope(Some(o), false);
+                        self.recover(r, &t)?;
+                    }
+                    other => {
+                        if let Some(n) = other {
+                            self.tex.back(n);
+                        }
+                        self.brace_scopes.push(false);
+                        self.begin_group();
+                    }
+                }
+            }
+            Meaning::Char(_, Cat::End) if self.picture_depth > 0 => {
+                if self.brace_scopes.pop() == Some(true) {
+                    let r = self.close_tikz_scope();
+                    self.recover(r, &t)?;
+                } else {
+                    self.end_group();
+                }
+            }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
@@ -626,7 +744,20 @@ impl Engine {
                 let r = path::statement(self, "");
                 self.recover(r, t)
             }
-            Cmd::Matrix | Cmd::Pic | Cmd::Graph => {
+            Cmd::Pic => {
+                self.tex.push_tokens(tikra_tokens("pic "));
+                let r = path::statement(self, "");
+                self.recover(r, t)
+            }
+            Cmd::NamePrefix => {
+                let p = self.argument_string()?;
+                self.st.name_prefix = if p == ".." { String::new() } else { p };
+                Ok(())
+            }
+            Cmd::Matrix => self.matrix(),
+            Cmd::PgfMatrix => self.pgf_matrix(),
+            Cmd::Chainin => self.chainin(),
+            Cmd::Graph => {
                 let rest = self.skip_statement()?;
                 let _ = rest;
                 let name = tex::show_token(t);
@@ -640,23 +771,20 @@ impl Engine {
                 Ok(())
             }
             Cmd::Tikz => self.tikz_command(),
+            Cmd::Arrow => self.arrow_command(false),
+            Cmd::ArrowReversed => self.arrow_command(true),
+            Cmd::DecorationBegin => self.decoration_begin(),
+            Cmd::DecorationEnd => self.decoration_end(),
+            Cmd::DecorateCurrentPath => self.decorate_current_path(),
             Cmd::Begin => self.begin_environment(),
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {
                 let o = self.optional()?;
-                self.begin_group();
-                self.begin_scope();
-                self.run_tokens(tikra_tokens("\\tikz@scope@options"))?;
-                if let Some(o) = o {
-                    self.process_keys(o, Some("/tikz"))?;
-                }
-                self.st.apply_pending();
+                self.open_tikz_scope(o, false)?;
                 // the next statement or group is the content
                 let body = self.next_statement()?;
                 self.run_tokens(body)?;
-                self.end_scope();
-                self.end_group();
-                Ok(())
+                self.close_tikz_scope()
             }
             Cmd::Tikzset => {
                 let a = self.argument()?;
@@ -862,6 +990,22 @@ impl Engine {
                 }
                 Ok(())
             }
+            Cmd::OnLayer => {
+                let name = self.argument_string()?;
+                self.begin_on_layer(name);
+                Ok(())
+            }
+            Cmd::EndOnLayer => {
+                self.end_on_layer();
+                Ok(())
+            }
+            Cmd::SetLayers => {
+                let list = self.argument_string()?;
+                self.layer_order = list.split(',').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                Ok(())
+            }
+            Cmd::Frame => self.frame_macros(),
+            Cmd::Tikzfading => self.tikzfading(),
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
@@ -993,12 +1137,165 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
+        let begin = std::mem::take(&mut self.st.at_begin_picture);
+        let end = std::mem::take(&mut self.st.at_end_picture);
+        self.scope_ends.push(end);
+        self.run_tokens(begin)
+    }
+
+    /// `\begin{scope}[options]` and `\scoped`: a group, a pgf scope, the options, `execute at begin scope`.
+    fn open_tikz_scope(&mut self, o: Option<Vec<Token>>, fatal: bool) -> Result<(), Error> {
+        self.begin_group();
+        self.begin_scope();
+        self.run_tokens(tikra_tokens("\\tikz@scope@options"))?;
+        if let Some(o) = o {
+            let r = self.process_keys(o, Some("/tikz"));
+            if fatal {
+                r.map_err(|e| Error::Figure(format!("scope options: {e}")))?;
+            } else {
+                r?;
+            }
+        }
+        self.st.apply_pending();
+        if std::mem::take(&mut self.st.transparency_group) {
+            // the scope's opacity is the group's; inside, everything is opaque
+            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
+            self.open_in_scope(Item::Group { opacity });
+            self.st.draw_opacity = 1.0;
+            self.st.fill_opacity = 1.0;
+            self.st.text_opacity = 1.0;
+        }
+        let begin = std::mem::take(&mut self.st.at_begin_scope);
+        let end = std::mem::take(&mut self.st.at_end_scope);
+        self.scope_ends.push(end);
+        self.run_tokens(begin)
+    }
+
+    fn close_tikz_scope(&mut self) -> Result<(), Error> {
+        let end = self.scope_ends.pop().unwrap_or_default();
+        let r = self.run_tokens(end);
+        self.end_scope();
+        self.end_group();
+        r
+    }
+
+    /// `\tikzfading[name=…, top color=transparent!0, bottom color=transparent!100]`: a fading from
+    /// shading options, with `transparent!N` meaning N percent transparent.
+    fn tikzfading(&mut self) -> Result<(), Error> {
+        let o = self.optional()?.unwrap_or_default();
+        let mut name = String::new();
+        let mut opts = Vec::new();
+        for item in crate::keys::split_list(&o) {
+            if item.key == "name" {
+                name = self.tex.expand_to_string(item.value.unwrap_or_default())?.trim().to_string();
+            } else {
+                if !opts.is_empty() {
+                    opts.push(Token::other(','));
+                }
+                opts.extend(tikra_tokens(&item.key));
+                if let Some(v) = item.value {
+                    opts.push(Token::other('='));
+                    opts.push(Token::Char('{', Cat::Begin));
+                    opts.extend(v);
+                    opts.push(Token::Char('}', Cat::End));
+                }
+            }
+        }
+        self.begin_group();
+        // transparent is black in a fading: N percent of it, the rest white
+        self.colors.insert("transparent".into(), Color::BLACK);
+        self.colors.insert("pgftransparent".into(), Color::BLACK);
+        let r = self.process_keys(opts, Some("/tikz"));
+        // a unit square, so the shading's box is the identity once fitted
+        let square = [crate::scene::Segment::MoveTo(Point::new(-25.0, -25.0)), crate::scene::Segment::LineTo(Point::new(25.0, 25.0))];
+        let sh = self.shading_of(&square);
+        self.colors.remove("transparent");
+        self.colors.remove("pgftransparent");
+        self.end_group();
+        r?;
+        if !name.is_empty() {
+            self.fadings.insert(name, sh);
+        }
+        Ok(())
+    }
+
+    /// `\pgfonlayer{name}`: what is drawn until `\endpgfonlayer` goes to that layer.
+    fn begin_on_layer(&mut self, name: String) {
+        self.begin_group();
+        let main = std::mem::take(&mut self.canvas.items);
+        self.on_layer.push((name, main));
+    }
+
+    fn end_on_layer(&mut self) {
+        let Some((name, main)) = self.on_layer.pop() else {
+            self.warn("\\endpgfonlayer without \\pgfonlayer");
+            return;
+        };
+        let drawn = std::mem::replace(&mut self.canvas.items, main);
+        self.layers.entry(name).or_default().extend(drawn);
+        self.end_group();
+    }
+
+    /// `\tikra@frame`: the picture's box, and with the frame seps around it, as macros in pt
+    /// (`\tikra@xa`… inner, `\tikra@oxa`… outer) for the backgrounds library.
+    fn frame_macros(&mut self) -> Result<(), Error> {
+        let (Some(lo), Some(hi)) = (self.canvas.min, self.canvas.max) else { return Ok(()) };
+        let sep = |e: &mut Engine, name: &str| -> f64 {
+            let v = match e.tex.meaning_of(name) {
+                Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
+                _ => "0pt".into(),
+            };
+            e.length(&v).unwrap_or(0.0)
+        };
+        let (fx, fy) = (sep(self, "tikz@framexsep"), sep(self, "tikz@frameysep"));
+        let (ox, oy) = (sep(self, "tikz@outerframexsep"), sep(self, "tikz@outerframeysep"));
+        let pt = |v: f64| format!("{}pt", v / crate::PT);
+        for (name, v) in [
+            ("tikra@xa", lo.x - fx),
+            ("tikra@ya", lo.y - fy),
+            ("tikra@xb", hi.x + fx),
+            ("tikra@yb", hi.y + fy),
+            ("tikra@oxa", lo.x - fx - ox),
+            ("tikra@oya", lo.y - fy - oy),
+            ("tikra@oxb", hi.x + fx + ox),
+            ("tikra@oyb", hi.y + fy + oy),
+        ] {
+            self.tex.define_string(name, &pt(v), false);
+        }
         Ok(())
     }
 
     fn end_picture(&mut self) {
+        // execute at end picture, while the picture is still open
+        let end = self.scope_ends.pop().unwrap_or_default();
+        if let Err(e) = self.run_tokens(end) {
+            self.warn(format!("execute at end picture: {e}"));
+        }
+        while !self.on_layer.is_empty() {
+            self.end_on_layer();
+        }
         self.end_scope();
         let outermost = self.picture_depth == 1;
+        if outermost && !self.layers.is_empty() {
+            // the layers, in the order of \pgfsetlayers (main where it is listed)
+            let main = std::mem::take(&mut self.canvas.items);
+            let mut layers = std::mem::take(&mut self.layers);
+            let mut order = self.layer_order.clone();
+            if !order.iter().any(|l| l == "main") {
+                order.push("main".into());
+            }
+            let mut main = Some(main);
+            for name in order {
+                if name == "main" {
+                    self.canvas.items.extend(main.take().unwrap_or_default());
+                } else if let Some(v) = layers.remove(&name) {
+                    self.canvas.items.extend(v);
+                }
+            }
+            for (_, v) in layers {
+                self.canvas.items.extend(v);
+            }
+        }
         let baseline = if outermost { self.picture_baseline() } else { 0.0 };
         self.end_group();
         self.picture_depth = self.picture_depth.saturating_sub(1);
@@ -1055,21 +1352,17 @@ impl Engine {
                 }
                 self.depth += 1;
                 let o = self.optional()?;
-                self.begin_group();
-                self.begin_scope();
-                self.run_tokens(tikra_tokens("\\tikz@scope@options"))?;
-                if let Some(o) = o {
-                    self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("scope options: {e}")))?;
-                }
-                self.st.apply_pending();
-                Ok(())
+                self.open_tikz_scope(o, true)
             }
             n if pgfplots::is_axis(n) => self.begin_axis(n),
-            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" | "pgfonlayer" | "tikzfadingfrompicture" => {
+            "pgfonlayer" => {
+                let layer = self.argument_string()?;
+                self.begin_on_layer(layer);
+                Ok(())
+            }
+            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" | "tikzfadingfrompicture" => {
                 if name == "minipage" {
                     let _ = self.optional()?;
-                    let _ = self.argument()?;
-                } else if name == "pgfonlayer" {
                     let _ = self.argument()?;
                 } else if name == "figure" {
                     let _ = self.optional()?;
@@ -1114,9 +1407,9 @@ impl Engine {
                 self.end_scope();
                 self.end_group();
             }
+            "pgfonlayer" => self.end_on_layer(),
             "scope" => {
-                self.end_scope();
-                self.end_group();
+                self.close_tikz_scope()?;
                 self.depth = self.depth.saturating_sub(1);
             }
             _ => {

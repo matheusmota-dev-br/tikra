@@ -14,7 +14,8 @@ use crate::tex::{self, Token};
 use crate::{Error, PT};
 
 use super::super::coords::Coord as TikzCoord;
-use super::super::nodes::{NodeInfo, NodeSpec, OnPath, ShapeKind};
+use super::super::nodes::{NodeInfo, NodeSpec, OnPath};
+use super::super::shapes::{Border, Geometry};
 use super::keys;
 use super::number::NumberFormat;
 use super::plot::Plot;
@@ -409,16 +410,28 @@ fn named_anchor(name: &str, lo: Point, hi: Point, blo: Point, bhi: Point, f: &Fr
 
 fn register_axis_node(e: &mut Engine, name: &str, lo: Point, hi: Point, blo: Point, bhi: Point, f: &Frame) {
     let c = Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let info = NodeInfo {
-        shape: ShapeKind::Rectangle,
-        c: Point::default(),
-        half: ((hi.x - lo.x) / 2.0, (hi.y - lo.y) / 2.0),
-        outer: (0.0, 0.0),
-        mid_y: 0.0,
-        text_width: 0.0,
-        aspect: 1.0,
-        transform: Transform::translation(c.x, c.y),
-    };
+    let (hx, hy) = ((hi.x - lo.x) / 2.0, (hi.y - lo.y) / 2.0);
+    let mut g = Geometry::new(Point::default(), Border::Rectangle(Point::new(hx, hy)));
+    for (a, x, y) in [
+        ("center", 0.0, 0.0),
+        ("north", 0.0, hy),
+        ("south", 0.0, -hy),
+        ("east", hx, 0.0),
+        ("west", -hx, 0.0),
+        ("north east", hx, hy),
+        ("north west", -hx, hy),
+        ("south east", hx, -hy),
+        ("south west", -hx, -hy),
+        ("mid", 0.0, 0.0),
+        ("mid east", hx, 0.0),
+        ("mid west", -hx, 0.0),
+        ("base", 0.0, 0.0),
+        ("base east", hx, 0.0),
+        ("base west", -hx, 0.0),
+    ] {
+        g.anchor_at(a, Point::new(x, y));
+    }
+    let info = NodeInfo { shape: "rectangle".into(), geometry: Rc::new(g), transform: Transform::translation(c.x, c.y) };
     e.nodes.insert(name.to_string(), info);
     for a in [
         "origin",
@@ -445,16 +458,9 @@ fn register_axis_node(e: &mut Engine, name: &str, lo: Point, hi: Point, blo: Poi
         "below south east",
     ] {
         if let Some(p) = named_anchor(a, lo, hi, blo, bhi, f) {
-            let info = NodeInfo {
-                shape: ShapeKind::Coordinate,
-                c: Point::default(),
-                half: (0.0, 0.0),
-                outer: (0.0, 0.0),
-                mid_y: 0.0,
-                text_width: 0.0,
-                aspect: 1.0,
-                transform: Transform::translation(p.x, p.y),
-            };
+            let mut g = Geometry::new(Point::default(), Border::Point);
+            g.anchor_at("center", Point::default());
+            let info = NodeInfo { shape: "coordinate".into(), geometry: Rc::new(g), transform: Transform::translation(p.x, p.y) };
             e.nodes.insert(format!("{name}@{a}"), info);
         }
     }

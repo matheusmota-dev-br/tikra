@@ -75,8 +75,8 @@ fn flowchart_with_positioning_and_elbows() {
         \draw[arrow] (c.south) -| (d.north);
       \end{tikzpicture}",
     );
-    // the Stealth tips: closed paths, filled and not stroked
-    assert!(r.svg.contains(r##"Z" fill="#000000"/>"##), "the Stealth tip is drawn");
+    // the Stealth tips: closed paths, filled and stroked with the line's width, as pgf does
+    assert!(r.svg.contains(r##"Z" fill="#000000" stroke="#000000""##), "the Stealth tip is drawn");
 }
 
 #[test]
@@ -150,8 +150,8 @@ fn input_repairs() {
     let r = figure("```\n\\\\draw\\[red\\] (0,0) -- (1,1);\n```");
     assert!(r.warnings.iter().any(|a| a.contains("Markdown")), "{:?}", r.warnings);
     // an unknown command becomes a warning, not an error
-    let r = figure(r"\begin{tikzpicture} \draw (0,0) -- (1,0); \matrix {a}; \end{tikzpicture}");
-    assert!(r.warnings.iter().any(|a| a.contains("matrix")));
+    let r = figure(r"\begin{tikzpicture} \draw (0,0) -- (1,0); \spy on (0,0) in node at (1,1); \end{tikzpicture}");
+    assert!(r.warnings.iter().any(|a| a.contains("spy")), "{:?}", r.warnings);
 }
 
 #[test]

@@ -1,14 +1,22 @@
-//! What happens to a path once built (`\pgfusepath`): decoration, rounded corners, shortening,
+//! What happens to a path once built (`\pgfusepath`): rounded corners, shortening,
 //! clipping, filling and stroking, arrow tips, `double`, and the picture's bounding box.
 
 use crate::canvas::{Fill, Item, Paint, Stroke};
 use crate::scene::{Point, Segment};
 use crate::Error;
 
-use super::path::{valid_segment, MAX_COORDINATE, MAX_DECORATION_STEPS};
+use super::arrows::{Curvilinear, EndTips, TipsMode, Widths};
+use super::path::{valid_segment, MAX_COORDINATE};
 use super::Engine;
+use crate::PT;
 
 impl Engine {
+    /// Whether what is drawn now makes the picture larger: not after `use as bounding box`, nor
+    /// after a clip in the scope.
+    pub fn counts_for_size(&self) -> bool {
+        !self.canvas_frozen && !self.scopes.iter().any(|s| s.clipped)
+    }
+
     /// Uses the path as the state says: clip, fill, draw, arrows.
     pub fn use_path(&mut self, segments: Vec<Segment>, command: &str) -> Result<(), Error> {
         if !segments.iter().all(valid_segment) {
@@ -16,26 +24,29 @@ impl Engine {
             return Ok(());
         }
         let mut segs = segments;
-        if self.st.decorate && !self.st.decoration.is_empty() {
-            let kind = self.st.decoration.clone();
-            let mut warnings = Vec::new();
-            segs = decorate(&segs, &kind, self.st.amplitude, self.st.segment_length, |w| warnings.push(w));
-            for w in warnings {
-                self.warn(w);
-            }
-        }
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);
         }
-        if self.st.shorten_start > 0.0 || self.st.shorten_end > 0.0 {
-            shorten_ends(&mut segs, self.st.shorten_start, self.st.shorten_end);
-        }
         let mode = self.st.mode.clone();
+        // the bounding box grows as the path is built: before any shortening
         if mode.bounding_box {
             self.canvas.include_path(&segs);
             self.canvas_frozen = true;
-        } else if !self.canvas_frozen {
+        } else if self.counts_for_size() {
             self.canvas.include_path(&segs);
+            // a stroked path adds half its line width around its own box (\pgfusepath)
+            if mode.draw {
+                let w = match self.st.double {
+                    Some(_) => 2.0 * self.st.line_width + self.st.double_distance,
+                    None => self.st.line_width,
+                };
+                let mut path = crate::canvas::Canvas::default();
+                path.include_path(&segs);
+                if let (Some(lo), Some(hi)) = (path.min, path.max) {
+                    self.canvas.include(Point::new(lo.x - w / 2.0, lo.y - w / 2.0));
+                    self.canvas.include(Point::new(hi.x + w / 2.0, hi.y + w / 2.0));
+                }
+            }
         }
         let drawn = segs.iter().any(|s| !matches!(s, Segment::MoveTo(_)));
         let fill = if mode.fill || mode.pattern || mode.shade {
@@ -45,8 +56,7 @@ impl Engine {
                     color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK),
                 }
             } else if mode.shade {
-                // shadings come later: the fill color stands in
-                Paint::Solid(self.st.fill_color.unwrap_or(crate::color::Color { r: 0.5, g: 0.5, b: 0.5 }))
+                Paint::Shading(self.shading_for(&segs))
             } else {
                 Paint::Solid(self.st.fill_paint_color())
             };
@@ -61,27 +71,17 @@ impl Engine {
             None
         };
         let stroke = mode.draw.then(|| self.stroke());
+        // a path fading masks this path, fitted to it
+        let fading = self.st.path_fading.clone().and_then(|f| self.fading_for(&f, &segs));
+        let faded = drawn && (fill.is_some() || stroke.is_some()) && fading.is_some();
+        if faded {
+            self.canvas.push(Item::Fade { mask: fading.clone().expect("checked") });
+        }
+        // `tips=true`/`proper`: tips on a path that is neither filled nor stroked
+        let tips_only = stroke.is_none() && fill.is_none() && !mode.clip && matches!(self.st.tips_mode, TipsMode::True | TipsMode::Proper);
+        // a clipping path has no tips and is not shortened; a lone point still gets them
+        let tips = if !segs.is_empty() && !mode.clip && (stroke.is_some() || tips_only) { self.arrow_ends(&mut segs) } else { Tips::default() };
         if drawn && (fill.is_some() || stroke.is_some()) {
-            let mut tips = Vec::new();
-            if let Some(s) = &stroke {
-                let default = self.st.default_arrow.clone();
-                if let Some(spec) = self.st.end_arrow.clone() {
-                    if let Some((p, d, k)) = end_point(&segs) {
-                        let back = super::arrows::tip_items(&spec, &default, p, d, s, &mut tips);
-                        if back > 0.0 {
-                            pull_back_end(&mut segs, k, p, d, back);
-                        }
-                    }
-                }
-                if let Some(spec) = self.st.start_arrow.clone() {
-                    if let Some((p, d)) = start_point(&segs) {
-                        let back = super::arrows::tip_items(&spec, &default, p, d, s, &mut tips);
-                        if back > 0.0 {
-                            pull_back_start(&mut segs, p, d, back);
-                        }
-                    }
-                }
-            }
             if let Some(under) = solid_under {
                 self.canvas.push(Item::Path { segments: segs.clone(), fill: Some(under), stroke: None });
             }
@@ -95,165 +95,308 @@ impl Engine {
                 }
                 _ => self.canvas.push(Item::Path { segments: segs.clone(), fill, stroke }),
             }
-            if !self.canvas_frozen {
-                for t in &tips {
-                    if let Item::Path { segments, .. } = t {
-                        self.canvas.include_path(segments);
-                    }
-                }
-            }
-            self.canvas.items.extend(tips);
+        }
+        self.push_tips(tips);
+        if faded {
+            self.canvas.push(Item::End);
         }
         if mode.clip {
             self.open_in_scope(Item::Clip { segments: segs, even_odd: self.st.even_odd });
+            // what the scope draws after a clip does not make the picture larger (pgf's
+            // \pgf@relevantforpicturesizefalse)
+            if let Some(s) = self.scopes.last_mut() {
+                s.clipped = true;
+            }
         }
         Ok(())
     }
-}
 
-/// Last point of a path and the direction it arrives from.
-fn end_point(segs: &[Segment]) -> Option<(Point, Point, usize)> {
-    let mut previous = None;
-    let mut res = None;
-    for (k, s) in segs.iter().enumerate() {
-        match s {
-            Segment::MoveTo(p) => previous = Some(*p),
-            Segment::LineTo(p) => {
-                if let Some(a) = previous {
-                    if p.minus(a).norm() > 1e-12 {
-                        res = Some((*p, p.minus(a), k));
-                    }
+    /// A fading by name, fitted to the path's bounding box (`fit fading`, on by default).
+    fn fading_for(&mut self, name: &str, segs: &[Segment]) -> Option<crate::canvas::Shading> {
+        let (white, black) = (crate::color::Color::WHITE, crate::color::Color::BLACK);
+        let mut c = crate::canvas::Canvas::default();
+        c.include_path(segs);
+        let (lo, hi) = (c.min?, c.max?);
+        let center = lo.lerp(hi, 0.5);
+        let fit =
+            crate::scene::Transform::translation(center.x, center.y).compose(&crate::scene::Transform::scaling(((hi.x - lo.x) / 50.0).max(1e-9), ((hi.y - lo.y) / 50.0).max(1e-9)));
+        let axial = |angle: f64, from: crate::color::Color, to: crate::color::Color| crate::canvas::Shading::Axial {
+            transform: fit.compose(&crate::scene::Transform::rotation(angle)),
+            stops: vec![(0.0, from), (0.25, from), (0.75, to), (1.0, to)],
+        };
+        let circle =
+            |edge: f64| crate::canvas::Shading::Radial { transform: fit, focus: Point::default(), stops: vec![(0.0, white), (edge / 50.0, white), (0.5, black), (1.0, black)] };
+        Some(match name {
+            // the library's: opaque on one side, transparent on the other
+            "north" => axial(0.0, white, black),
+            "south" => axial(0.0, black, white),
+            "east" => axial(-90.0, white, black),
+            "west" => axial(-90.0, black, white),
+            "circle with fuzzy edge 10 percent" => circle(22.5),
+            "circle with fuzzy edge 15 percent" => circle(21.25),
+            "circle with fuzzy edge 20 percent" => circle(20.0),
+            "fuzzy ring 15 percent" => crate::canvas::Shading::Radial {
+                transform: fit,
+                focus: Point::default(),
+                stops: vec![(0.0, black), (21.25 / 50.0, black), (23.125 / 50.0, white), (0.5, black), (1.0, black)],
+            },
+            other => match self.fadings.get(other).cloned() {
+                Some(mut sh) => {
+                    let (crate::canvas::Shading::Axial { transform, .. } | crate::canvas::Shading::Radial { transform, .. }) = &mut sh;
+                    *transform = fit.compose(transform);
+                    sh
                 }
-                previous = Some(*p);
-            }
-            Segment::CurveTo(c1, c2, p) => {
-                let d = if p.minus(*c2).norm() > 1e-9 {
-                    p.minus(*c2)
-                } else if p.minus(*c1).norm() > 1e-9 {
-                    p.minus(*c1)
-                } else {
-                    p.minus(previous.unwrap_or(*p))
-                };
-                res = Some((*p, d, k));
-                previous = Some(*p);
-            }
-            Segment::Close => return None,
+                None => {
+                    self.warn(format!("fading '{other}' not supported: drawn without it"));
+                    return None;
+                }
+            },
+        })
+    }
+
+    pub fn shading_of(&self, segs: &[Segment]) -> crate::canvas::Shading {
+        self.shading_for(segs)
+    }
+
+    /// The current shading fitted to the path's bounding box, as `\pgfshadepath` fits it.
+    fn shading_for(&self, segs: &[Segment]) -> crate::canvas::Shading {
+        let mut c = crate::canvas::Canvas::default();
+        c.include_path(segs);
+        let (lo, hi) = (c.min.unwrap_or_default(), c.max.unwrap_or_default());
+        let (w, h) = (hi.x - lo.x, hi.y - lo.y);
+        let a = self.st.shade_angle;
+        let (s, co) = a.to_radians().sin_cos();
+        let (abs_s, abs_c) = (s.abs(), co.abs());
+        // pgf's scaling: the shading's middle 50 bp cover the box along the rotated axes
+        let sx = (w * abs_c + h * abs_s) / (abs_c + abs_s) / 50.0;
+        let sy = (w * abs_s + h * abs_c) / (abs_c + abs_s) / 50.0;
+        let center = lo.lerp(hi, 0.5);
+        let transform = crate::scene::Transform::translation(center.x, center.y)
+            .compose(&crate::scene::Transform::rotation(a))
+            .compose(&crate::scene::Transform::scaling(sx.max(1e-9), sy.max(1e-9)));
+        let st = &self.st;
+        let blend = |x: crate::color::Color, y: crate::color::Color, t: f64| crate::color::Color {
+            r: x.r * t + y.r * (1.0 - t),
+            g: x.g * t + y.g * (1.0 - t),
+            b: x.b * t + y.b * (1.0 - t),
+        };
+        let (white, black) = (crate::color::Color::WHITE, crate::color::Color::BLACK);
+        match st.shading.as_str() {
+            "ball" => crate::canvas::Shading::Radial {
+                transform,
+                focus: Point::new(-10.0, 10.0),
+                stops: vec![
+                    (0.0, blend(st.ball, white, 0.15)),
+                    (9.0 / 50.0, blend(st.ball, white, 0.75)),
+                    (18.0 / 50.0, blend(st.ball, black, 0.7)),
+                    (0.5, blend(st.ball, black, 0.5)),
+                    (1.0, black),
+                ],
+            },
+            "radial" => crate::canvas::Shading::Radial { transform, focus: Point::default(), stops: vec![(0.0, st.radial_inner), (0.5, st.radial_outer), (1.0, st.radial_outer)] },
+            _ => crate::canvas::Shading::Axial {
+                transform,
+                stops: vec![(0.0, st.axis_bottom), (0.25, st.axis_bottom), (0.5, st.axis_middle), (0.75, st.axis_top), (1.0, st.axis_top)],
+            },
         }
     }
-    res
+
+    /// Shortens the path for its arrow tips and `shorten <`/`shorten >`, and draws the tips, as
+    /// `\pgf@prepare@end@of@path` and `\pgf@prepare@start@of@path` do: the end first, then the start
+    /// of the path as the end left it. Nothing on a closed path.
+    fn arrow_ends(&mut self, segs: &mut [Segment]) -> Tips {
+        let mut out = Tips::default();
+        if segs.iter().any(|s| matches!(s, Segment::Close)) || self.st.tips_mode == TipsMode::Never {
+            return out;
+        }
+        // `tips=proper`, `on proper draw`: not on a path that stays at one point
+        if matches!(self.st.tips_mode, TipsMode::Proper | TipsMode::OnProperDraw) && !proper(segs) {
+            return out;
+        }
+        let s = self.stroke();
+        let widths = match self.st.double {
+            Some(_) => Widths { line: (2.0 * s.width + self.st.double_distance) / PT, inner: self.st.double_distance / PT },
+            None => Widths { line: s.width / PT, inner: 0.0 },
+        };
+        let user = self.st.tips.clone();
+        let mut warn = Vec::new();
+        let (end_spec, start_spec) = (self.st.end_arrow.clone().unwrap_or_default(), self.st.start_arrow.clone().unwrap_or_default());
+        let (shorten_end, shorten_start) = (self.st.shorten_end / PT, self.st.shorten_start / PT);
+        let end = EndTips::new(self, &end_spec, false, &user, widths, shorten_end, &mut warn);
+        let start = EndTips::new(self, &start_spec, true, &user, widths, shorten_start, &mut warn);
+        for w in warn {
+            self.warn(w);
+        }
+        let mut at_end = None;
+        if !end.is_empty() || end.shortening != 0.0 {
+            if let Some((k, movable, last, reference)) = path_end(segs) {
+                // a curve with flexed tips: shortened along it, and the tips laid on it
+                let curve = match (segs[k], end.flexed()) {
+                    (Segment::CurveTo(c1, c2, _), true) => point_of(&segs[k - 1]).map(|prev| Curvilinear::new([last, c2, c1, prev])),
+                    _ => None,
+                };
+                if movable && end.shortening != 0.0 {
+                    match &curve {
+                        Some(c) => {
+                            let [p, b, a, _] = c.after(c.time(end.shortening));
+                            segs[k] = Segment::CurveTo(a, b, p);
+                        }
+                        None => {
+                            let p = toward(last, reference, end.shortening * PT);
+                            if let Segment::LineTo(q) | Segment::CurveTo(_, _, q) = &mut segs[k] {
+                                *q = p;
+                            }
+                        }
+                    }
+                }
+                at_end = Some(match curve {
+                    Some(c) => Along::Curve(c),
+                    None => Along::Line(last, reference),
+                });
+            }
+        }
+        let mut at_start = None;
+        if !start.is_empty() || start.shortening != 0.0 {
+            if let Some((m, movable, first, reference)) = path_start(segs) {
+                let curve = match (segs.get(m + 1), start.flexed()) {
+                    (Some(&Segment::CurveTo(c1, c2, p)), true) => Some(Curvilinear::new([first, c1, c2, p])),
+                    _ => None,
+                };
+                if movable && start.shortening != 0.0 {
+                    match &curve {
+                        Some(c) => {
+                            let [p, a, b, q] = c.after(c.time(start.shortening));
+                            segs[m] = Segment::MoveTo(p);
+                            segs[m + 1] = Segment::CurveTo(a, b, q);
+                        }
+                        None => segs[m] = Segment::MoveTo(toward(first, reference, start.shortening * PT)),
+                    }
+                }
+                at_start = Some(match curve {
+                    Some(c) => Along::Curve(c),
+                    None => Along::Line(first, reference),
+                });
+            }
+        }
+        // the stroke color and line width, without the dash; fills with the fill opacity
+        let stroke = Stroke { width: widths.line * PT, ..s };
+        let fill_opacity = self.st.fill_opacity;
+        for (tips, at) in [(&start, at_start), (&end, at_end)] {
+            let hull = match at {
+                Some(Along::Line(p, from)) => tips.draw(p, from, &stroke, fill_opacity, &mut out.items),
+                Some(Along::Curve(c)) => tips.draw_on_curve(&c, &stroke, fill_opacity, &mut out.items),
+                None => continue,
+            };
+            out.hull.extend(hull);
+        }
+        out
+    }
+
+    fn push_tips(&mut self, tips: Tips) {
+        if self.counts_for_size() {
+            for p in tips.hull {
+                self.canvas.include(p);
+            }
+        }
+        self.canvas.items.extend(tips.items);
+    }
 }
 
-fn start_point(segs: &[Segment]) -> Option<(Point, Point)> {
-    let Segment::MoveTo(a) = segs.first()? else { return None };
-    match segs.get(1)? {
-        Segment::LineTo(p) => Some((*a, a.minus(*p))),
-        Segment::CurveTo(c1, c2, p) => {
-            let target = if c1.minus(*a).norm() > 1e-9 {
-                *c1
-            } else if c2.minus(*a).norm() > 1e-9 {
-                *c2
+/// What the tips of an end are laid along: the line from a point to the end, or the end's curve.
+enum Along {
+    Line(Point, Point),
+    Curve(Curvilinear),
+}
+
+/// The drawing of a path's tips, and the points of their hulls (for the bounding box).
+#[derive(Default)]
+struct Tips {
+    items: Vec<Item>,
+    hull: Vec<Point>,
+}
+
+/// The point at `distance` from `p` toward `q` (`\pgfpointlineatdistance`). When they coincide pgf's
+/// normalized vector points up.
+fn toward(p: Point, q: Point, distance: f64) -> Point {
+    let d = q.minus(p);
+    let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(0.0, 1.0) };
+    p.plus(u.scale(distance))
+}
+
+fn point_of(s: &Segment) -> Option<Point> {
+    match s {
+        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+        Segment::Close => None,
+    }
+}
+
+/// Where the last subpath (the only one with tips, as pgf splits the path) begins.
+fn last_subpath(segs: &[Segment]) -> Option<usize> {
+    segs.iter().rposition(|s| matches!(s, Segment::MoveTo(_)))
+}
+
+/// The end of the path (`\pgf@parse@end`): the last segment, if it may be shortened (not a lone
+/// point), its end point, and the point the tip is aimed from: the previous point, or the last
+/// control point of a curve, the one before if they coincide. pgf moves only the end point.
+fn path_end(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
+    let k = segs.len().checked_sub(1)?;
+    match segs[k] {
+        Segment::MoveTo(p) => Some((k, false, p, p)),
+        Segment::LineTo(last) => Some((k, true, last, point_of(&segs[k.checked_sub(1)?])?)),
+        Segment::CurveTo(c1, c2, last) => {
+            let r = if c2 != last {
+                c2
+            } else if c1 != last {
+                c1
             } else {
-                *p
+                point_of(&segs[k.checked_sub(1)?])?
             };
-            Some((*a, a.minus(target)))
+            Some((k, true, last, r))
         }
+        Segment::Close => None,
+    }
+}
+
+/// The start of the last subpath (`\pgf@parse@start`): its index, if it may be shortened, the first
+/// point and the point the tip is aimed from: the next point, or the first control point of a curve
+/// (then the second, then its end, while they coincide).
+fn path_start(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
+    let m = last_subpath(segs)?;
+    let first = point_of(&segs[m])?;
+    match segs.get(m + 1) {
+        None => Some((m, false, first, first)),
+        Some(&Segment::LineTo(p)) => Some((m, true, first, p)),
+        Some(&Segment::CurveTo(c1, c2, p)) => Some((
+            m,
+            true,
+            first,
+            if c1 != first {
+                c1
+            } else if c2 != first {
+                c2
+            } else {
+                p
+            },
+        )),
         _ => None,
     }
 }
 
-fn pull_back_end(segs: &mut [Segment], k: usize, p: Point, d: Point, amount: f64) {
-    let u = d.scale(1.0 / d.norm().max(1e-12));
-    let new = p.minus(u.scale(amount));
-    if let Segment::CurveTo(_, c2, q) = &mut segs[k] {
-        *q = new;
-        *c2 = c2.minus(u.scale(amount));
-    } else {
-        segs[k] = Segment::LineTo(new);
-    }
-}
-
-fn pull_back_start(segs: &mut [Segment], p: Point, d: Point, amount: f64) {
-    let u = d.scale(1.0 / d.norm().max(1e-12));
-    segs[0] = Segment::MoveTo(p.minus(u.scale(amount)));
-    if let Some(Segment::CurveTo(c1, _, _)) = segs.get_mut(1) {
-        *c1 = c1.minus(u.scale(amount));
-    }
-}
-
-/// Zigzag, snake (wave) or random steps over the straight segments.
-fn decorate(segs: &[Segment], kind: &str, amp: f64, len_step: f64, mut warn: impl FnMut(String)) -> Vec<Segment> {
-    if !matches!(kind, "zigzag" | "snake" | "random steps" | "saw" | "coil" | "bumps") {
-        warn(format!("decoration '{kind}' not supported: path drawn undecorated"));
-        return segs.to_vec();
-    }
-    let mut out = Vec::new();
-    let mut current = Point::default();
-    for s in segs {
-        match s {
-            Segment::LineTo(b) => {
-                let a = current;
-                let d = b.minus(a);
-                let len = d.norm();
-                if len < 1e-9 {
-                    out.push(*s);
-                    continue;
-                }
-                let u = d.scale(1.0 / len);
-                let nrm = Point::new(-u.y, u.x);
-                let n = if len_step > 0.0 { ((len / len_step).round() as usize).clamp(1, MAX_DECORATION_STEPS) } else { 1 };
-                if kind == "random steps" {
-                    // deterministic pseudo-random steps: the same input gives the same drawing
-                    let mut seed: u32 = 0x9E37_79B9 ^ (out.len() as u32).wrapping_mul(2_654_435_761);
-                    let mut random = || {
-                        seed ^= seed << 13;
-                        seed ^= seed >> 17;
-                        seed ^= seed << 5;
-                        (seed as f64 / u32::MAX as f64) * 2.0 - 1.0
-                    };
-                    for k in 1..=n {
-                        let base = a.plus(d.scale(k as f64 / n as f64));
-                        let p = if k == n { base } else { base.plus(Point::new(random() * amp, random() * amp)) };
-                        out.push(Segment::LineTo(p));
-                    }
-                    current = *b;
-                    continue;
-                }
-                let steps = n * if kind == "zigzag" || kind == "saw" { 2 } else { 8 };
-                for k in 1..=steps {
-                    let f = k as f64 / steps as f64;
-                    let base = a.plus(d.scale(f));
-                    let offset = match kind {
-                        "zigzag" | "saw" => {
-                            if k == steps {
-                                0.0
-                            } else if k % 2 == 1 {
-                                amp
-                            } else {
-                                -amp
-                            }
-                        }
-                        _ => amp * (f * n as f64 * std::f64::consts::TAU).sin(),
-                    };
-                    out.push(Segment::LineTo(base.plus(nrm.scale(offset))));
-                }
-                current = *b;
-            }
-            Segment::MoveTo(p) => {
-                current = *p;
-                out.push(*s);
-            }
-            Segment::CurveTo(_, _, p) => {
-                current = *p;
-                out.push(*s);
-            }
-            Segment::Close => out.push(*s),
-        }
-    }
-    out
+/// A path that leaves its first point (`\pgf@path@check@proper`).
+fn proper(segs: &[Segment]) -> bool {
+    let points: Vec<Point> = segs
+        .iter()
+        .flat_map(|s| match *s {
+            Segment::MoveTo(p) | Segment::LineTo(p) => vec![p],
+            Segment::CurveTo(a, b, p) => vec![a, b, p],
+            Segment::Close => vec![],
+        })
+        .collect();
+    points.iter().any(|p| Some(p) != points.first())
 }
 
 /// Rounded corners between straight segments.
-fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
+pub fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
     let mut points: Vec<Vec<Point>> = Vec::new();
     let mut closed: Vec<bool> = Vec::new();
     for s in segs {
@@ -322,25 +465,4 @@ fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
         }
     }
     out
-}
-
-fn shorten_ends(segs: &mut [Segment], start: f64, end: f64) {
-    if segs.len() < 2 {
-        return;
-    }
-    if let (Segment::MoveTo(a), Some(Segment::LineTo(b))) = (segs[0], segs.get(1).copied()) {
-        let d = b.minus(a);
-        let n = d.norm();
-        if n > start && start > 0.0 {
-            segs[0] = Segment::MoveTo(a.plus(d.scale(start / n)));
-        }
-    }
-    let k = segs.len() - 1;
-    if let (Segment::LineTo(b), Segment::MoveTo(a) | Segment::LineTo(a) | Segment::CurveTo(_, _, a)) = (segs[k], segs[k - 1]) {
-        let d = b.minus(a);
-        let n = d.norm();
-        if n > end && end > 0.0 {
-            segs[k] = Segment::LineTo(b.minus(d.scale(end / n)));
-        }
-    }
 }
