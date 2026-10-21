@@ -80,6 +80,65 @@ pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     r
 }
 
+/// `lindenmayer system [options]` and `l-system [options]`: the system's drawing, from the current
+/// point.
+fn lindenmayer_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>, w: &str) -> Result<(), Error> {
+    let rest = if w == "l" {
+        match next(e, depth)? {
+            Some(t) if t.is_char('-') => match next(e, depth)? {
+                Some(Token::Char(c, Cat::Letter)) => word(e, c),
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    } else {
+        match next(e, depth)? {
+            Some(Token::Char(c, Cat::Letter)) => word(e, c),
+            _ => String::new(),
+        }
+    };
+    if rest != "system" {
+        e.warn(format!("unrecognized path fragment: '{w}'"));
+        return skip_rest(e, depth);
+    }
+    if let Some(t) = peek(e, depth)? {
+        if t.is_char('[') {
+            let _ = next(e, depth)?;
+            let o = e.tex.read_until_char(']', false)?;
+            e.process_keys(o, Some("/tikz"))?;
+        }
+    }
+    let segs = e.lindenmayer_path(b.point())?;
+    for s in segs {
+        match s {
+            Segment::MoveTo(p) => {
+                b.segs.push(s);
+                b.subpath_start = Some(p);
+                b.current = Some(Coord { p, node: None });
+            }
+            Segment::LineTo(p) => {
+                let from = b.point();
+                b.segs.push(s);
+                b.last = Some(OnPath::Segment(from, None, p));
+                b.current = Some(Coord { p, node: None });
+            }
+            _ => b.segs.push(s),
+        }
+    }
+    Ok(())
+}
+
+/// `insert path={…}` in options just read: the path operations go on from there.
+fn insert_path(e: &mut Engine) {
+    if let Meaning::Macro(m) = e.tex.meaning_of("tikra@insertpath") {
+        if !m.body.is_empty() {
+            let v = tex::substitute(&m.body, &[]);
+            e.tex.define_string("tikra@insertpath", "", false);
+            e.tex.push_tokens(v);
+        }
+    }
+}
+
 /// What `\path` resets: `decorate`, `preaction`, `postaction` belong to one path.
 fn reset_path_settings(e: &mut Engine) {
     e.st.decorate = false;
@@ -108,6 +167,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         }
     }
     e.st.apply_pending();
+    insert_path(e);
     let mut b = Builder {
         segs: Vec::new(),
         current: None,
@@ -339,6 +399,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 let o = e.tex.read_until_char(']', false)?;
                 e.process_keys(o, Some("/tikz"))?;
                 e.st.apply_pending();
+                insert_path(e);
             }
             Token::Char(_, Cat::Begin) => e.begin_group(),
             Token::Char(_, Cat::End) => e.end_group(),
@@ -464,6 +525,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         e.children(parent)?;
                     }
                     "decorate" => decorate_operation(e, b, depth)?,
+                    "lindenmayer" | "l" => lindenmayer_operation(e, b, depth, &w)?,
                     "svg" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);

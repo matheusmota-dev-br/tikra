@@ -10,6 +10,7 @@ pub mod coords;
 pub mod decorations;
 pub mod folding;
 pub mod intersections;
+pub mod lsystem;
 pub mod marks;
 pub mod matrix;
 pub mod mindmap;
@@ -21,6 +22,7 @@ pub mod pics;
 pub mod shapes;
 pub mod state;
 pub mod trees;
+pub mod turtle;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -420,6 +422,7 @@ impl Engine {
         calendar::define(&mut e);
         folding::define(&mut e);
         mindmap::define(&mut e);
+        lsystem::define(&mut e);
         options::define_keys(&mut e);
         e
     }
@@ -725,6 +728,9 @@ impl Engine {
         }
         if mindmap::is_mindmap(id) {
             return self.mindmap_command(id);
+        }
+        if lsystem::is_lsystem(id) {
+            return self.lsystem_command(id);
         }
         let Some(&(_, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
         if let Some(defaults) = path_command(cmd) {

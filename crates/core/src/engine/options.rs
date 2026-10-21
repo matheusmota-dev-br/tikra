@@ -1974,6 +1974,8 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(&super::folding::definitions());
     lexer.push_text(super::mindmap::DEFINITIONS);
     lexer.push_text(super::trees::DEFINITIONS);
+    lexer.push_text(super::turtle::DEFINITIONS);
+    lexer.push_text(super::lsystem::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
