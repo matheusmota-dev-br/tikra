@@ -8,6 +8,7 @@ pub mod calendar;
 pub mod chains;
 pub mod coords;
 pub mod decorations;
+pub mod folding;
 pub mod intersections;
 pub mod marks;
 pub mod matrix;
@@ -416,6 +417,7 @@ impl Engine {
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
         calendar::define(&mut e);
+        folding::define(&mut e);
         options::define_keys(&mut e);
         e
     }
@@ -711,6 +713,9 @@ impl Engine {
         }
         if calendar::is_calendar(id) {
             return self.calendar_command(id);
+        }
+        if folding::is_folding(id) {
+            return self.folding_command(id);
         }
         let Some(&(_, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
         if let Some(defaults) = path_command(cmd) {

@@ -1967,6 +1967,7 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
     lexer.push_text(super::calendar::DEFINITIONS);
+    lexer.push_text(&super::folding::definitions());
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
