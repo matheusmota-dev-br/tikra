@@ -2015,7 +2015,7 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  every edge/.style={draw}, every to/.style={}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},

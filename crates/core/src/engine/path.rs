@@ -1368,6 +1368,7 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
     e.begin_group();
     type Plot = (Vec<Point>, Vec<Segment>, Vec<crate::canvas::Item>, bool);
     let res = (|| -> Result<Plot, Error> {
+        e.process_keys(tikra_tokens("every plot/.try"), Some("/tikz"))?;
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
@@ -1399,9 +1400,35 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
                 }
             }
             Some(Token::Char('f', Cat::Letter)) => {
+                // `plot file {name}`, and `plot function {…}`, which reads the table gnuplot wrote
+                // for it (`prefix` and `id` name it), as TeX does when it does not call gnuplot
                 let w = word(e, 'f');
-                let _ = e.argument();
-                return Err(Error::Figure(format!("plot {w} (external data) not supported")));
+                let arg = e.argument()?;
+                let name = match w.as_str() {
+                    "file" => e.tex.expand_to_string(arg)?.trim().to_string(),
+                    "function" => {
+                        let key = |e: &mut Engine, k: &str| crate::keys::value(&e.tex, k).map(|v| e.tex.expand_to_string(v).unwrap_or_default()).unwrap_or_default();
+                        let (prefix, id) = (key(e, "/tikz/prefix"), key(e, "/tikz/id"));
+                        format!("{prefix}{}.table", if id.is_empty() { "plot" } else { id.trim() })
+                    }
+                    _ => return Err(Error::Figure(format!("plot {w} not supported"))),
+                };
+                let text = super::pgfplots::table::read_file(&name, &[]).map_err(|m| Error::Figure(format!("plot {w}: {m}")))?;
+                for line in text.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') || line.starts_with('%') {
+                        continue;
+                    }
+                    let f: Vec<&str> = line.split_whitespace().collect();
+                    let (Some(x), Some(y)) = (f.first().and_then(|v| v.parse::<f64>().ok()), f.get(1).and_then(|v| v.parse::<f64>().ok())) else { continue };
+                    // `u`: undefined, the line breaks there
+                    if f.get(2) == Some(&"u") {
+                        points.push(Point::new(f64::NAN, f64::NAN));
+                        continue;
+                    }
+                    let r = e.coordinate(&format!("{},{}", super::pgf_number(x), super::pgf_number(y)))?;
+                    points.push(r.p);
+                }
             }
             Some(t) if t.is_char('(') => {
                 let tokens = read_coordinate_tokens(e)?;
@@ -1446,7 +1473,11 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         b.subpath_start = Some(*p);
     }
     b.segs.extend(segs);
+    let points: Vec<Point> = points.into_iter().filter(|p| p.x.is_finite()).collect();
     let n = points.len();
+    if n == 0 {
+        return Ok(());
+    }
     b.last = Some(OnPath::Segment(points[n.saturating_sub(2)], None, points[n - 1]));
     b.current = Some(Coord { p: points[n - 1], node: None });
     Ok(())
@@ -1455,6 +1486,14 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
 /// The path of a plot's points (canvas coordinates) as its handler makes it, in the plot's own
 /// coordinate system (where the zero level of combs and bars is, and bar widths are measured).
 pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
+    // an undefined point breaks the plot: each run is plotted on its own
+    if points.iter().any(|p| !p.x.is_finite()) {
+        let mut out = Vec::new();
+        for run in points.split(|p| !p.x.is_finite()).filter(|r| !r.is_empty()) {
+            out.extend(plot_segments(e, run)?);
+        }
+        return Ok(out);
+    }
     let t = e.st.transform;
     let inv = crate::reader::invert(&t);
     let q: Vec<Point> = points.iter().map(|p| inv.apply(*p)).collect();
