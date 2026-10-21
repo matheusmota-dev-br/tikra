@@ -384,6 +384,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
             break;
         }
     }
+    data_cs(e, plot);
     if keys::flag(e, "/pgfplots/@hist") {
         histogram(e, plot)?;
     }
@@ -848,6 +849,32 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         plot.coords.retain(|c| c.x.is_finite());
     }
     Ok(())
+}
+
+/// `data cs`: the input's coordinate system (`cart`, `polar` in degrees, `polarrad`) turned into
+/// the axis' (`polar` for a polar axis).
+fn data_cs(e: &mut Engine, plot: &mut Plot) {
+    let source = keys::value(e, "/pgfplots/data cs");
+    let target = keys::value(e, "/pgfplots/@axis type");
+    if source == target || source.is_empty() {
+        return;
+    }
+    for c in plot.coords.iter_mut() {
+        if source == "polarrad" {
+            c.x = c.x.to_degrees();
+        }
+        let (x, y) = (c.x, c.y);
+        match (source.as_str(), target.as_str()) {
+            ("polar" | "polarrad", "cart") => {
+                let (s, co) = super::polar::sin_cos(x);
+                (c.x, c.y) = (y * co, y * s);
+            }
+            ("cart", "polar") => {
+                (c.x, c.y) = (y.atan2(x).to_degrees().rem_euclid(360.0), x.hypot(y));
+            }
+            _ => {}
+        }
+    }
 }
 
 /// `hist`: the points become the bins' counts, `(start of bin k, count k)`, and a last point at

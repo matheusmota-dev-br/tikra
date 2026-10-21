@@ -149,6 +149,15 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     match handler.as_str() {
         // box plots draw their box; the points are the outliers' marks
         "boxplot" => super::boxplot::draw(e, p, f, index_of_type)?,
+        // rays from the center
+        "polar comb" => {
+            for l in pts {
+                if l[0].is_finite() && l[1].is_finite() {
+                    segs.push(Segment::MoveTo(f.at([l[0], 0.0, 0.0])));
+                    segs.push(Segment::LineTo(f.at(*l)));
+                }
+            }
+        }
         "ybar" | "xbar" => {
             let vertical = handler == "ybar";
             let (ua, _) = if vertical { (unit(f.e[0]), unit(f.e[1])) } else { (unit(f.e[1]), unit(f.e[0])) };

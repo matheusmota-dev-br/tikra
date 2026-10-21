@@ -686,6 +686,10 @@ impl Engine {
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
+                    // `1.2\baselineskip`: a factor times the register, as TeX reads it
+                    if s.trim_end().ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                        s.push('*');
+                    }
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
                 }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),

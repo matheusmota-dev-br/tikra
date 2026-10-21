@@ -62,6 +62,9 @@ pub struct Frame {
     pub box_line: [super::cube::Part; 3],
     /// The data's range (merged with given limits), logical.
     pub data_range: [[f64; 2]; 3],
+    /// `polaraxis`: x is an angle in degrees, y a radius; `e[0]`, `e[1]` are the cartesian
+    /// unit vectors and `origin` the center.
+    pub polar: bool,
 }
 
 impl Frame {
@@ -75,6 +78,10 @@ impl Frame {
 
     /// The canvas point of logical coordinates.
     pub fn at(&self, l: [f64; 3]) -> Point {
+        if self.polar {
+            let (s, c) = super::polar::sin_cos(l[0]);
+            return self.origin.plus(self.e[0].scale(l[1] * c)).plus(self.e[1].scale(l[1] * s));
+        }
         let mut p = self.origin;
         for (i, &v) in l.iter().enumerate() {
             if i == 2 && !self.three_d {
@@ -99,6 +106,13 @@ impl Frame {
     pub fn bbox(&self) -> (Point, Point) {
         let mut lo = Point::new(f64::INFINITY, f64::INFINITY);
         let mut hi = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+        if self.polar {
+            for p in super::polar::outline(self) {
+                lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+                hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+            }
+            return (lo, hi);
+        }
         for i in 0..8 {
             if !self.three_d && i >= 4 {
                 break;
@@ -113,7 +127,7 @@ impl Frame {
     /// `axis description cs`: (0,0) the lower left corner of the box as drawn, (1,1) the upper right
     /// one (`\pgfplotspointdescriptionxy`).
     pub fn desc(&self, x: f64, y: f64) -> Point {
-        if !self.three_d {
+        if !self.three_d && !self.polar {
             return self.rel([x, y, 0.0]);
         }
         let (lo, hi) = self.bbox();
@@ -370,6 +384,7 @@ fn clone_frame(f: &Frame) -> Frame {
         label_line: f.label_line,
         box_line: f.box_line,
         data_range: f.data_range,
+        polar: f.polar,
         label_shift: f.label_shift,
         meta: f.meta,
         colormap: f.colormap.clone(),
@@ -618,6 +633,22 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
     }
     let dims = if three_d { 3 } else { 2 };
+    let polar = axis.kind == "polaraxis";
+    if polar {
+        // angles: 0 to 360 unless both are given; radii: from 0 (or ymin) to the largest |r|
+        if auto_min[0] || auto_max[0] {
+            (min[0], max[0]) = (0.0, 360.0);
+        }
+        if auto_min[1] {
+            min[1] = 0.0;
+        }
+        if auto_max[1] {
+            max[1] = dmin[1].abs().max(dmax[1].abs());
+            if !max[1].is_finite() || max[1] == 0.0 {
+                max[1] = 1.0;
+            }
+        }
+    }
     let invalid = (0..dims).any(|a| !(min[a].is_finite() && max[a].is_finite()));
     if invalid {
         e.warn("axis without data: drew the default window from 0 to 1");
@@ -632,8 +663,8 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             std::mem::swap(&mut min[a], &mut max[a]);
         }
     }
-    // enlargelimits
-    for a in 0..dims {
+    // enlargelimits (none on a polar axis)
+    for a in 0..if polar { 0 } else { dims } {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
@@ -706,7 +737,23 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         })
     };
     let units = [user_unit(e, 'x'), user_unit(e, 'y'), user_unit(e, 'z')];
-    if three_d && units.iter().all(Option::is_none) {
+    if polar {
+        // the circle (or sector) stretched to width × height, which are equal by default
+        let (w, h) = (keys::length(e, "/pgfplots/width"), keys::length(e, "/pgfplots/height"));
+        let (mut pw, mut ph) = match (w, h) {
+            (None, None) => (240.0 * PT, 240.0 * PT),
+            (Some(w), None) => (w, w),
+            (None, Some(h)) => (h, h),
+            (Some(w), Some(h)) => (w, h),
+        };
+        if !keys::flag(e, "/pgfplots/scale only axis") {
+            pw = (pw - 45.0 * PT).max(0.0);
+            ph = (ph - 45.0 * PT).max(0.0);
+        }
+        let (bw, bh) = super::polar::unit_size(min[0], max[0], min[1], max[1]);
+        ev[0] = Point::new(if bw > 1e-12 { pw / bw } else { 1.0 }, 0.0);
+        ev[1] = Point::new(0.0, if bh > 1e-12 { ph / bh } else { 1.0 });
+    } else if three_d && units.iter().all(Option::is_none) {
         let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0);
         let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
         let (saz, caz) = az.to_radians().sin_cos();
@@ -834,6 +881,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         label_line: [*b"v00", *b"0v0", *b"00v"],
         box_line: [*b"v00", *b"0v0", *b"00v"],
         data_range,
+        polar,
     };
     if three_d {
         super::cube::prepare(e, &mut frame, dir, &lines);
@@ -848,7 +896,10 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
     }
     // the box's lowest corner goes to the origin
-    if !three_d {
+    if polar {
+        let (lo, _) = frame.bbox();
+        frame.origin = frame.origin.plus(base.minus(lo));
+    } else if !three_d {
         let a = frame.at(frame.min);
         let b = frame.at(frame.max);
         let lo = Point::new(a.x.min(b.x), a.y.min(b.y));
@@ -1057,6 +1108,11 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
         let v = number_list(e, trimmed)?;
         return Ok((v.into_iter().map(|x| f.logical(a, x)).filter(|x| x.is_finite()).collect(), 0.0));
     }
+    if f.polar {
+        if let Some(t) = super::polar::ticks(e, a, f) {
+            return Ok(t);
+        }
+    }
     let length_pt = f.e[a].norm() * (f.max[a] - f.min[a]).abs() / PT;
     let max_space = keys::number(e, "/pgfplots/max space between ticks").unwrap_or(35.0);
     let distance = keys::number(e, &format!("/pgfplots/{c}tick distance"));
@@ -1105,7 +1161,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         let rect = box_path(&f);
         e.draw_with("draw=none,/pgfplots/axis background", rect)?;
     }
-    if !f.three_d && !on_top {
+    if f.polar && !on_top {
+        super::polar::draw_axis(e, s)?;
+    } else if !f.three_d && !on_top {
         draw_axis_2d(e, s)?;
     }
     if f.three_d && !on_top {
@@ -1115,7 +1173,13 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let clip = keys::flag(e, "/pgfplots/clip");
     e.begin_scope();
     if clip {
-        let segs = if f.three_d { hull_path(&f) } else { box_path(&f) };
+        let segs = if f.polar {
+            super::polar::clip_path(&f)
+        } else if f.three_d {
+            hull_path(&f)
+        } else {
+            box_path(&f)
+        };
         // `clip bounding box=default tikz`: the clip path counts in the picture's size
         if !e.canvas_frozen {
             e.canvas.include_path(&segs);
@@ -1172,7 +1236,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         super::cube::draw(e, s, true)?;
     }
     if on_top {
-        if f.three_d {
+        if f.polar {
+            super::polar::draw_axis(e, s)?;
+        } else if f.three_d {
             super::cube::draw(e, s, false)?;
         } else {
             draw_axis_2d(e, s)?;
@@ -1184,7 +1250,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let inside = |p: &Point| p.x >= a.x.min(b.x) - tol && p.x <= a.x.max(b.x) + tol && p.y >= a.y.min(b.y) - tol && p.y <= a.y.max(b.y) + tol;
     for mut m in marks {
         // marks outside the axis are not drawn, those on its border are drawn whole
-        if clip && !f.three_d {
+        if clip && !f.three_d && !f.polar {
             m.points.retain(|(p, _)| inside(p));
             m.nodes.retain(|n| inside(&n.point));
         }
@@ -1559,6 +1625,11 @@ fn group_at(tokens: &[Token], j: usize) -> (Vec<Token>, usize) {
         return (tokens[j + 1..].to_vec(), tokens.len());
     }
     (vec![tokens[j].clone()], j + 1)
+}
+
+/// The text of tick `t` of axis `a`, the `k`-th.
+pub(super) fn tick_text_for(e: &mut Engine, a: usize, t: f64, k: usize) -> Result<Vec<Token>, Error> {
+    tick_text(e, a, t, None, k, 1.0, false)
 }
 
 /// The text of tick `t` (index `k` in the list) of axis `a`.
