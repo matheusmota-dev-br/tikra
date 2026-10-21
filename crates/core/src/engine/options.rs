@@ -1283,6 +1283,23 @@ keyfn!(k_name_path, |e, v| {
 
 keyfn!(k_name_intersections, |e, v| super::intersections::name_intersections(e, v));
 
+keyfn!(k_at_begin_scope, |e, v| {
+    e.st.at_begin_scope.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_end_scope, |e, v| {
+    e.st.at_end_scope.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_begin_picture, |e, v| {
+    e.st.at_begin_picture.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_end_picture, |e, v| {
+    e.st.at_end_picture.extend(v.unwrap_or_default());
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1407,6 +1424,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/execute at begin scope", k_at_begin_scope),
+    ("/tikz/execute at end scope", k_at_end_scope),
+    ("/tikz/execute at begin picture", k_at_begin_picture),
+    ("/tikz/execute at end picture", k_at_end_picture),
     ("/tikz/fit", k_fit),
     ("/tikz/name path", k_name_path),
     ("/tikz/name path global", k_name_path),
@@ -1465,8 +1486,7 @@ const DEFINITIONS: &str = r"
   diamond/.style={shape=diamond},
   behind path/.style={}, in front of path/.style={},
   execute at begin node/.code={}, execute at end node/.code={},
-  execute at begin scope/.code={}, execute at end scope/.code={},
-  execute at begin picture/.code={}, execute at end picture/.code={},
+  style/.code={\pgfkeysalso{#1}},
   every shadow/.style={}, alias/.code={},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
@@ -1474,6 +1494,27 @@ const DEFINITIONS: &str = r"
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
+\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\tikzset{
+  on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try}},
+    execute at end scope={\endpgfonlayer}},
+  background rectangle/.style={draw}, background top/.style={draw}, background bottom/.style={draw},
+  background left/.style={draw}, background right/.style={draw}, background grid/.style={help lines,draw},
+  inner frame sep/.code={\def\tikz@framexsep{#1}\def\tikz@frameysep{#1}},
+  inner frame xsep/.code={\def\tikz@framexsep{#1}}, inner frame ysep/.code={\def\tikz@frameysep{#1}},
+  outer frame sep/.code={\def\tikz@outerframexsep{#1}\def\tikz@outerframeysep{#1}},
+  outer frame xsep/.code={\def\tikz@outerframexsep{#1}}, outer frame ysep/.code={\def\tikz@outerframeysep{#1}},
+  loose background/.style={inner frame sep=2ex}, tight background/.style={inner frame sep=0ex},
+  framed/.style={show background rectangle}, gridded/.style={show background grid},
+  show background rectangle/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background rectangle] (\tikra@xa,\tikra@ya) rectangle (\tikra@xb,\tikra@yb);}}},
+  show background top/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background top] (\tikra@oxa,\tikra@yb) -- (\tikra@oxb,\tikra@yb);}}},
+  show background bottom/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background bottom] (\tikra@oxa,\tikra@ya) -- (\tikra@oxb,\tikra@ya);}}},
+  show background left/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background left] (\tikra@xa,\tikra@oya) -- (\tikra@xa,\tikra@oyb);}}},
+  show background right/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background right] (\tikra@xb,\tikra@oya) -- (\tikra@xb,\tikra@oyb);}}},
+  show background grid/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background grid] (\tikra@xa,\tikra@ya) grid (\tikra@xb,\tikra@yb);}}},
+}
+\def\tikz@framexsep{1ex}\def\tikz@frameysep{1ex}\def\tikz@outerframexsep{0ex}\def\tikz@outerframeysep{0ex}
+\def\tikra@onbg#1{\pgfonlayer{background}\pgftransformreset#1\endpgfonlayer}
 \def\tikz@picture@start{\pgfkeysalso{/tikz/every picture/.try}}
 \def\tikz@scope@options{\pgfkeysalso{/tikz/every scope/.try}}
 ";

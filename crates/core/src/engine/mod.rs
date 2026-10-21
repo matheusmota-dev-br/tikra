@@ -75,6 +75,10 @@ pub enum Cmd {
     FontSize,
     FontSeries,
     Unsupported,
+    OnLayer,
+    EndOnLayer,
+    SetLayers,
+    Frame,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -131,7 +135,10 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("hspace", Cmd::Ignore1),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
-    ("pgfsetlayers", Cmd::Ignore1),
+    ("pgfsetlayers", Cmd::SetLayers),
+    ("pgfonlayer", Cmd::OnLayer),
+    ("endpgfonlayer", Cmd::EndOnLayer),
+    ("tikra@frame", Cmd::Frame),
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
@@ -219,6 +226,12 @@ pub struct Engine {
     nesting: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
+    /// `execute at end scope` code of the open scopes, innermost last
+    scope_ends: Vec<Vec<Token>>,
+    /// layers: their order, the items of each but main, and what `\pgfonlayer` set aside
+    layer_order: Vec<String>,
+    layers: HashMap<String, Vec<Item>>,
+    on_layer: Vec<(String, Vec<Item>)>,
     /// paths kept by `name path`
     pub named_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// pictures already drawn, and how the document lays them out
@@ -277,6 +290,10 @@ impl Clone for Engine {
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
             named_paths: self.named_paths.clone(),
+            scope_ends: self.scope_ends.clone(),
+            layer_order: self.layer_order.clone(),
+            layers: self.layers.clone(),
+            on_layer: self.on_layer.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
         }
@@ -315,6 +332,10 @@ impl Engine {
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
             named_paths: HashMap::new(),
+            scope_ends: Vec::new(),
+            layer_order: vec!["background".into(), "main".into()],
+            layers: HashMap::new(),
+            on_layer: Vec::new(),
             boxes: Vec::new(),
             layout: Vec::new(),
         };
@@ -624,19 +645,11 @@ impl Engine {
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {
                 let o = self.optional()?;
-                self.begin_group();
-                self.begin_scope();
-                self.run_tokens(tikra_tokens("\\tikz@scope@options"))?;
-                if let Some(o) = o {
-                    self.process_keys(o, Some("/tikz"))?;
-                }
-                self.st.apply_pending();
+                self.open_tikz_scope(o, false)?;
                 // the next statement or group is the content
                 let body = self.next_statement()?;
                 self.run_tokens(body)?;
-                self.end_scope();
-                self.end_group();
-                Ok(())
+                self.close_tikz_scope()
             }
             Cmd::Tikzset => {
                 let a = self.argument()?;
@@ -834,6 +847,21 @@ impl Engine {
                 }
                 Ok(())
             }
+            Cmd::OnLayer => {
+                let name = self.argument_string()?;
+                self.begin_on_layer(name);
+                Ok(())
+            }
+            Cmd::EndOnLayer => {
+                self.end_on_layer();
+                Ok(())
+            }
+            Cmd::SetLayers => {
+                let list = self.argument_string()?;
+                self.layer_order = list.split(',').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                Ok(())
+            }
+            Cmd::Frame => self.frame_macros(),
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
@@ -965,12 +993,117 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
+        let begin = std::mem::take(&mut self.st.at_begin_picture);
+        let end = std::mem::take(&mut self.st.at_end_picture);
+        self.scope_ends.push(end);
+        self.run_tokens(begin)
+    }
+
+    /// `\begin{scope}[options]` and `\scoped`: a group, a pgf scope, the options, `execute at begin scope`.
+    fn open_tikz_scope(&mut self, o: Option<Vec<Token>>, fatal: bool) -> Result<(), Error> {
+        self.begin_group();
+        self.begin_scope();
+        self.run_tokens(tikra_tokens("\\tikz@scope@options"))?;
+        if let Some(o) = o {
+            let r = self.process_keys(o, Some("/tikz"));
+            if fatal {
+                r.map_err(|e| Error::Figure(format!("scope options: {e}")))?;
+            } else {
+                r?;
+            }
+        }
+        self.st.apply_pending();
+        let begin = std::mem::take(&mut self.st.at_begin_scope);
+        let end = std::mem::take(&mut self.st.at_end_scope);
+        self.scope_ends.push(end);
+        self.run_tokens(begin)
+    }
+
+    fn close_tikz_scope(&mut self) -> Result<(), Error> {
+        let end = self.scope_ends.pop().unwrap_or_default();
+        let r = self.run_tokens(end);
+        self.end_scope();
+        self.end_group();
+        r
+    }
+
+    /// `\pgfonlayer{name}`: what is drawn until `\endpgfonlayer` goes to that layer.
+    fn begin_on_layer(&mut self, name: String) {
+        self.begin_group();
+        let main = std::mem::take(&mut self.canvas.items);
+        self.on_layer.push((name, main));
+    }
+
+    fn end_on_layer(&mut self) {
+        let Some((name, main)) = self.on_layer.pop() else {
+            self.warn("\\endpgfonlayer without \\pgfonlayer");
+            return;
+        };
+        let drawn = std::mem::replace(&mut self.canvas.items, main);
+        self.layers.entry(name).or_default().extend(drawn);
+        self.end_group();
+    }
+
+    /// `\tikra@frame`: the picture's box, and with the frame seps around it, as macros in pt
+    /// (`\tikra@xa`… inner, `\tikra@oxa`… outer) for the backgrounds library.
+    fn frame_macros(&mut self) -> Result<(), Error> {
+        let (Some(lo), Some(hi)) = (self.canvas.min, self.canvas.max) else { return Ok(()) };
+        let sep = |e: &mut Engine, name: &str| -> f64 {
+            let v = match e.tex.meaning_of(name) {
+                Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
+                _ => "0pt".into(),
+            };
+            e.length(&v).unwrap_or(0.0)
+        };
+        let (fx, fy) = (sep(self, "tikz@framexsep"), sep(self, "tikz@frameysep"));
+        let (ox, oy) = (sep(self, "tikz@outerframexsep"), sep(self, "tikz@outerframeysep"));
+        let pt = |v: f64| format!("{}pt", v / crate::PT);
+        for (name, v) in [
+            ("tikra@xa", lo.x - fx),
+            ("tikra@ya", lo.y - fy),
+            ("tikra@xb", hi.x + fx),
+            ("tikra@yb", hi.y + fy),
+            ("tikra@oxa", lo.x - fx - ox),
+            ("tikra@oya", lo.y - fy - oy),
+            ("tikra@oxb", hi.x + fx + ox),
+            ("tikra@oyb", hi.y + fy + oy),
+        ] {
+            self.tex.define_string(name, &pt(v), false);
+        }
         Ok(())
     }
 
     fn end_picture(&mut self) {
+        // execute at end picture, while the picture is still open
+        let end = self.scope_ends.pop().unwrap_or_default();
+        if let Err(e) = self.run_tokens(end) {
+            self.warn(format!("execute at end picture: {e}"));
+        }
+        while !self.on_layer.is_empty() {
+            self.end_on_layer();
+        }
         self.end_scope();
         let outermost = self.picture_depth == 1;
+        if outermost && !self.layers.is_empty() {
+            // the layers, in the order of \pgfsetlayers (main where it is listed)
+            let main = std::mem::take(&mut self.canvas.items);
+            let mut layers = std::mem::take(&mut self.layers);
+            let mut order = self.layer_order.clone();
+            if !order.iter().any(|l| l == "main") {
+                order.push("main".into());
+            }
+            let mut main = Some(main);
+            for name in order {
+                if name == "main" {
+                    self.canvas.items.extend(main.take().unwrap_or_default());
+                } else if let Some(v) = layers.remove(&name) {
+                    self.canvas.items.extend(v);
+                }
+            }
+            for (_, v) in layers {
+                self.canvas.items.extend(v);
+            }
+        }
         let baseline = if outermost { self.picture_baseline() } else { 0.0 };
         self.end_group();
         self.picture_depth = self.picture_depth.saturating_sub(1);
@@ -1027,14 +1160,7 @@ impl Engine {
                 }
                 self.depth += 1;
                 let o = self.optional()?;
-                self.begin_group();
-                self.begin_scope();
-                self.run_tokens(tikra_tokens("\\tikz@scope@options"))?;
-                if let Some(o) = o {
-                    self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("scope options: {e}")))?;
-                }
-                self.st.apply_pending();
-                Ok(())
+                self.open_tikz_scope(o, true)
             }
             "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis" => {
                 let o = self.optional()?.map(|o| tex::tokens_to_string(&o)).unwrap_or_default();
@@ -1050,11 +1176,14 @@ impl Engine {
                 }
                 r
             }
-            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" | "pgfonlayer" | "tikzfadingfrompicture" => {
+            "pgfonlayer" => {
+                let layer = self.argument_string()?;
+                self.begin_on_layer(layer);
+                Ok(())
+            }
+            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" | "tikzfadingfrompicture" => {
                 if name == "minipage" {
                     let _ = self.optional()?;
-                    let _ = self.argument()?;
-                } else if name == "pgfonlayer" {
                     let _ = self.argument()?;
                 } else if name == "figure" {
                     let _ = self.optional()?;
@@ -1131,9 +1260,9 @@ impl Engine {
                 self.end_scope();
                 self.end_group();
             }
+            "pgfonlayer" => self.end_on_layer(),
             "scope" => {
-                self.end_scope();
-                self.end_group();
+                self.close_tikz_scope()?;
                 self.depth = self.depth.saturating_sub(1);
             }
             _ => {

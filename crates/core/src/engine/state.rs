@@ -97,6 +97,11 @@ pub struct GState {
     pub swap: bool,
     /// quotes (`"text" above`) in the options being read make nodes on the path, not labels
     pub quotes_on_path: bool,
+    /// `execute at begin scope`… code gathered from the options, run when TikZ runs it
+    pub at_begin_scope: Vec<crate::tex::Token>,
+    pub at_end_scope: Vec<crate::tex::Token>,
+    pub at_begin_picture: Vec<crate::tex::Token>,
+    pub at_end_picture: Vec<crate::tex::Token>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
@@ -163,6 +168,10 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            at_begin_scope: Vec::new(),
+            at_end_scope: Vec::new(),
+            at_begin_picture: Vec::new(),
+            at_end_picture: Vec::new(),
             quoted: Vec::new(),
         }
     }
