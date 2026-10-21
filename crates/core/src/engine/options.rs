@@ -976,13 +976,12 @@ keyfn!(k_minimum_size, |e, v| {
 
 keyfn!(k_font, |e, v| {
     let s = text(e, &v)?;
-    // the font commands, for the node's text
-    for name in ["tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge"] {
-        if s.contains(&format!("\\{name}")) && !s.contains(&format!("\\{name}er")) {
-            e.st.font_size = super::font_size(name);
-        }
-    }
-    e.st.font.push_str(&s);
+    // `font=` replaces the font of the nodes (`\tikz@textfont`), and the fonts selected around
+    // the picture stay: what came before the last `font=` is kept, the rest replaced
+    const MARK: &str = "\\tikz@textfont ";
+    let around = e.st.font.find(MARK).map_or(e.st.font.as_str(), |i| &e.st.font[..i]).to_string();
+    e.st.font = format!("{around}{MARK}{s}");
+    e.st.font_size = 10.0 * crate::label::font_size(&e.st.font);
     Ok(())
 });
 
@@ -1599,10 +1598,12 @@ keyfn!(k_pic_actions, |e, _v| {
 
 keyfn!(k_level_distance, |e, v| {
     e.st.level_distance = length(e, &v)?.unwrap_or(1.5);
+    super::trees::set_distance_registers(e);
     Ok(())
 });
 keyfn!(k_sibling_distance, |e, v| {
     e.st.sibling_distance = length(e, &v)?.unwrap_or(1.5);
+    super::trees::set_distance_registers(e);
     Ok(())
 });
 
@@ -1622,6 +1623,8 @@ fn set_grow(e: &mut Engine, v: &Option<Vec<Token>>, swapped: bool) -> Result<(),
     };
     e.st.grow_swapped = swapped;
     e.st.special_level = Some(e.st.tree_level);
+    // the growth function is the direction's again (not `grow cyclic`'s)
+    e.tex.define_string("tikra@growth", "", false);
     Ok(())
 }
 keyfn!(k_grow, |e, v| set_grow(e, &v, false));
@@ -1991,7 +1994,7 @@ const DEFINITIONS: &str = r"
   very nearly transparent/.style={opacity=0.1}, nearly transparent/.style={opacity=0.25},
   semitransparent/.style={opacity=0.5}, nearly opaque/.style={opacity=0.75},
   very nearly opaque/.style={opacity=0.9}, ultra nearly opaque/.style={opacity=0.95}, opaque/.style={opacity=1},
-  rounded corners/.default=4pt, double/.default=white, 
+  rounded corners/.default=4pt, double/.default=white, cap/.style={line cap=#1}, join/.style={line join=#1},
   draw opacity/.default=1, help lines/.append style={},
   text centered/.style={align=center}, text ragged/.style={align=left}, text badly ragged/.style={align=left},
   text justified/.style={align=justify}, text ragged left/.style={align=right},
@@ -2057,6 +2060,7 @@ const DEFINITIONS: &str = r"
 pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
+    super::trees::define(e);
     super::decorations::define(e);
     for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
@@ -2074,6 +2078,12 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
+    lexer.push_text(super::calendar::DEFINITIONS);
+    lexer.push_text(&super::folding::definitions());
+    lexer.push_text(super::mindmap::DEFINITIONS);
+    lexer.push_text(super::trees::DEFINITIONS);
+    lexer.push_text(super::turtle::DEFINITIONS);
+    lexer.push_text(super::lsystem::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

@@ -5,13 +5,17 @@
 pub mod animations;
 pub mod arrows;
 pub mod basic;
+pub mod calendar;
 pub mod chains;
 pub mod coords;
 pub mod decorations;
+pub mod folding;
 pub mod graphs;
 pub mod intersections;
+pub mod lsystem;
 pub mod marks;
 pub mod matrix;
+pub mod mindmap;
 pub mod nodes;
 pub mod options;
 pub mod output;
@@ -22,6 +26,7 @@ pub mod shapes;
 pub mod state;
 pub mod tikzmath;
 pub mod trees;
+pub mod turtle;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -205,7 +210,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("maketitle", Cmd::FontSeries),
     ("selectfont", Cmd::FontSeries),
     ("datavisualization", Cmd::Unsupported),
-    ("calendar", Cmd::Unsupported),
     ("spy", Cmd::Unsupported),
 ];
 
@@ -448,6 +452,10 @@ impl Engine {
         }
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
+        calendar::define(&mut e);
+        folding::define(&mut e);
+        mindmap::define(&mut e);
+        lsystem::define(&mut e);
         options::define_keys(&mut e);
         pgfplots::define(&mut e);
         graphs::define(&mut e);
@@ -690,6 +698,10 @@ impl Engine {
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
+                    // `.5\tikzleveldistance`: a factor before a register multiplies it, as TeX reads it
+                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                        s.push('*');
+                    }
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
                 }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),
@@ -742,6 +754,18 @@ impl Engine {
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
         if basic::is_basic(id) {
             return self.basic_command(id);
+        }
+        if calendar::is_calendar(id) {
+            return self.calendar_command(id);
+        }
+        if folding::is_folding(id) {
+            return self.folding_command(id);
+        }
+        if mindmap::is_mindmap(id) {
+            return self.mindmap_command(id);
+        }
+        if lsystem::is_lsystem(id) {
+            return self.lsystem_command(id);
         }
         if pgfplots::is_command(id) {
             return self.pgfplots_command(id);

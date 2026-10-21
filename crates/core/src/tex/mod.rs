@@ -1776,7 +1776,18 @@ impl Tex {
                     }
                     digits.push(c);
                 }
-                while let Some(x) = self.get_x_token()? {
+                while let Some(x) = self.get_token() {
+                    // `\ifcase2\or …`: an `\or`, `\else` or `\fi` ends the number, as TeX does it
+                    // when it meets one while the condition is still incomplete
+                    let m = self.meaning(&x);
+                    if matches!(m, Meaning::Prim(Prim::Or | Prim::Else | Prim::Fi)) {
+                        self.back(x);
+                        break;
+                    }
+                    if m.is_expandable() {
+                        self.expand(&x, &m)?;
+                        continue;
+                    }
                     match x {
                         Token::Char(d, Cat::Other | Cat::Letter) if d.is_digit(radix) && (radix == 16 && d.is_ascii_uppercase() || d.is_ascii_digit()) => digits.push(d),
                         Token::Char(_, Cat::Space) => break,

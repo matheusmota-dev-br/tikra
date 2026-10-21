@@ -369,7 +369,7 @@ impl Engine {
         })
     }
 
-    fn pgf_add(&mut self, s: Segment) {
+    pub fn pgf_add(&mut self, s: Segment) {
         let p = match s {
             Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(p),
             Segment::Close => self.pgf_path.start,
