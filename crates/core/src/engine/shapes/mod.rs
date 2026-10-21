@@ -6,9 +6,12 @@
 //! named anchors, the border on which lines to the node stop, where each part's text goes, and the
 //! paths it draws. As in pgf, anchors and the border include `outer sep`; the paths do not.
 
+mod arrows;
 mod basic;
+mod callouts;
 mod geometric;
 mod misc;
+mod multipart;
 mod symbols;
 
 use crate::scene::{Point, Segment};
@@ -25,12 +28,16 @@ pub struct BoxSize {
 pub trait Keys {
     /// A length key (`/pgf/star point height`), or `default` if unset or unreadable.
     fn length(&mut self, key: &str, default: f64) -> f64;
+    /// A length written out (`.5cm`), or `default` if it is not one.
+    fn length_of(&mut self, text: &str, default: f64) -> f64;
     /// A number key (`/pgf/star points`), evaluated.
     fn number(&mut self, key: &str, default: f64) -> f64;
     /// The text of a key, expanded (`/pgf/cylinder end fill`).
     fn text(&mut self, key: &str) -> String;
     /// A TeX conditional set by an `.is if` key: `pgfshapeborderusesincircle` for `\ifpgf…`.
     fn flag(&mut self, name: &str) -> bool;
+    /// A TikZ coordinate stored in a key (`(a.east)`, `(0,-1)`), on the canvas; None if unset.
+    fn point(&mut self, key: &str) -> Option<Point>;
 }
 
 /// What a shape is computed from.
@@ -48,6 +55,8 @@ pub struct Input<'a> {
     /// the node font's ex, for the `mid` anchors (at .5ex)
     pub ex: f64,
     pub line_width: f64,
+    /// a callout's absolute pointer, in node coordinates, once the node is placed
+    pub pointer: Option<Point>,
     pub keys: &'a mut dyn Keys,
 }
 
@@ -148,6 +157,9 @@ pub enum Usage {
     Node,
     /// filled with a color (a color expression, as `cylinder end fill=red!20`)
     Fill(String),
+    /// stroked as the node's lines are, whether the node is drawn or not (`\pgfusepath{stroke}` in
+    /// a shape's code)
+    Stroke,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +259,11 @@ pub const DEFINITIONS: &str = r"
 \newif\ifpgf@lib@sh@isosceslestrianglestretches
 \newif\ifpgfcylinderusescustomfill
 \newif\ifpgfcloudignoresaspect
+\newif\ifpgfrectanglesplithorizontal
+\newif\ifpgfrectanglesplitdrawsplits
+\pgfrectanglesplitdrawsplitstrue
+\newif\ifpgfrectanglesplitignoreemptyparts
+\newif\ifpgfrectanglesplitusecustomfill
 \newif\ifpgfcloudanchorsuseellipse
 \def\tikra@kiteangles#1and#2and#3\@@{\pgfkeys{/pgf/kite upper vertex angle={#1},/pgf/kite lower vertex angle={#2}}}
 \pgfkeys{/pgf/.cd,
@@ -304,6 +321,46 @@ pub const DEFINITIONS: &str = r"
   magnifying glass handle aspect/.initial=1.5,
   magnetic tape tail/.initial=0.15,
   magnetic tape tail extend/.initial=0cm,
+  single arrow tip angle/.initial=90,
+  single arrow head extend/.initial=.25cm,
+  single arrow head indent/.initial=0cm,
+  double arrow tip angle/.initial=90,
+  double arrow head extend/.initial=.25cm,
+  double arrow head indent/.initial=0cm,
+  arrow box west arrow/.initial=.5cm,
+  arrow box east arrow/.initial=.5cm,
+  arrow box south arrow/.initial=.5cm,
+  arrow box north arrow/.initial=.5cm,
+  arrow box shaft width/.initial=.125cm,
+  arrow box head extend/.initial=.125cm,
+  arrow box head indent/.initial=0cm,
+  arrow box tip angle/.initial=90,
+  arrow box arrow list/.initial=,
+  arrow box arrows/.code={\pgfkeyssetvalue{/pgf/arrow box arrow list}{#1}},
+  callout pointer arc/.initial=15,
+  callout pointer width/.initial=.25cm,
+  callout pointer start size/.initial=.2 of callout,
+  callout pointer end size/.initial=.1 of callout,
+  callout pointer segments/.initial=2,
+  callout pointer shorten/.initial=0cm,
+  callout pointer anchor aspect/.initial=1,
+  callout pointer@relative/.initial=(300:.5cm),
+  callout pointer@absolute/.initial=,
+  callout relative pointer/.code={\pgfkeyssetvalue{/pgf/callout pointer@relative}{#1}\pgfkeyssetvalue{/pgf/callout pointer@absolute}{}},
+  callout absolute pointer/.code={\pgfkeyssetvalue{/pgf/callout pointer@absolute}{#1}},
+  rectangle split parts/.initial=4,
+  rectangle split part align/.initial=center,
+  rectangle split horizontal/.is if=pgfrectanglesplithorizontal,
+  rectangle split ignore empty parts/.is if=pgfrectanglesplitignoreemptyparts,
+  rectangle split empty part width/.initial=1ex,
+  rectangle split empty part height/.initial=1ex,
+  rectangle split empty part depth/.initial=0ex,
+  rectangle split part fill/.initial=none,
+  rectangle split part fill/.code={\pgfkeyssetvalue{/pgf/rectangle split part fill}{#1}\pgfrectanglesplitusecustomfilltrue},
+  rectangle split uses custom fill/.is if=pgfrectanglesplitusecustomfill,
+  rectangle split draw splits/.is if=pgfrectanglesplitdrawsplits,
+  rectangle split allocate boxes/.code={},
+  rectangle split every empty part/.code={},
 }
 ";
 
@@ -339,6 +396,17 @@ const NAMES: &[&str] = &[
     "signal",
     "tape",
     "magnetic tape",
+    "single arrow",
+    "double arrow",
+    "arrow box",
+    "ellipse callout",
+    "rectangle callout",
+    "cloud callout",
+    "circle split",
+    "circle solidus",
+    "ellipse split",
+    "diamond split",
+    "rectangle split",
 ];
 
 /// Computes the shape `name` for a node; None if the shape is not known.
@@ -370,6 +438,17 @@ pub fn compute(name: &str, input: &mut Input) -> Option<Geometry> {
         "signal" => symbols::signal(input),
         "tape" => symbols::tape(input),
         "magnetic tape" => symbols::magnetic_tape(input),
+        "single arrow" => arrows::single_arrow(input),
+        "double arrow" => arrows::double_arrow(input),
+        "arrow box" => arrows::arrow_box(input),
+        "ellipse callout" => callouts::ellipse_callout(input),
+        "rectangle callout" => callouts::rectangle_callout(input),
+        "cloud callout" => callouts::cloud_callout(input),
+        "circle split" => multipart::circle_split(input),
+        "circle solidus" => multipart::circle_solidus(input),
+        "ellipse split" => multipart::ellipse_split(input),
+        "diamond split" => multipart::diamond_split(input),
+        "rectangle split" => multipart::rectangle_split(input),
         _ => return None,
     })
 }
@@ -597,6 +676,12 @@ mod tests {
         fn length(&mut self, key: &str, default: f64) -> f64 {
             self.values.get(key).copied().unwrap_or(default)
         }
+        fn point(&mut self, _key: &str) -> Option<Point> {
+            None
+        }
+        fn length_of(&mut self, _text: &str, default: f64) -> f64 {
+            default
+        }
         fn number(&mut self, key: &str, default: f64) -> f64 {
             self.values.get(key).copied().unwrap_or(default)
         }
@@ -622,6 +707,7 @@ mod tests {
             aspect: 1.0,
             ex: 4.3 * PT,
             line_width: 0.4 * PT,
+            pointer: None,
             keys,
         };
         compute(name, &mut input).unwrap()

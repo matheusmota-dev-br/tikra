@@ -119,6 +119,14 @@ pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
                 j += 1;
             }
             let name = tex::tokens_to_string(&name).split_whitespace().collect::<Vec<_>>().join(" ");
+            // pgf's other names for the boxes of the rectangle split
+            let name = match name.as_str() {
+                "one" => "text".to_string(),
+                "second" => "two".to_string(),
+                "third" => "three".to_string(),
+                "fourth" => "four".to_string(),
+                _ => name,
+            };
             parts.push((name, Vec::new()));
             i = j;
             continue;
@@ -135,6 +143,10 @@ struct EngineKeys<'a>(&'a mut Engine);
 impl shapes::Keys for EngineKeys<'_> {
     fn length(&mut self, key: &str, default: f64) -> f64 {
         self.0.key_length(key, default)
+    }
+
+    fn length_of(&mut self, text: &str, default: f64) -> f64 {
+        self.0.length(text).unwrap_or(default)
     }
 
     fn number(&mut self, key: &str, default: f64) -> f64 {
@@ -154,6 +166,25 @@ impl shapes::Keys for EngineKeys<'_> {
     fn flag(&mut self, name: &str) -> bool {
         let m = self.0.tex.meaning_of(&format!("if{name}"));
         m == self.0.tex.meaning_of("iftrue")
+    }
+
+    fn point(&mut self, key: &str) -> Option<Point> {
+        let text = self.text(key);
+        let text = crate::options::strip_braces(text.trim()).trim().to_string();
+        if text.is_empty() {
+            return None;
+        }
+        // `(a)+(b)`: the second relative to the first
+        let mut total: Option<Point> = None;
+        for part in text.split(")+(").map(|s| s.trim_start_matches('+')) {
+            let inner = part.trim().trim_start_matches('(').trim_end_matches(')').to_string();
+            let p = self.0.coordinate(&inner).ok()?.p;
+            total = Some(match total {
+                None => p,
+                Some(t) => t.plus(p.minus(self.0.coordinate("0,0").ok()?.p)),
+            });
+        }
+        total
     }
 }
 
@@ -311,8 +342,8 @@ impl Engine {
         let aspect = self.key_text("/pgf/aspect").trim().parse::<f64>().ok().filter(|a| *a > 0.0).unwrap_or(1.0);
         let ex = 0.43 * self.st.font_size * PT;
         let line_width = self.st.line_width;
-        let geometry = {
-            let mut keys = EngineKeys(self);
+        let compute = |e: &mut Engine, pointer: Option<Point>| {
+            let mut keys = EngineKeys(e);
             let mut input = shapes::Input {
                 parts: &boxes,
                 inner_xsep: xsep,
@@ -324,10 +355,12 @@ impl Engine {
                 aspect,
                 ex,
                 line_width,
+                pointer,
                 keys: &mut keys,
             };
             shapes::compute(&shape, &mut input).expect("a known shape")
         };
+        let geometry = compute(self, None);
         let mut info = NodeInfo { shape: shape.clone(), geometry: Rc::new(geometry), transform: Transform::default() };
 
         // where: `at`, positioning, the path's point or a point along its last segment
@@ -359,6 +392,14 @@ impl Engine {
         }
         let t = Transform::translation(target.x, target.y).compose(&linear).compose(&self.st.pending).compose(&Transform::translation(-a_local.x, -a_local.y));
         info.transform = t;
+        // a callout's absolute pointer is in the picture: once the node is placed, the shape is
+        // computed again with it in node coordinates (its other anchors do not depend on it)
+        if shape.ends_with("callout") {
+            if let Some(p) = shapes::Keys::point(&mut EngineKeys(self), "/pgf/callout pointer@absolute") {
+                let local = crate::reader::invert(&t).apply(p);
+                info.geometry = Rc::new(compute(self, Some(local)));
+            }
+        }
         let limit = super::path::MAX_COORDINATE;
         let fine = |p: Point| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= limit && p.y.abs() <= limit;
         if !fine(info.center()) || !info.geometry.anchors.iter().all(|(_, p)| fine(t.apply(*p))) {
@@ -419,6 +460,7 @@ impl Engine {
                         let color = e.color(c).unwrap_or(crate::color::Color::WHITE);
                         (Some(Fill { paint: Paint::Solid(color), opacity: e.st.fill_opacity, even_odd: false }), None)
                     }
+                    Usage::Stroke => (None, Some(e.stroke())),
                 };
                 if !e.canvas_frozen {
                     e.canvas.include_path(&segs);

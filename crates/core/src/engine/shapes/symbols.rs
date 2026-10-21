@@ -134,6 +134,8 @@ pub struct Cloud {
     pub outline: Vec<Point>,
     pub puffs: Vec<Point>,
     pub outer: Point,
+    /// the radii of the ellipse through the puffs' ends
+    pub inner: Point,
 }
 
 /// The puffs of a cloud around `c` whose inner ellipse has radii `(xi, yi)`.
@@ -206,7 +208,7 @@ pub fn cloud_parts(input: &mut Input) -> Cloud {
     let xi = (ch * big_x - k * big_y) / d;
     let yi = (ch * big_y - k * big_x) / d;
     let (background, outline, puff_anchors) = puffs(input.center_point(), xi, yi, n, arc, input.outer_sep());
-    Cloud { background, outline, puffs: puff_anchors, outer: Point::new(big_x, big_y) }
+    Cloud { background, outline, puffs: puff_anchors, outer: Point::new(big_x, big_y), inner: Point::new(xi, yi) }
 }
 
 pub fn cloud(input: &mut Input) -> Geometry {
