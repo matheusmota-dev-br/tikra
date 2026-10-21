@@ -21,6 +21,7 @@ pub mod marks;
 pub mod matrix;
 pub mod mindmap;
 pub mod nodes;
+pub mod nonlinear;
 pub mod options;
 pub mod output;
 pub mod path;
@@ -72,6 +73,13 @@ pub enum Cmd {
     UseShading,
     ShadePath,
     SetFading,
+    TransformNonlinear,
+    ApproximateNonlinear,
+    ApproximateNonlinearTranslation,
+    SetCurvilinear,
+    PointCurvilinear,
+    ToNumber,
+    MathSinCos,
     SetFadingForPath,
     SetFadingForPathStroked,
     SetSeed,
@@ -160,6 +168,13 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfuseshading", Cmd::UseShading),
     ("pgfshadepath", Cmd::ShadePath),
     ("pgfsetfading", Cmd::SetFading),
+    ("pgftransformnonlinear", Cmd::TransformNonlinear),
+    ("pgfapproximatenonlineartransformation", Cmd::ApproximateNonlinear),
+    ("pgfapproximatenonlineartranslation", Cmd::ApproximateNonlinearTranslation),
+    ("pgfsetcurvilinearbeziercurve", Cmd::SetCurvilinear),
+    ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
+    ("pgf@sys@tonumber", Cmd::ToNumber),
+    ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
     ("pgfsetfadingforcurrentpathstroked", Cmd::SetFadingForPathStroked),
     ("tikra@setseed", Cmd::SetSeed),
@@ -523,6 +538,7 @@ impl Engine {
         e.colors.insert("pgftransparent".into(), Color::BLACK);
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
+        nonlinear::define(&mut e);
         calendar::define(&mut e);
         folding::define(&mut e);
         mindmap::define(&mut e);
@@ -775,8 +791,19 @@ impl Engine {
     pub fn math_string(&mut self, tokens: Vec<Token>) -> Result<String, Error> {
         let t = self.tex.expand_fully(tokens)?;
         let mut s = String::new();
+        // `\pgf@sys@tonumber\reg`: the register without its unit
+        let mut bare = false;
         for (i, x) in t.iter().enumerate() {
+            if x.is_cs("pgf@sys@tonumber") {
+                bare = true;
+                continue;
+            }
             match self.tex.meaning(x) {
+                Meaning::Dimen(r) if bare && matches!(x, Token::Cs(_)) => {
+                    bare = false;
+                    let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
+                    s.push_str(&pgf_number(sp as f64 / 65536.0));
+                }
                 Meaning::Count(r) if matches!(x, Token::Cs(_)) => s.push_str(&self.tex.counts.get(&r).copied().unwrap_or(0).to_string()),
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
@@ -903,6 +930,13 @@ impl Engine {
             Cmd::UseShading => self.use_shading(),
             Cmd::ShadePath => self.shade_path(),
             Cmd::SetFading => self.set_fading(),
+            Cmd::TransformNonlinear => self.transform_nonlinear(),
+            Cmd::ApproximateNonlinear => self.approximate_nonlinear(true),
+            Cmd::ApproximateNonlinearTranslation => self.approximate_nonlinear(false),
+            Cmd::SetCurvilinear => self.set_curvilinear(),
+            Cmd::PointCurvilinear => self.point_curvilinear(),
+            Cmd::ToNumber => self.to_number(),
+            Cmd::MathSinCos => self.math_sincos(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
             Cmd::SetFadingForPathStroked => self.set_fading_for_path(true),
             Cmd::SetSeed => {

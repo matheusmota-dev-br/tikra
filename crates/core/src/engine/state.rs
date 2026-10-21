@@ -223,6 +223,10 @@ pub struct GState {
     pub snapshot: Option<f64>,
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
+    /// `\pgftransformnonlinear`: the code of each, in order
+    pub nonlinear: std::rc::Rc<Vec<Vec<Token>>>,
+    /// `\pgfsetcurvilinearbeziercurve`
+    pub curvilinear: Option<std::rc::Rc<super::arrows::Curvilinear>>,
     pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
@@ -303,6 +307,8 @@ impl Default for GState {
             allow_upside_down: false,
             snapshot: None,
             fit_fading: true,
+            nonlinear: Default::default(),
+            curvilinear: None,
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,

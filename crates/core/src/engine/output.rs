@@ -28,6 +28,9 @@ impl Engine {
 
     fn use_path_here(&mut self, segments: Vec<Segment>) -> Result<(), Error> {
         let mut segs = segments;
+        if !self.st.nonlinear.is_empty() {
+            segs = self.nonlinear_path(&segs)?;
+        }
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);
         }
