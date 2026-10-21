@@ -5,15 +5,20 @@ Every figure in the tests and in `corpus/` was written for this repository to ex
 ## How to run
 
 ```console
-$ cargo test                                    # 152 tests, under 3 s
+$ cargo test                                    # core and CLI, 160 tests, under 3 s
 $ cargo llvm-cov --workspace --summary-only     # coverage (install with cargo install cargo-llvm-cov)
 $ cargo llvm-cov --workspace --html             # browsable report in target/llvm-cov/html
 $ cargo clippy --all-targets -- -D warnings
 $ TIKRA_UPDATE_BANNER=1 cargo test -p tikra --test banner   # redraws docs/banner.svg and docs/banner.png
 $ cargo run --release -p tikra --example bench              # benchmark over corpus/ (README)
+$ cargo test -p tikra-wasm                                  # the wasm exports, natively
+$ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+    cargo test -p tikra-wasm --target wasm32-unknown-unknown # the same exports inside wasm, on Node
+$ npm/build.sh && npm/test/run.sh                           # the npm package, packed and installed
+$ (cd crates/python && maturin develop && python -m pytest tests)   # the Python module, in a virtualenv
 ```
 
-tikra depends on mathra by path (`../mathra/crates/core`). Labels go through it, so a change in mathra can change a test that checks label text or size. Math follows mathra's default locale, which is English (`\sin` reads "sin", decimal point).
+tikra depends on the published mathra crate (or a local checkout, see "Development" in the README). Labels go through it, so a change in mathra can change a test that checks label text or size. Math follows mathra's default locale, which is English (`\sin` reads "sin", decimal point).
 
 ## What each file covers
 
@@ -36,6 +41,15 @@ Integration, in `crates/core/tests/`:
 | `examples.rs` | 2 | The README gallery: each `docs/examples/*.svg` must be byte for byte what tikra draws from its corpus figure, on a white card. |
 
 Command line, in `crates/cli/tests/cli.rs` (6 tests): help and version, stdin → stdout, file → SVG and PNG, `--dpi`, `--transparent`, `--warnings`, a missing file, a file and a stdin that are not UTF-8, input with no figure, output into a missing folder, a PNG that is too large. The test runs the real binary (`CARGO_BIN_EXE_tikra`), and `cargo llvm-cov` counts that child process's coverage.
+
+Packages, run by `.github/workflows/ci.yml` on every pull request:
+
+| File | Tests | What it exercises |
+|---|---:|---|
+| `crates/wasm/tests/native.rs` | 4 | The functions behind the JavaScript API, natively: SVG, the JSON of `render` with and without warnings, PNG defaults (white background, 300 dpi), errors as text. |
+| `crates/wasm/tests/web.rs` | 2 | The same exports compiled to wasm and run on Node; errors become a `JsError`. |
+| `npm/test/*.test.*` | 7 | The packed npm package, installed in a scratch project: ESM and `require`, every input form, `render`, `png` options, errors as `Error`, `version()`. |
+| `crates/python/tests/test_tikra.py` | 7 | The Python module as installed: every input form, `render`, `png` (bytes, `dpi`, `background`), `ValueError`, versions. `pypi.yml` runs it against each built wheel and the sdist. |
 
 Unit tests, inside the modules: `color.rs` (mixes), `expr.rs` (basic expressions), `options.rs` (styles), `label.rs` (wrapping and font size). Plus the documentation example in `lib.rs`.
 
