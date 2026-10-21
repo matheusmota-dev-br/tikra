@@ -8,13 +8,23 @@ use tikra::scene::Tip;
 
 #[test]
 fn dashes_widths_opacities() {
-    for (op, n) in [("dashed", 2), ("densely dashed", 2), ("loosely dashed", 2), ("dotted", 2), ("densely dotted", 2), ("loosely dotted", 2), ("dash dot", 4), ("dash pattern=on 2pt off 1pt on 1pt off 1pt", 4)] {
+    for (op, n) in [
+        ("dashed", 2),
+        ("densely dashed", 2),
+        ("loosely dashed", 2),
+        ("dotted", 2),
+        ("densely dotted", 2),
+        ("loosely dotted", 2),
+        ("dash dot", 4),
+        ("dash pattern=on 2pt off 1pt on 1pt off 1pt", 4),
+    ] {
         let t = first_path(&format!(r"\draw[{op}] (0,0) -- (1,0);"));
         assert_eq!(t.style.dash.as_ref().map(Vec::len), Some(n), "{op}");
     }
     assert!(first_path(r"\draw[dashed, solid] (0,0) -- (1,0);").style.dash.is_none());
     assert!(first_path(r"\draw[dash pattern=on zz] (0,0) -- (1,0);").style.dash.is_none());
-    for (op, w) in [("ultra thin", 0.1), ("very thin", 0.2), ("thin", 0.4), ("semithick", 0.6), ("thick", 0.8), ("very thick", 1.2), ("ultra thick", 1.6), ("line width=2pt", 2.0)] {
+    for (op, w) in [("ultra thin", 0.1), ("very thin", 0.2), ("thin", 0.4), ("semithick", 0.6), ("thick", 0.8), ("very thick", 1.2), ("ultra thick", 1.6), ("line width=2pt", 2.0)]
+    {
         let t = first_path(&format!(r"\draw[{op}] (0,0) -- (1,0);"));
         assert!(close(t.style.line_width, w * tikra::PT), "{op}");
     }
@@ -48,7 +58,19 @@ fn stroke_and_fill_colors() {
 
 #[test]
 fn hatchings() {
-    for p in ["north east lines", "north west lines", "horizontal lines", "vertical lines", "grid", "crosshatch", "dots", "crosshatch dots", "fivepointed stars", "sixpointed stars", "bricks"] {
+    for p in [
+        "north east lines",
+        "north west lines",
+        "horizontal lines",
+        "vertical lines",
+        "grid",
+        "crosshatch",
+        "dots",
+        "crosshatch dots",
+        "fivepointed stars",
+        "sixpointed stars",
+        "bricks",
+    ] {
         let r = no_warnings(&format!(r"\begin{{tikzpicture}} \draw[pattern={p}, pattern color=red] (0,0) rectangle (1,1); \end{{tikzpicture}}"));
         assert!(r.svg.contains("<pattern"), "{p}");
     }
@@ -93,7 +115,9 @@ fn arrow_tips() {
 #[test]
 fn every_tip_in_the_svg() {
     for op in ["->", "<-", "-latex", "latex-", "-stealth", "stealth-", "|-|", "o-*"] {
-        let r = no_warnings(&format!(r"\begin{{tikzpicture}} \draw[{op}] (0,0) -- (1,0); \draw[{op}] (0,1) .. controls (1,2) and (2,2) .. (3,1); \draw[{op}] (0,2) .. controls (0,2) and (0,2) .. (1,3); \end{{tikzpicture}}"));
+        let r = no_warnings(&format!(
+            r"\begin{{tikzpicture}} \draw[{op}] (0,0) -- (1,0); \draw[{op}] (0,1) .. controls (1,2) and (2,2) .. (3,1); \draw[{op}] (0,2) .. controls (0,2) and (0,2) .. (1,3); \end{{tikzpicture}}"
+        ));
         assert!(r.svg.contains("<poly") || r.svg.contains("<circle"), "{op}");
     }
     // an arrow on a closed path: no tip
@@ -111,7 +135,31 @@ fn xcolor_parsing() {
     assert!(color::parse("-", &d).is_none());
     assert!(color::parse("red!xx", &d).is_none());
     assert!(color::parse("red!50!nothing", &d).is_none());
-    for name in ["black", "white", "green", "cyan", "magenta", "yellow", "gray", "darkgray", "lightgray", "brown", "lime", "olive", "orange", "pink", "purple", "teal", "violet", "ForestGreen", "NavyBlue", "RoyalBlue", "Maroon", "Goldenrod", "Gray"] {
+    for name in [
+        "black",
+        "white",
+        "green",
+        "cyan",
+        "magenta",
+        "yellow",
+        "gray",
+        "darkgray",
+        "lightgray",
+        "brown",
+        "lime",
+        "olive",
+        "orange",
+        "pink",
+        "purple",
+        "teal",
+        "violet",
+        "ForestGreen",
+        "NavyBlue",
+        "RoyalBlue",
+        "Maroon",
+        "Goldenrod",
+        "Gray",
+    ] {
         assert!(color::parse(name, &d).is_some(), "{name}");
     }
     assert_eq!(Color { r: 2.0, g: -1.0, b: 0.5 }.hex(), "#ff0080", "values outside 0..1 are clamped");

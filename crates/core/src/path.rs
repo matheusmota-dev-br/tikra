@@ -106,12 +106,7 @@ pub fn style(env: &Env, options: &[Opt], command: &str) -> Style {
             ("dash dot", None) => e.dash = Some(vec![3.0 * PT, 2.0 * PT, 0.4 * PT, 2.0 * PT]),
             ("solid", None) => e.dash = None,
             ("dash pattern", Some(p)) => {
-                let nums: Vec<f64> = p
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .chunks(2)
-                    .filter_map(|pair| pair.get(1).and_then(|m| env.length(m).ok()))
-                    .collect();
+                let nums: Vec<f64> = p.split_whitespace().collect::<Vec<_>>().chunks(2).filter_map(|pair| pair.get(1).and_then(|m| env.length(m).ok())).collect();
                 if !nums.is_empty() {
                     e.dash = Some(nums);
                 }
@@ -339,10 +334,7 @@ impl LastSegment {
             Some((c1, c2)) => {
                 let u = 1.0 - t;
                 let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
-                Point::new(
-                    a * self.start.x + b * c1.x + c * c2.x + d * self.end.x,
-                    a * self.start.y + b * c1.y + c * c2.y + d * self.end.y,
-                )
+                Point::new(a * self.start.x + b * c1.x + c * c2.x + d * self.end.x, a * self.start.y + b * c1.y + c * c2.y + d * self.end.y)
             }
         }
     }
@@ -417,7 +409,10 @@ impl Builder<'_> {
             pb = n.border_toward(c2.minus(n.center));
         }
         // the curve starts where the path is now (a node's border, not its center)
-        let start = match self.segments.last() { Some(Segment::MoveTo(q) | Segment::LineTo(q) | Segment::CurveTo(_, _, q)) => *q, _ => a };
+        let start = match self.segments.last() {
+            Some(Segment::MoveTo(q) | Segment::LineTo(q) | Segment::CurveTo(_, _, q)) => *q,
+            _ => a,
+        };
         self.segments.push(Segment::CurveTo(c1, c2, pb));
         self.last = Some(LastSegment { start, end: pb, controls: Some((c1, c2)) });
         self.current = Some(r);
@@ -990,11 +985,8 @@ pub fn statement(env: &mut Env, command: &str, text: &str) -> Result<(), Error> 
     }
     // nodes on a path inherit the path's color (a bare color or color=), not draw or fill;
     // with styles already expanded, pointer/.style={color=red} counts too
-    let inherited_color = options
-        .iter()
-        .rev()
-        .find(|o| (o.value.is_none() && env.color(&o.key).is_some()) || o.key == "color")
-        .map(|o| o.value.clone().unwrap_or_else(|| o.key.clone()));
+    let inherited_color =
+        options.iter().rev().find(|o| (o.value.is_none() && env.color(&o.key).is_some()) || o.key == "color").map(|o| o.value.clone().unwrap_or_else(|| o.key.clone()));
     for (o, text, name, pos, last) in nodes {
         let o = match &inherited_color {
             Some(c) => format!("text={c},{o}"),
@@ -1145,8 +1137,20 @@ fn create_node(env: &mut Env, own: &str, text: &str, name: Option<String>, pos: 
                     .to_string(),
                 );
                 let dir = |vert: f64, hor: f64| -> Point {
-                    let sy = if p.contains("above") { 1.0 } else if p.contains("below") { -1.0 } else { 0.0 };
-                    let sx = if p.contains("left") { -1.0 } else if p.contains("right") { 1.0 } else { 0.0 };
+                    let sy = if p.contains("above") {
+                        1.0
+                    } else if p.contains("below") {
+                        -1.0
+                    } else {
+                        0.0
+                    };
+                    let sx = if p.contains("left") {
+                        -1.0
+                    } else if p.contains("right") {
+                        1.0
+                    } else {
+                        0.0
+                    };
                     Point::new(sx * hor, sy * vert)
                 };
                 match value {

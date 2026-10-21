@@ -50,7 +50,20 @@ fn minimum_sizes_separation_and_aspect() {
 #[test]
 fn named_and_angle_anchors() {
     let n = first_node(r"\node[draw, minimum width=2cm, minimum height=2cm] at (0,0) {};");
-    for (a, p) in [("north", (0.0, 1.0)), ("south", (0.0, -1.0)), ("east", (1.0, 0.0)), ("west", (-1.0, 0.0)), ("north east", (1.0, 1.0)), ("south west", (-1.0, -1.0)), ("center", (0.0, 0.0)), ("", (0.0, 0.0)), ("base", (0.0, 0.0)), ("mid", (0.0, 0.0)), ("text", (0.0, 0.0)), ("0", (1.0, 0.0))] {
+    for (a, p) in [
+        ("north", (0.0, 1.0)),
+        ("south", (0.0, -1.0)),
+        ("east", (1.0, 0.0)),
+        ("west", (-1.0, 0.0)),
+        ("north east", (1.0, 1.0)),
+        ("south west", (-1.0, -1.0)),
+        ("center", (0.0, 0.0)),
+        ("", (0.0, 0.0)),
+        ("base", (0.0, 0.0)),
+        ("mid", (0.0, 0.0)),
+        ("text", (0.0, 0.0)),
+        ("0", (1.0, 0.0)),
+    ] {
         let q = n.anchor(a).unwrap();
         assert!(close_to((q.x, q.y), p), "{a}: {q:?}");
     }
@@ -75,7 +88,16 @@ fn anchor_and_relative_placement() {
     let base = r"\node[draw, minimum size=1cm, inner sep=0pt] at (0,0) {};";
     let n = first_node(&base.replace("draw,", "draw, anchor=west,"));
     assert!(close(n.center.x, 0.5), "{:?}", n.center);
-    for (pos, sign) in [("above", (0.0, 1.0)), ("below", (0.0, -1.0)), ("left", (-1.0, 0.0)), ("right", (1.0, 0.0)), ("above left", (-1.0, 1.0)), ("above right", (1.0, 1.0)), ("below left", (-1.0, -1.0)), ("below right", (1.0, -1.0))] {
+    for (pos, sign) in [
+        ("above", (0.0, 1.0)),
+        ("below", (0.0, -1.0)),
+        ("left", (-1.0, 0.0)),
+        ("right", (1.0, 0.0)),
+        ("above left", (-1.0, 1.0)),
+        ("above right", (1.0, 1.0)),
+        ("below left", (-1.0, -1.0)),
+        ("below right", (1.0, -1.0)),
+    ] {
         let n = first_node(&base.replace("draw,", &format!("draw, {pos},")));
         assert!(n.center.x * sign.0 >= 0.0 && n.center.y * sign.1 >= 0.0, "{pos}: {:?}", n.center);
         let n = first_node(&base.replace("draw,", &format!("draw, {pos}=1cm,")));
@@ -87,7 +109,9 @@ fn anchor_and_relative_placement() {
 
 #[test]
 fn positioning_of_with_distances() {
-    let body = |op: &str| format!(r"\node[draw, minimum size=1cm, inner sep=0pt] (a) at (0,0) {{}}; \coordinate (p) at (5,5); \node[draw, minimum size=1cm, inner sep=0pt, {op}] (b) {{}};");
+    let body = |op: &str| {
+        format!(r"\node[draw, minimum size=1cm, inner sep=0pt] (a) at (0,0) {{}}; \coordinate (p) at (5,5); \node[draw, minimum size=1cm, inner sep=0pt, {op}] (b) {{}};")
+    };
     let b = |op: &str| {
         let c = scene(&body(op));
         nodes(&c)[1].center
@@ -121,7 +145,9 @@ fn figure_node_distance() {
 
 #[test]
 fn position_along_the_path() {
-    for (op, x) in [("midway", 1.0), ("near start", 0.5), ("near end", 1.5), ("at start", 0.0), ("at end", 2.0), ("very near start", 0.25), ("very near end", 1.75), ("pos=0.1", 0.2)] {
+    for (op, x) in
+        [("midway", 1.0), ("near start", 0.5), ("near end", 1.5), ("at start", 0.0), ("at end", 2.0), ("very near start", 0.25), ("very near end", 1.75), ("pos=0.1", 0.2)]
+    {
         let c = scene(&format!(r"\draw (0,0) -- (2,0) node[{op}, inner sep=0pt] {{}};"));
         let n = nodes(&c);
         assert!(close(n[0].center.x, x), "{op}: {:?}", n[0].center);
@@ -133,7 +159,25 @@ fn position_along_the_path() {
 
 #[test]
 fn extra_labels_by_side_and_by_angle() {
-    for l in ["label=above:A", "label=below:B", "label=left:C", "label=right:D", "label=north:E", "label=south:F", "label=west:G", "label=east:H", "label=45:I", "label=-90:J", "label=90:K", "label=180:L", "label=0:M", "label=270:N", "label=north east:O", "label={[red]above:P}", "label=Q"] {
+    for l in [
+        "label=above:A",
+        "label=below:B",
+        "label=left:C",
+        "label=right:D",
+        "label=north:E",
+        "label=south:F",
+        "label=west:G",
+        "label=east:H",
+        "label=45:I",
+        "label=-90:J",
+        "label=90:K",
+        "label=180:L",
+        "label=0:M",
+        "label=270:N",
+        "label=north east:O",
+        "label={[red]above:P}",
+        "label=Q",
+    ] {
         let c = scene(&format!(r"\node[draw, {l}] at (0,0) {{x}};"));
         assert_eq!(nodes(&c).len(), 2, "{l}");
     }
@@ -212,7 +256,9 @@ fn text_with_sizes_circled_and_grouped_words() {
 
 #[test]
 fn baseline_anchors() {
-    let c = scene(r"\node[draw, anchor=base west] (a) at (1,2) {xg}; \node[anchor=base] (b) at (5,2) {x}; \node[anchor=base east] (c) at (9,2) {x}; \node[anchor=text] (d) at (12,2) {x}; \coordinate (e) at (0,0);");
+    let c = scene(
+        r"\node[draw, anchor=base west] (a) at (1,2) {xg}; \node[anchor=base] (b) at (5,2) {x}; \node[anchor=base east] (c) at (9,2) {x}; \node[anchor=text] (d) at (12,2) {x}; \coordinate (e) at (0,0);",
+    );
     let ns = nodes(&c);
     let base = |n: &Node| n.anchor("base").unwrap();
     for n in &ns {

@@ -24,7 +24,15 @@ fn round_step(range: f64) -> f64 {
     let raw = range / 5.0;
     let p = 10f64.powf(raw.abs().log10().floor());
     let r = raw / p;
-    p * if r < 1.5 { 1.0 } else if r < 3.0 { 2.0 } else if r < 7.0 { 5.0 } else { 10.0 }
+    p * if r < 1.5 {
+        1.0
+    } else if r < 3.0 {
+        2.0
+    } else if r < 7.0 {
+        5.0
+    } else {
+        10.0
+    }
 }
 
 /// Axis ticks: multiples of a round step, by index. In windows where the step vanishes in f64
@@ -126,7 +134,13 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
                     })
                     .or(default_domain)
                     .unwrap_or((-5.0, 5.0));
-                let n = series_options.iter().find(|x| x.key == "samples").and_then(|x| x.value.as_ref()).and_then(|v| env.number(v).ok()).map_or(samples, |v| v as usize).clamp(2, 2000);
+                let n = series_options
+                    .iter()
+                    .find(|x| x.key == "samples")
+                    .and_then(|x| x.value.as_ref())
+                    .and_then(|v| env.number(v).ok())
+                    .map_or(samples, |v| v as usize)
+                    .clamp(2, 2000);
                 for k in 0..n {
                     let x = d0 + (d1 - d0) * k as f64 / (n - 1) as f64;
                     env.vars.insert("x".into(), x);
@@ -168,7 +182,11 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
     let all: Vec<(f64, f64)> = series.iter().flat_map(|s| s.points.iter().copied()).collect();
     let auto = |f: fn(&(f64, f64)) -> f64, min: bool| -> f64 {
         let it = all.iter().map(f);
-        if min { it.fold(f64::INFINITY, f64::min) } else { it.fold(f64::NEG_INFINITY, f64::max) }
+        if min {
+            it.fold(f64::INFINITY, f64::min)
+        } else {
+            it.fold(f64::NEG_INFINITY, f64::max)
+        }
     };
     let num = |k: &str| get(k).and_then(|v| env.number(&v).ok());
     let xmin = num("xmin").unwrap_or_else(|| auto(|p| p.0, true));
@@ -205,7 +223,13 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
         }
         "none" => {}
         _ => axis(
-            vec![Segment::MoveTo(Point::new(0.0, 0.0)), Segment::LineTo(Point::new(width, 0.0)), Segment::LineTo(Point::new(width, height)), Segment::LineTo(Point::new(0.0, height)), Segment::Close],
+            vec![
+                Segment::MoveTo(Point::new(0.0, 0.0)),
+                Segment::LineTo(Point::new(width, 0.0)),
+                Segment::LineTo(Point::new(width, height)),
+                Segment::LineTo(Point::new(0.0, height)),
+                Segment::Close,
+            ],
             false,
         ),
     }

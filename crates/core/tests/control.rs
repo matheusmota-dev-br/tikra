@@ -99,7 +99,8 @@ fn environments_and_end_without_begin() {
 
 #[test]
 fn ignored_and_unknown_commands() {
-    let (c, w) = scene_and_warnings(r"\small \bfseries \centering \usetikzlibrary{calc} \usepackage[x]{y} \pgfplotsset{compat=1.18} \usepgfplotslibrary{fillbetween} \draw (0,0) -- (1,0);");
+    let (c, w) =
+        scene_and_warnings(r"\small \bfseries \centering \usetikzlibrary{calc} \usepackage[x]{y} \pgfplotsset{compat=1.18} \usepgfplotslibrary{fillbetween} \draw (0,0) -- (1,0);");
     assert_eq!(paths(&c).len(), 1);
     assert!(w.is_empty(), "{w:?}");
     let (_, w) = scene_and_warnings(r"\shadow (0,0);  \pic {x}; \matrix {a};");

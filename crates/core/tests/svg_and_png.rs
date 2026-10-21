@@ -38,7 +38,9 @@ fn multiline_label_and_alignments() {
 
 #[test]
 fn mathra_items_with_color_and_ellipse() {
-    let r = figure(r"\begin{tikzpicture} \node {$\textcolor{red}{x} + \cancel{y} + \boxed{z} + \fcolorbox{red}{yellow}{w}$}; \node at (0,1) {$\bigcirc$}; \node at (0,2) {$\textcolor{red}{\frac{a}{b}}$}; \end{tikzpicture}");
+    let r = figure(
+        r"\begin{tikzpicture} \node {$\textcolor{red}{x} + \cancel{y} + \boxed{z} + \fcolorbox{red}{yellow}{w}$}; \node at (0,1) {$\bigcirc$}; \node at (0,2) {$\textcolor{red}{\frac{a}{b}}$}; \end{tikzpicture}",
+    );
     assert!(r.svg.contains("<svg"));
 }
 
@@ -51,7 +53,15 @@ fn empty_scene_has_minimum_size() {
     let label = Label { lines: Vec::new(), scale: 1.0, color: Color::BLACK, align: 'c', line_height: 0.0 };
     assert_eq!(label.depth(), 0.0);
     assert_eq!(label.height(), 0.0);
-    c.elements.push(Element::Node(Node { center: Default::default(), shape: Shape::Coordinate, half_width: 0.0, half_height: 0.0, label: Some(label), style: Default::default(), rotation: 0.0 }));
+    c.elements.push(Element::Node(Node {
+        center: Default::default(),
+        shape: Shape::Coordinate,
+        half_width: 0.0,
+        half_height: 0.0,
+        label: Some(label),
+        style: Default::default(),
+        rotation: 0.0,
+    }));
     tikra::render::svg(&c, "", "x");
 }
 

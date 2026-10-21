@@ -22,13 +22,15 @@ fn scene(tikz: &str) -> tikra::scene::Scene {
 
 #[test]
 fn number_line_with_two_variable_foreach() {
-    let r = no_warnings(r"\begin{tikzpicture}
+    let r = no_warnings(
+        r"\begin{tikzpicture}
         \draw[->,thick] (0,0) -- (10,0);
         \foreach \pos/\name in {1/start, 3.5/middle, 6/end}{
           \draw[thick] (\pos,-0.15) -- (\pos,0.15);
           \node[above] at (\pos,0.15) {\name};
         }
-      \end{tikzpicture}");
+      \end{tikzpicture}",
+    );
     assert!(r.svg.contains("<svg"));
     let c = scene(r"\foreach \x/\n in {1/a, 2/b, 3/c} { \node at (\x,0) {\n}; }");
     assert_eq!(c.elements.iter().filter(|e| matches!(e, Element::Node(_))).count(), 3);
@@ -36,7 +38,8 @@ fn number_line_with_two_variable_foreach() {
 
 #[test]
 fn folding_fan_with_def_rotated_scope_and_arc() {
-    no_warnings(r"\begin{tikzpicture}
+    no_warnings(
+        r"\begin{tikzpicture}
         \def\opening{40} \def\radius{5}
         \coordinate (O) at (0,0);
         \coordinate (T) at ({\radius*cos(\opening)}, {\radius*sin(\opening)});
@@ -46,7 +49,8 @@ fn folding_fan_with_def_rotated_scope_and_arc() {
           \draw[thick, fill=teal!50] (2,0) rectangle (2.8,0.5);
           \draw[decoration={zigzag, amplitude=2pt, segment length=4pt}, decorate] (2.8,0.25) -- (4.2,0.25);
         \end{scope}
-      \end{tikzpicture}");
+      \end{tikzpicture}",
+    );
 }
 
 #[test]
@@ -59,7 +63,8 @@ fn rectangle_rotates_with_the_scope() {
 
 #[test]
 fn flowchart_with_positioning_and_elbows() {
-    let r = no_warnings(r"\begin{tikzpicture}[node distance=1.3cm and 1cm,
+    let r = no_warnings(
+        r"\begin{tikzpicture}[node distance=1.3cm and 1cm,
         step/.style={rectangle, draw, rounded corners, text centered, text width=3cm, minimum height=1cm},
         arrow/.style={-Stealth, thick}]
         \node[step, fill=blue!10] (a) {Start};
@@ -68,7 +73,8 @@ fn flowchart_with_positioning_and_elbows() {
         \node[diamond, draw, aspect=2, below left=1.2cm and -0.2cm of c] (d) {Valid?};
         \draw[arrow] (a.south) |- (c.north west);
         \draw[arrow] (c.south) -| (d.north);
-      \end{tikzpicture}");
+      \end{tikzpicture}",
+    );
     assert!(r.svg.contains("<polygon"), "the Stealth tip is drawn");
 }
 
@@ -83,7 +89,8 @@ fn line_between_nodes_stops_at_the_border() {
 
 #[test]
 fn stacked_waves_with_declared_function_and_plot() {
-    no_warnings(r"\begin{tikzpicture}[x=4cm, y=0.7cm, declare function={level(\n) = 2*\n; wave(\n,\x) = sin(\n*360*\x);}]
+    no_warnings(
+        r"\begin{tikzpicture}[x=4cm, y=0.7cm, declare function={level(\n) = 2*\n; wave(\n,\x) = sin(\n*360*\x);}]
         \draw[->, thick] (-0.2,0) -- (1.5,0) node[right] {$t$};
         \foreach \n in {1, 2, 3} {
           \pgfmathsetmacro{\height}{level(\n)}
@@ -91,12 +98,14 @@ fn stacked_waves_with_declared_function_and_plot() {
           \node[left=4pt] at (0, \height) {$a_{\n}$};
           \draw[domain=0:1, samples=50, variable=\x, thick, violet] plot (\x, {\height + 0.6*wave(\n,\x)});
         }
-      \end{tikzpicture}");
+      \end{tikzpicture}",
+    );
 }
 
 #[test]
 fn signpost_with_styles_hatching_and_inherited_color() {
-    let r = no_warnings(r"\documentclass[tikz,border=10pt]{standalone}
+    let r = no_warnings(
+        r"\documentclass[tikz,border=10pt]{standalone}
       \usetikzlibrary{patterns, arrows.meta}
       \begin{document}
       \begin{tikzpicture}[scale=1.5, >=Latex]
@@ -108,7 +117,8 @@ fn signpost_with_styles_hatching_and_inherited_color() {
         \node[draw, minimum width=1.2cm, minimum height=1cm, fill=blue!10] at (0,1.5) {\textbf{Exit}};
         \draw[pointer] (0.8,1.5) -- ++(1,0) node[right] {$\vec{v}$};
       \end{tikzpicture}
-      \end{document}");
+      \end{document}",
+    );
     assert!(r.svg.contains("<pattern"), "hatching");
     // the vector's label inherits the arrow's color
     assert!(r.svg.matches(r##"fill="#ff0000""##).count() >= 2, "{}", r.svg.matches("ff0000").count());
@@ -116,12 +126,14 @@ fn signpost_with_styles_hatching_and_inherited_color() {
 
 #[test]
 fn pgfplots_plot_with_legend() {
-    no_warnings(r"\begin{tikzpicture}\begin{axis}[width=11cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=3, axis lines=left, xlabel={$x$}, ylabel={$f(x)$}, samples=100]
+    no_warnings(
+        r"\begin{tikzpicture}\begin{axis}[width=11cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=3, axis lines=left, xlabel={$x$}, ylabel={$f(x)$}, samples=100]
         \addplot[domain=0:1, thick, blue] {1 + x};
         \addlegendentry{Linear}
         \addplot[domain=0:1, thick, red] {2.5*exp(-3*x) + sqrt(x)/(2*pi)};
         \addlegendentry{Decay}
-      \end{axis}\end{tikzpicture}");
+      \end{axis}\end{tikzpicture}",
+    );
 }
 
 #[test]

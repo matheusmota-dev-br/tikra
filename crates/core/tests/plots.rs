@@ -30,7 +30,10 @@ fn window_from_the_data() {
 
 #[test]
 fn expression_series_with_domain_and_samples() {
-    let r = plot("domain=0:2, samples=5, width=8cm, height=5cm, xlabel={$x$}, ylabel={$y$}, title={Title}", r"\addplot[red, thick] {x^2}; \addplot+[domain=-1:1, samples=3] {1/x}; \addplot[samples=zz] {sqrt(x)}; \addplot {\doesnotexist};");
+    let r = plot(
+        "domain=0:2, samples=5, width=8cm, height=5cm, xlabel={$x$}, ylabel={$y$}, title={Title}",
+        r"\addplot[red, thick] {x^2}; \addplot+[domain=-1:1, samples=3] {1/x}; \addplot[samples=zz] {sqrt(x)}; \addplot {\doesnotexist};",
+    );
     assert!(r.svg.contains("#ff0000"));
     // an invalid domain on the series or the axis: -5 to 5
     plot("domain=zz:1", r"\addplot[domain=1:zz] {x};");
@@ -38,7 +41,9 @@ fn expression_series_with_domain_and_samples() {
 
 #[test]
 fn marks_on_coordinate_series() {
-    let c = scene(r"\begin{axis}[xmin=0, xmax=2, ymin=0, ymax=2] \addplot coordinates {(1,1) (2,2)}; \addplot+[red] coordinates {(0,1)}; \addplot[blue] coordinates {(1,0) (0,1)}; \end{axis}");
+    let c = scene(
+        r"\begin{axis}[xmin=0, xmax=2, ymin=0, ymax=2] \addplot coordinates {(1,1) (2,2)}; \addplot+[red] coordinates {(0,1)}; \addplot[blue] coordinates {(1,0) (0,1)}; \end{axis}",
+    );
     // marked points: the first two series (no options, and with +)
     let marks = nodes(&c).iter().filter(|n| n.label.is_none()).count();
     assert_eq!(marks, 3, "{marks}");
@@ -57,7 +62,8 @@ fn positioned_legend_and_frame() {
 #[test]
 fn log_variants_are_read_as_linear() {
     for env in ["semilogyaxis", "semilogxaxis", "loglogaxis"] {
-        let r = figure(&format!(r"\begin{{tikzpicture}}\begin{{{env}}}[xmin=1, xmax=10, ymin=1, ymax=10] \addplot coordinates {{(1,1) (10,10)}}; \end{{{env}}}\end{{tikzpicture}}"));
+        let r =
+            figure(&format!(r"\begin{{tikzpicture}}\begin{{{env}}}[xmin=1, xmax=10, ymin=1, ymax=10] \addplot coordinates {{(1,1) (10,10)}}; \end{{{env}}}\end{{tikzpicture}}"));
         assert!(r.svg.contains("<path"), "{env}");
     }
 }
@@ -123,7 +129,11 @@ fn legend_frame(c: &tikra::scene::Scene) -> (f64, f64, f64, f64) {
 
 #[test]
 fn legend_anchor_and_legend_pos_place_the_frame() {
-    let axis = |opts: &str| scene(&format!(r"\begin{{axis}}[width=10cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=1, {opts}] \addplot coordinates {{(0,0) (1,1)}}; \addlegendentry{{data}} \end{{axis}}"));
+    let axis = |opts: &str| {
+        scene(&format!(
+            r"\begin{{axis}}[width=10cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=1, {opts}] \addplot coordinates {{(0,0) (1,1)}}; \addlegendentry{{data}} \end{{axis}}"
+        ))
+    };
     let (_, _, right, top) = legend_frame(&axis(""));
     let (left_nw, _, _, top_nw) = legend_frame(&axis("legend style={at={(0.02,0.98)}, anchor=north west}"));
     let (_, bottom_se, right_se, _) = legend_frame(&axis("legend pos=south east"));
@@ -143,7 +153,9 @@ fn legend_anchor_and_legend_pos_place_the_frame() {
 #[test]
 fn title_clears_the_arrow_tips_of_middle_axes() {
     let title_bottom = |lines: &str| {
-        let c = scene(&format!(r"\begin{{axis}}[axis lines={lines}, width=8cm, height=5cm, xmin=-1, xmax=1, ymin=-1, ymax=1, title={{T}}] \addplot coordinates {{(0,0) (1,1)}}; \end{{axis}}"));
+        let c = scene(&format!(
+            r"\begin{{axis}}[axis lines={lines}, width=8cm, height=5cm, xmin=-1, xmax=1, ymin=-1, ymax=1, title={{T}}] \addplot coordinates {{(0,0) (1,1)}}; \end{{axis}}"
+        ));
         // the title is the highest node
         let n = nodes(&c).into_iter().max_by(|a, b| a.center.y.total_cmp(&b.center.y)).expect("the title");
         n.center.y - n.half_height
