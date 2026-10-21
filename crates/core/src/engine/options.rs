@@ -77,7 +77,8 @@ impl Engine {
             return Ok(());
         }
         let path = keys::full_path(&self.st.key_path, key);
-        if let Some((base, h)) = keys::handler(&path) {
+        // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
+        if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
             let (base, h) = (base.to_string(), h.to_string());
             return self.handler(&base, &h, value);
         }
@@ -1243,6 +1244,58 @@ keyfn!(k_controls, |e, v| {
     e.st.to.curve = true;
     Ok(())
 });
+keyfn!(k_ampersand_replacement, |e, v| {
+    e.st.matrix.ampersand = v.unwrap_or_default().into_iter().find_map(|t| match t {
+        Token::Cs(n) => Some(n.to_string()),
+        _ => None,
+    });
+    Ok(())
+});
+keyfn!(k_at_begin_cell, |e, v| {
+    e.st.matrix.at_begin_cell.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_end_cell, |e, v| {
+    e.st.matrix.at_end_cell.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_empty_cell, |e, v| {
+    e.st.matrix.at_empty_cell = v.unwrap_or_default();
+    Ok(())
+});
+keyfn!(k_start_chain, |e, v| {
+    let s = text(e, &v)?;
+    e.start_chain(&s);
+    Ok(())
+});
+keyfn!(k_continue_chain, |e, v| {
+    let s = text(e, &v)?;
+    e.continue_chain(&s);
+    Ok(())
+});
+keyfn!(k_chain_default_direction, |e, v| {
+    let s = text(e, &v)?;
+    e.chain_default_direction(&s);
+    Ok(())
+});
+keyfn!(k_on_chain, |e, v| {
+    let s = text(e, &v)?;
+    e.on_chain(&s)
+});
+keyfn!(k_join, |e, v| {
+    let s = text(e, &v)?;
+    e.join(&s);
+    Ok(())
+});
+keyfn!(k_after_node_path, |e, v| {
+    e.st.after_node_path.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_alias, |e, v| {
+    let s = text(e, &v)?;
+    e.st.aliases.push(s);
+    Ok(())
+});
 keyfn!(k_to_path, |e, v| {
     e.st.to.path = v;
     Ok(())
@@ -1331,26 +1384,38 @@ keyfn!(k_mark, |e, v| {
     e.st.plot_mark = if s == "none" || s.is_empty() { None } else { Some(s) };
     Ok(())
 });
-keyfn!(k_only_marks, |e, _v| {
-    e.st.only_marks = true;
+keyfn!(k_mark_size, |e, v| {
+    if let Some(d) = length(e, &v)? {
+        e.st.mark_size = d;
+    }
     Ok(())
 });
-
-keyfn!(k_decorate, |e, _v| {
-    e.st.decorate = true;
+keyfn!(k_mark_repeat, |e, v| {
+    e.st.mark_repeat = number(e, &v)?.unwrap_or(1.0).max(1.0) as usize;
     Ok(())
 });
-keyfn!(k_decoration, |e, v| {
-    // decoration={zigzag, amplitude=2pt, segment length=5pt} or decoration=zigzag
-    let Some(v) = v else { return Ok(()) };
-    for item in keys::split_list(&v) {
-        match (item.key.as_str(), item.value) {
-            ("amplitude", Some(x)) => e.st.amplitude = e.length_of(x)?,
-            ("segment length", Some(x)) => e.st.segment_length = e.length_of(x)?,
-            (name, None) => e.st.decoration = name.to_string(),
-            (other, Some(_)) => e.warn(format!("decoration option '{other}' not supported: ignored")),
+keyfn!(k_mark_phase, |e, v| {
+    e.st.mark_phase = number(e, &v)?.unwrap_or(1.0).max(0.0) as usize;
+    Ok(())
+});
+keyfn!(k_mark_indices, |e, v| {
+    let list = e.tex.expand_fully(v.unwrap_or_default())?;
+    let mut out = Vec::new();
+    for item in super::foreach_items(&list) {
+        if let Ok(n) = e.tex.expand_to_string(item)?.trim().parse::<f64>() {
+            out.push(n as usize);
         }
     }
+    e.st.mark_indices = if out.is_empty() { None } else { Some(out) };
+    Ok(())
+});
+keyfn!(k_mark_color, |e, v| {
+    let s = text(e, &v)?;
+    e.st.mark_color = if s.is_empty() { None } else { Some(s) };
+    Ok(())
+});
+keyfn!(k_only_marks, |e, _v| {
+    e.st.only_marks = true;
     Ok(())
 });
 
@@ -1494,15 +1559,11 @@ keyfn!(k_edge_from_parent_path, |e, v| {
 });
 
 keyfn!(k_column_sep, |e, v| {
-    let s = text(e, &v)?;
-    let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
-    e.st.matrix.column_sep = e.length(&first)?;
+    e.st.matrix.column_sep = e.tex.expand_fully(v.unwrap_or_default())?;
     Ok(())
 });
 keyfn!(k_row_sep, |e, v| {
-    let s = text(e, &v)?;
-    let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
-    e.st.matrix.row_sep = e.length(&first)?;
+    e.st.matrix.row_sep = e.tex.expand_fully(v.unwrap_or_default())?;
     Ok(())
 });
 keyfn!(k_matrix_of_nodes, |e, _v| {
@@ -1714,6 +1775,17 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/out control", k_out_control),
     ("/tikz/controls", k_controls),
     ("/tikz/to path", k_to_path),
+    ("/tikz/start chain", k_start_chain),
+    ("/tikz/continue chain", k_continue_chain),
+    ("/tikz/chain default direction", k_chain_default_direction),
+    ("/tikz/on chain", k_on_chain),
+    ("/tikz/join", k_join),
+    ("/tikz/after node path", k_after_node_path),
+    ("/tikz/alias", k_alias),
+    ("/tikz/execute at begin cell", k_at_begin_cell),
+    ("/tikz/ampersand replacement", k_ampersand_replacement),
+    ("/tikz/execute at end cell", k_at_end_cell),
+    ("/tikz/execute at empty cell", k_at_empty_cell),
     ("/tikz/line to", k_line_to),
     ("/tikz/curve to", k_curve_to),
     ("/tikz/loop", k_loop),
@@ -1728,8 +1800,11 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/tension", k_tension),
     ("/tikz/mark", k_mark),
     ("/tikz/only marks", k_only_marks),
-    ("/tikz/decorate", k_decorate),
-    ("/tikz/decoration", k_decoration),
+    ("/tikz/mark size", k_mark_size),
+    ("/tikz/mark repeat", k_mark_repeat),
+    ("/tikz/mark phase", k_mark_phase),
+    ("/tikz/mark indices", k_mark_indices),
+    ("/pgf/mark color", k_mark_color),
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_ignore),
@@ -1782,7 +1857,8 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, every curve to/.style={},
+  every edge/.style={draw}, every to/.style={}, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},
   loop below/.style={below,out=285,in=255,loop}, move to/.style={to path={(\tikztotarget) \tikztonodes}}, every circle node/.style={}, every rectangle node/.style={},
@@ -1841,6 +1917,10 @@ const DEFINITIONS: &str = r"
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
+\def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
+\def\pgfmatrixnextcell{\tikra@nextcell}
+\def\pgfmatrixendrow{\tikra@endrow}
 \tikzset{
   on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try}},
     execute at end scope={\endpgfonlayer}},
@@ -1869,15 +1949,23 @@ const DEFINITIONS: &str = r"
 pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
-    for (path, f) in NATIVE {
+    super::decorations::define(e);
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
     }
     e.st.key_path = "/tikz".into();
+    for (path, value) in super::shapes::INITIAL {
+        e.tex.set_meaning(&Token::cs(&macro_name(path)), macro_from(value), false);
+    }
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
     lexer.push_text(DEFINITIONS);
+    lexer.push_text(super::decorations::DEFINITIONS);
+    lexer.push_text(super::decorations::DECLARATIONS);
+    lexer.push_text(super::decorations::textfx::DEFINITIONS);
+    lexer.push_text(super::shapes::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

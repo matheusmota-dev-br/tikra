@@ -574,7 +574,7 @@ impl Engine {
                 let body = r.group();
                 self.group_element(body)?;
                 if let Some((k, o)) = join.clone() {
-                    self.join(&k, o)?;
+                    self.graph_join(&k, o)?;
                 }
                 r.skip_spaces();
                 match r.next() {
@@ -599,7 +599,7 @@ impl Engine {
                 };
                 self.node_element(text)?;
                 if let Some((k, o)) = join.clone() {
-                    self.join(&k, o)?;
+                    self.graph_join(&k, o)?;
                 }
                 if !dash {
                     return Ok(());
@@ -685,7 +685,7 @@ impl Engine {
 
     /// The join of two elements (`\tikz@lib@graph@joiner`): the nodes on the left are `target'`, the
     /// new ones `source'`; the operator of the options (or `default edge operator`) joins them.
-    fn join(&mut self, kind: &str, options: Vec<Token>) -> Result<(), Error> {
+    fn graph_join(&mut self, kind: &str, options: Vec<Token>) -> Result<(), Error> {
         self.invoke_operator("recolor source by=source',recolor source'' by=source")?;
         self.begin_group();
         self.set_gvalue("default edge kind", tex::string_tokens(kind));

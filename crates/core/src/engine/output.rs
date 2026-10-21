@@ -1,4 +1,4 @@
-//! What happens to a path once built (`\pgfusepath`): decoration, rounded corners, shortening,
+//! What happens to a path once built (`\pgfusepath`): rounded corners, shortening,
 //! clipping, filling and stroking, arrow tips, `double`, and the picture's bounding box.
 
 use crate::canvas::{Fill, Item, Paint, Stroke};
@@ -6,11 +6,17 @@ use crate::scene::{Point, Segment};
 use crate::Error;
 
 use super::arrows::{Curvilinear, EndTips, TipsMode, Widths};
-use super::path::{valid_segment, MAX_COORDINATE, MAX_DECORATION_STEPS};
+use super::path::{valid_segment, MAX_COORDINATE};
 use super::Engine;
 use crate::PT;
 
 impl Engine {
+    /// Whether what is drawn now makes the picture larger: not after `use as bounding box`, nor
+    /// after a clip in the scope.
+    pub fn counts_for_size(&self) -> bool {
+        !self.canvas_frozen && !self.scopes.iter().any(|s| s.clipped)
+    }
+
     /// Uses the path as the state says: clip, fill, draw, arrows.
     pub fn use_path(&mut self, segments: Vec<Segment>, command: &str) -> Result<(), Error> {
         if !segments.iter().all(valid_segment) {
@@ -18,14 +24,6 @@ impl Engine {
             return Ok(());
         }
         let mut segs = segments;
-        if self.st.decorate && !self.st.decoration.is_empty() {
-            let kind = self.st.decoration.clone();
-            let mut warnings = Vec::new();
-            segs = decorate(&segs, &kind, self.st.amplitude, self.st.segment_length, |w| warnings.push(w));
-            for w in warnings {
-                self.warn(w);
-            }
-        }
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);
         }
@@ -34,7 +32,7 @@ impl Engine {
         if mode.bounding_box {
             self.canvas.include_path(&segs);
             self.canvas_frozen = true;
-        } else if !self.canvas_frozen {
+        } else if self.counts_for_size() {
             self.canvas.include_path(&segs);
             // a stroked path adds half its line width around its own box (\pgfusepath)
             if mode.draw {
@@ -104,6 +102,11 @@ impl Engine {
         }
         if mode.clip {
             self.open_in_scope(Item::Clip { segments: segs, even_odd: self.st.even_odd });
+            // what the scope draws after a clip does not make the picture larger (pgf's
+            // \pgf@relevantforpicturesizefalse)
+            if let Some(s) = self.scopes.last_mut() {
+                s.clipped = true;
+            }
         }
         Ok(())
     }
@@ -290,7 +293,7 @@ impl Engine {
     }
 
     fn push_tips(&mut self, tips: Tips) {
-        if !self.canvas_frozen {
+        if self.counts_for_size() {
             for p in tips.hull {
                 self.canvas.include(p);
             }
@@ -392,80 +395,8 @@ fn proper(segs: &[Segment]) -> bool {
     points.iter().any(|p| Some(p) != points.first())
 }
 
-/// Zigzag, snake (wave) or random steps over the straight segments.
-fn decorate(segs: &[Segment], kind: &str, amp: f64, len_step: f64, mut warn: impl FnMut(String)) -> Vec<Segment> {
-    if !matches!(kind, "zigzag" | "snake" | "random steps" | "saw" | "coil" | "bumps") {
-        warn(format!("decoration '{kind}' not supported: path drawn undecorated"));
-        return segs.to_vec();
-    }
-    let mut out = Vec::new();
-    let mut current = Point::default();
-    for s in segs {
-        match s {
-            Segment::LineTo(b) => {
-                let a = current;
-                let d = b.minus(a);
-                let len = d.norm();
-                if len < 1e-9 {
-                    out.push(*s);
-                    continue;
-                }
-                let u = d.scale(1.0 / len);
-                let nrm = Point::new(-u.y, u.x);
-                let n = if len_step > 0.0 { ((len / len_step).round() as usize).clamp(1, MAX_DECORATION_STEPS) } else { 1 };
-                if kind == "random steps" {
-                    // deterministic pseudo-random steps: the same input gives the same drawing
-                    let mut seed: u32 = 0x9E37_79B9 ^ (out.len() as u32).wrapping_mul(2_654_435_761);
-                    let mut random = || {
-                        seed ^= seed << 13;
-                        seed ^= seed >> 17;
-                        seed ^= seed << 5;
-                        (seed as f64 / u32::MAX as f64) * 2.0 - 1.0
-                    };
-                    for k in 1..=n {
-                        let base = a.plus(d.scale(k as f64 / n as f64));
-                        let p = if k == n { base } else { base.plus(Point::new(random() * amp, random() * amp)) };
-                        out.push(Segment::LineTo(p));
-                    }
-                    current = *b;
-                    continue;
-                }
-                let steps = n * if kind == "zigzag" || kind == "saw" { 2 } else { 8 };
-                for k in 1..=steps {
-                    let f = k as f64 / steps as f64;
-                    let base = a.plus(d.scale(f));
-                    let offset = match kind {
-                        "zigzag" | "saw" => {
-                            if k == steps {
-                                0.0
-                            } else if k % 2 == 1 {
-                                amp
-                            } else {
-                                -amp
-                            }
-                        }
-                        _ => amp * (f * n as f64 * std::f64::consts::TAU).sin(),
-                    };
-                    out.push(Segment::LineTo(base.plus(nrm.scale(offset))));
-                }
-                current = *b;
-            }
-            Segment::MoveTo(p) => {
-                current = *p;
-                out.push(*s);
-            }
-            Segment::CurveTo(_, _, p) => {
-                current = *p;
-                out.push(*s);
-            }
-            Segment::Close => out.push(*s),
-        }
-    }
-    out
-}
-
 /// Rounded corners between straight segments.
-fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
+pub fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
     let mut points: Vec<Vec<Point>> = Vec::new();
     let mut closed: Vec<bool> = Vec::new();
     for s in segs {

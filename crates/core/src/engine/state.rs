@@ -126,10 +126,18 @@ pub struct GState {
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
+    /// `mark size` (the radius), `mark repeat`, `mark phase`, `mark indices`, `mark color`
+    pub mark_size: f64,
+    pub mark_repeat: usize,
+    pub mark_phase: usize,
+    pub mark_indices: Option<Vec<usize>>,
+    pub mark_color: Option<String>,
+    /// `decorate`: the path is decorated when used (reset by each path)
     pub decorate: bool,
-    pub decoration: String,
-    pub amplitude: f64,
-    pub segment_length: f64,
+    pub decoration: super::decorations::Settings,
+    /// `preaction=` and `postaction=` options, in order (reset by each path)
+    pub preactions: Rc<Vec<Vec<crate::tex::Token>>>,
+    pub postactions: Rc<Vec<Vec<crate::tex::Token>>>,
     /// `declare function`
     pub functions: Rc<HashMap<String, (Vec<String>, String)>>,
     /// settings of the node being created
@@ -182,6 +190,15 @@ pub struct GState {
     pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
+    /// the chains library: the current chain, the direction of new ones, the node's chain
+    pub current_chain: String,
+    pub chain_direction: super::chains::Direction,
+    pub on_chain: Option<super::chains::OnChain>,
+    pub pending_joins: Vec<(Option<String>, String)>,
+    /// `after node path={…}`: path operations after the node
+    pub after_node_path: Vec<crate::tex::Token>,
+    /// `alias=name`: more names for the node
+    pub aliases: Vec<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
 }
@@ -231,10 +248,15 @@ impl Default for GState {
             tension: 0.55,
             plot_mark: None,
             only_marks: false,
+            mark_size: 2.0 * PT,
+            mark_repeat: 1,
+            mark_phase: 1,
+            mark_indices: None,
+            mark_color: None,
             decorate: false,
-            decoration: String::new(),
-            amplitude: 2.5 * PT,
-            segment_length: 10.0 * PT,
+            decoration: Default::default(),
+            preactions: Rc::default(),
+            postactions: Rc::default(),
             functions: Rc::new(HashMap::new()),
             node: Default::default(),
             baseline: None,
@@ -242,6 +264,12 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            current_chain: "chain".into(),
+            chain_direction: super::chains::Direction::Going("right".into()),
+            on_chain: None,
+            pending_joins: Vec::new(),
+            after_node_path: Vec::new(),
+            aliases: Vec::new(),
             matrix: Default::default(),
             path_fading: None,
             transparency_group: false,

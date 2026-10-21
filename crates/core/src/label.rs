@@ -11,7 +11,9 @@ const EM_CM: f64 = 10.0 * 2.54 / 72.27;
 
 /// Size factor of the LaTeX font commands (10pt = 1).
 pub fn font_size(text: &str) -> f64 {
+    // the last size command in the text is the one in effect
     let mut f = 1.0;
+    let mut at = None;
     for (cmd, factor) in [
         ("\\tiny", 0.5),
         ("\\scriptsize", 0.7),
@@ -25,13 +27,15 @@ pub fn font_size(text: &str) -> f64 {
         ("\\Huge", 2.488),
     ] {
         // \Large contains \large: look for the command followed by something that is not a letter
-        let mut rest = text;
-        while let Some(i) = rest.find(cmd) {
-            let after = &rest[i + cmd.len()..];
-            if !after.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        let mut from = 0;
+        while let Some(i) = text[from..].find(cmd) {
+            let i = from + i;
+            let after = &text[i + cmd.len()..];
+            if !after.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && at.is_none_or(|a| i > a) {
                 f = factor;
+                at = Some(i);
             }
-            rest = after;
+            from = i + cmd.len();
         }
     }
     f
@@ -81,6 +85,56 @@ fn clean(text: &str) -> String {
         out.push(c[i]);
         i += 1;
     }
+    out
+}
+
+/// A TeX dimension at the start of `s` (`2cm`, `1 pt`, `.5ex`): its value in points and the rest.
+fn dimension(s: &str, size: f64) -> Option<(f64, &str)> {
+    let s = s.trim_start();
+    let end = s.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).unwrap_or(s.len());
+    let v: f64 = s[..end].parse().ok()?;
+    let rest = s[end..].trim_start();
+    for (unit, pt) in [("pt", 1.0), ("cm", 72.27 / 2.54), ("mm", 72.27 / 25.4), ("in", 72.27), ("bp", 72.27 / 72.0), ("em", 10.0 * size), ("ex", 4.3 * size)] {
+        if let Some(r) = rest.strip_prefix(unit) {
+            return Some((v * pt, r));
+        }
+    }
+    None
+}
+
+/// `\vrule width 1pt height 2cm depth 0pt` as mathra's `$\rule[raise]{width}{height}$`, in ems of
+/// the label's font (so that the label's scaling gives the rule its size in points).
+fn rules(text: &str, size: f64) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("\\vrule") {
+        let after = &rest[i + 6..];
+        if after.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+            out.push_str(&rest[..i + 6]);
+            rest = after;
+            continue;
+        }
+        out.push_str(&rest[..i]);
+        let (mut w, mut h, mut d) = (0.4, None, None);
+        let mut r = after;
+        loop {
+            let t = r.trim_start();
+            let Some((key, more)) = ["width", "height", "depth"].iter().find_map(|k| t.strip_prefix(k).map(|m| (*k, m))) else { break };
+            let Some((v, more)) = dimension(more, size) else { break };
+            match key {
+                "width" => w = v,
+                "height" => h = Some(v),
+                _ => d = Some(v),
+            }
+            r = more;
+        }
+        let em = 10.0 * size;
+        // TeX's running dimensions stand in as a strut
+        let (h, d) = (h.unwrap_or(0.7 * em), d.unwrap_or(0.3 * em));
+        out.push_str(&format!("$\\rule[{:.4}em]{{{:.4}em}}{{{:.4}em}}$", -d / em, w / em, (h + d) / em));
+        rest = r;
+    }
+    out.push_str(rest);
     out
 }
 
@@ -164,7 +218,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf");
     let scale = EM_CM * size / 1000.0;
-    let text = clean(text);
+    let text = rules(&clean(text), size);
     let space = 333.0f32;
     let mut boxes = Vec::new();
     for line in manual_lines(&text) {
@@ -198,6 +252,16 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rules_and_the_last_size() {
+        let mut w = Vec::new();
+        let r = compose_label("A\\vrule width 1pt height 2cm", "\\Huge", None, 'c', Color::BLACK, &mut w);
+        assert!(w.is_empty(), "{w:?}");
+        // 2cm high whatever the size
+        assert!((r.height() - 2.0).abs() < 0.02, "{}", r.height());
+        assert!((font_size("\\Huge \\scriptsize x") - 0.7).abs() < 1e-9);
+    }
 
     #[test]
     fn wrapping_and_size() {

@@ -4,15 +4,19 @@
 
 pub mod arrows;
 pub mod basic;
+pub mod chains;
 pub mod coords;
+pub mod decorations;
 pub mod graphs;
 pub mod intersections;
+pub mod marks;
 pub mod matrix;
 pub mod nodes;
 pub mod options;
 pub mod output;
 pub mod path;
 pub mod pics;
+pub mod shapes;
 pub mod state;
 pub mod trees;
 
@@ -43,6 +47,8 @@ pub enum Cmd {
     Coordinate,
     Useasboundingbox,
     Matrix,
+    PgfMatrix,
+    Chainin,
     Pic,
     Graph,
     Tikz,
@@ -85,9 +91,21 @@ pub enum Cmd {
     Tikzfading,
     SetLayers,
     Frame,
+    /// `\arrow` and `\arrowreversed` of markings
+    Arrow,
+    ArrowReversed,
+    /// the basic layer's decorations: `\pgfdecoration` … `\endpgfdecoration`, `\pgfdecoratecurrentpath`
+    DecorationBegin,
+    DecorationEnd,
+    DecorateCurrentPath,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
+    ("tikra@arrow", Cmd::Arrow),
+    ("tikra@arrowreversed", Cmd::ArrowReversed),
+    ("tikra@decoration", Cmd::DecorationBegin),
+    ("tikra@enddecoration", Cmd::DecorationEnd),
+    ("tikra@decoratecurrentpath", Cmd::DecorateCurrentPath),
     ("path", Cmd::Path),
     ("draw", Cmd::Draw),
     ("fill", Cmd::Fill),
@@ -100,6 +118,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("coordinate", Cmd::Coordinate),
     ("useasboundingbox", Cmd::Useasboundingbox),
     ("matrix", Cmd::Matrix),
+    ("pgfmatrix", Cmd::PgfMatrix),
+    ("chainin", Cmd::Chainin),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -204,6 +224,8 @@ fn path_command(cmd: Cmd) -> Option<&'static str> {
 #[derive(Debug, Clone, Default)]
 struct PgfScope {
     ends: usize,
+    /// a path clipped it: what it draws after does not make the picture larger
+    pub clipped: bool,
 }
 
 /// Cap on statements per figure: nested loops do not hang the caller.
@@ -236,6 +258,8 @@ pub struct Engine {
     pub pgf_path: basic::PgfPath,
     /// `execute at end scope` code of the open scopes, innermost last
     scope_ends: Vec<Vec<Token>>,
+    /// for each `{` in a picture: whether it opened a scope (`{[options] …}`, the scopes library)
+    brace_scopes: Vec<bool>,
     /// layers: their order, the items of each but main, and what `\pgfonlayer` set aside
     layer_order: Vec<String>,
     layers: HashMap<String, Vec<Item>>,
@@ -244,6 +268,10 @@ pub struct Engine {
     pub last_node: Option<nodes::NodeInfo>,
     pub last_node_name: Option<String>,
     tree_count: usize,
+    /// the chains of the chains library (global, as TikZ keeps their counts)
+    pub chain_list: std::collections::HashMap<String, chains::Chain>,
+    /// path operations to run after the node just made (`after node path`, joins)
+    pub after_node_path: Vec<Token>,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -252,6 +280,8 @@ pub struct Engine {
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
     pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
+    /// open `\pgfdecoration`s
+    pub decoration_envs: Vec<decorations::Env>,
     /// paths kept by `name path`
     pub named_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// pictures already drawn, and how the document lays them out
@@ -311,15 +341,19 @@ impl Clone for Engine {
             nesting: self.nesting,
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
+            decoration_envs: self.decoration_envs.clone(),
             named_paths: self.named_paths.clone(),
             last_node: self.last_node.clone(),
             last_node_name: self.last_node_name.clone(),
             tree_count: self.tree_count,
+            chain_list: self.chain_list.clone(),
+            after_node_path: Vec::new(),
             tree_edge_out: self.tree_edge_out.clone(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
             fadings: self.fadings.clone(),
             scope_ends: self.scope_ends.clone(),
+            brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
             layers: self.layers.clone(),
             on_layer: self.on_layer.clone(),
@@ -361,15 +395,19 @@ impl Engine {
             nesting: 0,
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
+            decoration_envs: Vec::new(),
             named_paths: HashMap::new(),
             last_node: None,
             last_node_name: None,
             tree_count: 0,
+            chain_list: Default::default(),
+            after_node_path: Vec::new(),
             tree_edge_out: None,
             tree_child_names: Vec::new(),
             forced_box: None,
             fadings: HashMap::new(),
             scope_ends: Vec::new(),
+            brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
             layers: HashMap::new(),
             on_layer: Vec::new(),
@@ -435,6 +473,32 @@ impl Engine {
     pub fn execute(&mut self, t: Token) -> Result<(), Error> {
         let m = self.tex.meaning(&t);
         match m {
+            Meaning::Char(_, Cat::Begin) if self.picture_depth > 0 => {
+                // the scopes library: `{[options] …}` is a scope
+                match self.tex.next_nonspace() {
+                    Some(n) if n.is_char('[') => {
+                        let o = self.tex.read_until_char(']', false)?;
+                        self.brace_scopes.push(true);
+                        let r = self.open_tikz_scope(Some(o), false);
+                        self.recover(r, &t)?;
+                    }
+                    other => {
+                        if let Some(n) = other {
+                            self.tex.back(n);
+                        }
+                        self.brace_scopes.push(false);
+                        self.begin_group();
+                    }
+                }
+            }
+            Meaning::Char(_, Cat::End) if self.picture_depth > 0 => {
+                if self.brace_scopes.pop() == Some(true) {
+                    let r = self.close_tikz_scope();
+                    self.recover(r, &t)?;
+                } else {
+                    self.end_group();
+                }
+            }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
@@ -677,6 +741,8 @@ impl Engine {
                 Ok(())
             }
             Cmd::Matrix => self.matrix(),
+            Cmd::PgfMatrix => self.pgf_matrix(),
+            Cmd::Chainin => self.chainin(),
             Cmd::Graph => {
                 self.tex.push_tokens(tikra_tokens("graph "));
                 let r = path::statement(self, "");
@@ -689,6 +755,11 @@ impl Engine {
                 Ok(())
             }
             Cmd::Tikz => self.tikz_command(),
+            Cmd::Arrow => self.arrow_command(false),
+            Cmd::ArrowReversed => self.arrow_command(true),
+            Cmd::DecorationBegin => self.decoration_begin(),
+            Cmd::DecorationEnd => self.decoration_end(),
+            Cmd::DecorateCurrentPath => self.decorate_current_path(),
             Cmd::Begin => self.begin_environment(),
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {
