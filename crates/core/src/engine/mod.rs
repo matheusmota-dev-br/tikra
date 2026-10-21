@@ -353,6 +353,8 @@ pub struct Engine {
     /// the `axis` environment being read, and the one being drawn
     pub axis: Option<Box<pgfplots::Axis>>,
     pub frame: Option<std::rc::Rc<pgfplots::Frame>>,
+    /// the `groupplot` environment being read
+    pub plot_group: Option<Box<pgfplots::group::Group>>,
     /// the graphs being read (`\graph`)
     pub graphs: graphs::State,
     /// the open spy scopes, innermost last
@@ -438,6 +440,7 @@ impl Clone for Engine {
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
+            plot_group: self.plot_group.clone(),
             graphs: self.graphs.clone(),
             spy_scopes: self.spy_scopes.clone(),
         }
@@ -504,6 +507,7 @@ impl Engine {
             current_key: String::new(),
             axis: None,
             frame: None,
+            plot_group: None,
             graphs: graphs::State::default(),
             spy_scopes: Vec::new(),
         };
@@ -777,10 +781,6 @@ impl Engine {
                         s.push('*');
                     }
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
-                    // `.5\tikzleveldistance`: a factor before a register multiplies it, as TeX reads it
-                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
-                        s.push('*');
-                    }
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
                 }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),
@@ -825,6 +825,12 @@ impl Engine {
     }
 
     pub fn color(&self, text: &str) -> Option<Color> {
+        // `.` is xcolor's current color (`draw=.!60!black`)
+        if text.split('!').any(|p| p.trim() == ".") {
+            let mut colors = self.colors.clone();
+            colors.insert(".".into(), self.st.color);
+            return color::parse(text.trim(), &colors);
+        }
         color::parse(text.trim(), &self.colors)
     }
 
@@ -1629,6 +1635,7 @@ impl Engine {
                 self.open_tikz_scope(o, true)
             }
             n if pgfplots::is_axis(n) => self.begin_axis(n),
+            "groupplot" => self.begin_groupplot(),
             "pgfonlayer" => {
                 let layer = self.argument_string()?;
                 self.begin_on_layer(layer);
@@ -1682,6 +1689,7 @@ impl Engine {
         match name {
             "tikzpicture" | "pgfpicture" => self.end_picture(),
             n if pgfplots::is_axis(n) => self.end_axis()?,
+            "groupplot" => self.end_groupplot()?,
             "pgfscope" => {
                 self.end_scope();
                 self.end_group();

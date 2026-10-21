@@ -21,6 +21,9 @@ pub struct Coord {
     pub err: [f64; 4],
     /// The point meta as written (`[label]`, a table cell): an index into the plot's labels.
     pub label: u32,
+    /// The sampling variable's value (expressions), and `quiver`'s (u, v, w).
+    pub param: [f64; 2],
+    pub uvw: [f64; 3],
 }
 
 /// No label.
@@ -41,7 +44,7 @@ fn add_label(tokens: Vec<Token>) -> u32 {
 
 impl Coord {
     pub fn new(x: f64, y: f64, z: f64) -> Coord {
-        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL }
+        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3] }
     }
 }
 
@@ -78,6 +81,12 @@ pub struct Plot {
     pub scanlines: Vec<usize>,
     /// The point metas as written, for `point meta=explicit symbolic` (see `Coord::label`).
     pub labels: Vec<Vec<Token>>,
+    /// `mesh input=image` (`matrix plot`): the points are the centers of the cells.
+    pub image: bool,
+    /// `late options`: axis options the plot asks for (`matrix plot`: `y dir=reverse`).
+    pub late: Vec<Token>,
+    /// `boxplot`, `boxplot prepared`: the box's numbers (the points are the outliers).
+    pub boxplot: Option<Box<super::boxplot::BoxStats>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -184,13 +193,48 @@ pub fn cycle_entry(e: &mut Engine, k: usize) -> Result<Vec<Token>, Error> {
         e.warn(format!("cycle list '{name}' not defined"));
         return Ok(Vec::new());
     };
+    let k = (k as i64 + shift).max(0) as usize;
+    // `cycle multi list={a\nextlist b}`: one entry of each, the last list fastest
+    if list.iter().any(|t| t.is_cs("nextlist")) {
+        let lists: Vec<Vec<Vec<Token>>> = list.split(|t| t.is_cs("nextlist")).map(|part| multi_part(e, part)).filter(|l| !l.is_empty()).collect();
+        let mut out = Vec::new();
+        let mut rest = k;
+        let mut chosen = Vec::new();
+        for l in lists.iter().rev() {
+            chosen.push(l[rest % l.len()].clone());
+            rest /= l.len();
+        }
+        for entry in chosen.into_iter().rev() {
+            if !out.is_empty() {
+                out.push(Token::other(','));
+            }
+            out.extend(entry);
+        }
+        return Ok(out);
+    }
     let entries = split_cycle_list(&list);
     if entries.is_empty() {
         return Ok(Vec::new());
     }
-    let n = entries.len() as i64;
-    let i = ((k as i64 + shift) % n + n) % n;
-    Ok(entries[i as usize].clone())
+    Ok(entries[k % entries.len()].clone())
+}
+
+/// A list of `cycle multi list`: a cycle list's name (`[2 of]mark list`: its first two entries)
+/// or the entries themselves.
+fn multi_part(e: &mut Engine, part: &[Token]) -> Vec<Vec<Token>> {
+    let text = tex::tokens_to_string(crate::keys::trim(part)).trim().to_string();
+    let (limit, name) = match text.strip_prefix('[').and_then(|r| r.split_once(" of]")) {
+        Some((n, rest)) => (n.trim().parse::<usize>().ok(), rest.trim().to_string()),
+        None => (None, text.clone()),
+    };
+    if let Some(list) = crate::keys::value(&e.tex, &format!("/pgfplots/@cycle lists/{name}")) {
+        let mut entries = split_cycle_list(&list);
+        if let Some(n) = limit {
+            entries.truncate(n.max(1));
+        }
+        return entries;
+    }
+    split_cycle_list(part)
 }
 
 /// A cycle list: entries separated by `\\`, or by commas when there is no `\\`.
@@ -239,6 +283,8 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         _ => None,
     };
     plot.patch = keys::flag(e, "/pgfplots/@patch");
+    plot.image = plot.mesh.is_some() && keys::value(e, "/pgfplots/mesh input") == "image";
+    plot.late = keys::value_tokens(e, "/pgfplots/late options").unwrap_or_default();
     plot.scatter = keys::flag(e, "/pgfplots/scatter");
     plot.handler = keys::value(e, "/tikz/@plot handler");
     plot.stack = match keys::value(e, "/pgfplots/stack plots").as_str() {
@@ -272,7 +318,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
                         Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
                         _ => return Err(Error::Figure("coordinates without a list".into())),
                     };
-                    plot.coords = coordinates(e, list)?;
+                    (plot.coords, plot.scanlines) = coordinates(e, list)?;
                 }
                 "table" => {
                     (plot.coords, plot.scanlines) = read_table(e, three_d)?;
@@ -340,6 +386,18 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         if plot.post.len() > tex::MAX_TOKENS {
             break;
         }
+    }
+    data_cs(e, plot);
+    if keys::flag(e, "/pgfplots/@quiver") {
+        quiver_vectors(e, plot);
+    }
+    if keys::flag(e, "/pgfplots/@hist") {
+        histogram(e, plot)?;
+    }
+    match keys::value(e, "/pgfplots/@boxplot").as_str() {
+        "raw" => super::boxplot::survey(e, plot, false),
+        "prepared" => super::boxplot::survey(e, plot, true),
+        _ => {}
     }
     point_meta(e, plot)?;
     lattice_from_scanlines(e, plot);
@@ -440,7 +498,9 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
                 for &x in &xs {
                     vars.insert(var.clone(), x);
                     vars.insert(var_y.clone(), y);
-                    out.push(Coord::new(eval(&texts[0], &vars), eval(&texts[1], &vars), eval(&texts[2], &vars)));
+                    let mut c = Coord::new(eval(&texts[0], &vars), eval(&texts[1], &vars), eval(&texts[2], &vars));
+                    c.param = [x, y];
+                    out.push(c);
                 }
             }
             plot.lattice = Some((ys.len(), xs.len()));
@@ -451,7 +511,9 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
             let cx = eval(&texts[0], &vars);
             let cy = texts.get(1).map_or(f64::NAN, |t| eval(t, &vars));
             let cz = texts.get(2).map_or(0.0, |t| eval(t, &vars));
-            out.push(Coord::new(cx, cy, cz));
+            let mut c = Coord::new(cx, cy, cz);
+            c.param = [x, f64::NAN];
+            out.push(c);
         }
     }
     Ok(out)
@@ -468,9 +530,11 @@ fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
 }
 
 /// `coordinates {(x,y) (x,y) +- (ex,ey) [meta] …}`.
-fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
+/// The points of `coordinates {…}`, and where its scanlines (ended by empty lines) end.
+fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usize>), Error> {
     let list = e.tex.expand_fully(list)?;
     let mut out = Vec::new();
+    let mut scanlines: Vec<usize> = Vec::new();
     let mut i = 0;
     let read_paren = |i: &mut usize| -> Option<Vec<Token>> {
         let mut depth = 0i32;
@@ -494,6 +558,13 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
     };
     while i < list.len() {
         let t = &list[i];
+        if t.is_cs("par") {
+            if !out.is_empty() && scanlines.last() != Some(&out.len()) {
+                scanlines.push(out.len());
+            }
+            i += 1;
+            continue;
+        }
         if t.is_char('(') {
             let Some(inside) = read_paren(&mut i) else { break };
             let parts = split_commas(&inside);
@@ -558,7 +629,7 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<Vec<Coord>, Error> {
         }
         i += 1;
     }
-    Ok(out)
+    Ok((out, scanlines))
 }
 
 fn search_path(e: &mut Engine) -> Vec<String> {
@@ -655,7 +726,11 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sx = pick(e, "x", Some(0));
     let sy = pick(e, "y", Some(1));
     let sz = pick(e, "z", if three_d { Some(2) } else { None });
+    let symbolic = symbolic_meta(e);
+    let quiver = keys::flag(e, "/pgfplots/@quiver");
+    let t_table = t;
     let smeta = match crate::keys::value(&e.tex, "/pgfplots/point meta") {
+        _ if symbolic.is_some() => Src::None,
         Some(v) if tex::tokens_to_string(&v).contains("\\thisrow") => Src::Expr(v),
         _ => pick(e, "meta", None),
     };
@@ -684,6 +759,24 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             if let Some(cell) = t.cell(r, *col) {
                 c.label = add_label(tex::string_tokens(cell));
             }
+        }
+        if quiver {
+            for (k, name) in ["u", "v", "w"].iter().enumerate() {
+                if let Some(t) = keys::value_tokens(e, &format!("/pgfplots/quiver/{name}")) {
+                    let replaced = replace_thisrow(&t, t_table, r);
+                    let mut vars = e.vars();
+                    vars.insert("x".into(), x);
+                    vars.insert("y".into(), y);
+                    vars.insert("z".into(), z);
+                    c.uvw[k] = e.math_string(replaced).and_then(|s| crate::expr::eval(&s, &vars)).unwrap_or(f64::NAN);
+                }
+            }
+        }
+        if let Some((tokens, mathparse)) = &symbolic {
+            let replaced = replace_thisrow(tokens, t, r);
+            let text = e.tex.expand_to_string(replaced).unwrap_or_default();
+            let l = symbolic_label(e, &text, *mathparse, [x, y, z]);
+            c.label = add_label(tex::string_tokens(&l));
         }
         let ey = get(e, &sey);
         let ex = get(e, &sex);
@@ -782,8 +875,176 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     Ok(())
 }
 
+/// `quiver`: each point's (u, v, w), from `quiver/u` and its friends (expressions of x, y, z and
+/// the sampling variable), times `scale arrows`.
+fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
+    let var = e.st.variable.clone();
+    let var_y = keys::value(e, "/pgfplots/variable y").trim_start_matches('\\').to_string();
+    let texts: Vec<Option<String>> = ["u", "v", "w"].iter().map(|n| keys::value_tokens(e, &format!("/pgfplots/quiver/{n}")).and_then(|t| e.math_string(t).ok())).collect();
+    let scale = keys::number(e, "/pgfplots/quiver/scale arrows").unwrap_or(1.0);
+    let mut vars = e.vars();
+    for c in plot.coords.iter_mut() {
+        vars.insert("x".into(), c.x);
+        vars.insert("y".into(), c.y);
+        vars.insert("z".into(), c.z);
+        if c.param[0].is_finite() {
+            vars.insert(var.clone(), c.param[0]);
+        }
+        if c.param[1].is_finite() && !var_y.is_empty() {
+            vars.insert(var_y.clone(), c.param[1]);
+        }
+        for (u, text) in c.uvw.iter_mut().zip(&texts) {
+            if !u.is_finite() {
+                *u = match text {
+                    Some(t) if !t.trim().is_empty() => crate::expr::eval(t, &vars).unwrap_or(f64::NAN),
+                    _ => 0.0,
+                };
+            }
+            *u *= scale;
+        }
+    }
+}
+
+/// `data cs`: the input's coordinate system (`cart`, `polar` in degrees, `polarrad`) turned into
+/// the axis' (`polar` for a polar axis).
+fn data_cs(e: &mut Engine, plot: &mut Plot) {
+    let source = keys::value(e, "/pgfplots/data cs");
+    let target = keys::value(e, "/pgfplots/@axis type");
+    if source == target || source.is_empty() {
+        return;
+    }
+    for c in plot.coords.iter_mut() {
+        if source == "polarrad" {
+            c.x = c.x.to_degrees();
+        }
+        let (x, y) = (c.x, c.y);
+        match (source.as_str(), target.as_str()) {
+            ("polar" | "polarrad", "cart") => {
+                let (s, co) = super::polar::sin_cos(x);
+                (c.x, c.y) = (y * co, y * s);
+            }
+            ("cart", "polar") => {
+                (c.x, c.y) = (y.atan2(x).to_degrees().rem_euclid(360.0), x.hypot(y));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `hist`: the points become the bins' counts, `(start of bin k, count k)`, and a last point at
+/// the end of the data range (`\pgfplotsplothandlersurveyend@hist@`).
+fn histogram(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    let data = keys::value(e, "/pgfplots/hist/data");
+    let value_expr = keys::value(e, "/pgfplots/hist/data value");
+    let mut vars = e.vars();
+    let mut values = Vec::new();
+    for c in &plot.coords {
+        let v = if !value_expr.is_empty() {
+            vars.insert("x".into(), c.x);
+            vars.insert("y".into(), c.y);
+            vars.insert("z".into(), c.z);
+            crate::expr::eval(&value_expr, &vars).unwrap_or(f64::NAN)
+        } else {
+            match data.as_str() {
+                "x" => c.x,
+                "z" => c.z,
+                "y" | "" => c.y,
+                other => {
+                    vars.insert("x".into(), c.x);
+                    vars.insert("y".into(), c.y);
+                    vars.insert("z".into(), c.z);
+                    crate::expr::eval(other, &vars).unwrap_or(f64::NAN)
+                }
+            }
+        };
+        if v.is_finite() {
+            values.push(v);
+        }
+    }
+    let bins = keys::number(e, "/pgfplots/hist/bins").unwrap_or(10.0).max(1.0) as usize;
+    // `data min` defaults to `xmin`
+    let limit = |e: &mut Engine, k: &str, axis: &str| keys::number(e, &format!("/pgfplots/hist/{k}")).or_else(|| keys::number(e, &format!("/pgfplots/{axis}")));
+    let lo = limit(e, "data min", "xmin").unwrap_or_else(|| values.iter().copied().fold(f64::INFINITY, f64::min));
+    let hi = limit(e, "data max", "xmax").unwrap_or_else(|| values.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+    if values.is_empty() || !(lo.is_finite() && hi.is_finite()) {
+        plot.coords.clear();
+        return Ok(());
+    }
+    let h = (hi - lo) / bins as f64;
+    let mut counts = vec![0.0f64; bins];
+    for v in &values {
+        let k = if h != 0.0 { ((v - lo) / h + 1e-4).trunc() } else { 0.0 };
+        let k = if k < 0.0 { 0 } else { (k as usize).min(bins - 1) };
+        counts[k] += 1.0;
+    }
+    let total: f64 = counts.iter().sum();
+    let cumulative = keys::flag(e, "/pgfplots/hist/cumulative");
+    let density = keys::flag(e, "/pgfplots/hist/density");
+    if cumulative {
+        let mut acc = 0.0;
+        for c in counts.iter_mut() {
+            acc += *c;
+            *c = if density { acc / total } else { acc };
+        }
+    } else if density && total > 0.0 && h != 0.0 {
+        for c in counts.iter_mut() {
+            *c /= total * h;
+        }
+    }
+    let mut coords: Vec<Coord> = counts.iter().enumerate().map(|(k, c)| Coord::new(lo + h * k as f64, *c, 0.0)).collect();
+    if keys::flag(e, "/pgfplots/hist/intervals") {
+        coords.push(Coord::new(hi, counts[bins - 1], 0.0));
+    }
+    plot.coords = coords;
+    plot.three_d = false;
+    plot.scanlines.clear();
+    plot.handler = keys::value(e, "/tikz/@plot handler");
+    Ok(())
+}
+
+/// `point meta={symbolic={R,G,B}}`: the text of each point's meta, and whether
+/// `mesh/color input=explicit mathparse` evaluates it.
+fn symbolic_meta(e: &mut Engine) -> Option<(Vec<Token>, bool)> {
+    let raw = crate::keys::value(&e.tex, "/pgfplots/point meta")?;
+    let items = crate::keys::split_list(crate::keys::trim(&raw));
+    let item = items.first().filter(|i| i.key == "symbolic" && items.len() == 1)?;
+    let mathparse = keys::value(e, "/pgfplots/mesh/color input") == "explicit mathparse";
+    Some((item.value.clone().unwrap_or_default(), mathparse))
+}
+
+/// A symbolic point meta for a point: with `mathparse`, each part (`R,G,B`, `wave=…`) evaluated.
+fn symbolic_label(e: &mut Engine, text: &str, mathparse: bool, xyz: [f64; 3]) -> String {
+    if !mathparse {
+        return text.trim().to_string();
+    }
+    let mut vars = e.vars();
+    vars.insert("x".into(), xyz[0]);
+    vars.insert("y".into(), xyz[1]);
+    vars.insert("z".into(), xyz[2]);
+    let (model, rest) = match text.split_once('=') {
+        Some((m, r)) if m.trim().chars().all(|c| c.is_ascii_alphanumeric()) => (format!("{}=", m.trim()), r),
+        _ => (String::new(), text),
+    };
+    let parts: Vec<String> =
+        crate::keys::split_top_level(rest).iter().map(|p| crate::expr::eval(p.trim(), &vars).map(|v| format!("{v}")).unwrap_or_else(|_| p.trim().to_string())).collect();
+    format!("{model}{}", parts.join(","))
+}
+
 /// `point meta`: the value each point maps to the colormap with.
 fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    if let Some((tokens, mathparse)) = symbolic_meta(e) {
+        // tables have set them row by row
+        if plot.coords.iter().all(|c| c.label == NO_LABEL) {
+            let text = e.tex.expand_to_string(tokens).unwrap_or_default();
+            for i in 0..plot.coords.len() {
+                let c = plot.coords[i];
+                let l = symbolic_label(e, &text, mathparse, [c.x, c.y, c.z]);
+                plot.coords[i].label = add_label(tex::string_tokens(&l));
+            }
+        }
+        plot.has_meta = false;
+        return Ok(());
+    }
     let raw = crate::keys::value(&e.tex, "/pgfplots/point meta").unwrap_or_default();
     let source = tex::tokens_to_string(crate::keys::trim(&raw)).trim().to_string();
     match source.as_str() {
@@ -825,7 +1086,13 @@ fn lattice_from_scanlines(e: &mut Engine, plot: &mut Plot) {
     let lattice = match (rows, cols) {
         (_, Some(c)) if c > 0 => Some((n / c, c)),
         (Some(r), _) if r > 0 => Some((r, n / r)),
-        _ => plot.scanlines.first().filter(|c| **c > 0 && n.is_multiple_of(**c)).map(|c| (n / c, *c)),
+        // patches are their own (`mesh input=patches`)
+        _ if plot.patch => None,
+        _ => plot.scanlines.first().filter(|c| **c > 0 && n.is_multiple_of(**c)).map(|c| (n / c, *c)).or_else(|| {
+            // without scanlines a matrix is square (`matrix delinearize uses sqrt`)
+            let s = (n as f64).sqrt().round() as usize;
+            (plot.image && s * s == n && s > 0).then_some((s, s))
+        }),
     };
     if let Some((r, c)) = lattice.filter(|(r, c)| r * c == n && *r > 1 && *c > 1) {
         plot.lattice = Some((r, c));

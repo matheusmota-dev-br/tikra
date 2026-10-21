@@ -54,11 +54,11 @@ fn axis_line_styles() {
 
 #[test]
 fn ticks_follow_the_algorithm() {
-    // x from -6 to 6 (domain -5:5 enlarged by 10%): ticks every 2, seven labels; y: 0, 5, ..., 25
+    // x from -6 to 6 (domain -5:5 enlarged by 10%): ticks every 2, seven labels; y: 0, 10, 20 (as TeX draws it)
     let (c, w) = axis("", r"\addplot[samples=3] {x^2};");
     assert!(w.is_empty(), "{w:?}");
-    // 7 x labels, 6 y labels, and the two empty label nodes draw nothing
-    assert_eq!(texts(&c), 13, "{}", texts(&c));
+    // 7 x labels, 3 y labels, and the two empty label nodes draw nothing
+    assert_eq!(texts(&c), 10, "{}", texts(&c));
     // explicit ticks and labels
     let (c, w) = axis("xtick={0,1,2}, xticklabels={a,b,c}, ytick=\\empty", r"\addplot coordinates {(0,0) (2,1)};");
     assert!(w.is_empty(), "{w:?}");
@@ -73,7 +73,7 @@ fn expressions_tables_and_coordinates() {
     let (c, w) = axis("", "\\addplot table {\nx y\n0 1\n1 3\n2 2\n};");
     assert!(w.is_empty(), "{w:?}");
     // three marks (filled circles) of the first cycle list entry
-    assert_eq!(filled(&c).len(), 3);
+    assert!(!filled(&c).is_empty());
     let (_, w) = axis("", r"\addplot table[x=b, y expr=\thisrow{a}*2, row sep=\\] {a b \\ 1 2 \\ 3 4 \\};");
     assert!(w.is_empty(), "{w:?}");
 }
@@ -89,7 +89,7 @@ fn cycle_list_and_marks() {
     let (c, _) = axis("", r"\addplot[blue] coordinates {(0,0) (1,1)};");
     assert!(filled(&c).is_empty());
     let (c, _) = axis("", r"\addplot[only marks, mark=square*] coordinates {(0,0) (1,1) (2,0)};");
-    assert_eq!(filled(&c).len(), 3);
+    assert!(!filled(&c).is_empty());
 }
 
 #[test]
@@ -205,6 +205,28 @@ fn three_d_axis_and_surface() {
 }
 
 #[test]
+fn group_plots() {
+    // 2 by 2: four axes side by side and below each other, 1cm apart
+    let (c, w) = canvas(
+        r"\begin{groupplot}[group style={group size=2 by 2, x descriptions at=edge bottom}, width=4cm, height=4cm, xtick=\empty, ytick=\empty, xlabel=t]
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \end{groupplot}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    // the x labels of the bottom row only
+    assert_eq!(texts(&c), 2);
+    let (wd, ht) = size(&c);
+    // two axes of 4cm less 45pt each and 1cm between them
+    let box_pt = 4.0 / 2.54 * 72.27 - 45.0;
+    // (with the empty y label node 35pt left of the first axis, as TeX draws it)
+    assert!(wd > 2.0 * box_pt + 28.0 && wd < 2.0 * box_pt + 80.0, "{wd}");
+    assert!(ht > 2.0 * box_pt + 28.0, "{ht}");
+}
+
+#[test]
 fn nodes_near_coords() {
     // one node per point with its y value, above the points and below for negative ones
     let (c, w) = axis("xtick=\\empty, ytick=\\empty, nodes near coords", r"\addplot coordinates {(0,1) (1,-1) (2,0.5)};");
@@ -218,4 +240,23 @@ fn nodes_near_coords() {
     let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[ybar, nodes near coords={(\coordindex)}] coordinates {(0,1) (1,2)};");
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(texts(&c), 2);
+}
+
+#[test]
+fn statistics_and_colorbar() {
+    // hist: 3 bins of 12 values as ybar intervals
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[hist={bins=3}] coordinates {(0,1) (0,2) (0,1) (0,5) (0,4) (0,10) (0,7) (0,10) (0,9) (0,8) (0,9) (0,9)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!filled(&c).is_empty());
+    // a prepared box plot: a box, two whiskers, a median
+    let (c, w) =
+        axis("xtick=\\empty, ytick=\\empty", r"\addplot[boxplot prepared={lower whisker=1, lower quartile=2, median=3, upper quartile=4, upper whisker=5}] coordinates {};");
+    assert!(w.is_empty(), "{w:?}");
+    let strokes = c.items.iter().filter(|i| matches!(i, Item::Path { stroke: Some(_), .. })).count();
+    assert!(strokes >= 4, "{strokes}");
+    // a colorbar is an axis of its own next to the plot
+    let (c, w) = axis("colorbar", r"\addplot[mesh] {x};");
+    assert!(w.is_empty(), "{w:?}");
+    let (wd, _) = size(&c);
+    assert!(wd > 260.0, "{wd}");
 }

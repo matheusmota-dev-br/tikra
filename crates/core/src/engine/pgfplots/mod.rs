@@ -4,15 +4,19 @@
 //! the order they came, with the TikZ statements among them), the descriptions and the legend
 //! are drawn ([`draw`]).
 
+pub mod boxplot;
+pub mod colorbar;
 pub mod colormap;
 pub mod cube;
 pub mod draw;
+pub mod group;
 pub mod keys;
 pub mod legend;
 pub mod marks;
 pub mod mesh;
 pub mod number;
 pub mod plot;
+pub mod polar;
 pub mod table;
 pub mod ticks;
 pub mod visual;
@@ -89,7 +93,7 @@ const COMMANDS: &[(&str, C)] = &[
 
 /// The environments that are axes.
 pub fn is_axis(name: &str) -> bool {
-    matches!(name, "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis" | "groupplot" | "polaraxis" | "smithchart" | "ternaryaxis")
+    matches!(name, "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis" | "polaraxis" | "smithchart" | "ternaryaxis")
 }
 
 /// Defines pgfplots' commands and keys.
@@ -113,6 +117,14 @@ impl Engine {
     /// `\begin{axis}[options]`: the survey starts.
     pub fn begin_axis(&mut self, kind: &str) -> Result<(), Error> {
         let o = self.optional()?.unwrap_or_default();
+        self.begin_axis_with(kind, o)
+    }
+
+    /// An axis with these options (`\nextgroupplot` makes them).
+    pub fn begin_axis_with(&mut self, kind: &str, o: Vec<Token>) -> Result<(), Error> {
+        if matches!(kind, "smithchart" | "ternaryaxis") {
+            self.warn(format!("{kind} not supported: drawn as a cartesian axis"));
+        }
         if self.axis.is_some() {
             self.warn("nested axis environments are not supported (pgfplots refuses them too): the inner one is drawn on its own");
         }
@@ -123,6 +135,7 @@ impl Engine {
         self.begin_group();
         let mut axis = Axis { kind: kind.to_string(), opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
+            "polaraxis" => "enlarge x limits=false,every polar axis",
             "semilogxaxis" => "every semilogx axis,xmode=log",
             "semilogyaxis" => "every semilogy axis,ymode=log",
             "loglogaxis" => "every loglog axis,xmode=log,ymode=log",
@@ -133,6 +146,15 @@ impl Engine {
         keys::run(self, style)?;
         let saved = self.st.key_path.clone();
         axis.options = o.clone();
+        // pgfplots' axis types add `data cs` after the options (`\pgfplotsdefineaxistype`)
+        let o = if kind == "polaraxis" {
+            let mut o = o;
+            o.extend(toks(",data cs=polar"));
+            o
+        } else {
+            o
+        };
+        keys::set(self, "/pgfplots/@axis type", if kind == "polaraxis" { "polar" } else { "cart" });
         self.process_keys(o, Some("/pgfplots")).map_err(|err| Error::Figure(format!("axis options: {err}")))?;
         self.st.key_path = saved;
         axis.numplots = 0;
@@ -155,6 +177,11 @@ impl Engine {
             self.end_group();
         }
         self.end_group();
+        let r = match r {
+            Ok(Some(cb)) => self.draw_colorbar(&cb),
+            Ok(None) => Ok(()),
+            Err(err) => Err(err),
+        };
         if axis.opened_picture {
             self.end_picture();
         }
@@ -164,7 +191,7 @@ impl Engine {
     /// pgfplots' commands.
     pub fn pgfplots_command(&mut self, id: u16) -> Result<(), Error> {
         let cmd = COMMANDS[(id - BASE) as usize].1;
-        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle) {
+        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot) {
             let rest = self.skip_statement()?;
             let name = COMMANDS[(id - BASE) as usize].0;
             self.warn(format!("\\{name} outside an axis: '{}' ignored", rest.chars().take(30).collect::<String>().trim()));
@@ -216,12 +243,7 @@ impl Engine {
                 }
                 Ok(())
             }
-            C::Nextgroupplot => {
-                let rest = self.skip_statement()?;
-                let _ = rest;
-                self.warn("\\nextgroupplot not supported: the plots of all groups are drawn in one axis");
-                Ok(())
-            }
+            C::Nextgroupplot => self.next_group_plot(),
             C::Closedcycle => Ok(()),
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}

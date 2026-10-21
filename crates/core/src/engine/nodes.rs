@@ -292,6 +292,11 @@ impl Engine {
 
     /// Creates a node: returns what it draws (drawn after its path) and registers its name.
     pub fn node(&mut self, spec: NodeSpec) -> Result<Vec<Item>, Error> {
+        // `\pgfmathprintnumber{…}` in a node's text is printed as pgf prints numbers
+        let mut spec = spec;
+        if spec.text.iter().any(|t| t.is_cs("pgfmathprintnumber")) {
+            spec.text = super::pgfplots::draw::print_numbers(self, &spec.text)?;
+        }
         self.begin_group();
         // `transform shape` given to a scope or a path holds for its nodes
         self.st.node = NodeSetup { transform_shape: self.st.node.transform_shape, ..NodeSetup::default() };

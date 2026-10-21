@@ -111,7 +111,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     define(e, "plotnum", &p.index.to_string());
     e.st.mode = Default::default();
     e.st.pending = Transform::default();
-    let mut style = toks("/tikz/draw,");
+    let mut style = toks(if p.fill_between.is_some() { "/tikz/draw,/pgfplots/every fill between plot," } else { "/tikz/draw," });
     style.extend(p.style.clone());
     e.process_keys(style.clone(), Some("/pgfplots"))?;
     e.st.apply_pending();
@@ -147,6 +147,51 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     };
     let at = |x: f64, y: f64| f.at([x, y, f.min[2]]);
     match handler.as_str() {
+        // box plots draw their box; the points are the outliers' marks
+        "boxplot" => super::boxplot::draw(e, p, f, index_of_type)?,
+        // an arrow per point, each a path of its own (its tips at its end)
+        "quiver" => {
+            let color = keys::value(e, "/pgfplots/quiver/arrow color");
+            for (i, l) in pts.iter().enumerate() {
+                let Some(c) = p.coords.get(i) else { continue };
+                if !(l[0].is_finite() && l[1].is_finite()) || !c.uvw.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()) {
+                    continue;
+                }
+                let end = [f.logical(0, c.x + c.uvw[0]), f.logical(1, c.y + c.uvw[1]), if f.three_d { f.logical(2, c.z + c.uvw[2]) } else { f.min[2] }];
+                let segs = vec![Segment::MoveTo(f.at(*l)), Segment::LineTo(f.at(end))];
+                e.begin_group();
+                let r = (|| -> Result<(), Error> {
+                    if c.meta.is_finite() {
+                        let t = (c.meta - f.meta[0]) / (f.meta[1] - f.meta[0]) * 1000.0;
+                        define(e, "pgfplotspointmetatransformed", &super::super::pgf_number(if t.is_finite() { t } else { 0.0 }));
+                        if f.colormap.is_some() {
+                            e.colors.insert("mapped color".into(), super::mesh::map(f, c.meta));
+                        }
+                    }
+                    e.st.pending = Transform::default();
+                    let mut style = Vec::new();
+                    if !color.is_empty() {
+                        style.extend(toks(&format!("/tikz/color={color},")));
+                    }
+                    style.extend(toks("/pgfplots/quiver/every arrow"));
+                    e.process_keys(style, Some("/pgfplots"))?;
+                    e.st.apply_pending();
+                    e.use_path(segs, "addplot")
+                })();
+                e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
+                e.end_group();
+                r?;
+            }
+        }
+        // rays from the center
+        "polar comb" => {
+            for l in pts {
+                if l[0].is_finite() && l[1].is_finite() {
+                    segs.push(Segment::MoveTo(f.at([l[0], 0.0, 0.0])));
+                    segs.push(Segment::LineTo(f.at(*l)));
+                }
+            }
+        }
         "ybar" | "xbar" => {
             let vertical = handler == "ybar";
             let (ua, _) = if vertical { (unit(f.e[0]), unit(f.e[1])) } else { (unit(f.e[1]), unit(f.e[0])) };
@@ -276,7 +321,9 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     // the rest of the path: nodes at the last point
     let rest: Vec<Token> = p.post.iter().filter(|t| !t.is_cs("closedcycle")).cloned().collect();
     if rest.iter().any(|t| !t.is_space()) {
-        if let Some(last) = cp.iter().rev().flatten().next() {
+        // a box plot without outliers starts its path at the origin
+        let origin = (p.boxplot.is_some()).then(|| f.at(f.min));
+        if let Some(last) = cp.iter().rev().flatten().next().copied().or(origin).as_ref() {
             let mut code = toks(&format!("\\path[draw=none,fill=none] (tikra cs:{}pt,{}pt) ", last.x / PT, last.y / PT));
             code.extend(rest);
             code.push(Token::other(';'));
@@ -333,7 +380,17 @@ fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Fram
         let point = f.at(*l);
         let c = p.coords.get(i).copied().unwrap_or_else(|| super::plot::Coord::new(f64::NAN, f64::NAN, f64::NAN));
         let label = (c.label != super::plot::NO_LABEL).then(|| p.labels.get(c.label as usize).cloned()).flatten();
-        let meta = c.meta;
+        // before compat 1.9 the nodes of stacked plots show the stacked value (f(x) after stacking)
+        let meta = match p.stack {
+            Some(dir) if !stacked && matches!(source.as_str(), "f(x)" | "y" | "x") => {
+                if dir == 'x' {
+                    l[0]
+                } else {
+                    l[1]
+                }
+            }
+            _ => c.meta,
+        };
         let at = if stacked {
             let b = base.get(i).copied().unwrap_or(0.0);
             if handler == "ybar" {
@@ -583,6 +640,14 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
                     let mapped = super::mesh::map(f, meta);
                     e.st.draw_color = Some(draw.at(mapped));
                     e.st.fill_color = Some(fill.at(mapped));
+                    if name == "ball" {
+                        // `ball color=mapped color`: the shading's color, point by point
+                        e.colors.insert("mapped color".into(), mapped);
+                        if let Some(v) = keys::value_tokens(e, "/pgfplots/scatter/use mapped color") {
+                            e.process_keys(v, Some("/tikz"))?;
+                        }
+                        e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
+                    }
                     draw_mark_set(e, &name, size, &local, std::iter::once(p))?;
                 }
                 Ok(())
@@ -596,6 +661,15 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
 
 /// Marks named `name` of size `size` at `points`, in the current state.
 pub fn draw_mark_set(e: &mut Engine, name: &str, size: f64, local: &Transform, points: impl Iterator<Item = Point>) -> Result<(), Error> {
+    // a shaded ball: the engine's mark, with its `ball color`
+    if name == "ball" {
+        let pts: Vec<Point> = points.collect();
+        let _ = size;
+        let items = e.plot_marks(&pts)?;
+        e.canvas.items.extend(items);
+        let _ = local;
+        return Ok(());
+    }
     let Some((shape, usage)) = marks::mark(name, size) else {
         if name == "text" {
             return Ok(());

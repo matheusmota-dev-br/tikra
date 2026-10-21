@@ -66,6 +66,8 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         let mut cells: Vec<Vec<Cell>> = Vec::new();
         let mut row: Vec<Cell> = Vec::new();
         let mut in_row = 0i64;
+        let transpose = keys::flag(e, "/pgfplots/transpose legend");
+        let mut items: Vec<Vec<Cell>> = Vec::new();
         for (k, entry) in entries.iter().enumerate() {
             let Some(image) = images.get(k) else { break };
             if tex::tokens_to_string(&entry.text).trim().is_empty() && entry.options.is_empty() {
@@ -84,6 +86,10 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
                     row.push(txt);
                 }
             }
+            if transpose {
+                items.push(std::mem::take(&mut row));
+                continue;
+            }
             in_row += 1;
             if columns > 0 && in_row >= columns {
                 cells.push(std::mem::take(&mut row));
@@ -92,6 +98,20 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         }
         if !row.is_empty() {
             cells.push(row);
+        }
+        // `transpose legend`: filled column by column, `legend columns` rows
+        if transpose && !items.is_empty() {
+            let rows = if columns > 0 { columns as usize } else { 1 };
+            let cols = items.len().div_ceil(rows);
+            for r in 0..rows.min(items.len()) {
+                let mut line = Vec::new();
+                for c in 0..cols {
+                    if let Some(it) = items.get_mut(c * rows + r) {
+                        line.append(it);
+                    }
+                }
+                cells.push(line);
+            }
         }
         if cells.is_empty() {
             return Ok(());

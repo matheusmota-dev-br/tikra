@@ -201,6 +201,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/@legend image/.initial=line,
 	/pgfplots/line legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
 	/pgfplots/area legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{area}},
+	/pgfplots/every fill between plot/.style={/pgfplots/area legend,/tikz/fill},
 	/pgfplots/empty legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{empty}},
 	/pgfplots/ybar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{ybar}},
 	/pgfplots/xbar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{xbar}},
@@ -389,6 +390,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/every 3d box foreground/.style={},
 	/pgfplots/3d box foreground style/.style={/pgfplots/every 3d box foreground/.append style={#1}},
 	/pgfplots/cycle list name/.initial=color,
+	/pgfplots/cycle multi list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multi@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multi@}},
 	/pgfplots/cycle list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@internal@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@internal@}},
 	/pgfplots/cycle list shift/.initial=,
 	/pgfplots/mark list fill/.initial=.!80!black,
@@ -427,6 +429,47 @@ const DEFINITIONS: &str = r"
 	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
 	/pgfplots/ybar interval/.default=1,
+	/pgfplots/@quiver/.initial=false,
+	/pgfplots/quiver/u/.initial=, /pgfplots/quiver/v/.initial=, /pgfplots/quiver/w/.initial=,
+	/pgfplots/quiver/scale arrows/.initial=1, /pgfplots/quiver/every arrow/.style={},
+	/pgfplots/quiver/update limits/.initial=true, /pgfplots/quiver/update limits/.default=true,
+	/pgfplots/quiver/arrow color/.initial=,
+	/pgfplots/quiver/colored/.code={\pgfkeyssetvalue{/pgfplots/quiver/arrow color}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}},
+	/pgfplots/quiver/colored/.default=mapped color,
+	/pgfplots/quiver/u value/.code={\pgfkeyssetvalue{/pgfplots/quiver/u}{#1}},
+	/pgfplots/quiver/v value/.code={\pgfkeyssetvalue{/pgfplots/quiver/v}{#1}},
+	/pgfplots/quiver/w value/.code={\pgfkeyssetvalue{/pgfplots/quiver/w}{#1}},
+	/pgfplots/quiver/before arrow/.code=, /pgfplots/quiver/after arrow/.code=,
+	/pgfplots/quiver/u filter/.code=, /pgfplots/quiver/v filter/.code=, /pgfplots/quiver/w filter/.code=,
+	/pgfplots/quiver/quiver legend/.style={},
+	/pgfplots/@hist/.initial=false, /pgfplots/@boxplot/.initial=,
+	/pgfplots/every boxplot/.style={},
+	/pgfplots/boxplot/data/.initial=y, /pgfplots/boxplot/data value/.initial=, /pgfplots/boxplot/data filter/.code=,
+	/pgfplots/boxplot/median/.initial=auto, /pgfplots/boxplot/lower quartile/.initial=auto,
+	/pgfplots/boxplot/upper quartile/.initial=auto, /pgfplots/boxplot/lower whisker/.initial=auto,
+	/pgfplots/boxplot/upper whisker/.initial=auto, /pgfplots/boxplot/average/.initial=,
+	/pgfplots/boxplot/ensure mark/.initial=false, /pgfplots/boxplot/ensure mark/.default=true,
+	/pgfplots/boxplot/estimator/.initial=legacy,
+	/pgfplots/boxplot/lower quartile off/.initial=0.25, /pgfplots/boxplot/upper quartile off/.initial=0.75,
+	/pgfplots/boxplot/whisker range/.initial=1.5,
+	/pgfplots/boxplot/whisker extend/.initial=\pgfkeysvalueof{/pgfplots/boxplot/box extend}*0.8,
+	/pgfplots/boxplot/box extend/.initial=0.8, /pgfplots/boxplot/draw direction/.initial=x,
+	/pgfplots/boxplot/variable width/.initial=false, /pgfplots/boxplot/variable width/.default=true,
+	/pgfplots/boxplot/sample size/.initial=auto, /pgfplots/boxplot/sample size min/.initial=,
+	/pgfplots/boxplot/sample size max/.initial=, /pgfplots/boxplot/variable width min target/.initial=0.2,
+	/pgfplots/boxplot/draw position/.initial=1+\plotnumofactualtype,
+	/pgfplots/boxplot/draw relative anchor/.initial=0.5,
+	/pgfplots/boxplot/every whisker/.style={}, /pgfplots/boxplot/every box/.style={},
+	/pgfplots/boxplot/every median/.style={}, /pgfplots/boxplot/every average/.style={/tikz/mark=diamond*},
+	/pgfplots/@boxplot macros/.code={\def\pgfplotsboxplotvalue##1{\pgfkeysvalueof{/pgfplots/boxplot/##1}}\let\boxplotvalue=\pgfplotsboxplotvalue},
+	/pgfplots/@boxplot macros,
+	/pgfplots/hist/data/.initial=y, /pgfplots/hist/data value/.initial=,
+	/pgfplots/hist/data min/.initial=, /pgfplots/hist/data max/.initial=, /pgfplots/hist/bins/.initial=10,
+	/pgfplots/hist/intervals/.initial=true, /pgfplots/hist/intervals/.default=true,
+	/pgfplots/hist/cumulative/.initial=false, /pgfplots/hist/cumulative/.default=true,
+	/pgfplots/hist/density/.initial=false, /pgfplots/hist/density/.default=true,
+	/pgfplots/hist/handler/.style={/tikz/ybar interval},
+	/pgfplots/hist/data filter/.code=,
 	/pgfplots/xbar interval/.style={bar direction=x,bar cycle list,y tick label as interval,ytick=data,ymajorgrids,ytick align=outside,xbar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/xbar interval},
 	/pgfplots/xbar interval/.default=1,
@@ -498,7 +541,17 @@ const DEFINITIONS: &str = r"
 	/pgfplots/compat/.initial=default,
 	/pgfplots/@compat/.initial=0,
 	/pgfplots/xlabel absolute, /pgfplots/ylabel absolute,
-	/pgfplots/group style/.initial=,
+	/pgfplots/group/horizontal sep/.initial=1cm, /pgfplots/group/vertical sep/.initial=1cm,
+	/pgfplots/group/columns/.initial=1, /pgfplots/group/rows/.initial=1,
+	/pgfplots/group/every plot/.style={}, /pgfplots/group/group name/.initial=group,
+	/pgfplots/group/shared labels/.initial=false, /pgfplots/group/shared labels/.default=true,
+	/pgfplots/group/xticklabels at/.initial=all, /pgfplots/group/yticklabels at/.initial=all,
+	/pgfplots/group/xlabels at/.initial=all, /pgfplots/group/ylabels at/.initial=all,
+	/pgfplots/group/x descriptions at/.code={\pgfkeyssetvalue{/pgfplots/group/xlabels at}{#1}\pgfkeyssetvalue{/pgfplots/group/xticklabels at}{#1}},
+	/pgfplots/group/y descriptions at/.code={\pgfkeyssetvalue{/pgfplots/group/ylabels at}{#1}\pgfkeyssetvalue{/pgfplots/group/yticklabels at}{#1}},
+	/pgfplots/group/empty plot/.style={/pgfplots/hide axis=true},
+	/pgfplots/@empty xticklabels/.initial=false, /pgfplots/@empty yticklabels/.initial=false,
+	/pgfplots/@empty zticklabels/.initial=false,
 	/pgfplots/colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}},
 	/pgfplots/colormap access/.initial=map,
 	/pgfplots/colormap/hot/.style={/pgfplots/colormap={hot}{color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)}},
@@ -524,7 +577,18 @@ const DEFINITIONS: &str = r"
 	/pgfplots/mesh/ordering/.initial=x varies, /pgfplots/mesh/color input/.initial=colormap,
 	/pgfplots/mesh/check/.initial=error,
 	/pgfplots/mesh/interior colormap name/.initial=,
-	/pgfplots/matrix plot/.style={/pgfplots/matrix plot*,/pgfplots/y dir=reverse,/pgfplots/axis on top},
+	/pgfplots/late options/.initial=,
+	/pgfplots/@axis type/.initial=cart, /pgfplots/data cs/.initial=cart,
+	/pgfplots/every polar axis/.style={grid=major, xtick pos=right, ytick pos=right,
+		every axis title shift=1.2\baselineskip, legend style={anchor=center}, /pgfplots/polar labels},
+	/pgfplots/polar labels/.style={
+		every axis x label/.style={at={(rel axis cs:0,0.5)}, anchor=north},
+		every axis y label/.style={at={(0.2,0.85)}, anchor=center},
+	},
+	/pgfplots/polar labels style/.style={/pgfplots/polar labels/.append style={#1}},
+	/pgfplots/xticklabel in circle/.style={xtick align=inside, xticklabel style={rotate=90, anchor=south west}},
+	/pgfplots/polar comb/.code={\pgfkeyssetvalue{/tikz/@plot handler}{polar comb}},
+	/pgfplots/matrix plot/.style={/pgfplots/late options={/pgfplots/y dir=reverse,/pgfplots/axis on top},/pgfplots/matrix plot*},
 	/pgfplots/matrix plot*/.style={/pgfplots/surf,/pgfplots/mesh input=image,/pgfplots/shader=flat corner,/pgfplots/z buffer=none},
 	/pgfplots/scatter/.initial=false,
 	/pgfplots/scatter src/.code={\pgfkeysalso{/pgfplots/point meta={#1}}},
@@ -532,17 +596,58 @@ const DEFINITIONS: &str = r"
 	/pgfplots/scatter/classes/.initial=,
 	/pgfplots/only marks scatter/.style={/pgfplots/scatter,/tikz/only marks},
 	/pgfplots/point meta rel/.initial=axis wide,
+	/pgfplots/colorbar to name/.initial=, /pgfplots/colorbar pos*/.initial=,
+	/pgfplots/parent axis width/.initial=6cm, /pgfplots/parent axis height/.initial=6cm,
+	/pgfplots/@colorbar orientation/.initial=v, /pgfplots/@colorbar sampled/.initial=,
+	/pgfplots/colorbar vertical/lowlevel/.code={\pgfkeyssetvalue{/pgfplots/@colorbar orientation}{v}},
+	/pgfplots/colorbar horizontal/lowlevel/.code={\pgfkeyssetvalue{/pgfplots/@colorbar orientation}{h}},
+	/pgfplots/every colorbar global/.style={
+		axis on top, title=, xlabel=, ylabel=, zlabel=, legend entries=, grid=none,
+		enlargelimits=false, scale only axis, xtick=, xticklabel=, ytick=, yticklabel=, zmin=, zmax=,
+	},
+	/pgfplots/colorbar right/.style={%
+		/pgfplots/colorbar=true, /pgfplots/colorbar pos*=r,
+		/pgfplots/colorbar shift/.style={xshift=0.3cm},
+		/pgfplots/every colorbar/.style={%
+			/pgfplots/every colorbar global,
+			at={(parent axis.right of north east)}, anchor=north west,
+			xmin=0, xmax=1,
+			ymin=\pgfkeysvalueof{/pgfplots/point meta min}, ymax=\pgfkeysvalueof{/pgfplots/point meta max},
+			height=\pgfkeysvalueof{/pgfplots/parent axis height}, width=\pgfkeysvalueof{/pgfplots/colorbar/width},
+			xtick=\empty, yticklabel pos=right,
+			colorbar vertical/lowlevel,
+		}%
+	},%
+	/pgfplots/colorbar left/.style={%
+		/pgfplots/colorbar right, /pgfplots/colorbar pos*=l,
+		/pgfplots/colorbar shift/.style={xshift=-0.3cm},
+		/pgfplots/every colorbar/.append style={at={(parent axis.left of north west)}, anchor=north east, yticklabel pos=left},
+	},%
+	/pgfplots/colorbar horizontal/.style={%
+		/pgfplots/colorbar=true, /pgfplots/colorbar pos*=b,
+		/pgfplots/colorbar shift/.style={yshift=-0.3cm},
+		/pgfplots/every colorbar/.style={%
+			/pgfplots/every colorbar global,
+			at={(parent axis.below south west)}, anchor=north west,
+			ymin=0, ymax=1,
+			xmin=\pgfkeysvalueof{/pgfplots/point meta min}, xmax=\pgfkeysvalueof{/pgfplots/point meta max},
+			width=\pgfkeysvalueof{/pgfplots/parent axis width}, height=\pgfkeysvalueof{/pgfplots/colorbar/width},
+			xticklabel pos=left, ytick=\empty,
+			colorbar horizontal/lowlevel,
+		}%
+	},%
+	/pgfplots/colorbar right,
+	/pgfplots/colorbar=false,
 	/pgfplots/colorbar style/.style={/pgfplots/every colorbar/.append style={#1}},
-	/pgfplots/every colorbar/.style={},
 	/pgfplots/colorbar/width/.initial=0.5cm,
-	/pgfplots/@colorbar pos/.initial=r,
-	/pgfplots/colorbar right/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}\pgfkeyssetvalue{/pgfplots/@colorbar pos}{r}},
-	/pgfplots/colorbar left/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}\pgfkeyssetvalue{/pgfplots/@colorbar pos}{l}},
-	/pgfplots/colorbar horizontal/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}\pgfkeyssetvalue{/pgfplots/@colorbar pos}{b}},
-	/pgfplots/colorbar sampled/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
-	/pgfplots/colorbar sampled line/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
-	/pgfplots/colorbar as palette/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
-	/pgfplots/colorbar as legend/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
+	/pgfplots/colorbar sampled/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}},
+	/pgfplots/colorbar sampled/.default={surf,mark=none,shader=flat},
+	/pgfplots/colorbar sampled line/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}},
+	/pgfplots/colorbar sampled line/.default={scatter,only marks},
+	/pgfplots/colorbar as palette/.style={/pgfplots/colorbar sampled={surf,shader=flat corner}},
+	/pgfplots/colorbar as legend/.style={/pgfplots/colorbar sampled={surf,shader=flat corner}},
+	/pgfplots/every colorbar sampled line/.style={help lines},
+	/pgfplots/colorbar sampled line style/.style={/pgfplots/every colorbar sampled line/.append style={#1}},
 	/pgfplots/colorbar source/.code=,
 	/tikz/legend columns/.style={/pgfplots/legend columns={#1}},
 	/tikz/legend cell align/.style={/pgfplots/legend cell align={#1}},
@@ -782,6 +887,101 @@ keyfn!(k_scatter, |e, v| {
     Ok(())
 });
 
+// `color of colormap={300 of viridis}` (0 to 1000), `const color of colormap`, `index of
+// colormap={4 of viridis}` (the colormap's 5th color): the current color, as
+// `\pgfplots@color@of@colormap` sets it.
+keyfn!(k_colormap_color, |e, v| {
+    let name = current_name(e);
+    let s = text(e, &v)?;
+    let (value, map) = match s.split_once(" of ") {
+        Some((a, b)) => (a.trim().to_string(), Some(b.trim().to_string())),
+        None => (s.trim().to_string(), None),
+    };
+    let mut map_name = map.unwrap_or_else(|| keys::value(&e.tex, "/pgfplots/colormap name").map(|v| tex::tokens_to_string(&v)).unwrap_or_default());
+    // `of colormap/cool`: the style defines the map
+    let spec_of = |e: &Engine, n: &str| keys::value(&e.tex, &format!("/pgfplots/@colormaps/{n}")).map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+    let spec = if let Some(style) = map_name.strip_prefix("colormap/").map(str::to_string) {
+        e.begin_group();
+        let r = run(e, &format!("/pgfplots/colormap/{style}"));
+        let spec = spec_of(e, &style);
+        e.end_group();
+        r?;
+        map_name = style;
+        spec
+    } else {
+        spec_of(e, &map_name)
+    };
+    let Some(cm) = super::colormap::Colormap::parse(&spec, &e.colors) else {
+        e.warn(format!("{name}: colormap '{map_name}' not defined"));
+        return Ok(());
+    };
+    let x = e.number(&value)?;
+    let c = if name.starts_with("index") {
+        let k = (x.max(0.0) as usize).min(cm.stops.len() - 1);
+        cm.stops[k].1
+    } else if name.starts_with("const") {
+        cm.at_const(x / 1000.0)
+    } else {
+        cm.at(x / 1000.0)
+    };
+    let id = format!("pgfplots@colormap@{:.0}@{:.0}@{:.0}", c.r * 1e6, c.g * 1e6, c.b * 1e6);
+    e.colors.insert(id.clone(), c);
+    e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
+});
+
+// `quiver={u=…, v=…}`: arrows from each point by (u, v, w).
+keyfn!(k_quiver, |e, v| {
+    set(e, "/pgfplots/@quiver", "true");
+    set(e, "/tikz/@plot handler", "quiver");
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/quiver"));
+    e.st.key_path = saved;
+    r
+});
+
+// `hist={bins=…}`: the plot's values are counted in bins, then drawn with `hist/handler`.
+keyfn!(k_hist, |e, v| {
+    set(e, "/pgfplots/@hist", "true");
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/hist"));
+    e.st.key_path = saved;
+    r?;
+    run(e, "/pgfplots/hist/handler")
+});
+
+// `boxplot={…}`, `boxplot prepared={…}`: the box plot handler, its keys in /pgfplots/boxplot.
+keyfn!(k_boxplot, |e, v| {
+    let name = current_name(e);
+    set(e, "/pgfplots/@boxplot", if name.ends_with("prepared") { "prepared" } else { "raw" });
+    set(e, "/tikz/@plot handler", "boxplot");
+    run(e, "/pgfplots/every boxplot")?;
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/boxplot"));
+    e.st.key_path = saved;
+    r?;
+    if flag(e, "/pgfplots/boxplot/ensure mark") && e.st.plot_mark.is_none() {
+        run(e, "/tikz/mark=*")?;
+    }
+    Ok(())
+});
+
+// `group style={…}`: keys of /pgfplots/group.
+keyfn!(k_group_style, |e, v| {
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/group"));
+    e.st.key_path = saved;
+    r
+});
+
+// `group size=2 by 3`: columns by rows.
+keyfn!(k_group_size, |e, v| {
+    let s = text(e, &v)?;
+    let (c, r) = s.split_once("by").unwrap_or((s.as_str(), "1"));
+    set(e, "/pgfplots/group/columns", c.trim());
+    set(e, "/pgfplots/group/rows", r.trim());
+    Ok(())
+});
+
 keyfn!(k_set_meta, |e, v| {
     if keys::value(&e.tex, "/pgfplots/point meta").is_none_or(|m| keys::trim(&m).is_empty() || tex::tokens_to_string(&m).trim() == "none") {
         let value = v.unwrap_or_default();
@@ -861,6 +1061,18 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/axis x line*", k_line_star),
     ("/pgfplots/axis y line*", k_line_star),
     ("/pgfplots/axis z line*", k_line_star),
+    ("/pgfplots/group style", k_group_style),
+    ("/pgfplots/hist", k_hist),
+    ("/pgfplots/quiver", k_quiver),
+    ("/pgfplots/boxplot", k_boxplot),
+    ("/pgfplots/boxplot prepared", k_boxplot),
+    ("/pgfplots/color of colormap", k_colormap_color),
+    ("/pgfplots/const color of colormap", k_colormap_color),
+    ("/pgfplots/index of colormap", k_colormap_color),
+    ("/tikz/color of colormap", k_colormap_color),
+    ("/tikz/const color of colormap", k_colormap_color),
+    ("/tikz/index of colormap", k_colormap_color),
+    ("/pgfplots/group/group size", k_group_size),
     ("/tikz/smooth", k_handler),
     ("/tikz/sharp plot", k_handler),
     ("/tikz/const plot", k_handler),
