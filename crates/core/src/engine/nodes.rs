@@ -1,10 +1,12 @@
 //! Nodes: text in a shape, placed by an anchor, as `\tikz@fig` and pgf's shapes do.
 //!
 //! A node's own coordinate system has the text's origin (the left end of its first baseline) at
-//! (0, 0). The shape's anchors are computed there, from the text box, `inner sep`, the minimum
-//! sizes and `outer sep`; the node is then moved so that the chosen anchor lands on its position.
-//! The transformations of the picture apply to that position only, unless `transform shape`; those
-//! of the node's own options apply to the whole node.
+//! (0, 0). The shape (see [`super::shapes`]) is computed there, from the text boxes of the node's
+//! parts, `inner sep`, the minimum sizes and `outer sep`; the node is then moved so that the chosen
+//! anchor lands on its position. The transformations of the picture apply to that position only,
+//! unless `transform shape`; those of the node's own options apply to the whole node.
+
+use std::rc::Rc;
 
 use crate::canvas::{transform_segments, Fill, Item, Paint, Stroke};
 use crate::keys;
@@ -13,30 +15,11 @@ use crate::scene::{Label, Point, Segment, Transform};
 use crate::tex::{self, Token};
 use crate::{Error, PT};
 
+use super::shapes::{self, BoxSize, Geometry, Layer, Usage};
 use super::{tikra_tokens, Engine};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShapeKind {
-    Rectangle,
-    Circle,
-    Ellipse,
-    Diamond,
-    Coordinate,
-}
-
-pub fn shape_kind(name: &str) -> Option<ShapeKind> {
-    Some(match name.trim() {
-        "rectangle" => ShapeKind::Rectangle,
-        "circle" => ShapeKind::Circle,
-        "ellipse" => ShapeKind::Ellipse,
-        "diamond" => ShapeKind::Diamond,
-        "coordinate" => ShapeKind::Coordinate,
-        _ => return None,
-    })
-}
-
 pub fn is_shape(name: &str) -> bool {
-    shape_kind(name).is_some()
+    shapes::is_shape(name)
 }
 
 /// Node settings that last for one node (set by its options).
@@ -49,65 +32,29 @@ pub struct NodeSetup {
     pub name: Option<String>,
     /// `label=` and `pin=` values, in order; true for a pin
     pub labels: Vec<(Vec<Token>, bool)>,
-    /// `fit=`: the width and height the text box takes
+    /// `fit`: the width and height of the fitted area, which become the text box
     pub fit: Option<(f64, f64)>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
-    pub shape: ShapeKind,
-    /// the shape's center, in node coordinates
-    pub c: Point,
-    /// half width and half height of the shape as drawn (without outer sep)
-    pub half: (f64, f64),
-    pub outer: (f64, f64),
-    pub mid_y: f64,
-    pub text_width: f64,
-    pub aspect: f64,
+    pub shape: String,
+    pub geometry: Rc<Geometry>,
     /// node coordinates → canvas
     pub transform: Transform,
 }
 
 impl NodeInfo {
     pub fn center(&self) -> Point {
-        self.transform.apply(self.c)
-    }
-
-    /// Half sizes of the outer border (anchors lie on it).
-    fn outer_half(&self) -> (f64, f64) {
-        (self.half.0 + self.outer.0, self.half.1 + self.outer.1)
-    }
-
-    /// The border point, in node coordinates, in direction `d` from the center.
-    fn border_local(&self, d: Point) -> Point {
-        let n = d.norm();
-        if n < 1e-12 || self.shape == ShapeKind::Coordinate {
-            return self.c;
-        }
-        let u = d.scale(1.0 / n);
-        let (w, h) = self.outer_half();
-        let t = match self.shape {
-            ShapeKind::Rectangle => {
-                let tx = if u.x.abs() > 1e-12 { w / u.x.abs() } else { f64::INFINITY };
-                let ty = if u.y.abs() > 1e-12 { h / u.y.abs() } else { f64::INFINITY };
-                tx.min(ty)
-            }
-            ShapeKind::Circle | ShapeKind::Ellipse => {
-                let (a, b) = (w.max(1e-12), h.max(1e-12));
-                1.0 / ((u.x / a).powi(2) + (u.y / b).powi(2)).sqrt()
-            }
-            ShapeKind::Diamond => 1.0 / (u.x.abs() / w.max(1e-12) + u.y.abs() / h.max(1e-12)),
-            ShapeKind::Coordinate => 0.0,
-        };
-        self.c.plus(u.scale(t))
+        self.transform.apply(self.geometry.center)
     }
 
     /// The border point toward canvas point `p` (where a line to the node stops).
     pub fn border_toward(&self, p: Point) -> Point {
         let inv = crate::reader::invert(&self.transform);
         let q = inv.apply(p);
-        let b = self.border_local(q.minus(self.c));
+        let b = self.geometry.border_point(q.minus(self.geometry.center));
         self.transform.apply(b)
     }
 
@@ -117,80 +64,96 @@ impl NodeInfo {
     }
 
     pub fn anchor_local(&self, name: &str) -> Option<Point> {
-        let (w, h) = self.outer_half();
-        let c = self.c;
-        let corner = |sx: f64, sy: f64| -> Point {
-            match self.shape {
-                ShapeKind::Rectangle | ShapeKind::Coordinate => c.plus(Point::new(sx * w, sy * h)),
-                _ => self.border_local(Point::new(sx * w.max(1e-9), sy * h.max(1e-9))),
+        self.geometry.anchor(name)
+    }
+}
+
+/// The node's text split at `\nodepart[options]{name}`: the parts in order, `text` first.
+pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
+    let mut parts = vec![("text".to_string(), Vec::new())];
+    let mut depth = 0usize;
+    let mut i = 0;
+    let skip_spaces = |j: &mut usize| {
+        while tokens.get(*j).is_some_and(|t| t.is_space()) {
+            *j += 1;
+        }
+    };
+    while i < tokens.len() {
+        let t = &tokens[i];
+        match t {
+            Token::Char(_, tex::Cat::Begin) => depth += 1,
+            Token::Char(_, tex::Cat::End) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if depth == 0 && t.is_cs("nodepart") {
+            let mut j = i + 1;
+            skip_spaces(&mut j);
+            // the part's options are not used
+            if tokens.get(j).is_some_and(|t| t.is_char('[')) {
+                while j < tokens.len() && !tokens[j].is_char(']') {
+                    j += 1;
+                }
+                j += 1;
+                skip_spaces(&mut j);
             }
-        };
-        Some(match name.trim() {
-            "center" | "" => c,
-            "north" => c.plus(Point::new(0.0, h)),
-            "south" => c.plus(Point::new(0.0, -h)),
-            "east" => c.plus(Point::new(w, 0.0)),
-            "west" => c.plus(Point::new(-w, 0.0)),
-            "north east" => corner(1.0, 1.0),
-            "north west" => corner(-1.0, 1.0),
-            "south east" => corner(1.0, -1.0),
-            "south west" => corner(-1.0, -1.0),
-            "base" => Point::new(c.x, 0.0),
-            "base west" => Point::new(c.x - w, 0.0),
-            "base east" => Point::new(c.x + w, 0.0),
-            "mid" => Point::new(c.x, self.mid_y),
-            "mid west" => Point::new(c.x - w, self.mid_y),
-            "mid east" => Point::new(c.x + w, self.mid_y),
-            "text" => Point::new(0.0, 0.0),
-            other => {
-                let angle: f64 = other.parse().ok()?;
-                let (s, co) = angle.to_radians().sin_cos();
-                return Some(self.border_local(Point::new(co, s)));
+            let mut name = Vec::new();
+            if let Some(Token::Char(_, tex::Cat::Begin)) = tokens.get(j) {
+                let mut d = 0usize;
+                while j < tokens.len() {
+                    match &tokens[j] {
+                        Token::Char(_, tex::Cat::Begin) => d += 1,
+                        Token::Char(_, tex::Cat::End) => d -= 1,
+                        _ => {}
+                    }
+                    if d == 0 {
+                        break;
+                    }
+                    if !(d == 1 && matches!(tokens[j], Token::Char(_, tex::Cat::Begin))) {
+                        name.push(tokens[j].clone());
+                    }
+                    j += 1;
+                }
+                j += 1;
+            } else if let Some(t) = tokens.get(j) {
+                name.push(t.clone());
+                j += 1;
             }
-        })
+            let name = tex::tokens_to_string(&name).split_whitespace().collect::<Vec<_>>().join(" ");
+            parts.push((name, Vec::new()));
+            i = j;
+            continue;
+        }
+        parts.last_mut().expect("parts start with text").1.push(t.clone());
+        i += 1;
+    }
+    parts
+}
+
+/// The shape keys, read from the engine's pgfkeys.
+struct EngineKeys<'a>(&'a mut Engine);
+
+impl shapes::Keys for EngineKeys<'_> {
+    fn length(&mut self, key: &str, default: f64) -> f64 {
+        self.0.key_length(key, default)
     }
 
-    /// The shape's background path (no outer sep), in node coordinates.
-    pub fn background(&self, rounded: f64) -> Vec<Segment> {
-        let c = self.c;
-        let (w, h) = self.half;
-        let p = |x: f64, y: f64| c.plus(Point::new(x, y));
-        match self.shape {
-            ShapeKind::Rectangle => {
-                let r = rounded.min(w.abs()).min(h.abs());
-                if r <= 0.0 {
-                    vec![Segment::MoveTo(p(-w, -h)), Segment::LineTo(p(w, -h)), Segment::LineTo(p(w, h)), Segment::LineTo(p(-w, h)), Segment::Close]
-                } else {
-                    // pgf rounds corners with quarter circles made of one curve each
-                    let k = r * (1.0 - 0.5523);
-                    vec![
-                        Segment::MoveTo(p(-w + r, -h)),
-                        Segment::LineTo(p(w - r, -h)),
-                        Segment::CurveTo(p(w - k, -h), p(w, -h + k), p(w, -h + r)),
-                        Segment::LineTo(p(w, h - r)),
-                        Segment::CurveTo(p(w, h - k), p(w - k, h), p(w - r, h)),
-                        Segment::LineTo(p(-w + r, h)),
-                        Segment::CurveTo(p(-w + k, h), p(-w, h - k), p(-w, h - r)),
-                        Segment::LineTo(p(-w, -h + r)),
-                        Segment::CurveTo(p(-w, -h + k), p(-w + k, -h), p(-w + r, -h)),
-                        Segment::Close,
-                    ]
-                }
-            }
-            ShapeKind::Diamond => vec![Segment::MoveTo(p(0.0, -h)), Segment::LineTo(p(w, 0.0)), Segment::LineTo(p(0.0, h)), Segment::LineTo(p(-w, 0.0)), Segment::Close],
-            ShapeKind::Circle | ShapeKind::Ellipse => {
-                let k = 0.5523;
-                vec![
-                    Segment::MoveTo(p(w, 0.0)),
-                    Segment::CurveTo(p(w, h * k), p(w * k, h), p(0.0, h)),
-                    Segment::CurveTo(p(-w * k, h), p(-w, h * k), p(-w, 0.0)),
-                    Segment::CurveTo(p(-w, -h * k), p(-w * k, -h), p(0.0, -h)),
-                    Segment::CurveTo(p(w * k, -h), p(w, -h * k), p(w, 0.0)),
-                    Segment::Close,
-                ]
-            }
-            ShapeKind::Coordinate => Vec::new(),
+    fn number(&mut self, key: &str, default: f64) -> f64 {
+        match keys::value(&self.0.tex, key) {
+            Some(v) if !keys::trim(&v).is_empty() => self.0.number_of(v).unwrap_or(default),
+            _ => default,
         }
+    }
+
+    fn text(&mut self, key: &str) -> String {
+        match keys::value(&self.0.tex, key) {
+            Some(v) => self.0.tex.expand_to_string(v).unwrap_or_default(),
+            None => String::new(),
+        }
+    }
+
+    fn flag(&mut self, name: &str) -> bool {
+        let m = self.0.tex.meaning_of(&format!("if{name}"));
+        m == self.0.tex.meaning_of("iftrue")
     }
 }
 
@@ -274,20 +237,23 @@ impl Engine {
         }
         self.process_keys(tikra_tokens("every node/.try"), Some("/tikz"))?;
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
-        let shape_name = self.key_text("/tikz/shape");
-        let shape = match shape_kind(&shape_name) {
-            Some(s) => s,
-            None => {
-                self.warn(format!("shape '{}' not supported: drawn as a rectangle", shape_name.trim()));
-                ShapeKind::Rectangle
-            }
+        let shape_name = self.key_text("/tikz/shape").split_whitespace().collect::<Vec<_>>().join(" ");
+        let shape = if shapes::is_shape(&shape_name) {
+            shape_name.clone()
+        } else {
+            self.warn(format!("shape '{shape_name}' not supported: drawn as a rectangle"));
+            "rectangle".to_string()
         };
-        self.process_keys(tikra_tokens(&format!("every {} node/.try", shape_name.trim())), Some("/tikz"))?;
+        self.process_keys(tikra_tokens(&format!("every {shape_name} node/.try")), Some("/tikz"))?;
         let name = spec.name.clone().or_else(|| self.st.node.name.clone());
 
-        // the text box
-        let text = self.tex.expand_to_string(spec.text.clone())?;
-        let text = text.trim().to_string();
+        // the text boxes, one per node part
+        let mut texts = Vec::new();
+        for (part, tokens) in split_parts(&spec.text) {
+            let t = self.tex.expand_to_string(tokens)?;
+            texts.push((part, t.trim().to_string()));
+        }
+        let text = texts[0].1.clone();
         let text_width = {
             let t = self.key_text("/tikz/text width");
             if t.trim().is_empty() {
@@ -305,30 +271,36 @@ impl Engine {
         };
         let color = self.st.text_paint_color();
         let font = self.st.font.clone();
-        let lbl: Option<Label> = if shape == ShapeKind::Coordinate || text.is_empty() {
-            None
-        } else {
-            let mut warnings = Vec::new();
-            let l = label::compose_label(&text, &font, text_width, align, color, &mut warnings);
-            for w in warnings {
-                self.warn(w);
+        let mut labels: Vec<(String, Option<Label>)> = Vec::new();
+        let mut boxes: Vec<(String, BoxSize)> = Vec::new();
+        for (k, (part, t)) in texts.iter().enumerate() {
+            let lbl = if shape == "coordinate" || t.is_empty() {
+                None
+            } else {
+                let mut warnings = Vec::new();
+                let l = label::compose_label(t, &font, text_width, align, color, &mut warnings);
+                for w in warnings {
+                    self.warn(w);
+                }
+                Some(l)
+            };
+            let (mut wd, mut ht, mut dp) = match &lbl {
+                Some(l) => (text_width.unwrap_or_else(|| l.width()), l.height(), l.depth()),
+                None => (0.0, 0.0, 0.0),
+            };
+            // text height and text depth replace the box's
+            for (key, target) in [("/tikz/text height", &mut ht), ("/tikz/text depth", &mut dp)] {
+                let v = self.key_text(key);
+                if !v.trim().is_empty() {
+                    *target = self.length(&v)?;
+                }
             }
-            Some(l)
-        };
-        let (mut wd, mut ht, mut dp) = match &lbl {
-            Some(l) => (text_width.unwrap_or_else(|| l.width()), l.height(), l.depth()),
-            None => (0.0, 0.0, 0.0),
-        };
-        // text height and text depth replace the box's
-        for (key, target) in [("/tikz/text height", &mut ht), ("/tikz/text depth", &mut dp)] {
-            let v = self.key_text(key);
-            if !v.trim().is_empty() {
-                *target = self.length(&v)?;
+            if let (0, Some((w, h))) = (k, self.st.node.fit) {
+                // fit: the box is the fitted area, centered on the baseline
+                (wd, ht, dp) = (w, h / 2.0, h / 2.0);
             }
-        }
-        if let Some((w, h)) = self.st.node.fit {
-            // fit: the box is the fitted area, centered on the baseline
-            (wd, ht, dp) = (w, h / 2.0, h / 2.0);
+            boxes.push((part.clone(), BoxSize { wd, ht, dp }));
+            labels.push((part.clone(), lbl));
         }
         let xsep = self.key_length("/pgf/inner xsep", 0.3333 * 0.3515);
         let ysep = self.key_length("/pgf/inner ysep", 0.3333 * 0.3515);
@@ -337,21 +309,26 @@ impl Engine {
         let ox = self.key_length("/pgf/outer xsep", 0.5 * self.st.line_width);
         let oy = self.key_length("/pgf/outer ysep", 0.5 * self.st.line_width);
         let aspect = self.key_text("/pgf/aspect").trim().parse::<f64>().ok().filter(|a| *a > 0.0).unwrap_or(1.0);
-        let c = Point::new(wd / 2.0, (ht - dp) / 2.0);
-        let (xa, ya) = (wd / 2.0 + xsep, (ht + dp) / 2.0 + ysep);
-        let half = match shape {
-            ShapeKind::Coordinate => (0.0, 0.0),
-            ShapeKind::Rectangle => (xa.max(min_w / 2.0), ya.max(min_h / 2.0)),
-            ShapeKind::Circle => {
-                let r = xa.hypot(ya).max(min_w.max(min_h) / 2.0);
-                (r, r)
-            }
-            ShapeKind::Ellipse => ((xa * std::f64::consts::SQRT_2).max(min_w / 2.0), (ya * std::f64::consts::SQRT_2).max(min_h / 2.0)),
-            ShapeKind::Diamond => ((xa + ya * aspect).max(min_w / 2.0), (ya + xa / aspect).max(min_h / 2.0)),
-        };
-        let outer = if shape == ShapeKind::Coordinate { (0.0, 0.0) } else { (ox, oy) };
         let ex = 0.43 * self.st.font_size * PT;
-        let mut info = NodeInfo { shape, c, half, outer, mid_y: 0.5 * ex, text_width: wd, aspect, transform: Transform::default() };
+        let line_width = self.st.line_width;
+        let geometry = {
+            let mut keys = EngineKeys(self);
+            let mut input = shapes::Input {
+                parts: &boxes,
+                inner_xsep: xsep,
+                inner_ysep: ysep,
+                minimum_width: min_w,
+                minimum_height: min_h,
+                outer_xsep: ox,
+                outer_ysep: oy,
+                aspect,
+                ex,
+                line_width,
+                keys: &mut keys,
+            };
+            shapes::compute(&shape, &mut input).expect("a known shape")
+        };
+        let mut info = NodeInfo { shape: shape.clone(), geometry: Rc::new(geometry), transform: Transform::default() };
 
         // where: `at`, positioning, the path's point or a point along its last segment
         let pos = self.st.node.pos.or(spec.default_pos);
@@ -368,7 +345,7 @@ impl Engine {
         let anchor = anchor.trim();
         let a_local = info.anchor_local(anchor).unwrap_or_else(|| {
             self.warn(format!("unknown anchor '{anchor}': center used"));
-            info.c
+            info.geometry.center
         });
         // the picture's transformation keeps only its translation, unless transform shape
         let mut linear = Transform::default();
@@ -382,50 +359,13 @@ impl Engine {
         }
         let t = Transform::translation(target.x, target.y).compose(&linear).compose(&self.st.pending).compose(&Transform::translation(-a_local.x, -a_local.y));
         info.transform = t;
-        let center = info.center();
-        if !(center.x.is_finite() && center.y.is_finite() && center.x.abs() <= super::path::MAX_COORDINATE && center.y.abs() <= super::path::MAX_COORDINATE)
-            || !(half.0.is_finite() && half.1.is_finite() && half.0 <= super::path::MAX_COORDINATE && half.1 <= super::path::MAX_COORDINATE)
-        {
-            self.warn(format!("node '{text}': position or size is not finite or beyond ±{} cm: ignored", super::path::MAX_COORDINATE));
+        let limit = super::path::MAX_COORDINATE;
+        let fine = |p: Point| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= limit && p.y.abs() <= limit;
+        if !fine(info.center()) || !info.geometry.anchors.iter().all(|(_, p)| fine(t.apply(*p))) {
+            self.warn(format!("node '{text}': position or size is not finite or beyond ±{limit} cm: ignored"));
             return Ok(Vec::new());
         }
-
-        let mut items = Vec::new();
-        if shape != ShapeKind::Coordinate {
-            // the bounding box: the shape's anchors, as pgf protocols them
-            for a in ["north east", "south west", "north west", "south east"] {
-                if let Some(p) = info.anchor(a) {
-                    self.canvas.include(p);
-                }
-            }
-            let bg = transform_segments(&info.background(self.st.rounded), &t);
-            // and the background path, control points included, as \pgfusepath protocols it
-            self.canvas.include_path(&bg);
-            let fill = if self.st.mode.fill {
-                Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
-            } else if self.st.mode.pattern {
-                Some(Fill {
-                    paint: Paint::Pattern { name: self.st.pattern_name.clone().unwrap_or_default(), color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK) },
-                    opacity: self.st.fill_opacity,
-                    even_odd: false,
-                })
-            } else {
-                None
-            };
-            let stroke = self.st.mode.draw.then(|| self.stroke());
-            if fill.is_some() || stroke.is_some() {
-                items.push(Item::Path { segments: bg, fill, stroke });
-            }
-            if let Some(l) = lbl {
-                let offset = match (text_width, l.align) {
-                    (Some(tw), 'c') => (tw - l.width()) / 2.0,
-                    (Some(tw), 'r') => tw - l.width(),
-                    _ => 0.0,
-                };
-                let place = t.compose(&Transform::translation(offset, 0.0));
-                items.push(Item::Text { label: l, place, opacity: self.st.text_opacity });
-            }
-        }
+        let mut items = self.draw_shape(&info, labels, text_width);
         if let Some(n) = &name {
             self.tex.define_string("tikzlastnode", n, true);
             self.nodes.insert(n.clone(), info.clone());
@@ -436,6 +376,66 @@ impl Engine {
             items.extend(self.label(&info, spec_tokens, pin)?);
         }
         Ok(items)
+    }
+
+    /// What a node draws, in pgf's order: behind the background, the background (as the node's
+    /// options say), before it, the texts of the parts, behind the foreground, the foreground and
+    /// before it. Every path counts in the bounding box, as pgf protocols paths when they are made.
+    fn draw_shape(&mut self, info: &NodeInfo, labels: Vec<(String, Option<Label>)>, text_width: Option<f64>) -> Vec<Item> {
+        let t = info.transform;
+        let g = info.geometry.clone();
+        let mut items = Vec::new();
+        let node_fill = if self.st.mode.fill {
+            Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
+        } else if self.st.mode.pattern {
+            Some(Fill {
+                paint: Paint::Pattern { name: self.st.pattern_name.clone().unwrap_or_default(), color: self.st.pattern_color.unwrap_or(crate::color::Color::BLACK) },
+                opacity: self.st.fill_opacity,
+                even_odd: false,
+            })
+        } else {
+            None
+        };
+        let node_stroke = self.st.mode.draw.then(|| self.stroke());
+        let layer_items = |e: &mut Engine, layers: &[Layer], items: &mut Vec<Item>| {
+            for p in g.paths.iter().filter(|p| layers.contains(&p.layer)) {
+                let mut segs = p.segments.clone();
+                if p.layer == Layer::Background && g.roundable && e.st.rounded > 0.0 {
+                    segs = super::output::round_corners(&segs, e.st.rounded);
+                }
+                let segs = transform_segments(&segs, &t);
+                let (fill, stroke) = match &p.usage {
+                    Usage::Node => (node_fill.clone(), node_stroke.clone()),
+                    Usage::Fill(c) => {
+                        let color = e.color(c).unwrap_or(crate::color::Color::WHITE);
+                        (Some(Fill { paint: Paint::Solid(color), opacity: e.st.fill_opacity, even_odd: false }), None)
+                    }
+                };
+                if !e.canvas_frozen {
+                    e.canvas.include_path(&segs);
+                    if let Some(s) = &stroke {
+                        // \pgfusepath adds half the line width around a stroked path
+                        e.canvas.include_path_margin(&segs, s.width / 2.0);
+                    }
+                }
+                if fill.is_some() || stroke.is_some() {
+                    items.push(Item::Path { segments: segs, fill, stroke });
+                }
+            }
+        };
+        layer_items(self, &[Layer::BehindBackground, Layer::Background, Layer::BeforeBackground], &mut items);
+        for (part, lbl) in labels {
+            let (Some(l), Some(origin)) = (lbl, g.parts.iter().find(|(n, _)| *n == part).map(|(_, p)| *p)) else { continue };
+            let offset = match (text_width, l.align) {
+                (Some(tw), 'c') => (tw - l.width()) / 2.0,
+                (Some(tw), 'r') => tw - l.width(),
+                _ => 0.0,
+            };
+            let place = t.compose(&Transform::translation(origin.x + offset, origin.y));
+            items.push(Item::Text { label: l, place, opacity: self.st.text_opacity });
+        }
+        layer_items(self, &[Layer::BehindForeground, Layer::Foreground, Layer::BeforeForeground], &mut items);
+        items
     }
 
     /// `label=[options]angle:text`, `pin=…`: another node next to this one.

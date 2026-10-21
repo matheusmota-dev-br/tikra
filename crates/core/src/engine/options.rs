@@ -1490,7 +1490,7 @@ pub fn define_keys(e: &mut Engine) {
     e.st.key_path = "/tikz".into();
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
-    lexer.push_text(DEFINITIONS);
+    lexer.push_text(&format!("{DEFINITIONS}{}", super::shapes::DEFINITIONS));
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

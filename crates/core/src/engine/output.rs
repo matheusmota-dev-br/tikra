@@ -36,6 +36,10 @@ impl Engine {
             self.canvas_frozen = true;
         } else if !self.canvas_frozen {
             self.canvas.include_path(&segs);
+            if mode.draw {
+                // \pgfusepath adds half the line width around a stroked path
+                self.canvas.include_path_margin(&segs, self.st.line_width / 2.0);
+            }
         }
         let drawn = segs.iter().any(|s| !matches!(s, Segment::MoveTo(_)));
         let fill = if mode.fill || mode.pattern || mode.shade {
@@ -253,7 +257,7 @@ fn decorate(segs: &[Segment], kind: &str, amp: f64, len_step: f64, mut warn: imp
 }
 
 /// Rounded corners between straight segments.
-fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
+pub(super) fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
     let mut points: Vec<Vec<Point>> = Vec::new();
     let mut closed: Vec<bool> = Vec::new();
     for s in segs {

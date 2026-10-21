@@ -10,6 +10,7 @@ pub mod nodes;
 pub mod options;
 pub mod output;
 pub mod path;
+pub mod shapes;
 pub mod state;
 
 use std::collections::HashMap;
