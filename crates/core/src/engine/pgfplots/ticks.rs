@@ -32,6 +32,18 @@ fn order(v: f64) -> i32 {
 /// The distance of `n` ticks over [min, max] as TeX computes it: the limits in the data scale
 /// transformation `T(x) = 10^E x - shift` as dimensions, `\divide` (truncating), back to data units.
 fn tex_distance(min: f64, max: f64, n: usize, (dmin, dmax, size): (f64, f64, f64)) -> f64 {
+    let f = data_scale(dmin, dmax, size);
+    let shift = dmin * f;
+    let sp = |v: f64| (v * 65536.0).round();
+    let lo = sp(min * f - shift);
+    let hi = sp(max * f - shift) + sp(0.001);
+    let h_sp = ((hi - lo).abs() / (n.max(2) - 1) as f64).trunc();
+    h_sp / 65536.0 / f
+}
+
+/// The factor `10^E` of the data scale transformation for a data range and a size in pt
+/// (`\pgfplots@set@optimal@datatrafo@for@`).
+pub fn data_scale(dmin: f64, dmax: f64, size: f64) -> f64 {
     let m = match (dmin == 0.0, dmax == 0.0) {
         (true, true) => 1,
         (true, false) => order(dmax),
@@ -49,13 +61,7 @@ fn tex_distance(min: f64, max: f64, n: usize, (dmin, dmax, size): (f64, f64, f64
             break;
         }
     }
-    let f = 10f64.powi(exp);
-    let shift = dmin * f;
-    let sp = |v: f64| (v * 65536.0).round();
-    let lo = sp(min * f - shift);
-    let hi = sp(max * f - shift) + sp(0.001);
-    let h_sp = ((hi - lo).abs() / (n.max(2) - 1) as f64).trunc();
-    h_sp / 65536.0 / f
+    10f64.powi(exp)
 }
 
 /// Snaps a tick distance to 1, 2 or 5 times a power of ten

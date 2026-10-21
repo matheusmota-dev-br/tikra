@@ -4,11 +4,14 @@
 //! the order they came, with the TikZ statements among them), the descriptions and the legend
 //! are drawn ([`draw`]).
 
+pub mod attime;
 pub mod boxplot;
 pub mod colorbar;
 pub mod colormap;
+pub mod contour;
 pub mod cube;
 pub mod draw;
+pub mod fillbetween;
 pub mod group;
 pub mod keys;
 pub mod legend;
@@ -17,7 +20,10 @@ pub mod mesh;
 pub mod number;
 pub mod plot;
 pub mod polar;
+pub mod smith;
+pub mod symbolic;
 pub mod table;
+pub mod ternary;
 pub mod ticks;
 pub mod visual;
 
@@ -77,6 +83,7 @@ enum C {
     Nextgroupplot,
     Closedcycle,
     Pgfplotsinvokeforeach,
+    Pgfplotstableread,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -89,6 +96,7 @@ const COMMANDS: &[(&str, C)] = &[
     ("nextgroupplot", C::Nextgroupplot),
     ("closedcycle", C::Closedcycle),
     ("pgfplotsinvokeforeach", C::Pgfplotsinvokeforeach),
+    ("pgfplotstableread", C::Pgfplotstableread),
 ];
 
 /// The environments that are axes.
@@ -122,9 +130,6 @@ impl Engine {
 
     /// An axis with these options (`\nextgroupplot` makes them).
     pub fn begin_axis_with(&mut self, kind: &str, o: Vec<Token>) -> Result<(), Error> {
-        if matches!(kind, "smithchart" | "ternaryaxis") {
-            self.warn(format!("{kind} not supported: drawn as a cartesian axis"));
-        }
         if self.axis.is_some() {
             self.warn("nested axis environments are not supported (pgfplots refuses them too): the inner one is drawn on its own");
         }
@@ -136,6 +141,11 @@ impl Engine {
         let mut axis = Axis { kind: kind.to_string(), opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
             "polaraxis" => "enlarge x limits=false,every polar axis",
+            "smithchart" => "every smithchart axis",
+            "ternaryaxis" => {
+                "enlargelimits=false,xmin=0,xmax=1,ymin=0,ymax=1,zmin=0,zmax=1,\
+                 footnotesize/.append style={every axis title shift=15pt},tiny/.append style={every axis title shift=15pt},every ternary axis"
+            }
             "semilogxaxis" => "every semilogx axis,xmode=log",
             "semilogyaxis" => "every semilogy axis,ymode=log",
             "loglogaxis" => "every loglog axis,xmode=log,ymode=log",
@@ -156,6 +166,33 @@ impl Engine {
         };
         keys::set(self, "/pgfplots/@axis type", if kind == "polaraxis" { "polar" } else { "cart" });
         self.process_keys(o, Some("/pgfplots")).map_err(|err| Error::Figure(format!("axis options: {err}")))?;
+        if kind == "smithchart" {
+            // the ticks by size, unless given
+            let width = keys::length(self, "/pgfplots/width").unwrap_or(207.0 * crate::PT);
+            keys::run(self, smith::size_style(width))?;
+            let given = [keys::value(self, "/pgfplots/xtick").is_empty(), keys::value(self, "/pgfplots/ytick").is_empty()];
+            if given[0] {
+                keys::run(self, "default smithchart xtick")?;
+            }
+            if given[1] {
+                keys::run(self, "default smithchart ytick")?;
+            }
+            if given[0] && given[1] {
+                keys::run(self, "default smithchart xytick")?;
+            }
+            keys::set(self, "/pgfplots/is smithchart cs", "false");
+        }
+        if kind == "ternaryaxis" {
+            // percentages: whole numbers, never scaled
+            if keys::flag(self, "/pgfplots/ternary limits relative") {
+                keys::run(self, "scaled ticks=false,ticklabel style={/pgf/number format/precision=0}")?;
+            }
+            for c in ['x', 'y', 'z'] {
+                if keys::value(self, &format!("/pgfplots/{c} dir")) == "reverse" {
+                    self.warn(format!("ternaryaxis: '{c} dir=reverse' not supported: drawn forward"));
+                }
+            }
+        }
         self.st.key_path = saved;
         axis.numplots = 0;
         if let Some(code) = keys::value_tokens(self, "/pgfplots/execute at begin axis") {
@@ -191,7 +228,7 @@ impl Engine {
     /// pgfplots' commands.
     pub fn pgfplots_command(&mut self, id: u16) -> Result<(), Error> {
         let cmd = COMMANDS[(id - BASE) as usize].1;
-        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot) {
+        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread) {
             let rest = self.skip_statement()?;
             let name = COMMANDS[(id - BASE) as usize].0;
             self.warn(format!("\\{name} outside an axis: '{}' ignored", rest.chars().take(30).collect::<String>().trim()));
@@ -245,6 +282,7 @@ impl Engine {
             }
             C::Nextgroupplot => self.next_group_plot(),
             C::Closedcycle => Ok(()),
+            C::Pgfplotstableread => plot::table_read(self),
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}
                 let list = self.argument()?;

@@ -122,6 +122,7 @@ pub enum Cmd {
     Documentclass,
     Ignore1,
     Ignore2,
+    Hspace,
     FontSize,
     FontSeries,
     Unsupported,
@@ -228,7 +229,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("documentclass", Cmd::Documentclass),
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
-    ("hspace", Cmd::Ignore1),
+    ("hspace", Cmd::Hspace),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
     ("pgfsetlayers", Cmd::SetLayers),
@@ -412,7 +413,7 @@ enum Layout {
     /// a word of the text around the pictures (in `words`)
     Word(usize),
     Space,
-    /// `\quad`, `\qquad`: glue of that width (cm)
+    /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
     Skip(f64),
     Par,
 }
@@ -695,8 +696,8 @@ impl Engine {
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {
             // a space after a picture or a word is TeX's interword space; spaces with commands
-            // between them (`\tikzset{…}` on its own line) are glue each
-            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_) | Layout::Space)) {
+            // between them (`\tikzset{…}` on its own line) are glue each, so is one after `\hspace{…}`
+            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_) | Layout::Space | Layout::Skip(_))) {
                 self.layout.push(Layout::Space);
             }
             return;
@@ -1274,6 +1275,20 @@ impl Engine {
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
+                Ok(())
+            }
+            // `\hspace{1cm}` (or `\hspace*`) between pictures: the space TeX leaves there
+            Cmd::Hspace => {
+                match self.tex.next_nonspace() {
+                    Some(t) if t.is_char('*') => {}
+                    Some(t) => self.tex.back(t),
+                    None => {}
+                }
+                let arg = self.argument()?;
+                if self.picture_depth == 0 {
+                    let w = self.length_of(arg)?;
+                    self.layout.push(Layout::Skip(w));
+                }
                 Ok(())
             }
             Cmd::Ignore2 => {

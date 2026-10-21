@@ -44,7 +44,6 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         entries.reverse();
         images.reverse();
     }
-    let columns = keys::number(e, "/pgfplots/legend columns").unwrap_or(1.0) as i64;
     let plot_pos = keys::value(e, "/pgfplots/legend plot pos");
     e.begin_group();
     let r = (|| -> Result<(), Error> {
@@ -52,6 +51,8 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         e.st.pending = Transform::default();
         e.st.node = Default::default();
         e.process_keys(toks("/pgfplots/every axis legend"), Some("/tikz"))?;
+        // `legend style={legend columns=-1}` is set by the style
+        let columns = keys::number(e, "/pgfplots/legend columns").unwrap_or(1.0) as i64;
         let at = e.st.node.at.unwrap_or_else(|| f.desc(0.98, 0.98));
         let anchor = keys::value(e, "/tikz/anchor");
         let xsep = keys::length(e, "/pgf/inner xsep").unwrap_or(3.0 * PT);

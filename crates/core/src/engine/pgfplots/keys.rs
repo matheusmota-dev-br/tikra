@@ -343,7 +343,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/every non boxed y axis/.style={ytick align=center,enlarge y limits=false,y axis line style={-stealth}},
 	/pgfplots/every non boxed z axis/.style={ztick align=center,enlarge z limits=false,z axis line style={-stealth}},
 	/pgfplots/every boxed x axis/.style={}, /pgfplots/every boxed y axis/.style={}, /pgfplots/every boxed z axis/.style={},
-	/pgfplots/axis x line shift/.initial=, /pgfplots/axis y line shift/.initial=,
+	/pgfplots/axis x line shift/.initial=, /pgfplots/axis y line shift/.initial=, /pgfplots/axis z line shift/.initial=,
 	/pgfplots/axis line shift/.style={/pgfplots/axis x line shift={#1},/pgfplots/axis y line shift={#1},/pgfplots/axis z line shift={#1}},
 	/pgfplots/@x line/.initial=box, /pgfplots/@y line/.initial=box, /pgfplots/@z line/.initial=box,
 	/pgfplots/axis lines/.style={axis x line=#1,axis y line=#1,axis z line=#1},
@@ -429,6 +429,23 @@ const DEFINITIONS: &str = r"
 	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
 	/pgfplots/ybar interval/.default=1,
+	/pgfplots/contour/draw color/.initial=mapped color, /pgfplots/contour/fill color/.initial=mapped color,
+	/pgfplots/contour/label distance/.initial=70pt,
+	/pgfplots/contour/labels/.initial=true, /pgfplots/contour/labels/.default=true,
+	/pgfplots/contour/filled/.initial=false, /pgfplots/contour/filled/.default=true,
+	/pgfplots/contour/number/.initial=5, /pgfplots/contour/levels/.initial=,
+	/pgfplots/contour/levels from colormap/.initial=,
+	/pgfplots/contour/every filled contour plot/.style={/pgfplots/area legend},
+	/pgfplots/contour/every contour plot/.style={},
+	/pgfplots/contour/every contour label/.style={inner sep=2pt, font=\scriptsize,
+		every node/.style={mapped color!50!black, fill=white},
+		/pgf/number format/relative*={\pgfplotspointmetarangeexponent}},
+	/pgfplots/contour/labels over line/.style={/pgfplots/contour/every contour label/.append style={
+		every node/.append style={fill=none, anchor=base, yshift=1pt}}},
+	/pgfplots/contour/contour label style/.style={/pgfplots/contour/every contour label/.append style={#1}},
+	/pgfplots/@contour format/.initial=standard,
+	/pgfplots/contour prepared format/.code={\pgfkeyssetvalue{/pgfplots/@contour format}{#1}},
+	/pgfplots/contour prepared filled/.style={/pgfplots/contour prepared={draw color=mapped color!80!black, labels=false, filled}},
 	/pgfplots/@quiver/.initial=false,
 	/pgfplots/quiver/u/.initial=, /pgfplots/quiver/v/.initial=, /pgfplots/quiver/w/.initial=,
 	/pgfplots/quiver/scale arrows/.initial=1, /pgfplots/quiver/every arrow/.style={},
@@ -529,7 +546,6 @@ const DEFINITIONS: &str = r"
 	/pgfplots/table/comment chars/.initial=,
 	/pgfplots/table/@search path/.initial=., /pgfplots/table/search path/.code={\pgfkeyssetvalue{/pgfplots/table/@search path}{#1}},
 	/pgfplots/table/trim cells/.initial=false,
-	/pgfplots/table/.unknown/.code={},
 	/pgfplots/table/x error expr/.initial=, /pgfplots/table/y error expr/.initial=,
 	/pgfplots/table/x error plus expr/.initial=, /pgfplots/table/y error plus expr/.initial=,
 	/pgfplots/table/x error minus expr/.initial=, /pgfplots/table/y error minus expr/.initial=,
@@ -578,6 +594,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/mesh/check/.initial=error,
 	/pgfplots/mesh/interior colormap name/.initial=,
 	/pgfplots/late options/.initial=,
+	/pgfplots/symbolic x coords/.initial=, /pgfplots/symbolic y coords/.initial=, /pgfplots/symbolic z coords/.initial=,
 	/pgfplots/@axis type/.initial=cart, /pgfplots/data cs/.initial=cart,
 	/pgfplots/every polar axis/.style={grid=major, xtick pos=right, ytick pos=right,
 		every axis title shift=1.2\baselineskip, legend style={anchor=center}, /pgfplots/polar labels},
@@ -587,6 +604,91 @@ const DEFINITIONS: &str = r"
 	},
 	/pgfplots/polar labels style/.style={/pgfplots/polar labels/.append style={#1}},
 	/pgfplots/xticklabel in circle/.style={xtick align=inside, xticklabel style={rotate=90, anchor=south west}},
+	% ternary axes: limits and labels relative to the ranges (in percent) unless turned off
+	/pgfplots/ternary limits relative/.initial=true, /pgfplots/ternary limits relative/.default=true,
+	/pgfplots/ternary relative limits/.style={/pgfplots/ternary limits relative={#1}},
+	/pgfplots/ternary start x/.initial=, /pgfplots/ternary start y/.initial=, /pgfplots/ternary start z/.initial=,
+	/pgfplots/every ternary axis/.style={
+		grid=major, /pgfplots/tick align=outside, xticklabel style={anchor=west},
+		/pgfplots/every 3d description/.style={},
+		every axis title shift=15pt,
+		every axis x label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+		every axis y label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+		every axis z label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+		every x tick scale label/.style={inner sep=0pt, anchor=near xticklabel, at={(xticklabel cs:0.95,5pt)}},
+		every y tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
+		every z tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
+		every axis legend/.style={shape=rectangle, draw=black, fill=white, anchor=north west, at={(1.03,1.03)},
+			cells={anchor=center}, inner xsep=3pt, inner ysep=2pt, nodes={inner sep=2pt, text depth=0.15em}},
+	},
+	% smith charts: where grid lines stop, the input's plane, the ring at the center
+	/pgfplots/xgrid each nth passes y/.initial=, /pgfplots/xgrid each nth passes y start/.initial=0,
+	/pgfplots/ygrid each nth passes x/.initial=, /pgfplots/ygrid each nth passes x start/.initial=0,
+	/pgfplots/xgrid stop at y/.initial=, /pgfplots/ygrid stop at x/.initial=,
+	/pgfplots/smithchart mirrored/.initial=false, /pgfplots/smithchart mirrored/.default=true,
+	/pgfplots/is smithchart cs/.initial=false, /pgfplots/is smithchart cs/.default=true,
+	/pgfplots/show origin/.initial=false, /pgfplots/show origin/.default=true,
+	/pgfplots/every smithchart axis/.style={
+		xmin=0, xmax=16000, ymin=-16000, ymax=16000, grid=both, scaled ticks=false,
+		xtick align=center, ytick align=center, major tick style={draw=black},
+		legend style={anchor=center}, every axis title shift=1.2\baselineskip,
+	},
+	% the ticks by the chart's size: few below 14cm, many below 20cm, dense beyond
+	/pgfplots/default smithchart xtick/.style={}, /pgfplots/default smithchart ytick/.style={},
+	/pgfplots/default smithchart xytick/.style={},
+	/pgfplots/few smithchart ticks*/.style={
+		default smithchart xtick/.style={xtick={0.2,0.5,1,2,5}},
+		default smithchart ytick/.style={ytick={0,0.2,0.5,1,2,5,-0.2,-0.5,-1,-2,-5}},
+		default smithchart xytick/.style={xgrid each nth passes y={2}, ygrid each nth passes x={2}},
+	},
+	/pgfplots/few smithchart ticks/.style={/pgfplots/few smithchart ticks*},
+	/pgfplots/many smithchart ticks*/.style={
+		default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,1,1.5,2,3,4,5,10,20},
+			minor xtick={0.6,0.7,0.8,0.9,1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
+		default smithchart ytick/.style={
+			ytick={0,0.1,0.2,...,1,1.5,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.5,-2,-3,-4,-5,-10,-20},
+			minor ytick={1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
+				-1.1,-1.2,-1.3,-1.4,-1.6,-1.7,-1.8,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
+		default smithchart xytick/.style={xgrid each nth passes y={1,2,4,5,10,20}, ygrid each nth passes x={1,2,3,5,10:3,20:3}},
+	},
+	/pgfplots/many smithchart ticks/.style={many smithchart ticks*, every axis title shift=6pt, yticklabel in circle, show origin=true},
+	/pgfplots/dense smithchart ticks*/.style={
+		default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20},
+			minor xtick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
+				0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.52,0.55,0.65,0.75,0.85,0.95,
+				1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
+		default smithchart ytick/.style={
+			ytick={0,0.1,0.2,...,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.2,-1.4,-1.6,-1.8,-2,-3,-4,-5,-10,-20},
+			minor ytick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
+				0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.55,0.65,0.75,0.85,0.95,
+				1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
+				-0.01,-0.02,-0.03,-0.04,-0.05,-0.06,-0.07,-0.08,-0.09,-0.11,-0.12,-0.13,-0.14,-0.15,-0.16,-0.17,-0.18,-0.19,
+				-0.22,-0.24,-0.26,-0.28,-0.32,-0.34,-0.36,-0.38,-0.42,-0.44,-0.46,-0.48,-0.55,-0.65,-0.75,-0.85,-0.95,
+				-1.1,-1.3,-1.5,-1.7,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
+		default smithchart xytick/.style={
+			xgrid each nth passes y={0.2 if < 0.2001,0.5 if < 0.50001,1 if < 1.001,2,4,5,10,20},
+			ygrid each nth passes x={0.2 if < 0.2001,0.52 if < 0.52001,1 if < 1.001,2,3,5,10:3,20:3}},
+	},
+	/pgfplots/dense smithchart ticks/.style={yticklabel in circle, every axis title shift=6pt,
+		dense smithchart ticks*, show origin=true, every major grid/.style={black!60}},
+	% y tick labels along the circle, inside or around it
+	/pgfplots/yticklabel in circle/.style={ytick align=inside, yticklabel style={rotate=90,
+		sloped like y axis={execute for upside down={\tikzset{anchor=north east}}, reset nontranslations=false}, anchor=south west}},
+	/pgfplots/yticklabel around circle/.style={ytick align=center, yticklabel style={rotate=90,
+		sloped like y axis={execute for upside down={\tikzset{anchor=south west}}, reset nontranslations=false}, anchor=south east}},
+	/pgfplots/yticklabel around circle*/.style={ytick align=center, yticklabel style={rotate=90,
+		sloped like y axis={execute for upside down={\tikzset{anchor=north west}}, reset nontranslations=false}, anchor=north east}},
+	% fill between: the styles of its segments
+	/tikz/fill between/every segment/.style={}, /tikz/fill between/every last segment/.style={},
+	/tikz/fill between/every odd segment/.style={}, /tikz/fill between/every even segment/.style={},
+	/tikz/fill between/.search also={/pgfplots,/tikz},
+	% tieline plots: each table row has a point and its tie's other end
+	/pgfplots/tieline/every tieline/.style={}, /pgfplots/tieline/every curve/.style={},
+	/pgfplots/tieline/tieline style/.style={/pgfplots/tieline/every tieline/.append style={#1}},
+	/pgfplots/tieline/curve style/.style={/pgfplots/tieline/every curve/.append style={#1}},
+	/pgfplots/tieline/each nth tie/.initial=,
+	/pgfplots/table/tie end x/.initial=, /pgfplots/table/tie end y/.initial=, /pgfplots/table/tie end z/.initial=,
+	/pgfplots/table/tie end x index/.initial=, /pgfplots/table/tie end y index/.initial=, /pgfplots/table/tie end z index/.initial=,
 	/pgfplots/polar comb/.code={\pgfkeyssetvalue{/tikz/@plot handler}{polar comb}},
 	/pgfplots/matrix plot/.style={/pgfplots/late options={/pgfplots/y dir=reverse,/pgfplots/axis on top},/pgfplots/matrix plot*},
 	/pgfplots/matrix plot*/.style={/pgfplots/surf,/pgfplots/mesh input=image,/pgfplots/shader=flat corner,/pgfplots/z buffer=none},
@@ -728,6 +830,19 @@ pub fn run(e: &mut Engine, list: &str) -> Result<(), Error> {
 pub fn compat(e: &Engine) -> u32 {
     keys::value(&e.tex, "/pgfplots/@compat").map(|v| tex::tokens_to_string(&v)).and_then(|s| s.trim().parse().ok()).unwrap_or(0)
 }
+
+// `/pgfplots/table/.unknown`: a key of `table[…]` that is not the table's is the plot's
+// (`\pgfplots@addplotimpl@table@installkeypath`), `table[point meta=…]` for one.
+keyfn!(k_table_unknown, |e, v| {
+    let name = match e.tex.meaning_of("pgfkeyscurrentname") {
+        Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
+        _ => String::new(),
+    };
+    let saved = e.st.key_path.clone();
+    let r = e.invoke(&format!("/pgfplots/{name}"), v);
+    e.st.key_path = saved;
+    r
+});
 
 // `/pgfplots/.unknown`: a key pgfplots does not know is a TikZ key (`.search also=/tikz`).
 keyfn!(k_unknown, |e, v| {
@@ -929,6 +1044,77 @@ keyfn!(k_colormap_color, |e, v| {
     e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
 });
 
+// `contour prepared={…}`: the contour handler, its keys in /pgfplots/contour.
+keyfn!(k_contour_prepared, |e, v| {
+    set(e, "/tikz/@plot handler", "contour prepared");
+    let saved = e.st.key_path.clone();
+    let mut list = super::toks("every contour plot,");
+    list.extend(v.unwrap_or_default());
+    let r = e.process_keys(list, Some("/pgfplots/contour"));
+    e.st.key_path = saved;
+    r
+});
+
+// `contour filled={…}`: a mesh drawn in bands of the levels, its keys in /pgfplots/contour.
+keyfn!(k_contour_filled, |e, v| {
+    run(e, "/pgfplots/surf")?;
+    set(e, "/tikz/@plot handler", "contour filled");
+    let saved = e.st.key_path.clone();
+    let mut list = super::toks("every filled contour plot,");
+    list.extend(v.unwrap_or_default());
+    let r = e.process_keys(list, Some("/pgfplots/contour"));
+    e.st.key_path = saved;
+    r
+});
+
+// `sloped like x axis`: the node turned to the axis' direction on paper, never upside down; it
+// replaces rotations given before (`\pgfplotstransformtoaxisdirection`).
+// Its options: `execute for upside down={…}` (kept for after the node's other options, as
+// pgfplots runs it when the node is placed), `allow upside down`, `reset nontranslations=false`.
+fn sloped_like(e: &mut Engine, a: usize, v: Option<Vec<Token>>) -> Result<(), Error> {
+    let Some(f) = e.frame.clone() else { return Ok(()) };
+    let (code, allow, reset) = super::smith::sloped_options(&v.unwrap_or_default());
+    // the direction at the tick being labelled (a smith chart's circle), else the axis'
+    let d = f.slope.get().unwrap_or_else(|| f.e[a].scale(if f.max[a] < f.min[a] { -1.0 } else { 1.0 }));
+    if d.norm() < 1e-12 {
+        return Ok(());
+    }
+    let mut d = d;
+    if d.x < 0.0 {
+        if let Some(code) = code {
+            // `\tikzset{anchor=…}`: its keys
+            let t = crate::keys::trim(&code).to_vec();
+            let keys = match t.split_first() {
+                Some((first, rest)) if first.is_cs("tikzset") => crate::tex::strip_outer_braces(crate::keys::trim(rest).to_vec()),
+                _ => t,
+            };
+            f.upside_down.replace(Some(keys));
+        }
+        if !allow {
+            d = d.scale(-1.0);
+        }
+    }
+    let p = e.st.pending;
+    let base = if reset { crate::scene::Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, ..p } } else { p };
+    e.st.pending = base.compose(&crate::scene::Transform::rotation(d.y.atan2(d.x).to_degrees()));
+    Ok(())
+}
+keyfn!(k_sloped_x, |e, v| sloped_like(e, 0, v));
+keyfn!(k_sloped_y, |e, v| sloped_like(e, 1, v));
+keyfn!(k_sloped_z, |e, v| sloped_like(e, 2, v));
+
+// `intersection segments={of=A and B, sequence=…}` (the fillbetween library)
+keyfn!(k_intersection_segments, |e, v| super::fillbetween::intersection_segments(e, v));
+
+// `tieline={…}`: the curve through the ties' ends, and the ties.
+keyfn!(k_tieline, |e, v| {
+    set(e, "/tikz/@plot handler", "tieline");
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/tieline"));
+    e.st.key_path = saved;
+    r
+});
+
 // `quiver={u=…, v=…}`: arrows from each point by (u, v, w).
 keyfn!(k_quiver, |e, v| {
     set(e, "/pgfplots/@quiver", "true");
@@ -1049,6 +1235,7 @@ keyfn!(k_nf, |e, v| {
 
 const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/.unknown", k_unknown),
+    ("/pgfplots/table/.unknown", k_table_unknown),
     ("/pgfplots/compat", k_compat),
     ("/pgfplots/mesh", k_mesh),
     ("/pgfplots/surf", k_mesh),
@@ -1064,6 +1251,13 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/group style", k_group_style),
     ("/pgfplots/hist", k_hist),
     ("/pgfplots/quiver", k_quiver),
+    ("/pgfplots/tieline", k_tieline),
+    ("/tikz/intersection segments", k_intersection_segments),
+    ("/tikz/sloped like x axis", k_sloped_x),
+    ("/tikz/sloped like y axis", k_sloped_y),
+    ("/tikz/sloped like z axis", k_sloped_z),
+    ("/pgfplots/contour prepared", k_contour_prepared),
+    ("/pgfplots/contour filled", k_contour_filled),
     ("/pgfplots/boxplot", k_boxplot),
     ("/pgfplots/boxplot prepared", k_boxplot),
     ("/pgfplots/color of colormap", k_colormap_color),

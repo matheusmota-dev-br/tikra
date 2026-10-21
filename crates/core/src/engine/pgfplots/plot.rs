@@ -68,6 +68,8 @@ pub struct Plot {
     pub lattice: Option<(usize, usize)>,
     /// `fill between[of=a and b]`
     pub fill_between: Option<Vec<Token>>,
+    /// `bar shift` (or `bar shift auto`) given to the axis or the plot: stacked bars keep it.
+    pub bar_shift_given: bool,
     /// `x tick=data`: the first plot's x coordinates are kept.
     pub symbolic: bool,
     /// `mesh` (`'m'`) or `surf`/`patch` (`'s'`) plots, colored by the colormap.
@@ -287,6 +289,17 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
     plot.late = keys::value_tokens(e, "/pgfplots/late options").unwrap_or_default();
     plot.scatter = keys::flag(e, "/pgfplots/scatter");
     plot.handler = keys::value(e, "/tikz/@plot handler");
+    let axis_options = e.axis.as_ref().map(|a| tex::tokens_to_string(&a.options)).unwrap_or_default();
+    plot.bar_shift_given = axis_options.contains("bar shift");
+    // a prepared contour: its level is z in 3d, the third column (point meta=explicit) in 2d
+    if plot.handler == "contour prepared" && keys::value(e, "/pgfplots/point meta").is_empty() {
+        if three_d {
+            keys::set(e, "/pgfplots/point meta", "z");
+        } else if keys::value(e, "/pgfplots/@contour format") != "matlab" {
+            keys::set(e, "/pgfplots/table/meta index", "2");
+            keys::set(e, "/pgfplots/point meta", "explicit");
+        }
+    }
     plot.stack = match keys::value(e, "/pgfplots/stack plots").as_str() {
         "x" => Some('x'),
         "y" => Some('y'),
@@ -388,6 +401,16 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         }
     }
     data_cs(e, plot);
+    // `is smithchart cs`: the input is in the unit circle's plane
+    if e.axis.as_ref().is_some_and(|a| a.kind == "smithchart") && keys::flag(e, "/pgfplots/is smithchart cs") {
+        for c in plot.coords.iter_mut() {
+            (c.x, c.y) = super::smith::impedance(c.x, c.y);
+        }
+    }
+    if plot.handler == "contour prepared" && keys::value(e, "/pgfplots/@contour format") == "matlab" {
+        super::contour::from_matlab(plot);
+        keys::set(e, "/pgfplots/point meta", "explicit");
+    }
     if keys::flag(e, "/pgfplots/@quiver") {
         quiver_vectors(e, plot);
     }
@@ -520,6 +543,14 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
 }
 
 /// A value of `coordinates`: a number, or an expression.
+/// A coordinate of axis `c`: a name of `symbolic c coords`, or a number.
+fn axis_value(e: &mut Engine, c: char, tokens: &[Token]) -> f64 {
+    if let Some(i) = super::symbolic::index(e, c, &tex::tokens_to_string(tokens)) {
+        return i;
+    }
+    value(e, tokens)
+}
+
 fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
     let s = tex::tokens_to_string(tokens);
     if let Some(v) = table::parse_number(&s) {
@@ -532,6 +563,7 @@ fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
 /// `coordinates {(x,y) (x,y) +- (ex,ey) [meta] …}`.
 /// The points of `coordinates {…}`, and where its scanlines (ended by empty lines) end.
 fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usize>), Error> {
+    let explicit_symbolic = keys::value(e, "/pgfplots/point meta").trim() == "explicit symbolic";
     let list = e.tex.expand_fully(list)?;
     let mut out = Vec::new();
     let mut scanlines: Vec<usize> = Vec::new();
@@ -573,8 +605,8 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
                 out.push(Coord::new(f64::NAN, f64::NAN, f64::NAN));
                 continue;
             }
-            let x = parts.first().map_or(f64::NAN, |p| value(e, p));
-            let y = parts.get(1).map_or(f64::NAN, |p| value(e, p));
+            let x = parts.first().map_or(f64::NAN, |p| axis_value(e, 'x', p));
+            let y = parts.get(1).map_or(f64::NAN, |p| axis_value(e, 'y', p));
             let z = parts.get(2).map_or(0.0, |p| value(e, p));
             let mut c = Coord::new(x, y, z);
             // error bars, then [meta]
@@ -619,7 +651,10 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
                     k += 1;
                 }
                 let written = &list[start..k.min(list.len())];
-                c.meta = value(e, written);
+                // `explicit symbolic`: the text as written, never a number
+                if !explicit_symbolic {
+                    c.meta = value(e, written);
+                }
                 c.label = add_label(crate::keys::trim(written).to_vec());
                 j = k + 1;
             }
@@ -637,15 +672,29 @@ fn search_path(e: &mut Engine) -> Vec<String> {
     s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
 }
 
-/// `table[options]{file or data}`.
-fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>), Error> {
-    // newlines separate rows: read the data with end of line as a character, as pgfplots does
+thread_local! {
+    /// Tables `\pgfplotstableread` keeps, by macro name: their text and their options.
+    static READ_TABLES: std::cell::RefCell<std::collections::HashMap<String, (String, Vec<Token>)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// `[options]{file or data}` with line ends as characters (rows), and the data as text.
+fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
     let saved = (e.tex.catcode('\n'), e.tex.catcode('\r'));
     e.tex.set_catcode('\n', Cat::Other);
     e.tex.set_catcode('\r', Cat::Other);
     let r = (|| -> Result<(Option<Vec<Token>>, Vec<Token>), Error> {
+        // line ends before the options or the data are spaces still
+        let next = |e: &mut Engine| loop {
+            match e.tex.next_nonspace() {
+                Some(Token::Char('\n' | '\r', Cat::Other)) => continue,
+                t => break t,
+            }
+        };
+        if let Some(t) = next(e) {
+            e.tex.back(t);
+        }
         let opts = e.optional()?;
-        let data = match e.tex.next_nonspace() {
+        let data = match next(e) {
             Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
             Some(t) => vec![t],
             None => Vec::new(),
@@ -655,11 +704,6 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     e.tex.set_catcode('\n', saved.0);
     e.tex.set_catcode('\r', saved.1);
     let (opts, data) = r?;
-    if let Some(o) = opts {
-        let saved = e.st.key_path.clone();
-        e.process_keys(o, Some("/pgfplots/table"))?;
-        e.st.key_path = saved;
-    }
     let mut text = String::new();
     for t in &data {
         match t {
@@ -671,6 +715,48 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
                 text.push(' ');
             }
         }
+    }
+    Ok((opts, text))
+}
+
+/// `\pgfplotstableread[options]{file or data}\macro`: the table, kept for `table {\macro}`.
+pub fn table_read(e: &mut Engine) -> Result<(), Error> {
+    let (opts, text) = table_source(e)?;
+    let name = match e.tex.next_nonspace() {
+        Some(Token::Cs(n)) => n.to_string(),
+        Some(Token::Char(_, Cat::Begin)) => {
+            let body = e.tex.read_group_body()?;
+            match body.iter().find(|t| matches!(t, Token::Cs(_))) {
+                Some(Token::Cs(n)) => n.to_string(),
+                _ => String::new(),
+            }
+        }
+        _ => String::new(),
+    };
+    if name.is_empty() {
+        e.warn("\\pgfplotstableread without a macro to keep the table: ignored");
+        return Ok(());
+    }
+    READ_TABLES.with(|t| t.borrow_mut().insert(name, (text, opts.unwrap_or_default())));
+    Ok(())
+}
+
+/// `table[options]{file or data}`.
+fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>), Error> {
+    let (opts, mut text) = table_source(e)?;
+    // a table `\pgfplotstableread` kept: its options, then the plot's
+    let kept = text.trim().strip_prefix('\\').map(|n| n.trim().to_string()).and_then(|n| READ_TABLES.with(|t| t.borrow().get(&n).cloned()));
+    let mut all_opts = Vec::new();
+    if let Some((t, o)) = kept {
+        text = t;
+        all_opts.extend(o);
+        all_opts.extend(super::toks(","));
+    }
+    all_opts.extend(opts.unwrap_or_default());
+    if !all_opts.is_empty() {
+        let saved = e.st.key_path.clone();
+        e.process_keys(all_opts, Some("/pgfplots/table"))?;
+        e.st.key_path = saved;
     }
     let row_sep = keys::value(e, "/pgfplots/table/row sep");
     if row_sep.contains("\\\\") {
@@ -734,6 +820,29 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         Some(v) if tex::tokens_to_string(&v).contains("\\thisrow") => Src::Expr(v),
         _ => pick(e, "meta", None),
     };
+    // a tieline plot reads the tie's other end of each row too: `tie end x` (or its index),
+    // else the column three after x's
+    let tie: Option<[Src; 3]> = (keys::value(e, "/tikz/@plot handler") == "tieline").then(|| {
+        let mut ends = [Src::None, Src::None, Src::None];
+        for (k, c) in ["x", "y", "z"].iter().enumerate() {
+            let own = [&sx, &sy, &sz][k];
+            let name = keys::value(e, &format!("/pgfplots/table/tie end {c}"));
+            ends[k] = if !name.is_empty() {
+                Src::Col(t.column(&name))
+            } else if let Some(i) = keys::number(e, &format!("/pgfplots/table/tie end {c} index")) {
+                Src::Col(Some(i as usize))
+            } else {
+                match own {
+                    Src::Col(Some(i)) if i + 3 < t.columns() => Src::Col(Some(i + 3)),
+                    _ => Src::None,
+                }
+            };
+        }
+        ends
+    });
+    if tie.as_ref().is_some_and(|t| t.iter().any(|s| matches!(s, Src::None | Src::Col(None)))) {
+        e.warn("tieline: the tie ends' columns are not found (give 'tie end x' and its friends): ties not drawn");
+    }
     let sey = pick(e, "y error", None);
     let sex = pick(e, "x error", None);
     let seyp = pick(e, "y error plus", None);
@@ -750,8 +859,15 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
                 }
             }
         };
+        // a cell of a symbolic axis is a name
+        let sym = |e: &mut Engine, s: &Src, c: char, v: f64| match s {
+            Src::Col(Some(col)) if !v.is_finite() => t.cell(r, *col).and_then(|cell| super::symbolic::index(e, c, cell)).unwrap_or(v),
+            _ => v,
+        };
         let x = get(e, &sx);
+        let x = sym(e, &sx, 'x', x);
         let y = get(e, &sy);
+        let y = sym(e, &sy, 'y', y);
         let z = if matches!(sz, Src::None) { 0.0 } else { get(e, &sz) };
         let mut c = Coord::new(x, y, z);
         c.meta = get(e, &smeta);
@@ -788,7 +904,15 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         if m.is_finite() {
             c.err[2] = m;
         }
+        let other = tie.as_ref().map(|ends| {
+            let mut b = c;
+            b.x = get(e, &ends[0]);
+            b.y = get(e, &ends[1]);
+            b.z = get(e, &ends[2]);
+            b
+        });
         out.push(c);
+        out.extend(other);
     }
     Ok(out)
 }
@@ -875,6 +999,14 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     Ok(())
 }
 
+/// An expression with the parentheses still open at its end closed: pgfmath reads
+/// `(sqrt((1)^2 + (2*x)^2)` (the manual's quiver example) as if they were.
+fn balanced(text: &str) -> String {
+    let open = text.chars().filter(|c| *c == '(').count();
+    let close = text.chars().filter(|c| *c == ')').count();
+    format!("{text}{}", ")".repeat(open.saturating_sub(close)))
+}
+
 /// `quiver`: each point's (u, v, w), from `quiver/u` and its friends (expressions of x, y, z and
 /// the sampling variable), times `scale arrows`.
 fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
@@ -896,7 +1028,7 @@ fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
         for (u, text) in c.uvw.iter_mut().zip(&texts) {
             if !u.is_finite() {
                 *u = match text {
-                    Some(t) if !t.trim().is_empty() => crate::expr::eval(t, &vars).unwrap_or(f64::NAN),
+                    Some(t) if !t.trim().is_empty() => crate::expr::eval(&balanced(t), &vars).unwrap_or(f64::NAN),
                     _ => 0.0,
                 };
             }
@@ -1060,13 +1192,19 @@ fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         _ => {
             // \thisrow{…} is evaluated with the table's rows
             if !source.contains("\\thisrow") {
-                let text = e.math_string(raw.clone())?;
+                // `\coordindex` is the point's number
+                let per_point = source.contains("\\coordindex");
+                let mut text = if per_point { String::new() } else { e.math_string(raw.clone())? };
                 let mut vars = e.vars();
-                for c in plot.coords.iter_mut() {
+                for (i, c) in plot.coords.iter_mut().enumerate() {
+                    if per_point {
+                        e.tex.define_string("coordindex", &i.to_string(), false);
+                        text = e.math_string(raw.clone())?;
+                    }
                     vars.insert("x".into(), c.x);
                     vars.insert("y".into(), c.y);
                     vars.insert("z".into(), c.z);
-                    c.meta = crate::expr::eval(&text, &vars).unwrap_or(f64::NAN);
+                    c.meta = crate::expr::eval(&balanced(&text), &vars).unwrap_or(f64::NAN);
                 }
             }
         }
