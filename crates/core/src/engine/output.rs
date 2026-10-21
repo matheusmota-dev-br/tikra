@@ -168,6 +168,10 @@ impl Engine {
 
     /// The current shading fitted to the path's bounding box, as `\pgfshadepath` fits it.
     fn shading_for(&self, segs: &[Segment]) -> crate::canvas::Shading {
+        // `shading=name` of a shading the basic layer declared
+        if let Some(sh) = self.basic_shading_for(&self.st.shading, segs, self.st.shade_angle) {
+            return sh;
+        }
         let mut c = crate::canvas::Canvas::default();
         c.include_path(segs);
         let (lo, hi) = (c.min.unwrap_or_default(), c.max.unwrap_or_default());

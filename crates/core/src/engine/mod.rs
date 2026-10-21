@@ -26,6 +26,7 @@ pub mod output;
 pub mod path;
 pub mod pgfplots;
 pub mod pics;
+pub mod shadings;
 pub mod shapes;
 pub mod spy;
 pub mod state;
@@ -65,6 +66,11 @@ pub enum Cmd {
     Chainin,
     TikzMath,
     DeclareFading,
+    DeclareShadingH,
+    DeclareShadingV,
+    DeclareShadingR,
+    UseShading,
+    ShadePath,
     SetFading,
     SetFadingForPath,
     SetFadingForPathStroked,
@@ -148,6 +154,11 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("chainin", Cmd::Chainin),
     ("tikzmath", Cmd::TikzMath),
     ("pgfdeclarefading", Cmd::DeclareFading),
+    ("pgfdeclarehorizontalshading", Cmd::DeclareShadingH),
+    ("pgfdeclareverticalshading", Cmd::DeclareShadingV),
+    ("pgfdeclareradialshading", Cmd::DeclareShadingR),
+    ("pgfuseshading", Cmd::UseShading),
+    ("pgfshadepath", Cmd::ShadePath),
     ("pgfsetfading", Cmd::SetFading),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
     ("pgfsetfadingforcurrentpathstroked", Cmd::SetFadingForPathStroked),
@@ -316,6 +327,8 @@ pub struct Engine {
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// fadings drawn as pictures (`\pgfdeclarefading`, `tikzfadingfrompicture`)
     pub picture_fadings: HashMap<String, fadings::PictureFading>,
+    /// the basic layer's declared shadings
+    pub basic_shadings: HashMap<String, shadings::BasicShading>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
@@ -413,6 +426,7 @@ impl Clone for Engine {
             forced_box: self.forced_box,
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
+            basic_shadings: self.basic_shadings.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -478,6 +492,7 @@ impl Engine {
             forced_box: None,
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
+            basic_shadings: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
@@ -872,6 +887,11 @@ impl Engine {
             Cmd::Chainin => self.chainin(),
             Cmd::TikzMath => self.tikzmath(),
             Cmd::DeclareFading => self.declare_fading(),
+            Cmd::DeclareShadingH => self.declare_shading('h'),
+            Cmd::DeclareShadingV => self.declare_shading('v'),
+            Cmd::DeclareShadingR => self.declare_shading('r'),
+            Cmd::UseShading => self.use_shading(),
+            Cmd::ShadePath => self.shade_path(),
             Cmd::SetFading => self.set_fading(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
             Cmd::SetFadingForPathStroked => self.set_fading_for_path(true),
@@ -1614,7 +1634,11 @@ impl Engine {
                 self.begin_on_layer(layer);
                 Ok(())
             }
-            "tikzfadingfrompicture" => self.fading_from_picture(),
+            "tikzfadingfrompicture" => {
+                // its \end is read with its body
+                self.tex.env_stack.pop();
+                self.fading_from_picture()
+            }
             "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
                 if name == "minipage" {
                     let _ = self.optional()?;
