@@ -269,10 +269,20 @@ impl Engine {
         self.st.postactions = Default::default();
         let r = self.node_in_group(spec, &outer);
         self.end_group();
-        r
+        let (mut items, labels) = r?;
+        // labels and pins: nodes of their own, made after the node, without its options
+        if let Some((info, labels)) = labels {
+            let last = (self.last_node.clone(), self.last_node_name.clone());
+            for (spec_tokens, pin) in labels {
+                items.extend(self.label(&info, spec_tokens, pin)?);
+            }
+            (self.last_node, self.last_node_name) = last;
+        }
+        Ok(items)
     }
 
-    fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<Vec<Item>, Error> {
+    #[allow(clippy::type_complexity)]
+    fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<(Vec<Item>, Option<(NodeInfo, Vec<(Vec<Token>, bool)>)>), Error> {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
         }
@@ -433,9 +443,9 @@ impl Engine {
         let fine = |p: Point| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= limit && p.y.abs() <= limit;
         if !fine(info.center()) || !info.geometry.anchors.iter().all(|(_, p)| fine(t.apply(*p))) {
             self.warn(format!("node '{text}': position or size is not finite or beyond ±{limit} cm: ignored"));
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
-        let mut items = self.draw_shape(&info, labels, text_width, scope)?;
+        let items = self.draw_shape(&info, labels, text_width, scope)?;
         if let Some(n) = &name {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
@@ -450,16 +460,9 @@ impl Engine {
         if let Some(slot @ None) = self.tree_child_names.last_mut() {
             *slot = Some(registered.clone().unwrap_or_default());
         }
-        let last = (Some(info.clone()), registered);
-        // labels and pins
+        (self.last_node, self.last_node_name) = (Some(info.clone()), registered);
         let labels = std::mem::take(&mut self.st.node.labels);
-        // they are made after the node, where its own `transform shape` is over
-        self.st.node.transform_shape = scope.node.transform_shape;
-        for (spec_tokens, pin) in labels {
-            items.extend(self.label(&info, spec_tokens, pin)?);
-        }
-        (self.last_node, self.last_node_name) = last;
-        Ok(items)
+        Ok((items, Some((info, labels))))
     }
 
     /// What a node draws, in pgf's order: behind the background, the background (as the node's
@@ -488,8 +491,8 @@ impl Engine {
                     segs = super::output::round_corners(&segs, e.st.rounded);
                 }
                 let segs = transform_segments(&segs, &t);
-                if matches!(p.usage, Usage::Node) && (e.st.decorate || !e.st.preactions.is_empty() || !e.st.postactions.is_empty()) {
-                    // the border as a path of its own, decorated, with its actions
+                if matches!(p.usage, Usage::Node) && (e.st.decorate || !e.st.preactions.is_empty() || !e.st.postactions.is_empty() || (e.st.double.is_some() && e.st.mode.draw)) {
+                    // the border as a path of its own, decorated, with its actions, or double
                     let saved = std::mem::take(&mut e.canvas.items);
                     let r = e.finish_path(segs, scope, "node");
                     items.extend(std::mem::replace(&mut e.canvas.items, saved));

@@ -10,8 +10,9 @@ use crate::Error;
 
 use super::{macro_from, tikra_tokens, Engine};
 
-/// One child: its options, its body, and whether it is `missing`.
+/// One child: what sets it up (`child foreach`'s variable), its options and its body.
 struct Child {
+    setup: Vec<Token>,
     options: Vec<Token>,
     body: Vec<Token>,
 }
@@ -119,13 +120,10 @@ impl Engine {
                 };
                 for item in super::foreach_items(&list) {
                     // the variable is fixed by a \def at the start of the child
-                    let mut b = vec![Token::cs("def"), var.clone(), Token::Char('{', Cat::Begin)];
-                    b.extend(item);
-                    b.push(Token::Char('}', Cat::End));
-                    let mut o = b.clone();
-                    o.extend(options.clone());
-                    b.extend(body.clone());
-                    out.push(Child { options: o, body: b });
+                    let mut setup = vec![Token::cs("def"), var.clone(), Token::Char('{', Cat::Begin)];
+                    setup.extend(item);
+                    setup.push(Token::Char('}', Cat::End));
+                    out.push(Child { setup, options: options.clone(), body: body.clone() });
                 }
                 continue;
             }
@@ -138,7 +136,7 @@ impl Engine {
                 }
                 None => Vec::new(),
             };
-            out.push(Child { options, body });
+            out.push(Child { setup: Vec::new(), options, body });
         }
     }
 
@@ -167,6 +165,7 @@ impl Engine {
         self.tex.set_meaning(&Token::cs("tikzparentnode"), macro_from(parent), false);
         self.st.pending = Transform::default();
         self.st.child_missing = false;
+        self.run_tokens(child.setup)?;
         let mut options = tikra_tokens("every child/.try,");
         options.extend(child.options);
         self.process_keys(options, Some("/tikz"))?;
@@ -181,7 +180,16 @@ impl Engine {
         };
         let (g, ld, sd) = (self.st.grow_angle, self.st.level_distance, self.st.sibling_distance);
         let mut t = self.st.transform.compose(&Transform::translation(polar(g, ld).x, polar(g, ld).y));
-        if self.st.special_level != Some(self.st.tree_level) {
+        if let Some(f) = self.st.growth_function.clone() {
+            // a growth function of the options: it moves the coordinate system itself
+            for (name, v) in [("tikznumberofchildren", n), ("tikznumberofcurrentchild", k)] {
+                if let tex::Meaning::Count(r) = self.tex.meaning_of(name) {
+                    self.tex.set_count(r, v as i64, false);
+                }
+            }
+            self.run_tokens(f)?;
+            t = self.st.transform;
+        } else if self.st.special_level != Some(self.st.tree_level) {
             let (left, right) = if self.st.grow_swapped { (g + 90.0, g - 90.0) } else { (g - 90.0, g + 90.0) };
             let a = polar(left, (n as f64 + 1.0) * sd / 2.0);
             let b = polar(right, k as f64 * sd);

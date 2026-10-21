@@ -70,9 +70,21 @@ impl Engine {
         let t = inner.trim();
         // ([options] point): the options transform this point only
         if let Some(rest) = t.strip_prefix('[') {
-            let Some(end) = top_level(&format!("[{rest}"), ']') else { return Err(Error::Figure(format!("unmatched bracket in ({t})"))) };
-            let opts = &rest[..end - 1];
-            let point = rest[end..].trim().to_string();
+            // the `]` that closes the first `[`
+            let mut depth = 0i32;
+            let end = rest.char_indices().find(|&(_, c)| {
+                match c {
+                    '{' | '(' | '[' => depth += 1,
+                    '}' | ')' => depth -= 1,
+                    ']' if depth == 0 => return true,
+                    ']' => depth -= 1,
+                    _ => {}
+                }
+                false
+            });
+            let Some((end, _)) = end else { return Err(Error::Figure(format!("unmatched bracket in ({t})"))) };
+            let opts = &rest[..end];
+            let point = rest[end + 1..].trim().to_string();
             self.begin_group();
             self.st.pending = Transform::default();
             let r = self.process_keys(super::tikra_tokens(opts), Some("/tikz")).and_then(|_| {
@@ -81,7 +93,16 @@ impl Engine {
                 // the point in the system with the extra transformations, as TikZ applies them
                 self.st.transform = before.compose(&pending);
                 self.st.pending = Transform::default();
-                self.coordinate(&point)
+                let moved = self.coordinate(&point)?;
+                // a node's point does not follow the transformation: the options move it as TikZ
+                // does, from the current coordinate system
+                self.st.transform = before;
+                let fixed = self.coordinate(&point)?;
+                if moved.p.minus(fixed.p).norm() < 1e-9 && pending != Transform::default() {
+                    let t = before.compose(&pending).compose(&crate::reader::invert(&before));
+                    return Ok(Coord { p: t.apply(moved.p), node: None });
+                }
+                Ok(moved)
             });
             self.end_group();
             return r;

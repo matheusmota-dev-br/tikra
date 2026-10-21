@@ -14,7 +14,7 @@ impl Engine {
     /// Whether what is drawn now makes the picture larger: not after `use as bounding box`, nor
     /// after a clip in the scope.
     pub fn counts_for_size(&self) -> bool {
-        !self.canvas_frozen && !self.scopes.iter().any(|s| s.clipped)
+        !self.canvas_frozen && !self.scopes.iter().any(|s| s.clipped) && self.st.canvas_transform.is_none()
     }
 
     /// Uses the path as the state says: clip, fill, draw, arrows.
@@ -23,6 +23,16 @@ impl Engine {
             self.warn(format!("{command}: coordinate is not finite or beyond ±{MAX_COORDINATE} cm (division by zero?): path ignored"));
             return Ok(());
         }
+        let first_item = self.canvas.items.len();
+        let r = self.use_path_here(segments);
+        // `transform canvas`: what the path drew, transformed
+        if let Some(t) = self.st.canvas_transform {
+            self.canvas.items[first_item..].iter_mut().for_each(|i| i.transform(&t));
+        }
+        r
+    }
+
+    fn use_path_here(&mut self, segments: Vec<Segment>) -> Result<(), Error> {
         let mut segs = segments;
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);

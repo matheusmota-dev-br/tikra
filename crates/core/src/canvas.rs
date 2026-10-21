@@ -168,6 +168,31 @@ impl Item {
             Item::Group { .. } | Item::End => {}
         }
     }
+
+    /// The item as drawn on a transformed canvas (pgf's low-level transformation): its geometry,
+    /// its text and its line widths and dashes, which scale by the transformation's mean scale.
+    pub fn transform(&mut self, t: &Transform) {
+        let scale = (t.a * t.d - t.b * t.c).abs().sqrt();
+        match self {
+            Item::Path { segments, fill, stroke } => {
+                *segments = transform_segments(segments, t);
+                if let Some(Fill { paint: Paint::Shading(Shading::Axial { transform, .. } | Shading::Radial { transform, .. }), .. }) = fill {
+                    *transform = t.compose(transform);
+                }
+                if let Some(s) = stroke {
+                    s.width *= scale;
+                    if let Some((dash, phase)) = &mut s.dash {
+                        dash.iter_mut().for_each(|d| *d *= scale);
+                        *phase *= scale;
+                    }
+                }
+            }
+            Item::Clip { segments, .. } => *segments = transform_segments(segments, t),
+            Item::Text { place, .. } => *place = t.compose(place),
+            Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
+            Item::Group { .. } | Item::End => {}
+        }
+    }
 }
 
 /// The segments with a transformation applied.

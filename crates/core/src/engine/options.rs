@@ -772,6 +772,10 @@ keyfn!(k_shorten_start, |e, v| {
 
 keyfn!(k_double, |e, v| {
     let s = text(e, &v)?;
+    if s == "none" {
+        e.st.double = None;
+        return Ok(());
+    }
     e.st.double = Some(if s.is_empty() { crate::color::Color::WHITE } else { e.color(&s).unwrap_or(crate::color::Color::WHITE) });
     Ok(())
 });
@@ -846,6 +850,29 @@ keyfn!(k_rotate_around, |e, v| {
     let tv = Some(tikra_tokens(p.trim()));
     let c = shift_vector(e, &tv)?;
     add_transform(e, Transform::translation(c.x, c.y).compose(&Transform::rotation(angle)).compose(&Transform::translation(-c.x, -c.y)));
+    Ok(())
+});
+
+keyfn!(k_scale_around, |e, v| {
+    // scale around={factor:(point)}
+    let s = text(e, &v)?;
+    let Some((f, p)) = s.split_once(':') else { return Ok(()) };
+    let factor = e.number(f)?;
+    let tv = Some(tikra_tokens(p.trim()));
+    let c = shift_vector(e, &tv)?;
+    add_transform(e, Transform::translation(c.x, c.y).compose(&Transform::scaling(factor, factor)).compose(&Transform::translation(-c.x, -c.y)));
+    Ok(())
+});
+
+keyfn!(k_transform_canvas, |e, v| {
+    // the options' transformations from the identity, applied to the canvas
+    let saved = (e.st.transform, e.st.pending);
+    (e.st.transform, e.st.pending) = (Transform::default(), Transform::default());
+    let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    let t = e.st.transform.compose(&e.st.pending);
+    (e.st.transform, e.st.pending) = saved;
+    r?;
+    e.st.canvas_transform = Some(e.st.canvas_transform.unwrap_or_default().compose(&t));
     Ok(())
 });
 
@@ -991,7 +1018,9 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         let m = place_length(e, &dist, 1)?;
         (m, if target.is_some() { m } else { place_length(e, &dist, 0)? })
     };
-    let diagonal = sx != 0.0 && sy != 0.0 && !dist.contains(" and ") && !dist.is_empty();
+    // a single distance (given, or the node distance) along a diagonal is measured along it
+    let single = if dist.is_empty() { !node_distance_text(e).contains(" and ") } else { !dist.contains(" and ") };
+    let diagonal = sx != 0.0 && sy != 0.0 && single;
     let offset = if diagonal && target.is_some() {
         // a single distance along a diagonal is measured along it
         Point::new(sx * h_ * std::f64::consts::FRAC_1_SQRT_2, sy * v_ * std::f64::consts::FRAC_1_SQRT_2)
@@ -1017,10 +1046,16 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         Some((n, a)) if e.nodes.contains_key(n.trim()) => (n.trim().to_string(), Some(a.trim().to_string())),
         _ => (target.trim_start_matches('(').trim_end_matches(')').to_string(), None),
     };
+    // `on grid`: from center to center
+    let on_grid = e.tex.meaning_of("iftikz@lib@ignore@size") == e.tex.meaning_of("iftrue");
     let base = match e.nodes.get(&name) {
+        Some(n) if on_grid => n.center(),
         Some(n) => n.anchor(explicit.as_deref().unwrap_or(target_anchor)).unwrap_or(n.center()),
         None => e.coordinate(&name)?.p,
     };
+    if on_grid && e.nodes.contains_key(&name) {
+        set_value(e, "/tikz/anchor", "center");
+    }
     e.st_node().at = Some(base.plus(offset));
     Ok(())
 }
@@ -1038,8 +1073,12 @@ fn place_length(e: &mut Engine, text: &str, axis: usize) -> Result<f64, Error> {
     })
 }
 
+fn node_distance_text(e: &Engine) -> String {
+    keys::value(&e.tex, "/tikz/node distance").map(|v| tex::tokens_to_string(&v)).unwrap_or_else(|| "1cm".into())
+}
+
 fn node_distance(e: &mut Engine) -> Result<(f64, f64), Error> {
-    let s = keys::value(&e.tex, "/tikz/node distance").map(|v| tex::tokens_to_string(&v)).unwrap_or_else(|| "1cm".into());
+    let s = node_distance_text(e);
     let read = |e: &mut Engine, t: &str| match place_length(e, t, 1) {
         Ok(v) => v,
         Err(err) => {
@@ -1530,6 +1569,7 @@ fn set_grow(e: &mut Engine, v: &Option<Vec<Token>>, swapped: bool) -> Result<(),
         other => e.number(other)?,
     };
     e.st.grow_swapped = swapped;
+    e.st.growth_function = None;
     e.st.special_level = Some(e.st.tree_level);
     Ok(())
 }
@@ -1720,6 +1760,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/xslant", k_xslant),
     ("/tikz/yslant", k_yslant),
     ("/tikz/rotate around", k_rotate_around),
+    ("/tikz/scale around", k_scale_around),
+    ("/tikz/transform canvas", k_transform_canvas),
     ("/tikz/cm", k_cm),
     ("/tikz/reset cm", k_reset_cm),
     ("/tikz/x", k_x),
@@ -1808,7 +1850,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_ignore),
-    ("/tikz/on grid", k_ignore),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
@@ -1917,6 +1958,8 @@ const DEFINITIONS: &str = r"
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\newif\iftikz@lib@ignore@size
+\tikzset{on grid/.is if=tikz@lib@ignore@size}
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
 \def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
 \def\pgfmatrixnextcell{\tikra@nextcell}
@@ -1950,7 +1993,7 @@ pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
     super::decorations::define(e);
-    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::libraries::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
@@ -1966,6 +2009,7 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);
     lexer.push_text(super::shapes::DEFINITIONS);
+    lexer.push_text(super::libraries::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

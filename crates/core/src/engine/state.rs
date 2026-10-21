@@ -188,6 +188,12 @@ pub struct GState {
     pub child_anchor: String,
     pub child_missing: bool,
     pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
+    /// `transform canvas`: what the paths draw is transformed on the canvas (pgf's low level)
+    pub canvas_transform: Option<Transform>,
+    /// the box of the path being used (`current path bounding box`), for its actions
+    pub path_box: Option<(Point, Point)>,
+    /// `growth function=\macro`: places the children instead of `grow` (the petri library's tokens)
+    pub growth_function: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
     /// the chains library: the current chain, the direction of new ones, the node's chain
@@ -292,6 +298,9 @@ impl Default for GState {
             child_anchor: String::new(),
             child_missing: false,
             edge_from_parent_path: None,
+            growth_function: None,
+            canvas_transform: None,
+            path_box: None,
             pic_mode: Mode::default(),
             pic_text: None,
             quotes_in_pic: false,

@@ -185,6 +185,14 @@ impl Engine {
     /// A node by name, with the current name prefix tried first.
     pub fn lookup_node(&self, name: &str) -> Option<super::nodes::NodeInfo> {
         let prefixed = format!("{}{name}", self.st.name_prefix);
-        self.nodes.get(&prefixed).or_else(|| self.nodes.get(name)).cloned()
+        self.nodes.get(&prefixed).or_else(|| self.nodes.get(name)).cloned().or_else(|| {
+            // TikZ's pseudo nodes: rectangles over the picture so far and over the path being used
+            let (lo, hi) = match name {
+                "current bounding box" => self.canvas.min.zip(self.canvas.max)?,
+                "current path bounding box" => self.st.path_box?,
+                _ => return None,
+            };
+            Some(super::libraries::box_node(lo, hi))
+        })
     }
 }
