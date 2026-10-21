@@ -383,6 +383,10 @@ pub fn dart(input: &mut Input) -> Geometry {
     let hp = input.number("/pgf/dart tip angle", 45.0) / 2.0;
     let ht = input.number("/pgf/dart tail angle", 135.0) / 2.0;
     let (mut x, mut y) = input.half_with_inner();
+    // an empty box (decorations' shape backgrounds): a tiny one, scaled up to the minimum size below
+    if x.max(y) < 1e-9 {
+        (x, y) = (1e-6, 1e-6);
+    }
     let (rotate, incircle) = input.border_rotation();
     let mut xa;
     if incircle {
