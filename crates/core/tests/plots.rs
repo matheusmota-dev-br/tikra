@@ -205,6 +205,28 @@ fn three_d_axis_and_surface() {
 }
 
 #[test]
+fn group_plots() {
+    // 2 by 2: four axes side by side and below each other, 1cm apart
+    let (c, w) = canvas(
+        r"\begin{groupplot}[group style={group size=2 by 2, x descriptions at=edge bottom}, width=4cm, height=4cm, xtick=\empty, ytick=\empty, xlabel=t]
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \end{groupplot}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    // the x labels of the bottom row only
+    assert_eq!(texts(&c), 2);
+    let (wd, ht) = size(&c);
+    // two axes of 4cm less 45pt each and 1cm between them
+    let box_pt = 4.0 / 2.54 * 72.27 - 45.0;
+    // (with the empty y label node 35pt left of the first axis, as TeX draws it)
+    assert!(wd > 2.0 * box_pt + 28.0 && wd < 2.0 * box_pt + 80.0, "{wd}");
+    assert!(ht > 2.0 * box_pt + 28.0, "{ht}");
+}
+
+#[test]
 fn nodes_near_coords() {
     // one node per point with its y value, above the points and below for negative ones
     let (c, w) = axis("xtick=\\empty, ytick=\\empty, nodes near coords", r"\addplot coordinates {(0,1) (1,-1) (2,0.5)};");

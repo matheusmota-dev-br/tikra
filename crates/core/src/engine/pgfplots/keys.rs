@@ -498,7 +498,17 @@ const DEFINITIONS: &str = r"
 	/pgfplots/compat/.initial=default,
 	/pgfplots/@compat/.initial=0,
 	/pgfplots/xlabel absolute, /pgfplots/ylabel absolute,
-	/pgfplots/group style/.initial=,
+	/pgfplots/group/horizontal sep/.initial=1cm, /pgfplots/group/vertical sep/.initial=1cm,
+	/pgfplots/group/columns/.initial=1, /pgfplots/group/rows/.initial=1,
+	/pgfplots/group/every plot/.style={}, /pgfplots/group/group name/.initial=group,
+	/pgfplots/group/shared labels/.initial=false, /pgfplots/group/shared labels/.default=true,
+	/pgfplots/group/xticklabels at/.initial=all, /pgfplots/group/yticklabels at/.initial=all,
+	/pgfplots/group/xlabels at/.initial=all, /pgfplots/group/ylabels at/.initial=all,
+	/pgfplots/group/x descriptions at/.code={\pgfkeyssetvalue{/pgfplots/group/xlabels at}{#1}\pgfkeyssetvalue{/pgfplots/group/xticklabels at}{#1}},
+	/pgfplots/group/y descriptions at/.code={\pgfkeyssetvalue{/pgfplots/group/ylabels at}{#1}\pgfkeyssetvalue{/pgfplots/group/yticklabels at}{#1}},
+	/pgfplots/group/empty plot/.style={/pgfplots/hide axis=true},
+	/pgfplots/@empty xticklabels/.initial=false, /pgfplots/@empty yticklabels/.initial=false,
+	/pgfplots/@empty zticklabels/.initial=false,
 	/pgfplots/colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}},
 	/pgfplots/colormap access/.initial=map,
 	/pgfplots/colormap/hot/.style={/pgfplots/colormap={hot}{color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)}},
@@ -782,6 +792,23 @@ keyfn!(k_scatter, |e, v| {
     Ok(())
 });
 
+// `group style={…}`: keys of /pgfplots/group.
+keyfn!(k_group_style, |e, v| {
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/group"));
+    e.st.key_path = saved;
+    r
+});
+
+// `group size=2 by 3`: columns by rows.
+keyfn!(k_group_size, |e, v| {
+    let s = text(e, &v)?;
+    let (c, r) = s.split_once("by").unwrap_or((s.as_str(), "1"));
+    set(e, "/pgfplots/group/columns", c.trim());
+    set(e, "/pgfplots/group/rows", r.trim());
+    Ok(())
+});
+
 keyfn!(k_set_meta, |e, v| {
     if keys::value(&e.tex, "/pgfplots/point meta").is_none_or(|m| keys::trim(&m).is_empty() || tex::tokens_to_string(&m).trim() == "none") {
         let value = v.unwrap_or_default();
@@ -861,6 +888,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/axis x line*", k_line_star),
     ("/pgfplots/axis y line*", k_line_star),
     ("/pgfplots/axis z line*", k_line_star),
+    ("/pgfplots/group style", k_group_style),
+    ("/pgfplots/group/group size", k_group_size),
     ("/tikz/smooth", k_handler),
     ("/tikz/sharp plot", k_handler),
     ("/tikz/const plot", k_handler),

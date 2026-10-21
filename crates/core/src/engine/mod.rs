@@ -299,6 +299,8 @@ pub struct Engine {
     /// the `axis` environment being read, and the one being drawn
     pub axis: Option<Box<pgfplots::Axis>>,
     pub frame: Option<std::rc::Rc<pgfplots::Frame>>,
+    /// the `groupplot` environment being read
+    pub plot_group: Option<Box<pgfplots::group::Group>>,
     /// the graphs being read (`\graph`)
     pub graphs: graphs::State,
 }
@@ -374,6 +376,7 @@ impl Clone for Engine {
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
+            plot_group: self.plot_group.clone(),
             graphs: self.graphs.clone(),
         }
     }
@@ -433,6 +436,7 @@ impl Engine {
             current_key: String::new(),
             axis: None,
             frame: None,
+            plot_group: None,
             graphs: graphs::State::default(),
         };
         for (name, cmd) in COMMANDS {
@@ -1367,6 +1371,7 @@ impl Engine {
                 self.open_tikz_scope(o, true)
             }
             n if pgfplots::is_axis(n) => self.begin_axis(n),
+            "groupplot" => self.begin_groupplot(),
             "pgfonlayer" => {
                 let layer = self.argument_string()?;
                 self.begin_on_layer(layer);
@@ -1415,6 +1420,7 @@ impl Engine {
         match name {
             "tikzpicture" | "pgfpicture" => self.end_picture(),
             n if pgfplots::is_axis(n) => self.end_axis()?,
+            "groupplot" => self.end_groupplot()?,
             "pgfscope" => {
                 self.end_scope();
                 self.end_group();

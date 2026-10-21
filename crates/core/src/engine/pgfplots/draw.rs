@@ -1467,6 +1467,10 @@ fn group_at(tokens: &[Token], j: usize) -> (Vec<Token>, usize) {
 fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, factor: f64, extra: bool) -> Result<Vec<Token>, Error> {
     let f = e.frame.clone().expect("drawing an axis");
     let c = axis_char(a);
+    // groupplots' inner plots: the labels are there, empty
+    if !extra && keys::flag(e, &format!("/pgfplots/@empty {c}ticklabels")) {
+        return Ok(Vec::new());
+    }
     let labels_key = if extra { format!("/pgfplots/extra {c} tick labels") } else { format!("/pgfplots/{c}ticklabels") };
     if let Some(list) = pk::value(&e.tex, &labels_key).filter(|l| !pk::trim(l).is_empty()) {
         let items = split_labels(&list);
