@@ -1439,6 +1439,16 @@ keyfn!(k_continue_chain, |e, v| {
     e.continue_chain(&s);
     Ok(())
 });
+keyfn!(k_start_branch, |e, v| {
+    let s = text(e, &v)?;
+    e.start_branch(&s);
+    Ok(())
+});
+keyfn!(k_continue_branch, |e, v| {
+    let s = text(e, &v)?;
+    e.continue_branch(&s);
+    Ok(())
+});
 keyfn!(k_chain_default_direction, |e, v| {
     let s = text(e, &v)?;
     e.chain_default_direction(&s);
@@ -1990,6 +2000,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/trim right", k_trim_right),
     ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
+    ("/tikz/start branch", k_start_branch),
+    ("/tikz/continue branch", k_continue_branch),
     ("/tikz/chain default direction", k_chain_default_direction),
     ("/tikz/on chain", k_on_chain),
     ("/tikz/join", k_join),
