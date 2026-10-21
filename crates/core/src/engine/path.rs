@@ -52,11 +52,29 @@ struct Builder {
     relative_base: Option<Point>,
     /// where a path is before its first point: the origin of its coordinate system
     origin: Point,
+    /// the operation's target was `cycle`: close the subpath once it is done
+    close_after: bool,
 }
 
 impl Builder {
     fn point(&self) -> Point {
         self.current.as_ref().map_or(self.origin, |c| c.p)
+    }
+
+    /// The last point and the point the path came to it from (`\tikz@tangent`), for `turn`.
+    fn tangent(&self) -> (Point, Point) {
+        let last = self.point();
+        let n = self.segs.len();
+        let end = |s: &Segment| match s {
+            Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+            Segment::Close => None,
+        };
+        let from = match self.segs.last() {
+            Some(Segment::CurveTo(_, c2, _)) => Some(*c2),
+            Some(Segment::LineTo(_)) if n >= 2 => end(&self.segs[n - 2]),
+            _ => None,
+        };
+        (last, from.unwrap_or(last))
     }
 
     fn move_to(&mut self, r: Coord) {
@@ -118,6 +136,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         edges: Vec::new(),
         relative_base: None,
         origin: e.st.transform.apply(Point::default()),
+        close_after: false,
     };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
@@ -200,9 +219,21 @@ fn coordinate(e: &mut Engine) -> Result<Coord, Error> {
 
 /// A point that must follow: skips spaces and reads `(…)`, with an optional `+`/`++`.
 fn target(e: &mut Engine, b: &mut Builder, depth: Option<usize>, what: &str) -> Result<Coord, Error> {
+    e.turn_from = b.tangent();
+    e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
     match next(e, depth)? {
         Some(t) if t.is_char('(') => coordinate(e),
         Some(t) if t.is_char('+') => relative(e, b, depth),
+        // `cycle`: back to where the subpath started, closed once the operation is done
+        Some(Token::Char('c', Cat::Letter)) => {
+            let w = word(e, 'c');
+            if w != "cycle" {
+                e.tex.push_tokens(tex::string_tokens(&w));
+                return Err(Error::Figure(format!("{what} without a point")));
+            }
+            b.close_after = true;
+            Ok(Coord { p: b.subpath_start.unwrap_or_else(|| b.point()), node: None })
+        }
         _ => Err(Error::Figure(format!("{what} without a point"))),
     }
 }
@@ -240,6 +271,12 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
     let mut pending_op: Option<String> = None;
     let mut to_options: Vec<Token> = Vec::new();
     loop {
+        if std::mem::take(&mut b.close_after) {
+            b.segs.push(Segment::Close);
+            if let Some(p0) = b.subpath_start {
+                b.current = Some(Coord { p: p0, node: None });
+            }
+        }
         let Some(t) = next(e, depth)? else {
             if depth.is_none() {
                 e.warn("path without ';' at the end");
@@ -253,11 +290,15 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
         match &t {
             Token::Char(';', _) => return Ok(()),
             Token::Char('(', _) => {
+                e.turn_from = b.tangent();
+                e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = coordinate(e)?;
                 b.relative_base = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('+', _) => {
+                e.turn_from = b.tangent();
+                e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = relative(e, b, depth)?;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
@@ -459,6 +500,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let at = at.unwrap_or_else(|| b.point());
                         e.pic(super::pics::PicSpec { options, name, at, content })?;
                     }
+                    "graph" => e.graph()?,
                     "child" => {
                         let parent = e.last_node_name.clone();
                         e.children(parent)?;
@@ -835,6 +877,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         edges: Vec::new(),
         relative_base: None,
         origin: e.st.transform.apply(Point::default()),
+        close_after: false,
     };
     if let Some(c) = &saved_current {
         sub.move_to(c.clone());
@@ -1325,7 +1368,18 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
 /// `let \p1 = (a), \n1 = {expr} in`: defines `\p1`, `\x1`, `\y1`, `\n1` for the rest of the path.
 fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
     loop {
-        let Some(t) = next(e, depth)? else { return Ok(()) };
+        // \p and \n are read as they are: they are macros once a first one is defined
+        let t = loop {
+            let t = match depth {
+                Some(d) => e.tex.get_token_until(d),
+                None => e.tex.get_token(),
+            };
+            match t {
+                Some(t) if t.is_space() => continue,
+                other => break other,
+            }
+        };
+        let Some(t) = t else { return Ok(()) };
         let name = match &t {
             Token::Cs(n) => n.to_string(),
             Token::Char('i', Cat::Letter) => {
@@ -1339,7 +1393,7 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
             other => return Err(Error::Figure(format!("let: '{}' unexpected", tex::show_token(other)))),
         };
         // the number after \p, \n: \p1, \p{name}
-        let index = match next(e, depth)? {
+        let index = match e.tex.get_token() {
             Some(Token::Char(_, Cat::Begin)) => tex::tokens_to_string(&e.tex.read_group_body()?),
             Some(Token::Char(c, _)) => c.to_string(),
             _ => String::new(),
@@ -1355,11 +1409,11 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
                     _ => return Err(Error::Figure("let \\p: a point is missing".into())),
                 };
                 let (x, y) = (p.x / crate::PT, p.y / crate::PT);
-                e.tex.set_meaning(&Token::cs(&format!("p{index}")), macro_from(&format!("tikra cs:{x}pt,{y}pt")), false);
-                e.tex.set_meaning(&Token::cs(&format!("x{index}")), macro_from(&format!("{x}pt")), false);
-                e.tex.set_meaning(&Token::cs(&format!("y{index}")), macro_from(&format!("{y}pt")), false);
-                // \p1 used alone as a coordinate reads as a point
-                let _ = Point::default();
+                // \p1, \p{name}: \p takes the name as its argument, as TikZ defines it
+                for (letter, value) in [("p", format!("tikra cs:{x}pt,{y}pt")), ("x", format!("{x}pt")), ("y", format!("{y}pt"))] {
+                    e.tex.set_meaning(&Token::cs(&format!("tikra@let@{letter}@{index}")), macro_from(&value), false);
+                    let_macro(e, letter)?;
+                }
             }
             "n" => {
                 let v = match next(e, depth)? {
@@ -1370,11 +1424,17 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
                 let text = e.math_string(v)?;
                 let (val, unit) = crate::expr::eval_length(&text, &e.vars())?;
                 let s = if unit { format!("{}pt", super::pgf_number(val / crate::PT)) } else { super::pgf_number(val) };
-                e.tex.set_meaning(&Token::cs(&format!("n{index}")), macro_from(&s), false);
+                e.tex.set_meaning(&Token::cs(&format!("tikra@let@n@{index}")), macro_from(&s), false);
+                let_macro(e, "n")?;
             }
             other => return Err(Error::Figure(format!("let: \\{other} is not \\p or \\n"))),
         }
     }
+}
+
+/// `\p` (`\x`, `\y`, `\n`) as `let` defines it: one argument, the name of what it holds.
+fn let_macro(e: &mut Engine, letter: &str) -> Result<(), Error> {
+    e.run_tokens(tikra_tokens(&format!("\\def\\{letter}#1{{\\csname tikra@let@{letter}@#1\\endcsname}}")))
 }
 
 /// `\foreach` inside a path: its body is more path operations.

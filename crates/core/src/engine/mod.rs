@@ -7,6 +7,7 @@ pub mod basic;
 pub mod chains;
 pub mod coords;
 pub mod decorations;
+pub mod graphs;
 pub mod intersections;
 pub mod marks;
 pub mod matrix;
@@ -272,6 +273,10 @@ pub struct Engine {
     pub chain_list: std::collections::HashMap<String, chains::Chain>,
     /// path operations to run after the node just made (`after node path`, joins)
     pub after_node_path: Vec<Token>,
+    /// the path's last point and where it came from, for `turn` in the next coordinate
+    pub turn_from: (crate::scene::Point, crate::scene::Point),
+    /// where the path's subpath started (`current subpath start`)
+    pub subpath_start: crate::scene::Point,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -294,6 +299,8 @@ pub struct Engine {
     /// the `axis` environment being read, and the one being drawn
     pub axis: Option<Box<pgfplots::Axis>>,
     pub frame: Option<std::rc::Rc<pgfplots::Frame>>,
+    /// the graphs being read (`\graph`)
+    pub graphs: graphs::State,
 }
 
 /// A finished picture: its canvas and the height of its baseline in it (cm).
@@ -351,6 +358,8 @@ impl Clone for Engine {
             tree_count: self.tree_count,
             chain_list: self.chain_list.clone(),
             after_node_path: Vec::new(),
+            turn_from: Default::default(),
+            subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
@@ -365,6 +374,7 @@ impl Clone for Engine {
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
+            graphs: self.graphs.clone(),
         }
     }
 }
@@ -407,6 +417,8 @@ impl Engine {
             tree_count: 0,
             chain_list: Default::default(),
             after_node_path: Vec::new(),
+            turn_from: Default::default(),
+            subpath_start: Default::default(),
             tree_edge_out: None,
             tree_child_names: Vec::new(),
             forced_box: None,
@@ -421,6 +433,7 @@ impl Engine {
             current_key: String::new(),
             axis: None,
             frame: None,
+            graphs: graphs::State::default(),
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
@@ -429,6 +442,7 @@ impl Engine {
         basic::define(&mut e);
         options::define_keys(&mut e);
         pgfplots::define(&mut e);
+        graphs::define(&mut e);
         e
     }
 
@@ -758,11 +772,9 @@ impl Engine {
             Cmd::PgfMatrix => self.pgf_matrix(),
             Cmd::Chainin => self.chainin(),
             Cmd::Graph => {
-                let rest = self.skip_statement()?;
-                let _ = rest;
-                let name = tex::show_token(t);
-                self.warn(format!("{name} is not supported: ignored"));
-                Ok(())
+                self.tex.push_tokens(tikra_tokens("graph "));
+                let r = path::statement(self, "");
+                self.recover(r, t)
             }
             Cmd::Unsupported => {
                 let name = tex::show_token(t);
