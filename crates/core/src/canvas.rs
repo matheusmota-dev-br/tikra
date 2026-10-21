@@ -87,6 +87,11 @@ pub enum Item {
     Group {
         opacity: f64,
     },
+    /// `transform canvas`: what follows, up to the matching `End`, is drawn transformed, line widths
+    /// and text included (the picture's size does not follow, as in pgf).
+    Transform {
+        transform: Transform,
+    },
     /// A fading: what follows, up to the matching `End`, is as opaque as the shading is white.
     Fade {
         mask: Shading,
@@ -165,6 +170,8 @@ impl Item {
             Item::Clip { segments, .. } => *segments = transform_segments(segments, &t),
             Item::Text { place, .. } => *place = t.compose(place),
             Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
+            // the items inside move too: the transformation moves with them
+            Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
             Item::Group { .. } | Item::End => {}
         }
     }

@@ -66,6 +66,8 @@ pub struct Mode {
     pub shade: bool,
     /// `use as bounding box`
     pub bounding_box: bool,
+    /// `path picture={…}`: drawn inside the path, clipped to it
+    pub picture: Option<Vec<Token>>,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +202,9 @@ pub struct GState {
     pub after_node_path: Vec<crate::tex::Token>,
     /// `alias=name`: more names for the node
     pub aliases: Vec<String>,
+    /// `trim left` and `trim right` of the picture
+    pub trim_left: Option<String>,
+    pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
     /// `/pgf/number format`: how `\pgfmathprintnumber` writes numbers
@@ -273,6 +278,8 @@ impl Default for GState {
             pending_joins: Vec::new(),
             after_node_path: Vec::new(),
             aliases: Vec::new(),
+            trim_left: None,
+            trim_right: None,
             matrix: Default::default(),
             path_fading: None,
             transparency_group: false,

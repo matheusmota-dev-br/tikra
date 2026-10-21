@@ -1309,6 +1309,9 @@ impl Engine {
             }
         }
         let baseline = if outermost { self.picture_baseline() } else { 0.0 };
+        if outermost {
+            self.trim_picture();
+        }
         self.end_group();
         self.picture_depth = self.picture_depth.saturating_sub(1);
         self.depth = self.depth.saturating_sub(1);
@@ -1317,6 +1320,26 @@ impl Engine {
             let canvas = std::mem::replace(&mut self.canvas, Canvas { margin, ..Canvas::default() });
             self.layout.push(Layout::Picture(self.boxes.len()));
             self.boxes.push(PictureBox { canvas, baseline });
+        }
+    }
+
+    /// `trim left=x`, `trim right=x`: the picture's box starts or ends there (what is drawn beyond
+    /// it sticks out, cut off with the page).
+    fn trim_picture(&mut self) {
+        for (spec, left) in [(self.st.trim_left.clone(), true), (self.st.trim_right.clone(), false)] {
+            let Some(spec) = spec else { continue };
+            let s = spec.trim();
+            let x = match s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+                Some(inner) => self.coordinate(inner).map(|c| c.p.x),
+                None if s.is_empty() => Ok(0.0),
+                None => self.length(s),
+            };
+            let Ok(x) = x else { continue };
+            match (left, self.canvas.min.as_mut(), self.canvas.max.as_mut()) {
+                (true, Some(m), _) => m.x = x,
+                (false, _, Some(m)) => m.x = x,
+                _ => {}
+            }
         }
     }
 

@@ -584,9 +584,57 @@ impl Engine {
         for a in pre.iter() {
             self.action(&segs, a.clone(), Some(outer), command)?;
         }
-        self.use_path(segs.clone(), command)?;
+        match self.st.mode.picture.take() {
+            Some(code) => self.path_picture(&segs, code, command)?,
+            None => self.use_path(segs.clone(), command)?,
+        }
         for a in post.iter() {
             self.action(&segs, a.clone(), None, command)?;
+        }
+        Ok(())
+    }
+
+    /// A path with a `path picture`, in `\tikz@finish`'s order: the fill, the picture clipped to the
+    /// path (with the node `path picture bounding box` around it), then the stroke.
+    fn path_picture(&mut self, segs: &[Segment], code: Vec<Token>, command: &str) -> Result<(), Error> {
+        let mode = self.st.mode.clone();
+        if mode.fill || mode.shade || mode.pattern {
+            self.st.mode = Mode { draw: false, clip: false, ..mode.clone() };
+            self.use_path(segs.to_vec(), command)?;
+        }
+        let mut c = crate::canvas::Canvas::default();
+        c.include_path(segs);
+        if let (Some(lo), Some(hi)) = (c.min, c.max) {
+            self.begin_group();
+            self.begin_scope();
+            let r = (|| {
+                self.open_in_scope(crate::canvas::Item::Clip { segments: segs.to_vec(), even_odd: self.st.even_odd });
+                if let Some(s) = self.scopes.last_mut() {
+                    s.clipped = true;
+                }
+                self.st.mode = Mode::default();
+                let at = lo.lerp(hi, 0.5);
+                let size = format!("shape=rectangle,inner sep=0pt,outer sep=0pt,minimum width={}pt,minimum height={}pt", (hi.x - lo.x) / crate::PT, (hi.y - lo.y) / crate::PT);
+                let items = self.node(super::nodes::NodeSpec {
+                    options: tikra_tokens(&size),
+                    name: Some("path picture bounding box".into()),
+                    at: Some(at),
+                    text: Vec::new(),
+                    place: super::nodes::OnPath::Point(at),
+                    point: at,
+                    coordinate: false,
+                    default_pos: None,
+                })?;
+                self.canvas.items.extend(items);
+                self.run_tokens(code)
+            })();
+            self.end_scope();
+            self.end_group();
+            r?;
+        }
+        if mode.draw || mode.clip {
+            self.st.mode = Mode { fill: false, shade: false, pattern: false, ..mode };
+            self.use_path(segs.to_vec(), command)?;
         }
         Ok(())
     }

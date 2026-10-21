@@ -1282,6 +1282,29 @@ keyfn!(k_at_empty_cell, |e, v| {
     Ok(())
 });
 // `turn`: the coordinate system at the path's last point, its x axis along the path there
+// `transform canvas={…}`: the transformations of the options applied to what the scope draws, as a
+// whole (line widths and text too)
+keyfn!(k_transform_canvas, |e, v| {
+    let saved = std::mem::take(&mut e.st.pending);
+    let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    let t = std::mem::replace(&mut e.st.pending, saved);
+    r?;
+    // the transformations act on the canvas around the current origin, as pgf's low level does
+    e.open_in_scope(crate::canvas::Item::Transform { transform: t });
+    Ok(())
+});
+keyfn!(k_trim_left, |e, v| {
+    e.st.trim_left = Some(text(e, &v)?);
+    Ok(())
+});
+keyfn!(k_trim_right, |e, v| {
+    e.st.trim_right = Some(text(e, &v)?);
+    Ok(())
+});
+keyfn!(k_path_picture, |e, v| {
+    e.st.mode.picture = v;
+    Ok(())
+});
 keyfn!(k_turn, |e, _v| {
     let (last, from) = e.turn_from;
     let d = last.minus(from);
@@ -1804,6 +1827,11 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/to path", k_to_path),
     ("/tikz/start chain", k_start_chain),
     ("/tikz/turn", k_turn),
+    ("/tikz/path picture", k_path_picture),
+    ("/tikz/trim left", k_trim_left),
+    ("/tikz/transform canvas", k_transform_canvas),
+    ("/tikz/trim right", k_trim_right),
+    ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
     ("/tikz/chain default direction", k_chain_default_direction),
     ("/tikz/on chain", k_on_chain),
