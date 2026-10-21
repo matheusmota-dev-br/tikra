@@ -277,6 +277,8 @@ pub struct Engine {
     nesting: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
+    /// the points of `\pgfplotstreampoint` since `\pgfplotstreamstart`, on the canvas
+    pub plot_stream: Vec<crate::scene::Point>,
     /// `execute at end scope` code of the open scopes, innermost last
     scope_ends: Vec<Vec<Token>>,
     /// for each `{` in a picture: whether it opened a scope (`{[options] …}`, the scopes library)
@@ -379,6 +381,7 @@ impl Clone for Engine {
             nesting: self.nesting,
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
+            plot_stream: Vec::new(),
             decoration_envs: self.decoration_envs.clone(),
             named_paths: self.named_paths.clone(),
             last_node: self.last_node.clone(),
@@ -441,6 +444,7 @@ impl Engine {
             nesting: 0,
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
+            plot_stream: Vec::new(),
             decoration_envs: Vec::new(),
             named_paths: HashMap::new(),
             last_node: None,

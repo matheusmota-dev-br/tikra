@@ -126,6 +126,8 @@ pub struct GState {
     pub variable: String,
     /// the plot handler: `sharp plot`, `smooth`, `smooth cycle`, `ycomb`, `ybar`, `const plot`…
     pub plot_handler: String,
+    /// the basic layer's plot handler (`\pgfplothandlerlineto`) and a mark handler's code
+    pub basic_plot: (String, Vec<Token>),
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
@@ -266,6 +268,7 @@ impl Default for GState {
             samples: 25,
             variable: "x".into(),
             plot_handler: "sharp plot".into(),
+            basic_plot: ("sharp plot".into(), Vec::new()),
             tension: 0.5,
             plot_mark: None,
             only_marks: false,

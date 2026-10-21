@@ -79,6 +79,13 @@ enum B {
     XVec,
     YVec,
     ZVec,
+    /// `\pgfplothandlerlineto`… (the handler's name in [`PLOT_HANDLERS`])
+    PlotHandler,
+    PlotHandlerMark,
+    StreamStart,
+    StreamPoint,
+    StreamEnd,
+    PlotTension,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -146,6 +153,43 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfsetxvec", B::XVec),
     ("pgfsetyvec", B::YVec),
     ("pgfsetzvec", B::ZVec),
+    ("pgfplothandlermark", B::PlotHandlerMark),
+    ("pgfplotstreamstart", B::StreamStart),
+    ("pgfplotstreampoint", B::StreamPoint),
+    ("pgfplotstreamend", B::StreamEnd),
+    ("pgfsetplottension", B::PlotTension),
+    ("pgfplothandlerlineto", B::PlotHandler),
+    ("pgfplothandlerpolygon", B::PlotHandler),
+    ("pgfplothandlercurveto", B::PlotHandler),
+    ("pgfplothandlerclosedcurve", B::PlotHandler),
+    ("pgfplothandlerdiscard", B::PlotHandler),
+    ("pgfplothandlerxcomb", B::PlotHandler),
+    ("pgfplothandlerycomb", B::PlotHandler),
+    ("pgfplothandlerpolarcomb", B::PlotHandler),
+    ("pgfplothandlerconstantlineto", B::PlotHandler),
+    ("pgfplothandlerconstantlinetomarkright", B::PlotHandler),
+    ("pgfplothandlerconstantlinetomarkmid", B::PlotHandler),
+    ("pgfplothandlerjumpmarkleft", B::PlotHandler),
+    ("pgfplothandlerjumpmarkright", B::PlotHandler),
+    ("pgfplothandlerjumpmarkmid", B::PlotHandler),
+];
+
+/// The basic layer's plot handlers, by command, as TikZ's `plot` names them.
+const PLOT_HANDLERS: &[(&str, &str)] = &[
+    ("pgfplothandlerlineto", "sharp plot"),
+    ("pgfplothandlerpolygon", "sharp cycle"),
+    ("pgfplothandlercurveto", "smooth"),
+    ("pgfplothandlerclosedcurve", "smooth cycle"),
+    ("pgfplothandlerdiscard", "discard"),
+    ("pgfplothandlerxcomb", "xcomb"),
+    ("pgfplothandlerycomb", "ycomb"),
+    ("pgfplothandlerpolarcomb", "polar comb"),
+    ("pgfplothandlerconstantlineto", "const plot"),
+    ("pgfplothandlerconstantlinetomarkright", "const plot mark right"),
+    ("pgfplothandlerconstantlinetomarkmid", "const plot mark mid"),
+    ("pgfplothandlerjumpmarkleft", "jump mark left"),
+    ("pgfplothandlerjumpmarkright", "jump mark right"),
+    ("pgfplothandlerjumpmarkmid", "jump mark mid"),
 ];
 
 /// The names a point argument can start with.
@@ -818,6 +862,58 @@ impl Engine {
                     B::XVec => self.st.x = p,
                     B::YVec => self.st.y = p,
                     _ => self.st.z = p,
+                }
+            }
+            B::PlotHandler => {
+                let name = COMMANDS[(id - BASE) as usize].0;
+                let handler = PLOT_HANDLERS.iter().find(|(c, _)| *c == name).map_or("sharp plot", |(_, h)| h);
+                self.st.basic_plot = (handler.to_string(), Vec::new());
+            }
+            B::PlotHandlerMark => {
+                let code = self.argument()?;
+                self.st.basic_plot = ("mark".into(), code);
+            }
+            B::PlotTension => {
+                let v = self.argument()?;
+                self.st.tension = self.number_of(v)?;
+            }
+            B::StreamStart => self.plot_stream.clear(),
+            B::StreamPoint => {
+                let p = self.point_arg()?;
+                self.plot_stream.push(t.apply(p));
+            }
+            B::StreamEnd => self.plot_stream_end()?,
+        }
+        Ok(())
+    }
+}
+
+impl Engine {
+    /// `\pgfplotstreamend`: the points streamed go into the path as the plot handler makes it, or
+    /// each gets the mark handler's code, shifted there.
+    fn plot_stream_end(&mut self) -> Result<(), Error> {
+        let points = std::mem::take(&mut self.plot_stream);
+        let (handler, code) = self.st.basic_plot.clone();
+        match handler.as_str() {
+            "discard" => {}
+            "mark" => {
+                let t = self.st.transform;
+                for p in points {
+                    self.begin_group();
+                    self.begin_scope();
+                    self.st.transform = Transform::translation(p.x, p.y).compose(&Transform { e: 0.0, f: 0.0, ..t });
+                    let r = self.run_tokens(code.clone());
+                    self.end_scope();
+                    self.end_group();
+                    r?;
+                }
+            }
+            h => {
+                let saved = std::mem::replace(&mut self.st.plot_handler, h.to_string());
+                let r = super::path::plot_segments(self, &points);
+                self.st.plot_handler = saved;
+                for s in r? {
+                    self.pgf_add(s);
                 }
             }
         }

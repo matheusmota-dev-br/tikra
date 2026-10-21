@@ -1424,7 +1424,7 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
         }
         // the marks, drawn after the path, in the plot's own settings
         let marks = e.plot_marks(&points)?;
-        let segs = plot_handler(e, &points)?;
+        let segs = plot_segments(e, &points)?;
         Ok((points, segs, marks, e.st.only_marks))
     })();
     e.end_group();
@@ -1454,7 +1454,7 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
 
 /// The path of a plot's points (canvas coordinates) as its handler makes it, in the plot's own
 /// coordinate system (where the zero level of combs and bars is, and bar widths are measured).
-fn plot_handler(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
+pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, Error> {
     let t = e.st.transform;
     let inv = crate::reader::invert(&t);
     let q: Vec<Point> = points.iter().map(|p| inv.apply(*p)).collect();
