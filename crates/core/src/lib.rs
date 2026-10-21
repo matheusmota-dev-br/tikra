@@ -5,8 +5,6 @@
 //! assert!(r.svg.starts_with("<svg"));
 //! ```
 
-pub mod axes;
-pub mod axes_bridge;
 pub mod canvas;
 pub mod color;
 pub mod driver;

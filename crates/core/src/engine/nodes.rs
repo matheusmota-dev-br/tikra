@@ -277,7 +277,7 @@ impl Engine {
         &mut self.st.node
     }
 
-    fn key_text(&mut self, path: &str) -> String {
+    pub fn key_text(&mut self, path: &str) -> String {
         keys::value(&self.tex, path).map(|v| tex::tokens_to_string(&v)).unwrap_or_default()
     }
 
@@ -350,7 +350,7 @@ impl Engine {
             "rectangle".to_string()
         };
         self.process_keys(tikra_tokens(&format!("every {shape_name} node/.try")), Some("/tikz"))?;
-        let name = spec.name.clone().or_else(|| self.st.node.name.clone());
+        let name = spec.name.clone().or_else(|| self.st.node.name.clone()).or_else(|| self.set_member_name());
 
         // the text boxes, one per node part
         let mut texts = Vec::new();
@@ -470,6 +470,9 @@ impl Engine {
             anchor = auto_anchor(direction, (side == 'r') != self.st.swap).to_string();
         }
         let anchor = anchor.trim();
+        // pgfplots' `near ticklabel` anchors face the axis
+        let resolved = self.frame.as_ref().and_then(|f| f.near_anchor(anchor, &self.st.pending));
+        let anchor = resolved.as_deref().unwrap_or(anchor);
         let a_local = info.anchor_local(anchor).unwrap_or_else(|| {
             self.warn(format!("unknown anchor '{anchor}': center used"));
             info.geometry.center
@@ -505,6 +508,7 @@ impl Engine {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
             self.tex.define_string("tikzlastnode", &n, true);
+            self.join_sets(&n);
             self.nodes.insert(n, info.clone());
         } else {
             // an unnamed node is `\tikzlastnode` by an internal name, as TikZ's `tikz@f@…`
@@ -534,7 +538,12 @@ impl Engine {
         let t = info.transform;
         let g = info.geometry.clone();
         let mut items = Vec::new();
-        let node_fill = if self.st.mode.fill {
+        // a shaded node: its shading fitted to the background path, as \pgfshadepath does
+        let background: Vec<Segment> =
+            g.paths.iter().filter(|p| p.layer == Layer::Background && matches!(p.usage, Usage::Node)).flat_map(|p| transform_segments(&p.segments, &t)).collect();
+        let node_fill = if self.st.mode.shade && !background.is_empty() {
+            Some(Fill { paint: Paint::Shading(self.shading_of(&background)), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
+        } else if self.st.mode.fill {
             Some(Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: self.st.even_odd })
         } else if self.st.mode.pattern {
             Some(Fill {
@@ -553,7 +562,7 @@ impl Engine {
                     segs = super::output::round_corners(&segs, e.st.rounded);
                 }
                 let segs = transform_segments(&segs, &t);
-                if matches!(p.usage, Usage::Node) && (e.st.decorate || !e.st.preactions.is_empty() || !e.st.postactions.is_empty()) {
+                if matches!(p.usage, Usage::Node) && (e.st.decorate || e.st.mode.picture.is_some() || !e.st.preactions.is_empty() || !e.st.postactions.is_empty()) {
                     // the border as a path of its own, decorated, with its actions
                     let saved = std::mem::take(&mut e.canvas.items);
                     let r = e.finish_path(segs, scope, "node");

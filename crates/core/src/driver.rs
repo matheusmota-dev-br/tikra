@@ -290,6 +290,10 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
                     body.push_str("<g>");
                 }
             }
+            Item::Transform { transform: t } => {
+                // the canvas transformation in the SVG's coordinates: y down, in bp
+                let _ = write!(body, r#"<g transform="matrix({} {} {} {} {} {})">"#, n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
+            }
             Item::Fade { mask } => {
                 let gradient = paint_value(&Paint::Shading(mask.clone()), &mut defs);
                 let id = defs.id("m");

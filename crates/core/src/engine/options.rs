@@ -83,13 +83,29 @@ impl Engine {
         let path = keys::full_path(&self.st.key_path, key);
         // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
         if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
-            let (base, h) = (base.to_string(), h.to_string());
+            let (mut base, h) = (base.to_string(), h.to_string());
+            // `/handler config=full or existing`: a handler that changes a key that does not exist
+            // goes to the key of the same name on the search path (pgfplots' `every mark/.append style`)
+            if matches!(h.as_str(), ".append style" | ".prefix style" | ".append code" | ".prefix code" | ".append" | ".prefix" | ".add") && !self.key_exists(&base) {
+                if let Some(list) = keys::value(&self.tex, &format!("{}/.@searchalso", keys::parent(&base))) {
+                    let name = keys::name(&base).to_string();
+                    let found = tex::tokens_to_string(&list).split(',').map(|p| format!("{}/{name}", p.trim().trim_end_matches('/'))).find(|other| self.key_exists(other));
+                    if let Some(other) = found {
+                        base = other;
+                    }
+                }
+            }
             return self.handler(&base, &h, value);
         }
         if self.run_key(&path, value.clone())? {
             return Ok(());
         }
         self.unknown(&path, value)
+    }
+
+    /// Whether a key has code or a value.
+    pub fn key_exists(&self, path: &str) -> bool {
+        self.tex.is_defined(&macro_name(path)) || self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))
     }
 
     /// Runs the key at `path` if it is defined; false if it is not.
@@ -99,6 +115,8 @@ impl Engine {
         match cmd {
             Meaning::Native(id) if id >= NATIVE_KEY_BASE => {
                 let f = self.key_fns[(id - NATIVE_KEY_BASE) as usize];
+                self.current_key.clear();
+                self.current_key.push_str(path);
                 let v = value.filter(|v| !is_novalue(v));
                 f(self, v)?;
                 Ok(true)
@@ -511,8 +529,8 @@ fn shift_vector(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<Point, Error> 
     let s = text(e, v)?;
     let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
-    let full = e.st.transform.compose(&e.st.pending);
-    Ok(crate::reader::invert(&full).apply(p))
+    // in the coordinate system as it is: shifts given before (still pending) do not change it
+    Ok(crate::reader::invert(&e.st.transform).apply(p))
 }
 
 fn dash_from(e: &mut Engine, spec: &str) -> Result<Option<Vec<f64>>, Error> {
@@ -1281,6 +1299,38 @@ keyfn!(k_at_empty_cell, |e, v| {
     e.st.matrix.at_empty_cell = v.unwrap_or_default();
     Ok(())
 });
+// `turn`: the coordinate system at the path's last point, its x axis along the path there
+// `transform canvas={…}`: the transformations of the options applied to what the scope draws, as a
+// whole (line widths and text too)
+keyfn!(k_transform_canvas, |e, v| {
+    let saved = std::mem::take(&mut e.st.pending);
+    let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    let t = std::mem::replace(&mut e.st.pending, saved);
+    r?;
+    // the transformations act on the canvas around the current origin, as pgf's low level does
+    e.open_in_scope(crate::canvas::Item::Transform { transform: t });
+    Ok(())
+});
+keyfn!(k_trim_left, |e, v| {
+    e.st.trim_left = Some(text(e, &v)?);
+    Ok(())
+});
+keyfn!(k_trim_right, |e, v| {
+    e.st.trim_right = Some(text(e, &v)?);
+    Ok(())
+});
+keyfn!(k_path_picture, |e, v| {
+    e.st.mode.picture = v;
+    Ok(())
+});
+keyfn!(k_turn, |e, _v| {
+    let (last, from) = e.turn_from;
+    let d = last.minus(from);
+    let d = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+    let t = Transform { a: d.x, b: d.y, c: -d.y, d: d.x, e: last.x, f: last.y };
+    e.st.pending = e.st.pending.compose(&t);
+    Ok(())
+});
 keyfn!(k_start_chain, |e, v| {
     let s = text(e, &v)?;
     e.start_chain(&s);
@@ -1385,14 +1435,13 @@ keyfn!(k_variable, |e, v| {
     e.st.variable = s.trim().trim_start_matches('\\').to_string();
     Ok(())
 });
-keyfn!(k_smooth, |e, _v| {
-    e.st.smooth = true;
+// the plot handlers named by their key (pgfplots' keys set the others)
+fn plot_handler(e: &mut Engine, name: &str) -> Result<(), Error> {
+    e.st.plot_handler = name.into();
     Ok(())
-});
-keyfn!(k_sharp_plot, |e, _v| {
-    e.st.smooth = false;
-    Ok(())
-});
+}
+keyfn!(k_smooth_cycle, |e, _v| plot_handler(e, "smooth cycle"));
+keyfn!(k_sharp_cycle, |e, _v| plot_handler(e, "sharp cycle"));
 keyfn!(k_tension, |e, v| {
     e.st.tension = number(e, &v)?.unwrap_or(0.55);
     Ok(())
@@ -1441,8 +1490,9 @@ keyfn!(k_declare_function, |e, v| {
     let s = text(e, &v)?;
     for def in s.split(';') {
         let Some((head, body)) = def.split_once('=') else { continue };
-        let Some((name, params)) = head.trim().split_once('(') else { continue };
-        let params = params.trim_end_matches(')').split(',').map(|p| p.trim().trim_start_matches('\\').to_string()).collect();
+        // a constant (`C=4;`) has no parameters
+        let (name, params) = head.trim().split_once('(').unwrap_or((head.trim(), ""));
+        let params = params.trim_end_matches(')').split(',').map(|p| p.trim().trim_start_matches('\\').to_string()).filter(|p| !p.is_empty()).collect();
         Rc::make_mut(&mut e.st.functions).insert(name.trim().to_string(), (params, body.trim().to_string()));
     }
     Ok(())
@@ -1593,14 +1643,14 @@ keyfn!(k_matrix_of_math_nodes, |e, _v| {
     e.st.matrix.math = true;
     Ok(())
 });
+// `nodes={…}`: more of every node (a matrix's own node took every node before its options)
 keyfn!(k_matrix_nodes, |e, v| {
-    if let Some(v) = v {
-        if !e.st.matrix.nodes_style.is_empty() {
-            e.st.matrix.nodes_style.push(Token::other(','));
-        }
-        e.st.matrix.nodes_style.extend(v);
-    }
-    Ok(())
+    let Some(v) = v else { return Ok(()) };
+    let mut keys = tikra_tokens("every node/.append style=");
+    keys.push(Token::Char('{', crate::tex::Cat::Begin));
+    keys.extend(v);
+    keys.push(Token::Char('}', crate::tex::Cat::End));
+    e.process_keys(keys, Some("/tikz"))
 });
 
 fn shade_color(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<crate::color::Color, Error> {
@@ -1794,6 +1844,12 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/controls", k_controls),
     ("/tikz/to path", k_to_path),
     ("/tikz/start chain", k_start_chain),
+    ("/tikz/turn", k_turn),
+    ("/tikz/path picture", k_path_picture),
+    ("/tikz/trim left", k_trim_left),
+    ("/tikz/transform canvas", k_transform_canvas),
+    ("/tikz/trim right", k_trim_right),
+    ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
     ("/tikz/chain default direction", k_chain_default_direction),
     ("/tikz/on chain", k_on_chain),
@@ -1813,8 +1869,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/domain", k_domain),
     ("/tikz/samples", k_samples),
     ("/tikz/variable", k_variable),
-    ("/tikz/smooth", k_smooth),
-    ("/tikz/sharp plot", k_sharp_plot),
+    ("/tikz/smooth cycle", k_smooth_cycle),
+    ("/tikz/sharp cycle", k_sharp_cycle),
     ("/tikz/tension", k_tension),
     ("/tikz/mark", k_mark),
     ("/tikz/only marks", k_only_marks),
@@ -1875,7 +1931,7 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={}, every pin/.style={}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  every edge/.style={draw}, every to/.style={}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},
@@ -1961,8 +2017,8 @@ const DEFINITIONS: &str = r"
 }
 \def\tikz@framexsep{1ex}\def\tikz@frameysep{1ex}\def\tikz@outerframexsep{0ex}\def\tikz@outerframeysep{0ex}
 \def\tikra@onbg#1{\pgfonlayer{background}\pgftransformreset#1\endpgfonlayer}
-\def\tikz@picture@start{\pgfkeysalso{/tikz/every picture/.try}}
-\def\tikz@scope@options{\pgfkeysalso{/tikz/every scope/.try}}
+\def\tikz@picture@start{\tikzset{every picture/.try}}
+\def\tikz@scope@options{\tikzset{every scope/.try}}
 ";
 
 /// Defines every native key and TikZ's own styles.

@@ -66,6 +66,8 @@ pub struct Mode {
     pub shade: bool,
     /// `use as bounding box`
     pub bounding_box: bool,
+    /// `path picture={…}`: drawn inside the path, clipped to it
+    pub picture: Option<Vec<Token>>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,7 +124,8 @@ pub struct GState {
     pub domain: (f64, f64),
     pub samples: usize,
     pub variable: String,
-    pub smooth: bool,
+    /// the plot handler: `sharp plot`, `smooth`, `smooth cycle`, `ycomb`, `ybar`, `const plot`…
+    pub plot_handler: String,
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
@@ -199,8 +202,13 @@ pub struct GState {
     pub after_node_path: Vec<crate::tex::Token>,
     /// `alias=name`: more names for the node
     pub aliases: Vec<String>,
+    /// `trim left` and `trim right` of the picture
+    pub trim_left: Option<String>,
+    pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
+    /// `/pgf/number format`: how `\pgfmathprintnumber` writes numbers
+    pub number_format: super::pgfplots::number::NumberFormat,
 }
 
 impl Default for GState {
@@ -244,8 +252,8 @@ impl Default for GState {
             domain: (-5.0, 5.0),
             samples: 25,
             variable: "x".into(),
-            smooth: false,
-            tension: 0.55,
+            plot_handler: "sharp plot".into(),
+            tension: 0.5,
             plot_mark: None,
             only_marks: false,
             mark_size: 2.0 * PT,
@@ -270,6 +278,8 @@ impl Default for GState {
             pending_joins: Vec::new(),
             after_node_path: Vec::new(),
             aliases: Vec::new(),
+            trim_left: None,
+            trim_right: None,
             matrix: Default::default(),
             path_fading: None,
             transparency_group: false,
@@ -302,6 +312,7 @@ impl Default for GState {
             at_begin_picture: Vec::new(),
             at_end_picture: Vec::new(),
             quoted: Vec::new(),
+            number_format: Default::default(),
         }
     }
 }
