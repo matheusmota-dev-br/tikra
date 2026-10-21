@@ -219,6 +219,8 @@ pub struct GState {
     pub allow_upside_down: bool,
     /// `make snapshot of`: the time (s) the animations are shown at
     pub snapshot: Option<f64>,
+    /// `fit fading`: a path fading fitted to the path's box
+    pub fit_fading: bool,
     pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
@@ -297,6 +299,7 @@ impl Default for GState {
             trim_left: None,
             allow_upside_down: false,
             snapshot: None,
+            fit_fading: true,
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,

@@ -76,10 +76,14 @@ impl Engine {
         };
         let stroke = mode.draw.then(|| self.stroke());
         // a path fading masks this path, fitted to it
-        let fading = self.st.path_fading.clone().and_then(|f| self.fading_for(&f, &segs));
+        let fading = match self.st.path_fading.clone() {
+            Some(f) if self.picture_fadings.contains_key(&f) => self.picture_fading_for(&f, &segs, self.st.fit_fading),
+            Some(f) => self.fading_for(&f, &segs).map(|mask| Item::Fade { mask }),
+            None => None,
+        };
         let faded = drawn && (fill.is_some() || stroke.is_some()) && fading.is_some();
         if faded {
-            self.canvas.push(Item::Fade { mask: fading.clone().expect("checked") });
+            self.canvas.push(fading.expect("checked"));
         }
         // `tips=true`/`proper`: tips on a path that is neither filled nor stroked
         let tips_only = stroke.is_none() && fill.is_none() && !mode.clip && matches!(self.st.tips_mode, TipsMode::True | TipsMode::Proper);

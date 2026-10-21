@@ -11,6 +11,7 @@ pub mod circuits;
 pub mod coords;
 pub mod datavis;
 pub mod decorations;
+pub mod fadings;
 pub mod folding;
 pub mod graphs;
 pub mod intersections;
@@ -63,6 +64,10 @@ pub enum Cmd {
     PgfMatrix,
     Chainin,
     TikzMath,
+    DeclareFading,
+    SetFading,
+    SetFadingForPath,
+    SetFadingForPathStroked,
     SetSeed,
     Pic,
     Graph,
@@ -142,6 +147,10 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
     ("tikzmath", Cmd::TikzMath),
+    ("pgfdeclarefading", Cmd::DeclareFading),
+    ("pgfsetfading", Cmd::SetFading),
+    ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
+    ("pgfsetfadingforcurrentpathstroked", Cmd::SetFadingForPathStroked),
     ("tikra@setseed", Cmd::SetSeed),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
@@ -305,6 +314,8 @@ pub struct Engine {
     pub subpath_start: crate::scene::Point,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
+    /// fadings drawn as pictures (`\pgfdeclarefading`, `tikzfadingfrompicture`)
+    pub picture_fadings: HashMap<String, fadings::PictureFading>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
@@ -401,6 +412,7 @@ impl Clone for Engine {
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
             fadings: self.fadings.clone(),
+            picture_fadings: self.picture_fadings.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -465,6 +477,7 @@ impl Engine {
             tree_child_names: Vec::new(),
             forced_box: None,
             fadings: HashMap::new(),
+            picture_fadings: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
@@ -482,6 +495,9 @@ impl Engine {
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
         }
+        // in a fading, transparent is black (`\colorlet{pgftransparent}{black}`)
+        e.colors.insert("transparent".into(), Color::BLACK);
+        e.colors.insert("pgftransparent".into(), Color::BLACK);
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
         calendar::define(&mut e);
@@ -855,6 +871,10 @@ impl Engine {
             Cmd::PgfMatrix => self.pgf_matrix(),
             Cmd::Chainin => self.chainin(),
             Cmd::TikzMath => self.tikzmath(),
+            Cmd::DeclareFading => self.declare_fading(),
+            Cmd::SetFading => self.set_fading(),
+            Cmd::SetFadingForPath => self.set_fading_for_path(false),
+            Cmd::SetFadingForPathStroked => self.set_fading_for_path(true),
             Cmd::SetSeed => {
                 // \pgfmathsetseed: the integer part of the value
                 let v = self.argument_string()?;
@@ -1406,14 +1426,10 @@ impl Engine {
         }
         self.begin_group();
         // transparent is black in a fading: N percent of it, the rest white
-        self.colors.insert("transparent".into(), Color::BLACK);
-        self.colors.insert("pgftransparent".into(), Color::BLACK);
         let r = self.process_keys(opts, Some("/tikz"));
         // a unit square, so the shading's box is the identity once fitted
         let square = [crate::scene::Segment::MoveTo(Point::new(-25.0, -25.0)), crate::scene::Segment::LineTo(Point::new(25.0, 25.0))];
         let sh = self.shading_of(&square);
-        self.colors.remove("transparent");
-        self.colors.remove("pgftransparent");
         self.end_group();
         r?;
         if !name.is_empty() {
@@ -1598,7 +1614,8 @@ impl Engine {
                 self.begin_on_layer(layer);
                 Ok(())
             }
-            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" | "tikzfadingfrompicture" => {
+            "tikzfadingfrompicture" => self.fading_from_picture(),
+            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
                 if name == "minipage" {
                     let _ = self.optional()?;
                     let _ = self.argument()?;
