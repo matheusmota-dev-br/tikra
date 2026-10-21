@@ -264,12 +264,10 @@ impl Parser<'_> {
                 self.pos += 1;
                 let v = self.ternary()?;
                 self.skip_spaces();
-                // pgfmath closes what is still open at the end (`(sqrt((1)^2`)
-                match self.peek() {
-                    Some(c) if c == close => self.pos += 1,
-                    None => {}
-                    _ => return Err(Error::Expression(format!("missing '{close}'"))),
+                if self.peek() != Some(close) {
+                    return Err(Error::Expression(format!("missing '{close}'")));
                 }
+                self.pos += 1;
                 Ok(v)
             }
             Some(c) if c.is_ascii_digit() || c == '.' => {
@@ -351,11 +349,10 @@ impl Parser<'_> {
                     args.push(self.ternary()?);
                     self.skip_spaces();
                 }
-                match self.peek() {
-                    Some(')') => self.pos += 1,
-                    None => {}
-                    _ => return Err(Error::Expression(format!("missing ')' in {name}(…)"))),
+                if self.peek() != Some(')') {
+                    return Err(Error::Expression(format!("missing ')' in {name}(…)")));
                 }
+                self.pos += 1;
                 if let Some((params, body)) = self.vars.functions.get(&name).cloned() {
                     let mut locals = self.vars.clone();
                     for (p, v) in params.iter().zip(&args) {

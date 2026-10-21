@@ -890,6 +890,14 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     Ok(())
 }
 
+/// An expression with the parentheses still open at its end closed: pgfmath reads
+/// `(sqrt((1)^2 + (2*x)^2)` (the manual's quiver example) as if they were.
+fn balanced(text: &str) -> String {
+    let open = text.chars().filter(|c| *c == '(').count();
+    let close = text.chars().filter(|c| *c == ')').count();
+    format!("{text}{}", ")".repeat(open.saturating_sub(close)))
+}
+
 /// `quiver`: each point's (u, v, w), from `quiver/u` and its friends (expressions of x, y, z and
 /// the sampling variable), times `scale arrows`.
 fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
@@ -911,7 +919,7 @@ fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
         for (u, text) in c.uvw.iter_mut().zip(&texts) {
             if !u.is_finite() {
                 *u = match text {
-                    Some(t) if !t.trim().is_empty() => crate::expr::eval(t, &vars).unwrap_or(f64::NAN),
+                    Some(t) if !t.trim().is_empty() => crate::expr::eval(&balanced(t), &vars).unwrap_or(f64::NAN),
                     _ => 0.0,
                 };
             }
@@ -1081,7 +1089,7 @@ fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
                     vars.insert("x".into(), c.x);
                     vars.insert("y".into(), c.y);
                     vars.insert("z".into(), c.z);
-                    c.meta = crate::expr::eval(&text, &vars).unwrap_or(f64::NAN);
+                    c.meta = crate::expr::eval(&balanced(&text), &vars).unwrap_or(f64::NAN);
                 }
             }
         }
