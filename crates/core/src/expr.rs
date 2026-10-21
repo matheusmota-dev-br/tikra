@@ -209,15 +209,26 @@ impl Parser<'_> {
 
     /// `a^b^c` is right-associative; read in a loop so a long `2^2^…^2` does not deepen the stack.
     fn power(&mut self) -> Result<f64, Error> {
-        let mut terms = vec![self.unary()?];
+        let mut terms = vec![self.postfix()?];
         self.skip_spaces();
         while self.peek() == Some('^') {
             self.pos += 1;
-            terms.push(self.unary()?);
+            terms.push(self.postfix()?);
             self.skip_spaces();
         }
         let last = terms.pop().unwrap_or_default();
         Ok(terms.into_iter().rev().fold(last, |e, base| base.powf(e)))
+    }
+
+    /// A factor and pgfmath's postfix `r` (radians to degrees: `sin(2 r)`).
+    fn postfix(&mut self) -> Result<f64, Error> {
+        let v = self.unary()?;
+        self.skip_spaces();
+        if self.peek() == Some('r') && !self.c.get(self.pos + 1).is_some_and(|c| c.is_ascii_alphanumeric()) {
+            self.pos += 1;
+            return Ok(v.to_degrees());
+        }
+        Ok(v)
     }
 
     fn unary(&mut self) -> Result<f64, Error> {

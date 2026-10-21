@@ -9,6 +9,7 @@ pub mod calendar;
 pub mod chains;
 pub mod circuits;
 pub mod coords;
+pub mod datavis;
 pub mod decorations;
 pub mod folding;
 pub mod graphs;
@@ -112,6 +113,8 @@ pub enum Cmd {
     DecorationBegin,
     DecorationEnd,
     DecorateCurrentPath,
+    /// the commands of data visualizations, dispatched by name (`datavis`)
+    DataVis,
     /// the spy library: `\spy`, and what a spy scope does at its start and end
     Spy,
     SpyBegin,
@@ -219,7 +222,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("noindent", Cmd::FontSeries),
     ("maketitle", Cmd::FontSeries),
     ("selectfont", Cmd::FontSeries),
-    ("datavisualization", Cmd::Unsupported),
     ("spy", Cmd::Spy),
     ("tikra@spybegin", Cmd::SpyBegin),
     ("tikra@spyend", Cmd::SpyEnd),
@@ -320,6 +322,8 @@ pub struct Engine {
     words: Vec<String>,
     /// keys run so far
     pub keys_run: usize,
+    /// the data visualizations being run, innermost last
+    pub datavis: Vec<datavis::Dv>,
     /// the full path of the native key being run (natives that share code tell keys apart by it)
     pub current_key: String,
     /// the `axis` environment being read, and the one being drawn
@@ -380,6 +384,7 @@ impl Clone for Engine {
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
+            datavis: self.datavis.clone(),
             pgf_path: self.pgf_path.clone(),
             plot_stream: Vec::new(),
             decoration_envs: self.decoration_envs.clone(),
@@ -443,6 +448,7 @@ impl Engine {
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
+            datavis: Vec::new(),
             pgf_path: basic::PgfPath::default(),
             plot_stream: Vec::new(),
             decoration_envs: Vec::new(),
@@ -483,6 +489,7 @@ impl Engine {
         mindmap::define(&mut e);
         lsystem::define(&mut e);
         options::define_keys(&mut e);
+        datavis::define(&mut e);
         pgfplots::define(&mut e);
         graphs::define(&mut e);
         e
@@ -795,6 +802,9 @@ impl Engine {
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
         if basic::is_basic(id) {
             return self.basic_command(id);
+        }
+        if id == Cmd::DataVis as u16 {
+            return self.datavis_command(t);
         }
         if calendar::is_calendar(id) {
             return self.calendar_command(id);
@@ -1471,6 +1481,18 @@ impl Engine {
     /// `\tikz[options]{…}` or `\tikz[options] statement;`
     fn tikz_command(&mut self) -> Result<(), Error> {
         let o = self.optional()?;
+        // a data visualization reads its data line by line: it reads its own input
+        if let Some(t) = self.tex.next_nonspace() {
+            let dv = t.is_cs("datavisualization");
+            self.tex.back(t);
+            if dv {
+                let _ = self.tex.get_token();
+                self.begin_picture(o)?;
+                let r = self.datavisualization();
+                self.end_picture();
+                return r;
+            }
+        }
         let body = self.next_statement()?;
         self.begin_picture(o)?;
         self.run_tokens(body)?;

@@ -23,7 +23,13 @@ fn top_level(t: &str, target: char) -> Option<usize> {
     for (i, c) in t.char_indices() {
         match c {
             '{' | '(' | '[' => depth += 1,
-            '}' | ')' | ']' => depth -= 1,
+            '}' | ')' | ']' => {
+                depth -= 1;
+                // a closing target: the one that closes the first opening
+                if c == target && depth == 0 {
+                    return Some(i);
+                }
+            }
             c if c == target && depth == 0 => return Some(i),
             _ => {}
         }
@@ -238,6 +244,7 @@ impl Engine {
                 let local = if system == "canvas polar" { Point::new(rx * c, ry * s) } else { self.st.x.scale(rx * c).plus(self.st.y.scale(ry * s)) };
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
             }
+            "visualization" => Ok(Coord { p: self.visualization_cs(args)?, node: None }),
             "node" => {
                 let name = get("name").unwrap_or_default();
                 let node = self.nodes.get(&name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
