@@ -1222,6 +1222,59 @@ impl Engine {
     pub fn next_statement(&mut self) -> Result<Vec<Token>, Error> {
         match self.tex.next_nonspace() {
             Some(Token::Char(_, Cat::Begin)) => self.tex.read_group_body(),
+            // a \foreach as the statement: its variables, options and list, then its own body
+            // (`\pgffor@collectforeach`)
+            Some(t) if t.is_cs("foreach") => {
+                let mut out = vec![t];
+                while let Some(x) = self.tex.get_token() {
+                    if x.is_char('[') {
+                        out.push(x);
+                        out.extend(self.tex.read_until_char(']', false)?);
+                        out.push(Token::other(']'));
+                        continue;
+                    }
+                    let is_i = x.is_char('i');
+                    out.push(x);
+                    if is_i {
+                        match self.tex.get_token() {
+                            Some(n) if n.is_char('n') => {
+                                out.push(n);
+                                break;
+                            }
+                            Some(n) => self.tex.back(n),
+                            None => break,
+                        }
+                    }
+                }
+                // the list, and options after it
+                for _ in 0..2 {
+                    match self.tex.next_nonspace() {
+                        Some(b @ Token::Char(_, Cat::Begin)) => {
+                            out.push(b);
+                            out.extend(self.tex.read_group_body()?);
+                            out.push(Token::Char('}', Cat::End));
+                        }
+                        Some(x) if x.is_char('[') => {
+                            out.push(x);
+                            out.extend(self.tex.read_until_char(']', false)?);
+                            out.push(Token::other(']'));
+                            continue;
+                        }
+                        Some(x) => {
+                            if out.last().is_some_and(|t| matches!(t, Token::Char(_, Cat::End))) {
+                                self.tex.back(x);
+                            } else {
+                                out.push(x);
+                            }
+                        }
+                        None => {}
+                    }
+                    break;
+                }
+                out.push(Token::Char(' ', Cat::Space));
+                out.extend(self.next_statement_braced()?);
+                Ok(out)
+            }
             Some(t) => {
                 self.tex.back(t);
                 let mut out = Vec::new();
@@ -1239,6 +1292,23 @@ impl Engine {
                     }
                 }
                 Ok(out)
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// The next statement, kept in its braces when it is a group (the body of a `\foreach`).
+    fn next_statement_braced(&mut self) -> Result<Vec<Token>, Error> {
+        match self.tex.next_nonspace() {
+            Some(b @ Token::Char(_, Cat::Begin)) => {
+                let mut out = vec![b];
+                out.extend(self.tex.read_group_body()?);
+                out.push(Token::Char('}', Cat::End));
+                Ok(out)
+            }
+            Some(t) => {
+                self.tex.back(t);
+                self.next_statement()
             }
             None => Ok(Vec::new()),
         }
