@@ -116,6 +116,7 @@ pub enum Cmd {
     Documentclass,
     Ignore1,
     Ignore2,
+    Hspace,
     FontSize,
     FontSeries,
     Unsupported,
@@ -216,7 +217,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("documentclass", Cmd::Documentclass),
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
-    ("hspace", Cmd::Ignore1),
+    ("hspace", Cmd::Hspace),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
     ("pgfsetlayers", Cmd::SetLayers),
@@ -394,6 +395,8 @@ enum Layout {
     /// a word of the text around the pictures (in `words`)
     Word(usize),
     Space,
+    /// `\hspace{…}` between pictures
+    Glue(f64),
     Par,
 }
 
@@ -671,7 +674,7 @@ impl Engine {
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {
             // a space after a picture or a word is TeX's interword space
-            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_))) {
+            if matches!(self.layout.last(), Some(Layout::Picture(_) | Layout::Word(_) | Layout::Glue(_))) {
                 self.layout.push(Layout::Space);
             }
             return;
@@ -1227,6 +1230,20 @@ impl Engine {
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
+                Ok(())
+            }
+            // `\hspace{1cm}` (or `\hspace*`) between pictures: the space TeX leaves there
+            Cmd::Hspace => {
+                match self.tex.next_nonspace() {
+                    Some(t) if t.is_char('*') => {}
+                    Some(t) => self.tex.back(t),
+                    None => {}
+                }
+                let arg = self.argument()?;
+                if self.picture_depth == 0 {
+                    let w = self.length_of(arg)?;
+                    self.layout.push(Layout::Glue(w));
+                }
                 Ok(())
             }
             Cmd::Ignore2 => {
@@ -2069,6 +2086,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[String], margin: f6
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
+                Layout::Glue(w) => x += w,
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));
