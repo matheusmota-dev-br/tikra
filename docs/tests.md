@@ -5,7 +5,7 @@ Every figure in the tests and in `corpus/` was written for this repository to ex
 ## How to run
 
 ```console
-$ cargo test                                    # core and CLI, 160 tests, under 3 s
+$ cargo test                                    # core and CLI, 162 tests, under 3 s
 $ cargo llvm-cov --workspace --summary-only     # coverage (install with cargo install cargo-llvm-cov)
 $ cargo llvm-cov --workspace --html             # browsable report in target/llvm-cov/html
 $ cargo clippy --all-targets -- -D warnings
@@ -36,7 +36,7 @@ Integration, in `crates/core/tests/`:
 | `svg_and_png.rs` | 7 | The generated SVG (opacities, dashes, drawn nodes, multiline labels and alignments, mathra's rules, lines and circles, nested clips, an empty scene) and the PNG (background, dpi, invalid SVG, zero/negative/infinite dpi, pixel cap). |
 | `figures.rs` | 12 | Whole figures that combine several features: a number line, a folding fan in a rotated scope, a flowchart, stacked waves from a declared function, a signpost with hatching and inherited label color, a plot with a legend. |
 | `corpus.rs` | 1 | Every figure in `corpus/` converts without warnings, with no `NaN`/`inf`, to SVG and PNG. |
-| `problematic.rs` | 17 | Input built to break the interpreter (section below). |
+| `problematic.rs` | 19 | Input built to break the interpreter (section below), including groups that never close at every place a group is read. |
 | `banner.rs` | 1 | The README banner: `docs/banner.svg` must be byte for byte what tikra draws from `docs/banner.tex`, and `docs/banner.png` must be 1280 px wide. |
 | `examples.rs` | 2 | The README gallery: each `docs/examples/*.svg` must be byte for byte what tikra draws from its corpus figure, on a white card. |
 

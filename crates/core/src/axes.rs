@@ -3,7 +3,7 @@
 
 use crate::color::Color;
 use crate::options;
-use crate::reader::{block, format_number, Env};
+use crate::reader::{block, block_or_rest, format_number, Env};
 use crate::scene::*;
 use crate::{path, Error};
 
@@ -74,7 +74,7 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
     let mut legends: Vec<String> = Vec::new();
     let mut i = 0;
     while i < c.len() {
-        let rest: String = c[i..].iter().take(16).collect();
+        let rest: String = c[i..].iter().take(24).collect();
         if rest.starts_with("\\addplot") {
             i += 8;
             let plus = c.get(i) == Some(&'+');
@@ -86,7 +86,7 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
             }
             let mut po = String::new();
             if c.get(i) == Some(&'[') {
-                let (x, end) = block(&c, i).unwrap_or_default();
+                let (x, end) = block_or_rest(&c, i);
                 po = x;
                 i = end;
             }
@@ -107,7 +107,7 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
                 let mut k = 0;
                 while k < lc.len() {
                     if lc[k] == '(' {
-                        let (d, f) = block(&lc, k).unwrap_or_default();
+                        let (d, f) = block_or_rest(&lc, k);
                         let parts = options::split_top_level(&d);
                         if parts.len() >= 2 {
                             if let (Ok(x), Ok(y)) = (env.number(&parts[0]), env.number(&parts[1])) {
@@ -120,7 +120,7 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
                     }
                 }
             } else if c.get(i) == Some(&'{') {
-                let (e, end) = block(&c, i).unwrap_or_default();
+                let (e, end) = block_or_rest(&c, i);
                 i = end;
                 marks = false;
                 let series_options = options::parse(&po);
@@ -166,13 +166,16 @@ pub fn plot_axis(env: &mut Env, options_text: &str, body: &str) -> Result<(), Er
             }
             series.push(Series { points, options: po, marks, line: !only_marks });
         } else if rest.starts_with("\\addlegendentry") {
-            i += 15;
+            // \addlegendentryexpanded expands macros first: tikra's text is already expanded
+            i += if rest.starts_with("\\addlegendentryexpanded") { 23 } else { 15 };
             while i < c.len() && c[i].is_whitespace() {
                 i += 1;
             }
-            let (t, end) = block(&c, i).unwrap_or_default();
-            legends.push(t);
-            i = end;
+            if c.get(i) == Some(&'{') {
+                let (t, end) = block_or_rest(&c, i);
+                legends.push(t);
+                i = end;
+            }
         } else {
             i += 1;
         }

@@ -140,6 +140,12 @@ pub struct Reader<'a> {
     pub env: &'a mut Env,
 }
 
+/// `block`, or for a group that never closes, the rest of the text, as TeX's runaway argument: the
+/// reader always moves forward.
+pub fn block_or_rest(c: &[char], start: usize) -> (String, usize) {
+    block(c, start).unwrap_or_else(|| (c.get(start + 1..).unwrap_or_default().iter().collect(), c.len().max(start + 1)))
+}
+
 /// Content of `{…}`, `[…]` or `(…)` starting at the opening delimiter.
 pub fn block(c: &[char], start: usize) -> Option<(String, usize)> {
     let open = *c.get(start)?;
