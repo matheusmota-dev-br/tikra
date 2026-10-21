@@ -4,12 +4,14 @@
 //! the order they came, with the TikZ statements among them), the descriptions and the legend
 //! are drawn ([`draw`]).
 
+pub mod attime;
 pub mod boxplot;
 pub mod colorbar;
 pub mod colormap;
 pub mod contour;
 pub mod cube;
 pub mod draw;
+pub mod fillbetween;
 pub mod group;
 pub mod keys;
 pub mod legend;

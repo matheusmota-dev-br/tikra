@@ -294,7 +294,7 @@ impl Engine {
     pub fn node(&mut self, spec: NodeSpec) -> Result<Vec<Item>, Error> {
         // `\pgfmathprintnumber{…}` in a node's text is printed as pgf prints numbers
         let mut spec = spec;
-        if spec.text.iter().any(|t| t.is_cs("pgfmathprintnumber")) {
+        if spec.text.iter().any(|t| t.is_cs("pgfmathprintnumber") || t.is_cs("pgfplotspointplotattime")) {
             spec.text = super::pgfplots::draw::print_numbers(self, &spec.text)?;
         }
         self.begin_group();

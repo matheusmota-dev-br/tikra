@@ -1728,6 +1728,10 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
     let mut out = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
+        if tokens[i].is_cs("pgfplotspointplotattime") {
+            i = super::attime::run(e, tokens, i)?;
+            continue;
+        }
         if tokens[i].is_cs("pgfmathprintnumber") {
             let mut j = i + 1;
             let mut opts = Vec::new();

@@ -29,15 +29,13 @@ pub fn number(e: &mut Engine, c: char, key: &str) -> Option<f64> {
     keys::number(e, key)
 }
 
-/// The tick label of tick `t` on a symbolic axis: the name at that index.
+/// The name a number stands for on a symbolic axis: the nearest one, the first or the last
+/// beyond them (`/pgfplots/x coord inv trafo`), for tick labels and `/data point/x`.
 pub fn label(e: &Engine, c: char, t: f64) -> Option<String> {
     let names = names(e, c);
     if names.is_empty() {
         return None;
     }
-    let k = t.round();
-    if (t - k).abs() > 1e-6 || k < 0.0 {
-        return Some(String::new());
-    }
-    Some(names.get(k as usize).cloned().unwrap_or_default())
+    let k = if t.is_finite() { t.round().clamp(0.0, (names.len() - 1) as f64) } else { 0.0 };
+    Some(names[k as usize].clone())
 }

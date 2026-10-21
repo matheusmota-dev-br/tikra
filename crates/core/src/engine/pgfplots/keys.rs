@@ -546,7 +546,6 @@ const DEFINITIONS: &str = r"
 	/pgfplots/table/comment chars/.initial=,
 	/pgfplots/table/@search path/.initial=., /pgfplots/table/search path/.code={\pgfkeyssetvalue{/pgfplots/table/@search path}{#1}},
 	/pgfplots/table/trim cells/.initial=false,
-	/pgfplots/table/.unknown/.code={},
 	/pgfplots/table/x error expr/.initial=, /pgfplots/table/y error expr/.initial=,
 	/pgfplots/table/x error plus expr/.initial=, /pgfplots/table/y error plus expr/.initial=,
 	/pgfplots/table/x error minus expr/.initial=, /pgfplots/table/y error minus expr/.initial=,
@@ -679,6 +678,10 @@ const DEFINITIONS: &str = r"
 		sloped like y axis={execute for upside down={\tikzset{anchor=south west}}, reset nontranslations=false}, anchor=south east}},
 	/pgfplots/yticklabel around circle*/.style={ytick align=center, yticklabel style={rotate=90,
 		sloped like y axis={execute for upside down={\tikzset{anchor=north west}}, reset nontranslations=false}, anchor=north east}},
+	% fill between: the styles of its segments
+	/tikz/fill between/every segment/.style={}, /tikz/fill between/every last segment/.style={},
+	/tikz/fill between/every odd segment/.style={}, /tikz/fill between/every even segment/.style={},
+	/tikz/fill between/.search also={/pgfplots,/tikz},
 	% tieline plots: each table row has a point and its tie's other end
 	/pgfplots/tieline/every tieline/.style={}, /pgfplots/tieline/every curve/.style={},
 	/pgfplots/tieline/tieline style/.style={/pgfplots/tieline/every tieline/.append style={#1}},
@@ -827,6 +830,19 @@ pub fn run(e: &mut Engine, list: &str) -> Result<(), Error> {
 pub fn compat(e: &Engine) -> u32 {
     keys::value(&e.tex, "/pgfplots/@compat").map(|v| tex::tokens_to_string(&v)).and_then(|s| s.trim().parse().ok()).unwrap_or(0)
 }
+
+// `/pgfplots/table/.unknown`: a key of `table[…]` that is not the table's is the plot's
+// (`\pgfplots@addplotimpl@table@installkeypath`), `table[point meta=…]` for one.
+keyfn!(k_table_unknown, |e, v| {
+    let name = match e.tex.meaning_of("pgfkeyscurrentname") {
+        Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
+        _ => String::new(),
+    };
+    let saved = e.st.key_path.clone();
+    let r = e.invoke(&format!("/pgfplots/{name}"), v);
+    e.st.key_path = saved;
+    r
+});
 
 // `/pgfplots/.unknown`: a key pgfplots does not know is a TikZ key (`.search also=/tikz`).
 keyfn!(k_unknown, |e, v| {
@@ -1087,6 +1103,9 @@ keyfn!(k_sloped_x, |e, v| sloped_like(e, 0, v));
 keyfn!(k_sloped_y, |e, v| sloped_like(e, 1, v));
 keyfn!(k_sloped_z, |e, v| sloped_like(e, 2, v));
 
+// `intersection segments={of=A and B, sequence=…}` (the fillbetween library)
+keyfn!(k_intersection_segments, |e, v| super::fillbetween::intersection_segments(e, v));
+
 // `tieline={…}`: the curve through the ties' ends, and the ties.
 keyfn!(k_tieline, |e, v| {
     set(e, "/tikz/@plot handler", "tieline");
@@ -1216,6 +1235,7 @@ keyfn!(k_nf, |e, v| {
 
 const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/.unknown", k_unknown),
+    ("/pgfplots/table/.unknown", k_table_unknown),
     ("/pgfplots/compat", k_compat),
     ("/pgfplots/mesh", k_mesh),
     ("/pgfplots/surf", k_mesh),
@@ -1232,6 +1252,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/hist", k_hist),
     ("/pgfplots/quiver", k_quiver),
     ("/pgfplots/tieline", k_tieline),
+    ("/tikz/intersection segments", k_intersection_segments),
     ("/tikz/sloped like x axis", k_sloped_x),
     ("/tikz/sloped like y axis", k_sloped_y),
     ("/tikz/sloped like z axis", k_sloped_z),

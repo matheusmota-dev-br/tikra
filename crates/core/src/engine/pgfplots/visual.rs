@@ -111,12 +111,17 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     define(e, "plotnum", &p.index.to_string());
     e.st.mode = Default::default();
     e.st.pending = Transform::default();
-    let mut style = toks(if p.fill_between.is_some() { "/tikz/draw,/pgfplots/every fill between plot," } else { "/tikz/draw," });
+    // the areas of `fill between` are filled, not drawn (`\tikzfillbetween`)
+    let mut style = toks(if p.fill_between.is_some() { "/pgfplots/every fill between plot," } else { "/tikz/draw," });
     style.extend(p.style.clone());
     e.process_keys(style.clone(), Some("/pgfplots"))?;
     e.st.apply_pending();
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at begin plot visualization") {
         e.run_tokens(code)?;
+    }
+    if let Some(spec) = &p.fill_between {
+        super::fillbetween::draw(e, p, spec)?;
+        return Ok(None);
     }
     if p.handler == "contour filled" {
         super::contour::draw_filled(e, p, pts, f)?;
@@ -340,9 +345,6 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             segs.push(Segment::Close);
         }
     }
-    if let Some(spec) = &p.fill_between {
-        segs = fill_between(e, spec)?;
-    }
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
     }
@@ -354,17 +356,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         e.use_path(segs.clone(), "addplot")?;
         let _ = draw;
     }
-    // the rest of the path: nodes at the last point
+    // the rest of the path: nodes at the last point, those with `pos` along the plot
     let rest: Vec<Token> = p.post.iter().filter(|t| !t.is_cs("closedcycle")).cloned().collect();
     if rest.iter().any(|t| !t.is_space()) {
-        // a box plot without outliers starts its path at the origin
-        let origin = (p.boxplot.is_some()).then(|| f.at(f.min));
-        if let Some(last) = cp.iter().rev().flatten().next().copied().or(origin).as_ref() {
-            let mut code = toks(&format!("\\path[draw=none,fill=none] (tikra cs:{}pt,{}pt) ", last.x / PT, last.y / PT));
-            code.extend(rest);
-            code.push(Token::other(';'));
-            e.run_tokens(code)?;
-        }
+        post_nodes(e, p, pts, &cp, f, rest)?;
     }
     error_bars(e, p, pts, f)?;
     let (node_text, nodes) = near_nodes(e, p, pts, base, f, &handler, bar_shift)?;
@@ -373,6 +368,162 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     }
     let points = cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect();
     Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes }))
+}
+
+/// The nodes after a plot (`\addplot … node[pos=0.3] {…};`): at the last point, or with `pos` at
+/// that fraction of the plot (`\pgfplotspointplotattime`), on the segment there.
+fn post_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], cp: &[Option<Point>], f: &Frame, rest: Vec<Token>) -> Result<(), Error> {
+    let (prefix, items) = split_nodes(&rest);
+    let mut at_end: Vec<Token> = prefix.clone();
+    let size = |e: &mut Engine, a: usize| keys::length(e, if a == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if a == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+    let scale = [0, 1, 2].map(|a| {
+        let [lo, hi] = f.data_range[a];
+        if lo.is_finite() && hi.is_finite() {
+            super::ticks::data_scale(lo, hi, size(e, a))
+        } else {
+            1.0
+        }
+    });
+    let points: Vec<Option<[f64; 3]>> = pts.iter().map(|l| l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()).then_some(*l)).collect();
+    let tl = super::attime::Timeline { points, scale, log: f.log, time: 1.0 };
+    let mut placed = Vec::new();
+    // the path goes on at the last point when no node has a `pos` (options, `--` and others too)
+    let mut ends = items.is_empty();
+    for item in items {
+        match node_time(e, &item).and_then(|t| tl.at(t).map(|r| (t, r))) {
+            Some((t, (_, a, b, frac))) => placed.push((item, t, a, b, frac)),
+            None => {
+                at_end.extend(item);
+                ends = true;
+            }
+        }
+    }
+    super::attime::set(Some(tl));
+    let r = (|| -> Result<(), Error> {
+        let z = |l: [f64; 3]| if f.three_d { l } else { [l[0], l[1], f.min[2]] };
+        for (item, t, a, b, frac) in placed {
+            super::attime::set_time(t);
+            let (pa, pb) = (f.at(z(a)), f.at(z(b)));
+            let mut code = toks("\\path[draw=none,fill=none]");
+            code.extend(prefix.clone());
+            code.extend(toks(&format!(" (tikra cs:{}pt,{}pt) -- (tikra cs:{}pt,{}pt) ", pa.x / PT, pa.y / PT, pb.x / PT, pb.y / PT)));
+            code.extend(with_pos(&item, frac));
+            code.push(Token::other(';'));
+            e.run_tokens(code)?;
+        }
+        if ends {
+            super::attime::set_time(1.0);
+            // a box plot without outliers starts its path at the origin
+            let origin = (p.boxplot.is_some()).then(|| f.at(f.min));
+            if let Some(last) = cp.iter().rev().flatten().next().copied().or(origin).as_ref() {
+                let mut code = toks(&format!("\\path[draw=none,fill=none] (tikra cs:{}pt,{}pt) ", last.x / PT, last.y / PT));
+                code.extend(at_end);
+                code.push(Token::other(';'));
+                e.run_tokens(code)?;
+            }
+        }
+        Ok(())
+    })();
+    super::attime::set(None);
+    r
+}
+
+/// The path's options before its first node, and each `node …` or `coordinate …` (with what
+/// follows it up to the next one).
+fn split_nodes(rest: &[Token]) -> (Vec<Token>, Vec<Vec<Token>>) {
+    let word = |i: usize| -> Option<usize> {
+        for w in ["coordinate", "node"] {
+            let n = w.len();
+            if i + n <= rest.len()
+                && rest[i..i + n].iter().zip(w.chars()).all(|(t, c)| t.is_char(c))
+                && (i == 0 || !matches!(rest[i - 1], Token::Char(ch, tex::Cat::Letter) if ch.is_alphabetic()))
+                && !matches!(rest.get(i + n), Some(Token::Char(ch, tex::Cat::Letter)) if ch.is_alphabetic())
+            {
+                return Some(n);
+            }
+        }
+        None
+    };
+    let mut prefix = Vec::new();
+    let mut items: Vec<Vec<Token>> = Vec::new();
+    let (mut braces, mut brackets) = (0i32, 0i32);
+    let mut i = 0;
+    while i < rest.len() {
+        let t = &rest[i];
+        if braces == 0 && brackets == 0 {
+            if let Some(n) = word(i) {
+                items.push(rest[i..i + n].to_vec());
+                i += n;
+                continue;
+            }
+        }
+        match t {
+            Token::Char(_, tex::Cat::Begin) => braces += 1,
+            Token::Char(_, tex::Cat::End) => braces -= 1,
+            Token::Char('[', _) if braces == 0 => brackets += 1,
+            Token::Char(']', _) if braces == 0 => brackets -= 1,
+            _ => {}
+        }
+        match items.last_mut() {
+            Some(item) => item.push(t.clone()),
+            None => prefix.push(t.clone()),
+        }
+        i += 1;
+    }
+    (prefix, items)
+}
+
+/// The options of a node item (`node [options] …`): where they are.
+fn node_options(item: &[Token]) -> Option<(usize, usize)> {
+    let mut j = item.iter().position(|t| !matches!(t, Token::Char(_, tex::Cat::Letter)))?;
+    while j < item.len() && item[j].is_space() {
+        j += 1;
+    }
+    if !item.get(j)?.is_char('[') {
+        return None;
+    }
+    let mut depth = 0;
+    for (k, t) in item.iter().enumerate().skip(j) {
+        match t {
+            Token::Char(_, tex::Cat::Begin) => depth += 1,
+            Token::Char(_, tex::Cat::End) => depth -= 1,
+            Token::Char(']', _) if depth == 0 => return Some((j, k)),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The `pos` a node item asks for (`pos=…`, `midway`, `near end` and their friends).
+fn node_time(e: &mut Engine, item: &[Token]) -> Option<f64> {
+    let (a, b) = node_options(item)?;
+    let mut time = None;
+    for it in crate::keys::split_list(&item[a + 1..b]) {
+        let t = match it.key.trim() {
+            "pos" => it.value.and_then(|v| e.number_of(v).ok()),
+            "at start" => Some(0.0),
+            "very near start" => Some(0.125),
+            "near start" => Some(0.25),
+            "midway" => Some(0.5),
+            "near end" => Some(0.75),
+            "very near end" => Some(0.875),
+            "at end" => Some(1.0),
+            _ => None,
+        };
+        if t.is_some() {
+            time = t;
+        }
+    }
+    time
+}
+
+/// A node item with its `pos` set to `frac` (of the segment it is placed on).
+fn with_pos(item: &[Token], frac: f64) -> Vec<Token> {
+    let Some((_, b)) = node_options(item) else { return item.to_vec() };
+    let mut out = item[..b].to_vec();
+    out.extend(toks(&format!(",pos={}", super::super::pgf_number(frac))));
+    out.extend(item[b..].iter().cloned());
+    out
 }
 
 /// The anchors `nodes near coords align` may name.
@@ -513,38 +664,8 @@ fn rect(segs: &mut Vec<Segment>, a: Point, b: Point) {
     segs.push(Segment::Close);
 }
 
-/// `fill between[of=A and B]`: the area between two named paths.
-fn fill_between(e: &mut Engine, spec: &[Token]) -> Result<Vec<Segment>, Error> {
-    let s = tex::tokens_to_string(spec);
-    let of = s.split(',').find_map(|p| p.trim().strip_prefix("of").map(|r| r.trim().trim_start_matches('=').trim().to_string())).unwrap_or_default();
-    let Some((a, b)) = of.split_once(" and ") else {
-        e.warn("fill between: 'of=A and B' missing");
-        return Ok(Vec::new());
-    };
-    let (Some(pa), Some(pb)) = (e.named_paths.get(a.trim()).cloned(), e.named_paths.get(b.trim()).cloned()) else {
-        e.warn(format!("fill between: no path named '{}' or '{}'", a.trim(), b.trim()));
-        return Ok(Vec::new());
-    };
-    let mut segs = pa.clone();
-    segs.retain(|s| !matches!(s, Segment::Close));
-    let rev = reverse(&pb);
-    for (i, s) in rev.into_iter().enumerate() {
-        segs.push(if i == 0 {
-            if let Segment::MoveTo(p) = s {
-                Segment::LineTo(p)
-            } else {
-                s
-            }
-        } else {
-            s
-        });
-    }
-    segs.push(Segment::Close);
-    Ok(segs)
-}
-
 /// A path walked backwards.
-fn reverse(segs: &[Segment]) -> Vec<Segment> {
+pub(super) fn reverse(segs: &[Segment]) -> Vec<Segment> {
     let mut pts: Vec<(Point, Option<(Point, Point)>)> = Vec::new();
     for s in segs {
         match s {
