@@ -64,11 +64,13 @@ pub enum Paint {
         name: String,
         color: Color,
     },
-    /// A pattern declared in the document: the items of one tile (canvas cm, the tile from the
-    /// origin to `size`), repeated from the origin of the page.
+    /// A pattern declared in the document: the items of one tile (canvas cm, the tile from `origin`
+    /// to `origin + size`), repeated from the page's origin, the tiling turned by `transform`.
     Tile {
         items: TileItems,
+        origin: Point,
         size: Point,
+        transform: Transform,
     },
     Shading(Shading),
 }

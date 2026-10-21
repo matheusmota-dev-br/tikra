@@ -116,19 +116,25 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
             defs.text.push_str(&pattern(name, &id, &color.hex()));
             format!("url(#{id})")
         }
-        Paint::Tile { items, size } => {
+        Paint::Tile { items, origin, size, transform: t } => {
             // the tile's items drawn first (their own definitions come before the pattern)
             let (mut inner, mut glyphs) = (String::new(), Vec::new());
             items_svg(&items.0, &mut inner, defs, &mut glyphs);
             defs.glyphs.append(&mut glyphs);
             let id = defs.id("p");
             let (w, h) = (size.x * BP, size.y * BP);
+            // the tile's corner in SVG space (y down): its content is placed from there
+            let (x0, y0) = (origin.x * BP, -(origin.y + size.y) * BP);
+            let m = format!("matrix({} {} {} {} {} {})", n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
             let _ = write!(
                 defs.text,
-                r#"<pattern id="{id}" patternUnits="userSpaceOnUse" x="0" y="0" width="{}" height="{}"><g transform="translate(0 {})">{inner}</g></pattern>"#,
+                r#"<pattern id="{id}" patternUnits="userSpaceOnUse" x="{}" y="{}" width="{}" height="{}" patternTransform="{m}"><g transform="translate({} {})">{inner}</g></pattern>"#,
+                n(x0),
+                n(y0),
                 n(w),
                 n(h),
-                n(h)
+                n(-x0),
+                n(-y0)
             );
             format!("url(#{id})")
         }
