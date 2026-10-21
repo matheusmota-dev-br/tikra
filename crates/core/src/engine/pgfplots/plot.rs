@@ -184,13 +184,48 @@ pub fn cycle_entry(e: &mut Engine, k: usize) -> Result<Vec<Token>, Error> {
         e.warn(format!("cycle list '{name}' not defined"));
         return Ok(Vec::new());
     };
+    let k = (k as i64 + shift).max(0) as usize;
+    // `cycle multi list={a\nextlist b}`: one entry of each, the last list fastest
+    if list.iter().any(|t| t.is_cs("nextlist")) {
+        let lists: Vec<Vec<Vec<Token>>> = list.split(|t| t.is_cs("nextlist")).map(|part| multi_part(e, part)).filter(|l| !l.is_empty()).collect();
+        let mut out = Vec::new();
+        let mut rest = k;
+        let mut chosen = Vec::new();
+        for l in lists.iter().rev() {
+            chosen.push(l[rest % l.len()].clone());
+            rest /= l.len();
+        }
+        for entry in chosen.into_iter().rev() {
+            if !out.is_empty() {
+                out.push(Token::other(','));
+            }
+            out.extend(entry);
+        }
+        return Ok(out);
+    }
     let entries = split_cycle_list(&list);
     if entries.is_empty() {
         return Ok(Vec::new());
     }
-    let n = entries.len() as i64;
-    let i = ((k as i64 + shift) % n + n) % n;
-    Ok(entries[i as usize].clone())
+    Ok(entries[k % entries.len()].clone())
+}
+
+/// A list of `cycle multi list`: a cycle list's name (`[2 of]mark list`: its first two entries)
+/// or the entries themselves.
+fn multi_part(e: &mut Engine, part: &[Token]) -> Vec<Vec<Token>> {
+    let text = tex::tokens_to_string(crate::keys::trim(part)).trim().to_string();
+    let (limit, name) = match text.strip_prefix('[').and_then(|r| r.split_once(" of]")) {
+        Some((n, rest)) => (n.trim().parse::<usize>().ok(), rest.trim().to_string()),
+        None => (None, text.clone()),
+    };
+    if let Some(list) = crate::keys::value(&e.tex, &format!("/pgfplots/@cycle lists/{name}")) {
+        let mut entries = split_cycle_list(&list);
+        if let Some(n) = limit {
+            entries.truncate(n.max(1));
+        }
+        return entries;
+    }
+    split_cycle_list(part)
 }
 
 /// A cycle list: entries separated by `\\`, or by commas when there is no `\\`.
