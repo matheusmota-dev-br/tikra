@@ -373,10 +373,11 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let r = target(e, b, depth, &w)?;
                         let a = b.point();
                         let d = r.p.minus(a);
+                        // \pgfpathsine and \pgfpathcosine
                         let (c1, c2) = if w == "sin" {
-                            (Point::new(0.326994 * d.x, 0.512286 * d.y), Point::new(0.630142 * d.x, d.y))
+                            (Point::new(0.3260 * d.x, 0.5120 * d.y), Point::new(0.6380 * d.x, d.y))
                         } else {
-                            (Point::new(0.369858 * d.x, 0.0), Point::new(0.673006 * d.x, 0.487714 * d.y))
+                            (Point::new(0.3620 * d.x, 0.0), Point::new(0.6740 * d.x, 0.4880 * d.y))
                         };
                         curve_to(e, b, a.plus(c1), a.plus(c2), r);
                     }
@@ -719,25 +720,37 @@ impl Engine {
     }
 }
 
-/// An elliptical arc from `a0` to `a1` degrees, in pieces of up to 90°, as cubic curves.
+/// An elliptical arc from `a0` to `a1` degrees as cubic curves, cut the way `\pgfpatharc` cuts it:
+/// 90° pieces while more than 115° are left, 60° pieces while more than 90° are, then the rest.
 pub fn arc_segments(c: Point, rx: f64, ry: f64, a0: f64, a1: f64, t: &crate::scene::Transform) -> Vec<Segment> {
-    let mut total = a1 - a0;
-    if total.abs() > 720.0 {
-        total = total.signum() * (360.0 + total.abs() % 360.0);
+    let mut a = a0;
+    let mut b = a1;
+    if (b - a).abs() > 720.0 {
+        // more than two turns draw the same ellipse: keep one turn and the rest
+        b = a + (b - a).signum() * (360.0 + (b - a).abs() % 360.0);
     }
-    let n = ((total.abs() / 90.0).ceil() as usize).max(1);
-    let step = total / n as f64;
+    let piece = |from: f64, to: f64| -> Segment {
+        let delta = (to - from).abs();
+        let k = if (delta - 90.0).abs() < 1e-12 { 0.55228475 } else { 4.0 / 3.0 * (delta.to_radians() / 4.0).tan() };
+        let side = if to > from { 90.0 } else { -90.0 };
+        let polar = |angle: f64, sx: f64, sy: f64| {
+            let (s, co) = angle.to_radians().sin_cos();
+            Point::new(sx * co, sy * s)
+        };
+        let p0 = polar(from, rx, ry);
+        let p3 = polar(to, rx, ry);
+        let c1 = p0.plus(polar(from + side, k * rx, k * ry));
+        let c2 = p3.plus(polar(to - side, k * rx, k * ry));
+        Segment::CurveTo(c.plus(t.linear(c1)), c.plus(t.linear(c2)), c.plus(t.linear(p3)))
+    };
     let mut v = Vec::new();
-    for k in 0..n {
-        let (b0, b1) = ((a0 + step * k as f64).to_radians(), (a0 + step * (k + 1) as f64).to_radians());
-        let kk = 4.0 / 3.0 * ((b1 - b0) / 4.0).tan();
-        let p = |a: f64| Point::new(rx * a.cos(), ry * a.sin());
-        let d = |a: f64| Point::new(-rx * a.sin(), ry * a.cos());
-        let (p0, p3) = (p(b0), p(b1));
-        let c1 = p0.plus(d(b0).scale(kk));
-        let c2 = p3.minus(d(b1).scale(kk));
-        v.push(Segment::CurveTo(c.plus(t.linear(c1)), c.plus(t.linear(c2)), c.plus(t.linear(p3))));
+    while (a - b).abs() > 90.0 && v.len() < 100 {
+        let step = if (a - b).abs() > 115.0 { 90.0 } else { 60.0 };
+        let next = if b > a { a + step } else { a - step };
+        v.push(piece(a, next));
+        a = next;
     }
+    v.push(piece(a, b));
     v
 }
 
@@ -989,26 +1002,24 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
     }
     let r = target(e, b, depth, "parabola")?;
     let a = b.point();
-    // a parabola from its vertex `v` to `q` is a quadratic curve with control (q.x, v.y) in the vertex' frame
-    let half = |b: &mut Builder, from: Point, to: Point, vertex_at_start: bool| {
-        let (c1, c2) = if vertex_at_start {
-            let q = Point::new(to.x, from.y);
-            (from.lerp(q, 2.0 / 3.0), to.lerp(q, 2.0 / 3.0))
-        } else {
-            let q = Point::new(from.x, to.y);
-            (from.lerp(q, 2.0 / 3.0), to.lerp(q, 2.0 / 3.0))
-        };
-        b.segs.push(Segment::CurveTo(c1, c2, to));
-    };
     if b.current.is_none() {
         b.segs.push(Segment::MoveTo(a));
     }
-    match bend {
-        Some(v) => {
-            half(b, a, v, false);
-            half(b, v, r.p, true);
-        }
-        None => half(b, a, r.p, !bend_at_end),
+    // \pgfpathparabola: to the bend with its vertex there, then on to the end with its vertex at the bend
+    let (bend_vector, end_vector) = match bend {
+        Some(v) => (v.minus(a), r.p.minus(v)),
+        None if bend_at_end => (r.p.minus(a), Point::default()),
+        None => (Point::default(), r.p.minus(a)),
+    };
+    let mut from = a;
+    if bend_vector.norm() > 1e-12 {
+        let c = bend_vector;
+        b.segs.push(Segment::CurveTo(from.plus(Point::new(0.1125 * c.x, 0.225 * c.y)), from.plus(Point::new(0.5 * c.x, c.y)), from.plus(c)));
+        from = from.plus(c);
+    }
+    if end_vector.norm() > 1e-12 {
+        let c = end_vector;
+        b.segs.push(Segment::CurveTo(from.plus(Point::new(0.5 * c.x, 0.0)), from.plus(Point::new(0.8875 * c.x, 0.775 * c.y)), from.plus(c)));
     }
     b.current = Some(r);
     Ok(())

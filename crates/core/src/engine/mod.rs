@@ -3,6 +3,7 @@
 //! saved with TeX groups; what is drawn goes to a [`Canvas`].
 
 pub mod arrows;
+pub mod basic;
 pub mod coords;
 pub mod nodes;
 pub mod options;
@@ -165,9 +166,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("datavisualization", Cmd::Unsupported),
     ("calendar", Cmd::Unsupported),
     ("spy", Cmd::Unsupported),
-    ("pgfpathmoveto", Cmd::Unsupported),
-    ("pgfpathlineto", Cmd::Unsupported),
-    ("pgftext", Cmd::Unsupported),
 ];
 
 /// Commands that the drawing layer turns into a path statement, with their default options.
@@ -218,6 +216,8 @@ pub struct Engine {
     pub canvas_frozen: bool,
     /// nested runs of token lists (styles, loop bodies)
     nesting: usize,
+    /// the basic layer's path being built
+    pub pgf_path: basic::PgfPath,
     /// pictures already drawn, and how the document lays them out
     boxes: Vec<PictureBox>,
     layout: Vec<Layout>,
@@ -272,6 +272,7 @@ impl Clone for Engine {
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
+            pgf_path: self.pgf_path.clone(),
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
         }
@@ -308,6 +309,7 @@ impl Engine {
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
+            pgf_path: basic::PgfPath::default(),
             boxes: Vec::new(),
             layout: Vec::new(),
         };
@@ -315,6 +317,7 @@ impl Engine {
             e.tex.define(name, Meaning::Native(*cmd as u16));
         }
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
+        basic::define(&mut e);
         options::define_keys(&mut e);
         e
     }
@@ -579,6 +582,9 @@ impl Engine {
     // ---------------------------------------------------------------- commands
 
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
+        if basic::is_basic(id) {
+            return self.basic_command(id);
+        }
         let Some(&(_, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
         if let Some(defaults) = path_command(cmd) {
             let r = path::statement(self, defaults);
@@ -1004,6 +1010,12 @@ impl Engine {
                 let o = self.optional()?;
                 self.begin_picture(o)
             }
+            "pgfpicture" => self.begin_picture(None),
+            "pgfscope" => {
+                self.begin_group();
+                self.begin_scope();
+                Ok(())
+            }
             "scope" => {
                 if self.depth >= MAX_DEPTH {
                     return Err(Error::Figure(format!("scope/\\foreach nesting went past {MAX_DEPTH} levels")));
@@ -1109,7 +1121,11 @@ impl Engine {
 
     fn close_environment(&mut self, name: &str) -> Result<(), Error> {
         match name {
-            "tikzpicture" => self.end_picture(),
+            "tikzpicture" | "pgfpicture" => self.end_picture(),
+            "pgfscope" => {
+                self.end_scope();
+                self.end_group();
+            }
             "scope" => {
                 self.end_scope();
                 self.end_group();
