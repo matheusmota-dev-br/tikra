@@ -24,7 +24,8 @@ struct Extent {
 }
 
 /// The body split into rows of cells; the extra space a `\\[1ex]` asks for after each row.
-fn split_body(body: &[Token]) -> (Vec<Vec<Vec<Token>>>, Vec<Vec<Token>>) {
+/// `ampersand` is the command that stands for `&` (`ampersand replacement=\&`).
+fn split_body(body: &[Token], ampersand: Option<&str>) -> (Vec<Vec<Vec<Token>>>, Vec<Vec<Token>>) {
     let mut rows = vec![vec![Vec::new()]];
     let mut extra = vec![Vec::new()];
     let mut depth = 0usize;
@@ -34,6 +35,11 @@ fn split_body(body: &[Token]) -> (Vec<Vec<Vec<Token>>>, Vec<Vec<Token>>) {
         match t {
             Token::Char(_, Cat::Begin) => depth += 1,
             Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
+            Token::Cs(n) if depth == 0 && Some(&**n) == ampersand => {
+                rows.last_mut().expect("a row").push(Vec::new());
+                i += 1;
+                continue;
+            }
             Token::Char(_, Cat::Align) if depth == 0 => {
                 rows.last_mut().expect("a row").push(Vec::new());
                 i += 1;
@@ -110,6 +116,7 @@ impl Engine {
             }
         }
         let body = self.tex.read_group_body()?;
+        let body = self.expand_body_macros(body);
         // the statement ends with ;
         if let Some(t) = self.tex.next_nonspace() {
             if !t.is_char(';') {
@@ -124,7 +131,8 @@ impl Engine {
 
     fn matrix_in_group(&mut self, options: Vec<Token>, name: Option<String>, at: Option<Point>, body: Vec<Token>) -> Result<(), Error> {
         // the matrix's own options are read once to know the cells' settings; the node reads them again
-        self.st.matrix = Default::default();
+        let ampersand = self.st.matrix.ampersand.take();
+        self.st.matrix = MatrixSettings { ampersand, ..Default::default() };
         let saved_mode = self.st.mode.clone();
         self.process_keys(tikra_tokens("every matrix/.try"), Some("/tikz"))?;
         self.process_keys(options.clone(), Some("/tikz"))?;
@@ -132,7 +140,7 @@ impl Engine {
         let settings = self.st.matrix.clone();
         let name = name.or_else(|| self.st.node.name.clone());
         let at = at.or(self.st.node.at).unwrap_or_else(|| self.st.transform.apply(Point::default()));
-        let (rows, extra) = split_body(&body);
+        let (rows, extra) = split_body(&body, settings.ampersand.as_deref());
         let nrows = rows.len();
         let ncols = rows.iter().map(Vec::len).max().unwrap_or(0);
 
@@ -201,6 +209,29 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// The body with the macros at its top level (`{ \matrixcontent }`) replaced by what they hold,
+    /// as TeX's alignment expands them while it looks for `&` and `\\`.
+    fn expand_body_macros(&self, body: Vec<Token>) -> Vec<Token> {
+        let mut out = Vec::new();
+        let mut todo: Vec<Token> = body.into_iter().rev().collect();
+        let mut budget = 1000;
+        while let Some(t) = todo.pop() {
+            if let (Token::Cs(_), tex::Meaning::Macro(m)) = (&t, self.tex.meaning(&t)) {
+                if m.params.is_empty() && m.optional.is_none() && budget > 0 {
+                    budget -= 1;
+                    for b in m.body.iter().rev() {
+                        if let tex::Body::Tok(x) = b {
+                            todo.push(x.clone());
+                        }
+                    }
+                    continue;
+                }
+            }
+            out.push(t);
+        }
+        out
     }
 
     /// One cell, drawn with its origin at `place`.
@@ -316,6 +347,7 @@ pub struct MatrixSettings {
     pub at_begin_cell: Vec<Token>,
     pub at_end_cell: Vec<Token>,
     pub at_empty_cell: Vec<Token>,
+    pub ampersand: Option<String>,
 }
 
 #[allow(dead_code)]

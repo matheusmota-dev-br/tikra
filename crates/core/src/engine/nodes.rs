@@ -263,6 +263,10 @@ impl Engine {
         self.st.pending = Transform::default();
         self.st.preactions.clear();
         self.st.postactions.clear();
+        self.st.on_chain = None;
+        self.st.pending_joins.clear();
+        self.st.after_node_path.clear();
+        self.st.aliases.clear();
         self.st.start_arrow = None;
         self.st.end_arrow = None;
         let r = self.node_in_group(spec);
@@ -276,6 +280,11 @@ impl Engine {
         }
         self.process_keys(tikra_tokens("every node/.try"), Some("/tikz"))?;
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
+        // the node begin hook: a node on a chain takes its place and names there
+        let (chain_names, joins) = self.chain_node_found()?;
+        let mut after = std::mem::take(&mut self.st.after_node_path);
+        after.extend(joins);
+        self.after_node_path.extend(after);
         let shape_name = self.key_text("/tikz/shape");
         let shape = match shape_kind(&shape_name) {
             Some(s) => s,
@@ -435,6 +444,9 @@ impl Engine {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
             self.tex.define_string("tikzlastnode", &n, true);
+            self.nodes.insert(n, info.clone());
+        }
+        for n in chain_names.into_iter().chain(std::mem::take(&mut self.st.aliases)) {
             self.nodes.insert(n, info.clone());
         }
         // the last node, for trees (labels below do not count)

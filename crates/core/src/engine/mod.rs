@@ -4,6 +4,7 @@
 
 pub mod arrows;
 pub mod basic;
+pub mod chains;
 pub mod coords;
 pub mod intersections;
 pub mod matrix;
@@ -42,6 +43,7 @@ pub enum Cmd {
     Coordinate,
     Useasboundingbox,
     Matrix,
+    Chainin,
     Pic,
     Graph,
     Tikz,
@@ -99,6 +101,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("coordinate", Cmd::Coordinate),
     ("useasboundingbox", Cmd::Useasboundingbox),
     ("matrix", Cmd::Matrix),
+    ("chainin", Cmd::Chainin),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -245,6 +248,10 @@ pub struct Engine {
     pub last_node: Option<nodes::NodeInfo>,
     pub last_node_name: Option<String>,
     tree_count: usize,
+    /// the chains of the chains library (global, as TikZ keeps their counts)
+    pub chain_list: std::collections::HashMap<String, chains::Chain>,
+    /// path operations to run after the node just made (`after node path`, joins)
+    pub after_node_path: Vec<Token>,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -314,6 +321,8 @@ impl Clone for Engine {
             last_node: self.last_node.clone(),
             last_node_name: self.last_node_name.clone(),
             tree_count: self.tree_count,
+            chain_list: self.chain_list.clone(),
+            after_node_path: Vec::new(),
             tree_edge_out: self.tree_edge_out.clone(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
@@ -364,6 +373,8 @@ impl Engine {
             last_node: None,
             last_node_name: None,
             tree_count: 0,
+            chain_list: Default::default(),
+            after_node_path: Vec::new(),
             tree_edge_out: None,
             tree_child_names: Vec::new(),
             forced_box: None,
@@ -701,6 +712,7 @@ impl Engine {
                 Ok(())
             }
             Cmd::Matrix => self.matrix(),
+            Cmd::Chainin => self.chainin(),
             Cmd::Graph => {
                 let rest = self.skip_statement()?;
                 let _ = rest;

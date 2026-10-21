@@ -184,6 +184,15 @@ pub struct GState {
     pub name_path: Option<String>,
     /// `preaction={…}` and `postaction={…}`: options of the path used again before and after
     pub preactions: Vec<Vec<crate::tex::Token>>,
+    /// the chains library: the current chain, the direction of new ones, the node's chain
+    pub current_chain: String,
+    pub chain_direction: super::chains::Direction,
+    pub on_chain: Option<super::chains::OnChain>,
+    pub pending_joins: Vec<(Option<String>, String)>,
+    /// `after node path={…}`: path operations after the node
+    pub after_node_path: Vec<crate::tex::Token>,
+    /// `alias=name`: more names for the node
+    pub aliases: Vec<String>,
     pub postactions: Vec<Vec<crate::tex::Token>>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
@@ -246,6 +255,12 @@ impl Default for GState {
             quotes_on_path: false,
             name_path: None,
             preactions: Vec::new(),
+            current_chain: "chain".into(),
+            chain_direction: super::chains::Direction::Going("right".into()),
+            on_chain: None,
+            pending_joins: Vec::new(),
+            after_node_path: Vec::new(),
+            aliases: Vec::new(),
             postactions: Vec::new(),
             matrix: Default::default(),
             path_fading: None,
