@@ -33,7 +33,10 @@ pub struct NumberFormat {
 pub enum Style {
     /// `std=lower:upper`: fixed for exponents in [lower, upper], else sci. `lower` None means
     /// `-precision/2`.
-    Std { lower: Option<i32>, upper: i32 },
+    Std {
+        lower: Option<i32>,
+        upper: i32,
+    },
     Fixed,
     Sci,
     IntDetect,
@@ -291,7 +294,7 @@ impl NumberFormat {
         let mut out = String::new();
         let n = int.len();
         for (i, c) in int.chars().enumerate() {
-            if i > 0 && (n - i) % 3 == 0 {
+            if i > 0 && (n - i).is_multiple_of(3) {
                 out.push_str(&self.thousands_sep);
             }
             out.push(c);
@@ -365,7 +368,7 @@ mod tests {
     #[test]
     fn fixed_sci_and_zerofill() {
         let f = NumberFormat { style: Style::Fixed, precision: 3, ..Default::default() };
-        assert_eq!(f.print(3.14159), "3.142");
+        assert_eq!(f.print(1.23456), "1.235");
         assert_eq!(f.print(123456.0), "123{,}456");
         let f = NumberFormat { style: Style::Fixed, fixed_zerofill: true, ..Default::default() };
         assert_eq!(f.print(2.5), "2.50");

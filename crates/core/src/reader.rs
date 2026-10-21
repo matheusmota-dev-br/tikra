@@ -327,8 +327,8 @@ impl<'a> Reader<'a> {
                         }
                         "axis" | "semilogyaxis" | "semilogxaxis" | "loglogaxis" => {
                             let o = self.optional().unwrap_or_default();
-                            let body = self.until_end(name.trim());
-                            crate::axes::plot_axis(self.env, &o, &body)?;
+                            let _ = (o, self.until_end(name.trim()));
+                            self.env.warn("axis environments are drawn by the engine only (tikra::convert)");
                         }
                         other => {
                             self.env.warn(format!("environment {other} not supported: content read as statements"));

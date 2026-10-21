@@ -114,6 +114,12 @@ impl Engine {
                 Some((n, a)) if !n.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '-' || c == '+') && self.nodes.contains_key(n.trim()) => (n.trim(), Some(a.trim())),
                 _ => (t, None),
             };
+            // pgfplots' extra anchors of an axis are coordinates of their own
+            if let Some(a) = anchor {
+                if let Some(node) = self.nodes.get(&format!("{name}@{a}")) {
+                    return Ok(Coord { p: node.center(), node: None });
+                }
+            }
             if let Some(node) = self.nodes.get(name) {
                 return Ok(match anchor {
                     Some(a) => Coord { p: node.anchor(a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None },
@@ -140,6 +146,9 @@ impl Engine {
             } else {
                 self.st.x.scale(rx * c).plus(self.st.y.scale(ry * s))
             }
+        } else if let Some(p) = self.pgfplots_plain(&commas) {
+            // inside an axis: axis or description coordinates
+            return Ok(Coord { p: p?, node: None });
         } else {
             self.xyz(&commas)?
         };
@@ -195,7 +204,10 @@ impl Engine {
                 };
                 Ok(Coord { p, node: None })
             }
-            other => Err(Error::Figure(format!("coordinate system '{other}' not supported"))),
+            other => match self.pgfplots_cs(other, args) {
+                Some(r) => r,
+                None => Err(Error::Figure(format!("coordinate system '{other}' not supported"))),
+            },
         }
     }
 
