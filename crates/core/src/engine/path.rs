@@ -370,7 +370,8 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let inv = crate::reader::invert(&t);
                         let (la, lb) = (inv.apply(a), inv.apply(r.p));
                         b.segs.push(Segment::MoveTo(a));
-                        for k in [Point::new(lb.x, la.y), lb, Point::new(la.x, lb.y)] {
+                        // in the order of `\tikz@rectB`: first to (a.x, b.y)
+                        for k in [Point::new(la.x, lb.y), lb, Point::new(lb.x, la.y)] {
                             b.segs.push(Segment::LineTo(t.apply(k)));
                         }
                         b.segs.push(Segment::Close);

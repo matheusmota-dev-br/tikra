@@ -258,17 +258,23 @@ impl Engine {
     /// Creates a node: returns what it draws (drawn after its path) and registers its name.
     pub fn node(&mut self, spec: NodeSpec) -> Result<Vec<Item>, Error> {
         self.begin_group();
-        self.st.node = NodeSetup::default();
+        // `transform shape` given to a scope or a path holds for its nodes
+        self.st.node = NodeSetup { transform_shape: self.st.node.transform_shape, ..NodeSetup::default() };
         self.st.mode = Default::default();
         self.st.pending = Transform::default();
         self.st.start_arrow = None;
         self.st.end_arrow = None;
-        let r = self.node_in_group(spec);
+        // a node's background is decorated, and has actions, by its own options only
+        let outer = self.st.clone();
+        self.st.decorate = false;
+        self.st.preactions = Default::default();
+        self.st.postactions = Default::default();
+        let r = self.node_in_group(spec, &outer);
         self.end_group();
         r
     }
 
-    fn node_in_group(&mut self, spec: NodeSpec) -> Result<Vec<Item>, Error> {
+    fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<Vec<Item>, Error> {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
         }
@@ -413,7 +419,13 @@ impl Engine {
                 None
             };
             let stroke = self.st.mode.draw.then(|| self.stroke());
-            if fill.is_some() || stroke.is_some() {
+            if self.st.decorate || !self.st.preactions.is_empty() || !self.st.postactions.is_empty() {
+                // the background as a path of its own, decorated, with its actions
+                let saved = std::mem::take(&mut self.canvas.items);
+                let r = self.finish_path(bg, scope, "node");
+                items.extend(std::mem::replace(&mut self.canvas.items, saved));
+                r?;
+            } else if fill.is_some() || stroke.is_some() {
                 items.push(Item::Path { segments: bg, fill, stroke });
             }
             if let Some(l) = lbl {
@@ -432,6 +444,8 @@ impl Engine {
         }
         // labels and pins
         let labels = std::mem::take(&mut self.st.node.labels);
+        // they are made after the node, where its own `transform shape` is over
+        self.st.node.transform_shape = scope.node.transform_shape;
         for (spec_tokens, pin) in labels {
             items.extend(self.label(&info, spec_tokens, pin)?);
         }
