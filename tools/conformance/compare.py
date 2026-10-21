@@ -219,6 +219,8 @@ def main():
 
 
 CATS = ["match", "close", "different", "fails"]
+# what counts as a figure: TikZ pictures and the basic layer's pgfpicture
+FIGURE_KINDS = ("tikz", "pgf")
 
 
 def table_row(name, rs):
@@ -230,7 +232,7 @@ def table_row(name, rs):
 
 
 def report_md(results, timing=None):
-    figures = [r for r in results if r["kind"] == "tikz"]
+    figures = [r for r in results if r["kind"] in FIGURE_KINDS]
     counted = [r for r in figures if r["category"] != "excluded"]
     excluded = Counter(r["reason"] for r in figures if r["category"] == "excluded")
     c = Counter(r["category"] for r in counted)
@@ -256,7 +258,7 @@ def report_md(results, timing=None):
         "*Fails*: tikra returned an error, panicked or took more than 10 s. Mean F1 counts a failure as 0.",
         "",
         "Not counted: " + ", ".join(f"{n} where {reason.lower()}" for reason, n in excluded.most_common()) + ", "
-        f"and {sum(1 for r in results if r['kind'] != 'tikz')} examples that are not TikZ figures (pgf basic layer, text, tables).",
+        f"and {sum(1 for r in results if r['kind'] not in FIGURE_KINDS)} examples that are not figures (text, tables, key listings).",
         "",
     ]
     if timing:
@@ -321,7 +323,7 @@ def report_md(results, timing=None):
 def report_html(results, work):
     rows = []
     order = {"fails": 0, "different": 1, "close": 2, "match": 3}
-    shown = [r for r in results if r["kind"] == "tikz" and r["category"] in order]
+    shown = [r for r in results if r["kind"] in FIGURE_KINDS and r["category"] in order]
     for r in sorted(shown, key=lambda r: (order[r["category"]], r["manual"], r["file"], r["line"])):
         score = f"F1 {r['f1']:.2f} · color {r['color']:.2f} · missing {r['missing']} of {r['pieces']} pieces · extra {r['extra']}" + ("" if r.get("size_ok") else " · size differs") if "f1" in r else html.escape(r.get("reason", ""))
         warnings = "".join(f"<li>{html.escape(w)}</li>" for w in r["warnings"][:8])
