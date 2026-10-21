@@ -1243,6 +1243,13 @@ keyfn!(k_controls, |e, v| {
     e.st.to.curve = true;
     Ok(())
 });
+keyfn!(k_ampersand_replacement, |e, v| {
+    e.st.matrix.ampersand = v.unwrap_or_default().into_iter().find_map(|t| match t {
+        Token::Cs(n) => Some(n.to_string()),
+        _ => None,
+    });
+    Ok(())
+});
 keyfn!(k_at_begin_cell, |e, v| {
     e.st.matrix.at_begin_cell.extend(v.unwrap_or_default());
     Ok(())
@@ -1253,6 +1260,39 @@ keyfn!(k_at_end_cell, |e, v| {
 });
 keyfn!(k_at_empty_cell, |e, v| {
     e.st.matrix.at_empty_cell = v.unwrap_or_default();
+    Ok(())
+});
+keyfn!(k_start_chain, |e, v| {
+    let s = text(e, &v)?;
+    e.start_chain(&s);
+    Ok(())
+});
+keyfn!(k_continue_chain, |e, v| {
+    let s = text(e, &v)?;
+    e.continue_chain(&s);
+    Ok(())
+});
+keyfn!(k_chain_default_direction, |e, v| {
+    let s = text(e, &v)?;
+    e.chain_default_direction(&s);
+    Ok(())
+});
+keyfn!(k_on_chain, |e, v| {
+    let s = text(e, &v)?;
+    e.on_chain(&s)
+});
+keyfn!(k_join, |e, v| {
+    let s = text(e, &v)?;
+    e.join(&s);
+    Ok(())
+});
+keyfn!(k_after_node_path, |e, v| {
+    e.st.after_node_path.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_alias, |e, v| {
+    let s = text(e, &v)?;
+    e.st.aliases.push(s);
     Ok(())
 });
 keyfn!(k_preaction, |e, v| {
@@ -1735,7 +1775,15 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/controls", k_controls),
     ("/tikz/to path", k_to_path),
     ("/tikz/preaction", k_preaction),
+    ("/tikz/start chain", k_start_chain),
+    ("/tikz/continue chain", k_continue_chain),
+    ("/tikz/chain default direction", k_chain_default_direction),
+    ("/tikz/on chain", k_on_chain),
+    ("/tikz/join", k_join),
+    ("/tikz/after node path", k_after_node_path),
+    ("/tikz/alias", k_alias),
     ("/tikz/execute at begin cell", k_at_begin_cell),
+    ("/tikz/ampersand replacement", k_ampersand_replacement),
     ("/tikz/execute at end cell", k_at_end_cell),
     ("/tikz/execute at empty cell", k_at_empty_cell),
     ("/tikz/postaction", k_postaction),

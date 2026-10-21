@@ -395,6 +395,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             let place = b.last.unwrap_or(OnPath::Point(b.point()));
                             let items = e.node(NodeSpec { options, name, at, text, place, point: b.point(), coordinate, default_pos: None })?;
                             b.node_items.extend(items);
+                            // `after node path` and the chains' joins continue the path
+                            let after = std::mem::take(&mut e.after_node_path);
+                            e.tex.push_tokens(after);
                         } else {
                             b.mid_nodes.push(MidNode { options, name, text, coordinate });
                         }
