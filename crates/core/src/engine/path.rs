@@ -381,6 +381,12 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 e.process_keys(o, Some("/tikz"))?;
                 e.st.apply_pending();
             }
+            Token::Char(':', _) => {
+                if let Some(o) = e.read_animation()? {
+                    e.process_keys(o, Some("/tikz"))?;
+                    e.st.apply_pending();
+                }
+            }
             Token::Char(_, Cat::Begin) => e.begin_group(),
             Token::Char(_, Cat::End) => e.end_group(),
             Token::Char(c, Cat::Letter) => {
@@ -944,6 +950,14 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
             Some(t) if t.is_char('(') => {
                 let n = read_coordinate_tokens(e)?;
                 name = Some(e.tex.expand_to_string(n)?.trim().to_string());
+            }
+            Some(t) if t.is_char(':') => {
+                if let Some(o) = e.read_animation()? {
+                    if !options.is_empty() {
+                        options.push(Token::other(','));
+                    }
+                    options.extend(o);
+                }
             }
             Some(Token::Char('a', Cat::Letter)) => {
                 // `at (x,y)`

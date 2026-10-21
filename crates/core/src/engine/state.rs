@@ -206,6 +206,8 @@ pub struct GState {
     pub trim_left: Option<String>,
     /// `allow upside down`: sloped nodes are not turned the right way up
     pub allow_upside_down: bool,
+    /// `make snapshot of`: the time (s) the animations are shown at
+    pub snapshot: Option<f64>,
     pub trim_right: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
@@ -282,6 +284,7 @@ impl Default for GState {
             aliases: Vec::new(),
             trim_left: None,
             allow_upside_down: false,
+            snapshot: None,
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,

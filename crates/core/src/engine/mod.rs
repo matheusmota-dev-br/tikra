@@ -2,6 +2,7 @@
 //! from the token stream, the way `tikz.code.tex` does; options are pgfkeys; the graphic state is
 //! saved with TeX groups; what is drawn goes to a [`Canvas`].
 
+pub mod animations;
 pub mod arrows;
 pub mod basic;
 pub mod chains;
@@ -799,7 +800,30 @@ impl Engine {
             Cmd::Begin => self.begin_environment(),
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {
-                let o = self.optional()?;
+                let mut o = self.optional()?;
+                // `\scoped :rotate = {…}`: animated options of the scope
+                while let Some(t) = self.tex.next_nonspace() {
+                    if !t.is_char(':') {
+                        self.tex.back(t);
+                        break;
+                    }
+                    if let Some(a) = self.read_animation()? {
+                        let v = o.get_or_insert_with(Vec::new);
+                        if !v.is_empty() {
+                            v.push(Token::other(','));
+                        }
+                        // a scope's transformation is animated on the canvas, text and all
+                        let name = tex::tokens_to_string(&a);
+                        if ["rotate", "shift", "xshift", "yshift", "scale", "xscale", "yscale", "xslant", "yslant"].iter().any(|k| name.starts_with(&format!("{k}="))) {
+                            v.extend(tikra_tokens("transform canvas="));
+                            v.push(Token::Char('{', Cat::Begin));
+                            v.extend(a);
+                            v.push(Token::Char('}', Cat::End));
+                        } else {
+                            v.extend(a);
+                        }
+                    }
+                }
                 self.open_tikz_scope(o, false)?;
                 // the next statement or group is the content
                 let body = self.next_statement()?;

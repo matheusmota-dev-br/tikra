@@ -185,6 +185,13 @@ impl Engine {
         if name.starts_with('"') {
             return self.quotes(&name, value);
         }
+        // `myself:rotate={…}`, `:fill={…}`: an animated attribute
+        if let (Some(v), true) = (&value, name.contains(':')) {
+            if let Some(o) = self.animation_option(&name, v.clone())? {
+                self.process_keys(o, Some("/tikz"))?;
+            }
+            return Ok(());
+        }
         if value.is_none() {
             if let Some(c) = self.color(&name) {
                 self.st.color = c;
@@ -1319,6 +1326,12 @@ keyfn!(k_transform_canvas, |e, v| {
     e.open_in_scope(crate::canvas::Item::Transform { transform: t });
     Ok(())
 });
+keyfn!(k_snapshot, |e, v| {
+    let s = text(e, &v)?;
+    e.set_snapshot(&s);
+    Ok(())
+});
+keyfn!(k_animate, |e, v| e.animate_key(v.unwrap_or_default()));
 // the math library's `evaluate={…}`: \tikzmath statements
 keyfn!(k_evaluate, |e, v| e.math_statements(&v.unwrap_or_default()));
 keyfn!(k_trim_left, |e, v| {
@@ -1864,6 +1877,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/path picture", k_path_picture),
     ("/tikz/trim left", k_trim_left),
     ("/tikz/evaluate", k_evaluate),
+    ("/tikz/make snapshot of", k_snapshot),
+    ("/tikz/make snapshot after", k_snapshot),
+    ("/tikz/make snapshot if necessary", k_ignore),
+    ("/tikz/animate", k_animate),
     ("/tikz/transform canvas", k_transform_canvas),
     ("/tikz/trim right", k_trim_right),
     ("/tikz/remember picture", k_ignore),
