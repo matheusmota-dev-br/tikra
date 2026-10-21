@@ -19,6 +19,7 @@ pub mod pgfplots;
 pub mod pics;
 pub mod shapes;
 pub mod state;
+pub mod tikzmath;
 pub mod trees;
 
 use std::collections::HashMap;
@@ -50,6 +51,7 @@ pub enum Cmd {
     Matrix,
     PgfMatrix,
     Chainin,
+    TikzMath,
     Pic,
     Graph,
     Tikz,
@@ -121,6 +123,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("matrix", Cmd::Matrix),
     ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
+    ("tikzmath", Cmd::TikzMath),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -271,6 +274,8 @@ pub struct Engine {
     tree_count: usize,
     /// the chains of the chains library (global, as TikZ keeps their counts)
     pub chain_list: std::collections::HashMap<String, chains::Chain>,
+    /// the types `\tikzmath` declarations gave variables
+    pub math_kinds: HashMap<String, tikzmath::Kind>,
     /// path operations to run after the node just made (`after node path`, joins)
     pub after_node_path: Vec<Token>,
     /// the path's last point and where it came from, for `turn` in the next coordinate
@@ -357,6 +362,7 @@ impl Clone for Engine {
             last_node_name: self.last_node_name.clone(),
             tree_count: self.tree_count,
             chain_list: self.chain_list.clone(),
+            math_kinds: self.math_kinds.clone(),
             after_node_path: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
@@ -416,6 +422,7 @@ impl Engine {
             last_node_name: None,
             tree_count: 0,
             chain_list: Default::default(),
+            math_kinds: Default::default(),
             after_node_path: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
@@ -771,6 +778,7 @@ impl Engine {
             Cmd::Matrix => self.matrix(),
             Cmd::PgfMatrix => self.pgf_matrix(),
             Cmd::Chainin => self.chainin(),
+            Cmd::TikzMath => self.tikzmath(),
             Cmd::Graph => {
                 self.tex.push_tokens(tikra_tokens("graph "));
                 let r = path::statement(self, "");

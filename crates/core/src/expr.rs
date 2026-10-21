@@ -55,7 +55,7 @@ fn eval_at(text: &str, vars: &Variables, depth: usize) -> Result<f64, Error> {
 fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool), Error> {
     let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth, units: false };
     p.skip_spaces();
-    let v = p.sum()?;
+    let v = p.ternary()?;
     p.skip_spaces();
     if p.pos < p.c.len() {
         return Err(Error::Expression(format!("leftover '{}' in '{text}'", p.c[p.pos..].iter().collect::<String>())));
@@ -100,6 +100,74 @@ impl Parser<'_> {
 
     fn peek(&self) -> Option<char> {
         self.c.get(self.pos).copied()
+    }
+
+    /// `c ? a : b`, then `||`, `&&` and the comparisons, which give 1 or 0, as pgfmath has them.
+    fn ternary(&mut self) -> Result<f64, Error> {
+        let c = self.or()?;
+        self.skip_spaces();
+        if self.peek() != Some('?') {
+            return Ok(c);
+        }
+        self.pos += 1;
+        let a = self.ternary()?;
+        self.skip_spaces();
+        if self.peek() != Some(':') {
+            return Err(Error::Expression("'?' without ':'".into()));
+        }
+        self.pos += 1;
+        let b = self.ternary()?;
+        Ok(if c != 0.0 { a } else { b })
+    }
+
+    fn starts(&self, s: &str) -> bool {
+        s.chars().enumerate().all(|(i, c)| self.c.get(self.pos + i) == Some(&c))
+    }
+
+    fn or(&mut self) -> Result<f64, Error> {
+        let mut v = self.and()?;
+        loop {
+            self.skip_spaces();
+            if !self.starts("||") {
+                return Ok(v);
+            }
+            self.pos += 2;
+            let w = self.and()?;
+            v = f64::from(v != 0.0 || w != 0.0);
+        }
+    }
+
+    fn and(&mut self) -> Result<f64, Error> {
+        let mut v = self.comparison()?;
+        loop {
+            self.skip_spaces();
+            if !self.starts("&&") {
+                return Ok(v);
+            }
+            self.pos += 2;
+            let w = self.comparison()?;
+            v = f64::from(v != 0.0 && w != 0.0);
+        }
+    }
+
+    fn comparison(&mut self) -> Result<f64, Error> {
+        let v = self.sum()?;
+        self.skip_spaces();
+        for op in ["==", "!=", "<=", ">=", "<", ">"] {
+            if self.starts(op) {
+                self.pos += op.len();
+                let w = self.sum()?;
+                return Ok(f64::from(match op {
+                    "==" => v == w,
+                    "!=" => v != w,
+                    "<=" => v <= w,
+                    ">=" => v >= w,
+                    "<" => v < w,
+                    _ => v > w,
+                }));
+            }
+        }
+        Ok(v)
     }
 
     fn sum(&mut self) -> Result<f64, Error> {
@@ -182,7 +250,7 @@ impl Parser<'_> {
             Some('(') | Some('{') => {
                 let close = if self.peek() == Some('(') { ')' } else { '}' };
                 self.pos += 1;
-                let v = self.sum()?;
+                let v = self.ternary()?;
                 self.skip_spaces();
                 if self.peek() != Some(close) {
                     return Err(Error::Expression(format!("missing '{close}'")));
@@ -262,11 +330,11 @@ impl Parser<'_> {
                     };
                 }
                 self.pos += 1;
-                let mut args = vec![self.sum()?];
+                let mut args = vec![self.ternary()?];
                 self.skip_spaces();
                 while self.peek() == Some(',') {
                     self.pos += 1;
-                    args.push(self.sum()?);
+                    args.push(self.ternary()?);
                     self.skip_spaces();
                 }
                 if self.peek() != Some(')') {

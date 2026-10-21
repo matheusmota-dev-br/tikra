@@ -1319,6 +1319,8 @@ keyfn!(k_transform_canvas, |e, v| {
     e.open_in_scope(crate::canvas::Item::Transform { transform: t });
     Ok(())
 });
+// the math library's `evaluate={…}`: \tikzmath statements
+keyfn!(k_evaluate, |e, v| e.math_statements(&v.unwrap_or_default()));
 keyfn!(k_trim_left, |e, v| {
     e.st.trim_left = Some(text(e, &v)?);
     Ok(())
@@ -1861,6 +1863,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/turn", k_turn),
     ("/tikz/path picture", k_path_picture),
     ("/tikz/trim left", k_trim_left),
+    ("/tikz/evaluate", k_evaluate),
     ("/tikz/transform canvas", k_transform_canvas),
     ("/tikz/trim right", k_trim_right),
     ("/tikz/remember picture", k_ignore),
