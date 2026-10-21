@@ -131,6 +131,10 @@ impl Engine {
 
     fn matrix_in_group(&mut self, options: Vec<Token>, name: Option<String>, at: Option<Point>, body: Vec<Token>) -> Result<(), Error> {
         // the matrix's own options are read once to know the cells' settings; the node reads them again
+        // `every node` as it is outside: the matrix's own node takes it before its options, as
+        // any node does, and not the one its options set for the cells
+        let every_node = Token::cs(&crate::keys::macro_name("/tikz/every node/.@cmd"));
+        let outer_every_node = self.tex.meaning(&every_node);
         let ampersand = self.st.matrix.ampersand.take();
         self.st.matrix = MatrixSettings { ampersand, ..Default::default() };
         let saved_mode = self.st.mode.clone();
@@ -196,9 +200,12 @@ impl Engine {
 
         // the matrix is a node around the cells
         self.forced_box = Some((width, height, depth));
+        let cells_every_node = self.tex.meaning(&every_node);
+        self.tex.set_meaning(&every_node, outer_every_node, false);
         let items =
             self.node(NodeSpec { options, name: name.clone(), at: Some(at), text: Vec::new(), place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         self.forced_box = None;
+        self.tex.set_meaning(&every_node, cells_every_node, false);
         self.canvas.items.extend(items);
         let placed = match &name {
             Some(n) => self.nodes.get(n).map(|i| i.transform),
