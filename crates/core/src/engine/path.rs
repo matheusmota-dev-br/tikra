@@ -500,6 +500,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let at = at.unwrap_or_else(|| b.point());
                         e.pic(super::pics::PicSpec { options, name, at, content })?;
                     }
+                    "graph" => e.graph()?,
                     "child" => {
                         let parent = e.last_node_name.clone();
                         e.children(parent)?;

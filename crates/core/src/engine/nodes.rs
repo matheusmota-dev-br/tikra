@@ -291,7 +291,7 @@ impl Engine {
             "rectangle".to_string()
         };
         self.process_keys(tikra_tokens(&format!("every {shape_name} node/.try")), Some("/tikz"))?;
-        let name = spec.name.clone().or_else(|| self.st.node.name.clone());
+        let name = spec.name.clone().or_else(|| self.st.node.name.clone()).or_else(|| self.set_member_name());
 
         // the text boxes, one per node part
         let mut texts = Vec::new();
@@ -440,6 +440,7 @@ impl Engine {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
             self.tex.define_string("tikzlastnode", &n, true);
+            self.join_sets(&n);
             self.nodes.insert(n, info.clone());
         }
         for n in chain_names.into_iter().chain(std::mem::take(&mut self.st.aliases)) {
