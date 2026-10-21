@@ -49,6 +49,8 @@ pub struct NodeSetup {
     pub name: Option<String>,
     /// `label=` and `pin=` values, in order; true for a pin
     pub labels: Vec<(Vec<Token>, bool)>,
+    /// `fit=`: the width and height the text box takes
+    pub fit: Option<(f64, f64)>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -313,10 +315,21 @@ impl Engine {
             }
             Some(l)
         };
-        let (wd, ht, dp) = match &lbl {
+        let (mut wd, mut ht, mut dp) = match &lbl {
             Some(l) => (text_width.unwrap_or_else(|| l.width()), l.height(), l.depth()),
             None => (0.0, 0.0, 0.0),
         };
+        // text height and text depth replace the box's
+        for (key, target) in [("/tikz/text height", &mut ht), ("/tikz/text depth", &mut dp)] {
+            let v = self.key_text(key);
+            if !v.trim().is_empty() {
+                *target = self.length(&v)?;
+            }
+        }
+        if let Some((w, h)) = self.st.node.fit {
+            // fit: the box is the fitted area, centered on the baseline
+            (wd, ht, dp) = (w, h / 2.0, h / 2.0);
+        }
         let xsep = self.key_length("/pgf/inner xsep", 0.3333 * 0.3515);
         let ysep = self.key_length("/pgf/inner ysep", 0.3333 * 0.3515);
         let min_w = self.key_length("/pgf/minimum width", PT);
@@ -347,7 +360,11 @@ impl Engine {
             (None, Some(t)) => spec.place.at(t),
             (None, None) => (spec.point, Point::new(1.0, 0.0)),
         };
-        let anchor = self.key_text("/tikz/anchor");
+        let mut anchor = self.key_text("/tikz/anchor");
+        if let (Some(side), true, Some(_)) = (self.st.auto, anchor.trim() == "center", pos) {
+            // auto: to the left of the segment (right with swap), by its direction
+            anchor = auto_anchor(direction, (side == 'r') != self.st.swap).to_string();
+        }
         let anchor = anchor.trim();
         let a_local = info.anchor_local(anchor).unwrap_or_else(|| {
             self.warn(format!("unknown anchor '{anchor}': center used"));
@@ -449,7 +466,37 @@ impl Engine {
             None => (String::new(), v.clone()),
         };
         let _ = s;
-        let position = if angle_text.is_empty() { self.key_text("/tikz/label position").trim().to_string() } else { angle_text };
+        // a direction among the label's options (`"text" above` with quotes) is its position
+        let directions = ["above", "below", "left", "right", "above left", "above right", "below left", "below right"];
+        let mut given = None;
+        let items = keys::split_list(&opts);
+        if items.iter().any(|i| i.value.is_none() && directions.contains(&i.key.as_str())) {
+            let mut rest = Vec::new();
+            for i in items {
+                if i.value.is_none() && directions.contains(&i.key.as_str()) {
+                    given = Some(i.key.clone());
+                } else {
+                    if !rest.is_empty() {
+                        rest.push(Token::other(','));
+                    }
+                    rest.extend(tikra_tokens(&i.key));
+                    if let Some(v) = i.value {
+                        rest.push(Token::other('='));
+                        rest.push(Token::Char('{', tex::Cat::Begin));
+                        rest.extend(v);
+                        rest.push(Token::Char('}', tex::Cat::End));
+                    }
+                }
+            }
+            opts = rest;
+        }
+        let position = if !angle_text.is_empty() {
+            angle_text
+        } else if let Some(g) = given {
+            g
+        } else {
+            self.key_text("/tikz/label position").trim().to_string()
+        };
         let angle = match position.as_str() {
             "above" | "north" => 90.0,
             "below" | "south" => 270.0,
@@ -516,6 +563,46 @@ impl Engine {
             miter_limit: self.st.miter_limit,
             opacity: self.st.draw_opacity,
         }
+    }
+}
+
+/// TikZ's `\tikz@auto@anchor` (left of the direction) and `\tikz@auto@anchor@prime` (right).
+fn auto_anchor(d: Point, right: bool) -> &'static str {
+    let e = 0.05 * PT;
+    let (x, y) = (d.x, d.y);
+    let left = if x > e {
+        if y > e {
+            "south east"
+        } else if y < -e {
+            "south west"
+        } else {
+            "south"
+        }
+    } else if x < -e {
+        if y > e {
+            "north east"
+        } else if y < -e {
+            "north west"
+        } else {
+            "north"
+        }
+    } else if y > 0.0 {
+        "east"
+    } else {
+        "west"
+    };
+    if !right {
+        return left;
+    }
+    match left {
+        "south east" => "north west",
+        "south west" => "north east",
+        "south" => "north",
+        "north east" => "south west",
+        "north west" => "south east",
+        "north" => "south",
+        "east" => "west",
+        _ => "east",
     }
 }
 
