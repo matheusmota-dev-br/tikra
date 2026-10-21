@@ -1333,7 +1333,7 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
                     b.segs.push(Segment::LineTo(to(last)));
                 }
                 'C' | 'S' => {
-                    let c1 = if cmd.to_ascii_uppercase() == 'S' {
+                    let c1 = if cmd.eq_ignore_ascii_case(&'S') {
                         prev_control.map_or(last, |c| last.scale(2.0).minus(c))
                     } else {
                         let Some(c) = pt(&mut i) else { break };
@@ -1345,7 +1345,7 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
                     last = p;
                 }
                 'Q' | 'T' => {
-                    let q = if cmd.to_ascii_uppercase() == 'T' {
+                    let q = if cmd.eq_ignore_ascii_case(&'T') {
                         prev_quad.map_or(last, |c| last.scale(2.0).minus(c))
                     } else {
                         let Some(c) = pt(&mut i) else { break };
