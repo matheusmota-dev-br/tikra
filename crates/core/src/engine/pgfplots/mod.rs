@@ -122,6 +122,9 @@ impl Engine {
 
     /// An axis with these options (`\nextgroupplot` makes them).
     pub fn begin_axis_with(&mut self, kind: &str, o: Vec<Token>) -> Result<(), Error> {
+        if matches!(kind, "smithchart" | "ternaryaxis") {
+            self.warn(format!("{kind} not supported: drawn as a cartesian axis"));
+        }
         if self.axis.is_some() {
             self.warn("nested axis environments are not supported (pgfplots refuses them too): the inner one is drawn on its own");
         }
