@@ -21,8 +21,17 @@ use super::{macro_from, macro_tokens, tikra_tokens, Engine};
 /// Ids of the calendar's commands (`Meaning::Native`).
 pub const BASE: u16 = 860;
 
-const COMMANDS: &[&str] =
-    &["calendar", "pgfcalendar", "ifdate", "pgfcalendarifdate", "pgfcalendardatetojulian", "pgfcalendarjuliantodate", "pgfcalendarjuliantoweekday", "tikra@calendar"];
+const COMMANDS: &[&str] = &[
+    "calendar",
+    "pgfcalendar",
+    "ifdate",
+    "pgfcalendarifdate",
+    "pgfcalendardatetojulian",
+    "pgfcalendarjuliantodate",
+    "pgfcalendarjuliantoweekday",
+    "tikra@calendar",
+    "tikra@calendarif",
+];
 
 pub fn define(e: &mut Engine) {
     for (i, name) in COMMANDS.iter().enumerate() {
@@ -57,7 +66,7 @@ pub const DEFINITIONS: &str = r"
   day code/.code={\def\tikzdaycode{#1}}, day text/.code={\def\tikzdaytext{#1}},
   month code/.code={\def\tikzmonthcode{#1}}, month text/.code={\def\tikzmonthtext{#1}},
   year code/.code={\def\tikzyearcode{#1}}, year text/.code={\def\tikzyeartext{#1}},
-  days/.style={every day/.append style={#1}}, every day/.style={anchor=base east},
+  if/.code={\tikra@calendarif{#1}}, days/.style={every day/.append style={#1}}, every day/.style={anchor=base east},
   every month/.style={}, every year/.style={},
   tikra@cal@width/.code={\def\tikra@cal@width{#1}},
   day list downward/.style={execute before day scope={\tikra@calendar{month down}},
@@ -236,6 +245,16 @@ impl Engine {
                 self.set_int(target, weekday(j));
                 Ok(())
             }
+            "tikra@calendarif" => {
+                // the `if` key: its value read as the `if` of a \calendar
+                let mut v = self.argument()?;
+                v.push(Token::cs("relax"));
+                let depth = self.tex.depth();
+                self.tex.push_frame(v);
+                let r = self.calendar_if();
+                self.tex.drain_to(depth);
+                r
+            }
             _ => {
                 let what = self.argument_string()?;
                 self.calendar_step(&what)
@@ -360,14 +379,13 @@ impl Engine {
     fn calendar_body(&mut self) -> Result<(), Error> {
         let shorthand = self.tex.meaning_of("pgfcalendarshorthand");
         self.tex.set_meaning(&Token::cs("%"), shorthand, false);
-        for name in ["tikra@cal@before", "tikra@cal@after", "tikra@cal@atbegin", "tikra@cal@atend"] {
+        for name in ["tikra@cal@before", "tikra@cal@after", "tikra@cal@atbegin", "tikra@cal@atend", "tikra@cal@ifs"] {
             self.tex.define_string(name, "", false);
         }
         self.st.pending = Transform::default();
+        self.st.node.at = None;
         self.process_keys(tikra_tokens("every calendar/.try"), Some("/tikz"))?;
         let mut prefix = String::new();
-        let mut at = None;
-        let mut ifs: Vec<Token> = Vec::new();
         let mut guard = 0;
         loop {
             guard += 1;
@@ -393,35 +411,11 @@ impl Engine {
                         _ => return Err(Error::Figure("\\calendar at: a point is missing".into())),
                     };
                     let s = self.tex.expand_to_string(p)?;
-                    at = Some(self.coordinate(&s)?.p);
+                    self.st.node.at = Some(self.coordinate(&s)?.p);
                 }
                 t if t.is_char('i') => {
-                    // if (tests) [options] or {code}, then maybe else [options] or {code}
                     let _ = self.tex.get_token();
-                    let tests = match self.tex.next_nonspace() {
-                        Some(x) if x.is_char('(') => self.tex.read_until_char(')', false)?,
-                        _ => return Err(Error::Figure("\\calendar if: the tests are missing".into())),
-                    };
-                    let yes = self.calendar_if_branch()?;
-                    let no = match self.tex.next_nonspace() {
-                        Some(x) if x.is_char('e') => {
-                            for _ in 0..3 {
-                                let _ = self.tex.get_token();
-                            }
-                            self.calendar_if_branch()?
-                        }
-                        Some(x) => {
-                            self.tex.back(x);
-                            Vec::new()
-                        }
-                        None => Vec::new(),
-                    };
-                    ifs.push(Token::cs("ifdate"));
-                    for v in [tests, yes, no] {
-                        ifs.push(Token::Char('{', Cat::Begin));
-                        ifs.extend(v);
-                        ifs.push(Token::Char('}', Cat::End));
-                    }
+                    self.calendar_if()?;
                 }
                 _ => {
                     let m = self.tex.meaning(&t);
@@ -434,17 +428,52 @@ impl Engine {
             }
         }
         self.st.apply_pending();
-        if let Some(p) = at {
+        // `at (point)` or `at=`: where the calendar's origin goes
+        if let Some(p) = self.st.node.at.take() {
             let local = crate::reader::invert(&self.st.transform).apply(p);
             self.st.transform = self.st.transform.compose(&Transform::translation(local.x, local.y));
         }
-        self.tex.set_meaning(&Token::cs("tikra@cal@ifs"), macro_tokens(ifs), false);
         let dates = self.macro_text("tikra@cal@dates");
         let Some((start, end)) = dates.split_once("to") else {
             return Err(Error::Figure(format!("\\calendar: dates={dates} is not 'start to end'")));
         };
         let code = tikra_tokens(r"\tikra@cal@before\begin{scope}\tikra@cal@atbegin\tikra@cal@ifs\tikzdaycode\tikra@cal@atend\end{scope}\tikra@cal@after");
         self.pgfcalendar(&prefix, start, end, code)
+    }
+
+    /// `if (tests) [options] else {code}` (either code an `[options]` or a `{code}`, the `else` part
+    /// optional): appended to what each day's scope runs.
+    fn calendar_if(&mut self) -> Result<(), Error> {
+        let tests = match self.tex.next_nonspace() {
+            Some(x) if x.is_char('(') => self.tex.read_until_char(')', false)?,
+            _ => return Err(Error::Figure("\\calendar if: the tests are missing".into())),
+        };
+        let yes = self.calendar_if_branch()?;
+        let no = match self.tex.next_nonspace() {
+            Some(x) if x.is_char('e') => {
+                for _ in 0..3 {
+                    let _ = self.tex.get_token();
+                }
+                self.calendar_if_branch()?
+            }
+            Some(x) => {
+                self.tex.back(x);
+                Vec::new()
+            }
+            None => Vec::new(),
+        };
+        let mut ifs = match self.tex.meaning_of("tikra@cal@ifs") {
+            Meaning::Macro(m) => tex::substitute(&m.body, &[]),
+            _ => Vec::new(),
+        };
+        ifs.push(Token::cs("ifdate"));
+        for v in [tests, yes, no] {
+            ifs.push(Token::Char('{', Cat::Begin));
+            ifs.extend(v);
+            ifs.push(Token::Char('}', Cat::End));
+        }
+        self.tex.set_meaning(&Token::cs("tikra@cal@ifs"), macro_tokens(ifs), false);
+        Ok(())
     }
 
     /// The code of an `if`: `[options]` (set in the day's scope) or `{code}`.
