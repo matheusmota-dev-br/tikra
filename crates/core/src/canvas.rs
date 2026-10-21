@@ -36,12 +36,14 @@ pub struct Stroke {
 /// A color stop of a shading: position from 0 to 1, and the color.
 pub type Stop = (f64, Color);
 
+/// A shading as pgf declares it, in its own 100 bp box (−50 to 50), and the transformation that
+/// takes that box to the canvas (`\pgfshadepath` fits its middle half to the path's bounding box).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shading {
-    /// Along a direction, in canvas coordinates: from `from` to `to`.
-    Axial { from: Point, to: Point, stops: Vec<Stop> },
-    /// From `center` out to `radius` (cm).
-    Radial { center: Point, radius: f64, stops: Vec<Stop> },
+    /// Colors along y, from y = −50 (offset 0) to y = 50 (offset 1).
+    Axial { transform: Transform, stops: Vec<Stop> },
+    /// Circles from `focus` (radius 0) out to the circle of radius 50 around the origin.
+    Radial { transform: Transform, focus: Point, stops: Vec<Stop> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +86,10 @@ pub enum Item {
     /// A group: what follows, up to the matching `End`, is drawn with this opacity as a whole.
     Group {
         opacity: f64,
+    },
+    /// A fading: what follows, up to the matching `End`, is as opaque as the shading is white.
+    Fade {
+        mask: Shading,
     },
     End,
 }
@@ -152,18 +158,13 @@ impl Item {
         match self {
             Item::Path { segments, fill, .. } => {
                 *segments = transform_segments(segments, &t);
-                if let Some(Fill { paint: Paint::Shading(sh), .. }) = fill {
-                    match sh {
-                        Shading::Axial { from, to, .. } => {
-                            *from = from.plus(d);
-                            *to = to.plus(d);
-                        }
-                        Shading::Radial { center, .. } => *center = center.plus(d),
-                    }
+                if let Some(Fill { paint: Paint::Shading(Shading::Axial { transform, .. } | Shading::Radial { transform, .. }), .. }) = fill {
+                    *transform = t.compose(transform);
                 }
             }
             Item::Clip { segments, .. } => *segments = transform_segments(segments, &t),
             Item::Text { place, .. } => *place = t.compose(place),
+            Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             Item::Group { .. } | Item::End => {}
         }
     }

@@ -6,7 +6,55 @@ use std::rc::Rc;
 use crate::canvas::{Cap, Join};
 use crate::color::Color;
 use crate::scene::{Point, Transform};
+use crate::tex::Token;
 use crate::PT;
+
+/// The topaths library's settings for `to` and `edge`: `out`, `in`, `bend left`, `looseness`,
+/// `min distance`, `controls`, `to path`, `loop`.
+#[derive(Debug, Clone)]
+pub struct ToSettings {
+    /// a curve (`\tikz@to@switch@on`) rather than a line
+    pub curve: bool,
+    /// `out` and `in` taken from the line between the ends (`bend left`, `relative`)
+    pub relative: bool,
+    pub bend: f64,
+    pub out: f64,
+    pub inn: f64,
+    pub out_looseness: f64,
+    pub in_looseness: f64,
+    pub out_min: f64,
+    pub out_max: f64,
+    pub in_min: f64,
+    pub in_max: f64,
+    pub out_control: Option<Vec<Token>>,
+    pub in_control: Option<Vec<Token>>,
+    /// `to path={…}` of the user: run with `\tikztostart`, `\tikztotarget`, `\tikztonodes`
+    pub path: Option<Vec<Token>>,
+    /// `loop`: the target is the start, `looseness=8,min distance=5mm`
+    pub is_loop: bool,
+}
+
+impl Default for ToSettings {
+    fn default() -> Self {
+        ToSettings {
+            curve: false,
+            relative: false,
+            bend: 30.0,
+            out: 45.0,
+            inn: 135.0,
+            out_looseness: 1.0,
+            in_looseness: 1.0,
+            out_min: 0.0,
+            out_max: 10000.0 * PT,
+            in_min: 0.0,
+            in_max: 10000.0 * PT,
+            out_control: None,
+            in_control: None,
+            path: None,
+            is_loop: false,
+        }
+    }
+}
 
 /// What a path does once built (`\tikz@mode`): set by `draw`, `fill`… for one path only.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -55,8 +103,10 @@ pub struct GState {
     /// Arrow specifications at the start and the end (`->`, `-{Latex[length=3mm]}`).
     pub start_arrow: Option<String>,
     pub end_arrow: Option<String>,
-    /// What `>` stands for (`>=Latex`).
-    pub default_arrow: String,
+    /// Arrow tips defined with `name/.tip=` and `>=`.
+    pub tips: Rc<super::arrows::UserTips>,
+    /// `tips=`: when tips are drawn
+    pub tips_mode: super::arrows::TipsMode,
     pub shorten_start: f64,
     pub shorten_end: f64,
     /// `double`: the color between the two lines, and the distance between them
@@ -67,12 +117,7 @@ pub struct GState {
     pub font: String,
 
     // path construction settings
-    pub to_out: Option<f64>,
-    pub to_in: Option<f64>,
-    pub bend: Option<f64>,
-    pub looseness: f64,
-    pub out_looseness: Option<f64>,
-    pub in_looseness: Option<f64>,
+    pub to: ToSettings,
     pub grid_step: (f64, f64),
     pub domain: (f64, f64),
     pub samples: usize,
@@ -109,6 +154,20 @@ pub struct GState {
     /// `edge from parent[options] node{…}` read in a child: options and label nodes
     pub tree_edge: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
     pub name_prefix: String,
+    /// what the options of the matrix being read say about its cells
+    pub matrix: super::matrix::MatrixSettings,
+    /// shadings: which one (`axis`, `radial`, `ball`), its angle and its colors
+    pub shading: String,
+    pub shade_angle: f64,
+    pub axis_top: Color,
+    pub axis_middle: Color,
+    pub axis_bottom: Color,
+    pub ball: Color,
+    pub radial_inner: Color,
+    pub radial_outer: Color,
+    /// `path fading=`: the fading's name; `transparency group` for the scope being opened
+    pub path_fading: Option<String>,
+    pub transparency_group: bool,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
     pub level_distance: f64,
@@ -123,6 +182,9 @@ pub struct GState {
     pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
+    /// `preaction={…}` and `postaction={…}`: options of the path used again before and after
+    pub preactions: Vec<Vec<crate::tex::Token>>,
+    pub postactions: Vec<Vec<crate::tex::Token>>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
 }
@@ -155,19 +217,15 @@ impl Default for GState {
             rounded: 0.0,
             start_arrow: None,
             end_arrow: None,
-            default_arrow: "to".into(),
+            tips: Rc::default(),
+            tips_mode: Default::default(),
             shorten_start: 0.0,
             shorten_end: 0.0,
             double: None,
             double_distance: 0.6 * PT,
             font_size: 10.0,
             font: String::new(),
-            to_out: None,
-            to_in: None,
-            bend: None,
-            looseness: 1.0,
-            out_looseness: None,
-            in_looseness: None,
+            to: ToSettings::default(),
             grid_step: (1.0, 1.0),
             domain: (-5.0, 5.0),
             samples: 25,
@@ -187,6 +245,19 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            preactions: Vec::new(),
+            postactions: Vec::new(),
+            matrix: Default::default(),
+            path_fading: None,
+            transparency_group: false,
+            shading: "axis".into(),
+            shade_angle: 0.0,
+            axis_top: Color { r: 0.5, g: 0.5, b: 0.5 },
+            axis_middle: Color { r: 0.75, g: 0.75, b: 0.75 },
+            axis_bottom: Color::WHITE,
+            ball: Color { r: 0.0, g: 0.0, b: 1.0 },
+            radial_inner: Color { r: 0.5, g: 0.5, b: 0.5 },
+            radial_outer: Color::WHITE,
             tree_level: 0,
             level_distance: 1.5,
             sibling_distance: 1.5,

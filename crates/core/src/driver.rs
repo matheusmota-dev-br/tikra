@@ -119,32 +119,15 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
             let stops = |stops: &[(f64, crate::color::Color)]| {
                 stops.iter().map(|(o, c)| format!(r#"<stop offset="{}" stop-color="{}"/>"#, num(o.clamp(0.0, 1.0), 4), c.hex())).collect::<String>()
             };
-            match sh {
-                Shading::Axial { from, to, stops: s } => {
-                    let (x1, y1) = at(*from);
-                    let (x2, y2) = at(*to);
-                    let _ = write!(
-                        defs.text,
-                        r#"<linearGradient id="{id}" gradientUnits="userSpaceOnUse" x1="{}" y1="{}" x2="{}" y2="{}">{}</linearGradient>"#,
-                        n(x1),
-                        n(y1),
-                        n(x2),
-                        n(y2),
-                        stops(s)
-                    );
+            // the gradient in pgf's shading box, taken to SVG space by its transformation
+            let (t, body, kind) = match sh {
+                Shading::Axial { transform, stops: s } => (transform, format!(r#"x1="0" y1="-50" x2="0" y2="50">{}"#, stops(s)), "linearGradient"),
+                Shading::Radial { transform, focus, stops: s } => {
+                    (transform, format!(r#"cx="0" cy="0" r="50" fx="{}" fy="{}">{}"#, n(focus.x), n(focus.y), stops(s)), "radialGradient")
                 }
-                Shading::Radial { center, radius, stops: s } => {
-                    let (cx, cy) = at(*center);
-                    let _ = write!(
-                        defs.text,
-                        r#"<radialGradient id="{id}" gradientUnits="userSpaceOnUse" cx="{}" cy="{}" r="{}">{}</radialGradient>"#,
-                        n(cx),
-                        n(cy),
-                        n(radius * BP),
-                        stops(s)
-                    );
-                }
-            }
+            };
+            let m = format!("matrix({} {} {} {} {} {})", num(t.a * BP, 5), num(-t.b * BP, 5), num(t.c * BP, 5), num(-t.d * BP, 5), n(t.e * BP), n(-t.f * BP));
+            let _ = write!(defs.text, r#"<{kind} id="{id}" gradientUnits="userSpaceOnUse" gradientTransform="{m}" {body}</{kind}>"#);
             format!("url(#{id})")
         }
     }
@@ -306,6 +289,15 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
                 } else {
                     body.push_str("<g>");
                 }
+            }
+            Item::Fade { mask } => {
+                let gradient = paint_value(&Paint::Shading(mask.clone()), &mut defs);
+                let id = defs.id("m");
+                let _ = write!(
+                    defs.text,
+                    r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="{gradient}"/></mask>"#
+                );
+                let _ = write!(body, r#"<g mask="url(#{id})">"#);
             }
             Item::End => body.push_str("</g>"),
         }

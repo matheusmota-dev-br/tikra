@@ -16,7 +16,8 @@ shape, its color and its size:
   other way round; their harmonic mean is the F1 score.
 - pieces: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
-- color: of tikra's ink near TeX's, the share with about the same color as the nearest TeX ink.
+- color: of tikra's ink near TeX's, the share with about the same color as some TeX ink 1 px around
+  (antialiasing puts a line's dark and light pixels at different places in the two).
 - size: width and height within 10% (or 4 px).
 
 A figure *matches* with F1 ≥ 0.9, color ≥ 0.9, the same size and no missing or extra piece; it is
@@ -140,10 +141,15 @@ def measure(ref_path, tik_path):
     # color: tikra's ink against the TeX ink nearest to it
     tik_ink_near = tik_ink & (ndimage.distance_transform_edt(~ref_ink) <= RADIUS)
     if tik_ink_near.any():
-        _, nearest_ink = ndimage.distance_transform_edt(~ref_ink, return_indices=True)
-        ys, xs = np.nonzero(tik_ink_near)
-        ref_colors = ref_c[nearest_ink[0][ys, xs], nearest_ink[1][ys, xs]]
-        color = float(np.mean(np.abs(ref_colors - tik_c[ys, xs]).max(axis=1) <= COLOR))
+        # the same color as some TeX ink in the 3×3 pixels around: the two antialias a line's edge at different
+        # phases, so the single nearest TeX pixel can be the light rim of a line tikra draws dark there
+        same = np.zeros(tik_ink.shape, dtype=bool)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                ref_s = np.roll(ref_c, (dy, dx), axis=(0, 1))
+                ink_s = np.roll(ref_ink, (dy, dx), axis=(0, 1))
+                same |= ink_s & (np.abs(ref_s - tik_c).max(axis=2) <= COLOR)
+        color = float(np.count_nonzero(same & tik_ink_near) / np.count_nonzero(tik_ink_near))
     else:
         color = 0.0
     n_ref, missing = pieces(ref_e, tik_e)

@@ -255,6 +255,8 @@ impl Engine {
         self.st.node = NodeSetup::default();
         self.st.mode = Default::default();
         self.st.pending = Transform::default();
+        self.st.preactions.clear();
+        self.st.postactions.clear();
         self.st.start_arrow = None;
         self.st.end_arrow = None;
         let r = self.node_in_group(spec);
@@ -335,9 +337,14 @@ impl Engine {
                     *target = self.length(&v)?;
                 }
             }
-            if let (0, Some((w, h))) = (k, self.st.node.fit) {
-                // fit: the box is the fitted area, centered on the baseline
-                (wd, ht, dp) = (w, h / 2.0, h / 2.0);
+            if k == 0 {
+                if let Some(b) = self.forced_box.take() {
+                    (wd, ht, dp) = b;
+                }
+                if let Some((w, h)) = self.st.node.fit {
+                    // fit: the box is the fitted area, centered on the baseline
+                    (wd, ht, dp) = (w, h / 2.0, h / 2.0);
+                }
             }
             boxes.push((part.clone(), BoxSize { wd, ht, dp }));
             labels.push((part.clone(), lbl));

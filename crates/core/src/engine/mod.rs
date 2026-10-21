@@ -6,6 +6,7 @@ pub mod arrows;
 pub mod basic;
 pub mod coords;
 pub mod intersections;
+pub mod matrix;
 pub mod nodes;
 pub mod options;
 pub mod output;
@@ -81,6 +82,7 @@ pub enum Cmd {
     OnLayer,
     EndOnLayer,
     NamePrefix,
+    Tikzfading,
     SetLayers,
     Frame,
 }
@@ -144,6 +146,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("endpgfonlayer", Cmd::EndOnLayer),
     ("tikra@frame", Cmd::Frame),
     ("tikra@nameprefix", Cmd::NamePrefix),
+    ("tikzfading", Cmd::Tikzfading),
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
@@ -233,6 +236,8 @@ pub struct Engine {
     pub pgf_path: basic::PgfPath,
     /// `execute at end scope` code of the open scopes, innermost last
     scope_ends: Vec<Vec<Token>>,
+    /// for each `{` in a picture: whether it opened a scope (`{[options] …}`, the scopes library)
+    brace_scopes: Vec<bool>,
     /// layers: their order, the items of each but main, and what `\pgfonlayer` set aside
     layer_order: Vec<String>,
     layers: HashMap<String, Vec<Item>>,
@@ -241,6 +246,10 @@ pub struct Engine {
     pub last_node: Option<nodes::NodeInfo>,
     pub last_node_name: Option<String>,
     tree_count: usize,
+    /// fadings defined by `\tikzfading`, in their 100 bp box
+    pub fadings: HashMap<String, crate::canvas::Shading>,
+    /// the text box a node must take (a matrix's cells), instead of its text's
+    pub forced_box: Option<(f64, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
@@ -308,7 +317,10 @@ impl Clone for Engine {
             tree_count: self.tree_count,
             tree_edge_out: self.tree_edge_out.clone(),
             tree_child_names: self.tree_child_names.clone(),
+            forced_box: self.forced_box,
+            fadings: self.fadings.clone(),
             scope_ends: self.scope_ends.clone(),
+            brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
             layers: self.layers.clone(),
             on_layer: self.on_layer.clone(),
@@ -355,7 +367,10 @@ impl Engine {
             tree_count: 0,
             tree_edge_out: None,
             tree_child_names: Vec::new(),
+            forced_box: None,
+            fadings: HashMap::new(),
             scope_ends: Vec::new(),
+            brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
             layers: HashMap::new(),
             on_layer: Vec::new(),
@@ -419,6 +434,32 @@ impl Engine {
     pub fn execute(&mut self, t: Token) -> Result<(), Error> {
         let m = self.tex.meaning(&t);
         match m {
+            Meaning::Char(_, Cat::Begin) if self.picture_depth > 0 => {
+                // the scopes library: `{[options] …}` is a scope
+                match self.tex.next_nonspace() {
+                    Some(n) if n.is_char('[') => {
+                        let o = self.tex.read_until_char(']', false)?;
+                        self.brace_scopes.push(true);
+                        let r = self.open_tikz_scope(Some(o), false);
+                        self.recover(r, &t)?;
+                    }
+                    other => {
+                        if let Some(n) = other {
+                            self.tex.back(n);
+                        }
+                        self.brace_scopes.push(false);
+                        self.begin_group();
+                    }
+                }
+            }
+            Meaning::Char(_, Cat::End) if self.picture_depth > 0 => {
+                if self.brace_scopes.pop() == Some(true) {
+                    let r = self.close_tikz_scope();
+                    self.recover(r, &t)?;
+                } else {
+                    self.end_group();
+                }
+            }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
@@ -660,7 +701,8 @@ impl Engine {
                 self.st.name_prefix = if p == ".." { String::new() } else { p };
                 Ok(())
             }
-            Cmd::Matrix | Cmd::Graph => {
+            Cmd::Matrix => self.matrix(),
+            Cmd::Graph => {
                 let rest = self.skip_statement()?;
                 let _ = rest;
                 let name = tex::show_token(t);
@@ -895,6 +937,7 @@ impl Engine {
                 Ok(())
             }
             Cmd::Frame => self.frame_macros(),
+            Cmd::Tikzfading => self.tikzfading(),
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
@@ -1046,6 +1089,14 @@ impl Engine {
             }
         }
         self.st.apply_pending();
+        if std::mem::take(&mut self.st.transparency_group) {
+            // the scope's opacity is the group's; inside, everything is opaque
+            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
+            self.open_in_scope(Item::Group { opacity });
+            self.st.draw_opacity = 1.0;
+            self.st.fill_opacity = 1.0;
+            self.st.text_opacity = 1.0;
+        }
         let begin = std::mem::take(&mut self.st.at_begin_scope);
         let end = std::mem::take(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
@@ -1058,6 +1109,46 @@ impl Engine {
         self.end_scope();
         self.end_group();
         r
+    }
+
+    /// `\tikzfading[name=…, top color=transparent!0, bottom color=transparent!100]`: a fading from
+    /// shading options, with `transparent!N` meaning N percent transparent.
+    fn tikzfading(&mut self) -> Result<(), Error> {
+        let o = self.optional()?.unwrap_or_default();
+        let mut name = String::new();
+        let mut opts = Vec::new();
+        for item in crate::keys::split_list(&o) {
+            if item.key == "name" {
+                name = self.tex.expand_to_string(item.value.unwrap_or_default())?.trim().to_string();
+            } else {
+                if !opts.is_empty() {
+                    opts.push(Token::other(','));
+                }
+                opts.extend(tikra_tokens(&item.key));
+                if let Some(v) = item.value {
+                    opts.push(Token::other('='));
+                    opts.push(Token::Char('{', Cat::Begin));
+                    opts.extend(v);
+                    opts.push(Token::Char('}', Cat::End));
+                }
+            }
+        }
+        self.begin_group();
+        // transparent is black in a fading: N percent of it, the rest white
+        self.colors.insert("transparent".into(), Color::BLACK);
+        self.colors.insert("pgftransparent".into(), Color::BLACK);
+        let r = self.process_keys(opts, Some("/tikz"));
+        // a unit square, so the shading's box is the identity once fitted
+        let square = [crate::scene::Segment::MoveTo(Point::new(-25.0, -25.0)), crate::scene::Segment::LineTo(Point::new(25.0, 25.0))];
+        let sh = self.shading_of(&square);
+        self.colors.remove("transparent");
+        self.colors.remove("pgftransparent");
+        self.end_group();
+        r?;
+        if !name.is_empty() {
+            self.fadings.insert(name, sh);
+        }
+        Ok(())
     }
 
     /// `\pgfonlayer{name}`: what is drawn until `\endpgfonlayer` goes to that layer.
