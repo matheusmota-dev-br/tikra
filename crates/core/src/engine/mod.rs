@@ -6,6 +6,7 @@ pub mod arrows;
 pub mod basic;
 pub mod chains;
 pub mod coords;
+pub mod decorations;
 pub mod intersections;
 pub mod matrix;
 pub mod nodes;
@@ -86,9 +87,21 @@ pub enum Cmd {
     Tikzfading,
     SetLayers,
     Frame,
+    /// `\arrow` and `\arrowreversed` of markings
+    Arrow,
+    ArrowReversed,
+    /// the basic layer's decorations: `\pgfdecoration` … `\endpgfdecoration`, `\pgfdecoratecurrentpath`
+    DecorationBegin,
+    DecorationEnd,
+    DecorateCurrentPath,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
+    ("tikra@arrow", Cmd::Arrow),
+    ("tikra@arrowreversed", Cmd::ArrowReversed),
+    ("tikra@decoration", Cmd::DecorationBegin),
+    ("tikra@enddecoration", Cmd::DecorationEnd),
+    ("tikra@decoratecurrentpath", Cmd::DecorateCurrentPath),
     ("path", Cmd::Path),
     ("draw", Cmd::Draw),
     ("fill", Cmd::Fill),
@@ -260,6 +273,8 @@ pub struct Engine {
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
     pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
+    /// open `\pgfdecoration`s
+    pub decoration_envs: Vec<decorations::Env>,
     /// paths kept by `name path`
     pub named_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// pictures already drawn, and how the document lays them out
@@ -317,6 +332,7 @@ impl Clone for Engine {
             nesting: self.nesting,
             keys_run: self.keys_run,
             pgf_path: self.pgf_path.clone(),
+            decoration_envs: self.decoration_envs.clone(),
             named_paths: self.named_paths.clone(),
             last_node: self.last_node.clone(),
             last_node_name: self.last_node_name.clone(),
@@ -369,6 +385,7 @@ impl Engine {
             nesting: 0,
             keys_run: 0,
             pgf_path: basic::PgfPath::default(),
+            decoration_envs: Vec::new(),
             named_paths: HashMap::new(),
             last_node: None,
             last_node_name: None,
@@ -727,6 +744,11 @@ impl Engine {
                 Ok(())
             }
             Cmd::Tikz => self.tikz_command(),
+            Cmd::Arrow => self.arrow_command(false),
+            Cmd::ArrowReversed => self.arrow_command(true),
+            Cmd::DecorationBegin => self.decoration_begin(),
+            Cmd::DecorationEnd => self.decoration_end(),
+            Cmd::DecorateCurrentPath => self.decorate_current_path(),
             Cmd::Begin => self.begin_environment(),
             Cmd::End => self.end_environment(),
             Cmd::Scoped => {

@@ -77,7 +77,8 @@ impl Engine {
             return Ok(());
         }
         let path = keys::full_path(&self.st.key_path, key);
-        if let Some((base, h)) = keys::handler(&path) {
+        // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
+        if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
             let (base, h) = (base.to_string(), h.to_string());
             return self.handler(&base, &h, value);
         }
@@ -1295,14 +1296,6 @@ keyfn!(k_alias, |e, v| {
     e.st.aliases.push(s);
     Ok(())
 });
-keyfn!(k_preaction, |e, v| {
-    e.st.preactions.push(v.unwrap_or_default());
-    Ok(())
-});
-keyfn!(k_postaction, |e, v| {
-    e.st.postactions.push(v.unwrap_or_default());
-    Ok(())
-});
 keyfn!(k_to_path, |e, v| {
     e.st.to.path = v;
     Ok(())
@@ -1393,24 +1386,6 @@ keyfn!(k_mark, |e, v| {
 });
 keyfn!(k_only_marks, |e, _v| {
     e.st.only_marks = true;
-    Ok(())
-});
-
-keyfn!(k_decorate, |e, _v| {
-    e.st.decorate = true;
-    Ok(())
-});
-keyfn!(k_decoration, |e, v| {
-    // decoration={zigzag, amplitude=2pt, segment length=5pt} or decoration=zigzag
-    let Some(v) = v else { return Ok(()) };
-    for item in keys::split_list(&v) {
-        match (item.key.as_str(), item.value) {
-            ("amplitude", Some(x)) => e.st.amplitude = e.length_of(x)?,
-            ("segment length", Some(x)) => e.st.segment_length = e.length_of(x)?,
-            (name, None) => e.st.decoration = name.to_string(),
-            (other, Some(_)) => e.warn(format!("decoration option '{other}' not supported: ignored")),
-        }
-    }
     Ok(())
 });
 
@@ -1774,7 +1749,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/out control", k_out_control),
     ("/tikz/controls", k_controls),
     ("/tikz/to path", k_to_path),
-    ("/tikz/preaction", k_preaction),
     ("/tikz/start chain", k_start_chain),
     ("/tikz/continue chain", k_continue_chain),
     ("/tikz/chain default direction", k_chain_default_direction),
@@ -1786,7 +1760,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/ampersand replacement", k_ampersand_replacement),
     ("/tikz/execute at end cell", k_at_end_cell),
     ("/tikz/execute at empty cell", k_at_empty_cell),
-    ("/tikz/postaction", k_postaction),
     ("/tikz/line to", k_line_to),
     ("/tikz/curve to", k_curve_to),
     ("/tikz/loop", k_loop),
@@ -1801,8 +1774,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/tension", k_tension),
     ("/tikz/mark", k_mark),
     ("/tikz/only marks", k_only_marks),
-    ("/tikz/decorate", k_decorate),
-    ("/tikz/decoration", k_decoration),
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_ignore),
@@ -1942,7 +1913,8 @@ const DEFINITIONS: &str = r"
 pub fn define_keys(e: &mut Engine) {
     e.tex.define("pgflinewidth", Meaning::Dimen(4000));
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
-    for (path, f) in NATIVE {
+    super::decorations::define(e);
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
@@ -1951,6 +1923,9 @@ pub fn define_keys(e: &mut Engine) {
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
     lexer.push_text(DEFINITIONS);
+    lexer.push_text(super::decorations::DEFINITIONS);
+    lexer.push_text(super::decorations::DECLARATIONS);
+    lexer.push_text(super::decorations::textfx::DEFINITIONS);
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);

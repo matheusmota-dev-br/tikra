@@ -126,10 +126,12 @@ pub struct GState {
     pub tension: f64,
     pub plot_mark: Option<String>,
     pub only_marks: bool,
+    /// `decorate`: the path is decorated when used (reset by each path)
     pub decorate: bool,
-    pub decoration: String,
-    pub amplitude: f64,
-    pub segment_length: f64,
+    pub decoration: super::decorations::Settings,
+    /// `preaction=` and `postaction=` options, in order (reset by each path)
+    pub preactions: Rc<Vec<Vec<crate::tex::Token>>>,
+    pub postactions: Rc<Vec<Vec<crate::tex::Token>>>,
     /// `declare function`
     pub functions: Rc<HashMap<String, (Vec<String>, String)>>,
     /// settings of the node being created
@@ -182,8 +184,6 @@ pub struct GState {
     pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
-    /// `preaction={…}` and `postaction={…}`: options of the path used again before and after
-    pub preactions: Vec<Vec<crate::tex::Token>>,
     /// the chains library: the current chain, the direction of new ones, the node's chain
     pub current_chain: String,
     pub chain_direction: super::chains::Direction,
@@ -193,7 +193,6 @@ pub struct GState {
     pub after_node_path: Vec<crate::tex::Token>,
     /// `alias=name`: more names for the node
     pub aliases: Vec<String>,
-    pub postactions: Vec<Vec<crate::tex::Token>>,
     /// nodes made by quotes in `to`/`edge` options: text and options
     pub quoted: Vec<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
 }
@@ -244,9 +243,9 @@ impl Default for GState {
             plot_mark: None,
             only_marks: false,
             decorate: false,
-            decoration: String::new(),
-            amplitude: 2.5 * PT,
-            segment_length: 10.0 * PT,
+            decoration: Default::default(),
+            preactions: Rc::default(),
+            postactions: Rc::default(),
             functions: Rc::new(HashMap::new()),
             node: Default::default(),
             baseline: None,
@@ -254,14 +253,12 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
-            preactions: Vec::new(),
             current_chain: "chain".into(),
             chain_direction: super::chains::Direction::Going("right".into()),
             on_chain: None,
             pending_joins: Vec::new(),
             after_node_path: Vec::new(),
             aliases: Vec::new(),
-            postactions: Vec::new(),
             matrix: Default::default(),
             path_fading: None,
             transparency_group: false,

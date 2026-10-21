@@ -1,4 +1,4 @@
-//! What happens to a path once built (`\pgfusepath`): decoration, rounded corners, shortening,
+//! What happens to a path once built (`\pgfusepath`): rounded corners, shortening,
 //! clipping, filling and stroking, arrow tips, `double`, and the picture's bounding box.
 
 use crate::canvas::{Fill, Item, Paint, Stroke};
@@ -6,7 +6,7 @@ use crate::scene::{Point, Segment};
 use crate::Error;
 
 use super::arrows::{Curvilinear, EndTips, TipsMode, Widths};
-use super::path::{valid_segment, MAX_COORDINATE, MAX_DECORATION_STEPS};
+use super::path::{valid_segment, MAX_COORDINATE};
 use super::Engine;
 use crate::PT;
 
@@ -18,44 +18,9 @@ impl Engine {
             return Ok(());
         }
         let mut segs = segments;
-        if self.st.decorate && !self.st.decoration.is_empty() {
-            let kind = self.st.decoration.clone();
-            let mut warnings = Vec::new();
-            segs = decorate(&segs, &kind, self.st.amplitude, self.st.segment_length, |w| warnings.push(w));
-            for w in warnings {
-                self.warn(w);
-            }
-        }
         if self.st.rounded > 0.0 {
             segs = round_corners(&segs, self.st.rounded);
         }
-        if self.st.preactions.is_empty() && self.st.postactions.is_empty() {
-            return self.use_built_path(segs);
-        }
-        // `preaction` and `postaction`: the path used again before and after, each time as a new
-        // \path with those options (its own mode, no decoration) in the path's graphic state
-        let (pre, post) = (std::mem::take(&mut self.st.preactions), std::mem::take(&mut self.st.postactions));
-        for options in pre {
-            self.path_action(&segs, options, command)?;
-        }
-        self.use_built_path(segs.clone())?;
-        for options in post {
-            self.path_action(&segs, options, command)?;
-        }
-        Ok(())
-    }
-
-    fn path_action(&mut self, segs: &[Segment], options: Vec<crate::tex::Token>, command: &str) -> Result<(), Error> {
-        self.begin_group();
-        self.st.mode = Default::default();
-        self.st.decorate = false;
-        let r = self.process_keys(options, Some("/tikz")).and_then(|_| self.use_path(segs.to_vec(), command));
-        self.end_group();
-        r
-    }
-
-    /// The path, decorated and with its corners rounded, used as the mode says.
-    fn use_built_path(&mut self, mut segs: Vec<Segment>) -> Result<(), Error> {
         let mode = self.st.mode.clone();
         // the bounding box grows as the path is built: before any shortening
         if mode.bounding_box {
@@ -419,80 +384,8 @@ fn proper(segs: &[Segment]) -> bool {
     points.iter().any(|p| Some(p) != points.first())
 }
 
-/// Zigzag, snake (wave) or random steps over the straight segments.
-fn decorate(segs: &[Segment], kind: &str, amp: f64, len_step: f64, mut warn: impl FnMut(String)) -> Vec<Segment> {
-    if !matches!(kind, "zigzag" | "snake" | "random steps" | "saw" | "coil" | "bumps") {
-        warn(format!("decoration '{kind}' not supported: path drawn undecorated"));
-        return segs.to_vec();
-    }
-    let mut out = Vec::new();
-    let mut current = Point::default();
-    for s in segs {
-        match s {
-            Segment::LineTo(b) => {
-                let a = current;
-                let d = b.minus(a);
-                let len = d.norm();
-                if len < 1e-9 {
-                    out.push(*s);
-                    continue;
-                }
-                let u = d.scale(1.0 / len);
-                let nrm = Point::new(-u.y, u.x);
-                let n = if len_step > 0.0 { ((len / len_step).round() as usize).clamp(1, MAX_DECORATION_STEPS) } else { 1 };
-                if kind == "random steps" {
-                    // deterministic pseudo-random steps: the same input gives the same drawing
-                    let mut seed: u32 = 0x9E37_79B9 ^ (out.len() as u32).wrapping_mul(2_654_435_761);
-                    let mut random = || {
-                        seed ^= seed << 13;
-                        seed ^= seed >> 17;
-                        seed ^= seed << 5;
-                        (seed as f64 / u32::MAX as f64) * 2.0 - 1.0
-                    };
-                    for k in 1..=n {
-                        let base = a.plus(d.scale(k as f64 / n as f64));
-                        let p = if k == n { base } else { base.plus(Point::new(random() * amp, random() * amp)) };
-                        out.push(Segment::LineTo(p));
-                    }
-                    current = *b;
-                    continue;
-                }
-                let steps = n * if kind == "zigzag" || kind == "saw" { 2 } else { 8 };
-                for k in 1..=steps {
-                    let f = k as f64 / steps as f64;
-                    let base = a.plus(d.scale(f));
-                    let offset = match kind {
-                        "zigzag" | "saw" => {
-                            if k == steps {
-                                0.0
-                            } else if k % 2 == 1 {
-                                amp
-                            } else {
-                                -amp
-                            }
-                        }
-                        _ => amp * (f * n as f64 * std::f64::consts::TAU).sin(),
-                    };
-                    out.push(Segment::LineTo(base.plus(nrm.scale(offset))));
-                }
-                current = *b;
-            }
-            Segment::MoveTo(p) => {
-                current = *p;
-                out.push(*s);
-            }
-            Segment::CurveTo(_, _, p) => {
-                current = *p;
-                out.push(*s);
-            }
-            Segment::Close => out.push(*s),
-        }
-    }
-    out
-}
-
 /// Rounded corners between straight segments.
-fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
+pub fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
     let mut points: Vec<Vec<Point>> = Vec::new();
     let mut closed: Vec<bool> = Vec::new();
     for s in segs {
