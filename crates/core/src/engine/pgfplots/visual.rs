@@ -149,6 +149,40 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     match handler.as_str() {
         // box plots draw their box; the points are the outliers' marks
         "boxplot" => super::boxplot::draw(e, p, f, index_of_type)?,
+        // an arrow per point, each a path of its own (its tips at its end)
+        "quiver" => {
+            let color = keys::value(e, "/pgfplots/quiver/arrow color");
+            for (i, l) in pts.iter().enumerate() {
+                let Some(c) = p.coords.get(i) else { continue };
+                if !(l[0].is_finite() && l[1].is_finite()) || !c.uvw.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()) {
+                    continue;
+                }
+                let end = [f.logical(0, c.x + c.uvw[0]), f.logical(1, c.y + c.uvw[1]), if f.three_d { f.logical(2, c.z + c.uvw[2]) } else { f.min[2] }];
+                let segs = vec![Segment::MoveTo(f.at(*l)), Segment::LineTo(f.at(end))];
+                e.begin_group();
+                let r = (|| -> Result<(), Error> {
+                    if c.meta.is_finite() {
+                        let t = (c.meta - f.meta[0]) / (f.meta[1] - f.meta[0]) * 1000.0;
+                        define(e, "pgfplotspointmetatransformed", &super::super::pgf_number(if t.is_finite() { t } else { 0.0 }));
+                        if f.colormap.is_some() {
+                            e.colors.insert("mapped color".into(), super::mesh::map(f, c.meta));
+                        }
+                    }
+                    e.st.pending = Transform::default();
+                    let mut style = Vec::new();
+                    if !color.is_empty() {
+                        style.extend(toks(&format!("/tikz/color={color},")));
+                    }
+                    style.extend(toks("/pgfplots/quiver/every arrow"));
+                    e.process_keys(style, Some("/pgfplots"))?;
+                    e.st.apply_pending();
+                    e.use_path(segs, "addplot")
+                })();
+                e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
+                e.end_group();
+                r?;
+            }
+        }
         // rays from the center
         "polar comb" => {
             for l in pts {

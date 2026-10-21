@@ -544,6 +544,18 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         };
         let mut v: Vec<[f64; 3]> = p.coords.iter().map(|c| [lg(0, c.x), lg(1, c.y), lg(2, c.z)]).collect();
         let mut base = vec![0.0; v.len()];
+        // quiver: the arrows' ends are in view too (`quiver/update limits`)
+        if p.handler == "quiver" && keys::flag(e, "/pgfplots/quiver/update limits") {
+            let ends: Vec<[f64; 3]> = p.coords.iter().map(|c| [lg(0, c.x + c.uvw[0]), lg(1, c.y + c.uvw[1]), lg(2, c.z + c.uvw[2])]).collect();
+            for c in ends {
+                for i in 0..if three_d { 3 } else { 2 } {
+                    if c[i].is_finite() {
+                        dmin[i] = dmin[i].min(c[i]);
+                        dmax[i] = dmax[i].max(c[i]);
+                    }
+                }
+            }
+        }
         // a box plot: its outliers at its position, and its box and whiskers in view
         if p.boxplot.is_some() {
             let index = boxplots;

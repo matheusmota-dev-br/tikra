@@ -429,6 +429,19 @@ const DEFINITIONS: &str = r"
 	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
 	/pgfplots/ybar interval/.default=1,
+	/pgfplots/@quiver/.initial=false,
+	/pgfplots/quiver/u/.initial=, /pgfplots/quiver/v/.initial=, /pgfplots/quiver/w/.initial=,
+	/pgfplots/quiver/scale arrows/.initial=1, /pgfplots/quiver/every arrow/.style={},
+	/pgfplots/quiver/update limits/.initial=true, /pgfplots/quiver/update limits/.default=true,
+	/pgfplots/quiver/arrow color/.initial=,
+	/pgfplots/quiver/colored/.code={\pgfkeyssetvalue{/pgfplots/quiver/arrow color}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}},
+	/pgfplots/quiver/colored/.default=mapped color,
+	/pgfplots/quiver/u value/.code={\pgfkeyssetvalue{/pgfplots/quiver/u}{#1}},
+	/pgfplots/quiver/v value/.code={\pgfkeyssetvalue{/pgfplots/quiver/v}{#1}},
+	/pgfplots/quiver/w value/.code={\pgfkeyssetvalue{/pgfplots/quiver/w}{#1}},
+	/pgfplots/quiver/before arrow/.code=, /pgfplots/quiver/after arrow/.code=,
+	/pgfplots/quiver/u filter/.code=, /pgfplots/quiver/v filter/.code=, /pgfplots/quiver/w filter/.code=,
+	/pgfplots/quiver/quiver legend/.style={},
 	/pgfplots/@hist/.initial=false, /pgfplots/@boxplot/.initial=,
 	/pgfplots/every boxplot/.style={},
 	/pgfplots/boxplot/data/.initial=y, /pgfplots/boxplot/data value/.initial=, /pgfplots/boxplot/data filter/.code=,
@@ -916,6 +929,16 @@ keyfn!(k_colormap_color, |e, v| {
     e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
 });
 
+// `quiver={u=…, v=…}`: arrows from each point by (u, v, w).
+keyfn!(k_quiver, |e, v| {
+    set(e, "/pgfplots/@quiver", "true");
+    set(e, "/tikz/@plot handler", "quiver");
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/quiver"));
+    e.st.key_path = saved;
+    r
+});
+
 // `hist={bins=…}`: the plot's values are counted in bins, then drawn with `hist/handler`.
 keyfn!(k_hist, |e, v| {
     set(e, "/pgfplots/@hist", "true");
@@ -1040,6 +1063,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/axis z line*", k_line_star),
     ("/pgfplots/group style", k_group_style),
     ("/pgfplots/hist", k_hist),
+    ("/pgfplots/quiver", k_quiver),
     ("/pgfplots/boxplot", k_boxplot),
     ("/pgfplots/boxplot prepared", k_boxplot),
     ("/pgfplots/color of colormap", k_colormap_color),

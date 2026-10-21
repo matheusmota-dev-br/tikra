@@ -21,6 +21,9 @@ pub struct Coord {
     pub err: [f64; 4],
     /// The point meta as written (`[label]`, a table cell): an index into the plot's labels.
     pub label: u32,
+    /// The sampling variable's value (expressions), and `quiver`'s (u, v, w).
+    pub param: [f64; 2],
+    pub uvw: [f64; 3],
 }
 
 /// No label.
@@ -41,7 +44,7 @@ fn add_label(tokens: Vec<Token>) -> u32 {
 
 impl Coord {
     pub fn new(x: f64, y: f64, z: f64) -> Coord {
-        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL }
+        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3] }
     }
 }
 
@@ -385,6 +388,9 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         }
     }
     data_cs(e, plot);
+    if keys::flag(e, "/pgfplots/@quiver") {
+        quiver_vectors(e, plot);
+    }
     if keys::flag(e, "/pgfplots/@hist") {
         histogram(e, plot)?;
     }
@@ -492,7 +498,9 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
                 for &x in &xs {
                     vars.insert(var.clone(), x);
                     vars.insert(var_y.clone(), y);
-                    out.push(Coord::new(eval(&texts[0], &vars), eval(&texts[1], &vars), eval(&texts[2], &vars)));
+                    let mut c = Coord::new(eval(&texts[0], &vars), eval(&texts[1], &vars), eval(&texts[2], &vars));
+                    c.param = [x, y];
+                    out.push(c);
                 }
             }
             plot.lattice = Some((ys.len(), xs.len()));
@@ -503,7 +511,9 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
             let cx = eval(&texts[0], &vars);
             let cy = texts.get(1).map_or(f64::NAN, |t| eval(t, &vars));
             let cz = texts.get(2).map_or(0.0, |t| eval(t, &vars));
-            out.push(Coord::new(cx, cy, cz));
+            let mut c = Coord::new(cx, cy, cz);
+            c.param = [x, f64::NAN];
+            out.push(c);
         }
     }
     Ok(out)
@@ -717,6 +727,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sy = pick(e, "y", Some(1));
     let sz = pick(e, "z", if three_d { Some(2) } else { None });
     let symbolic = symbolic_meta(e);
+    let quiver = keys::flag(e, "/pgfplots/@quiver");
+    let t_table = t;
     let smeta = match crate::keys::value(&e.tex, "/pgfplots/point meta") {
         _ if symbolic.is_some() => Src::None,
         Some(v) if tex::tokens_to_string(&v).contains("\\thisrow") => Src::Expr(v),
@@ -746,6 +758,18 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         if let Src::Col(Some(col)) = &smeta {
             if let Some(cell) = t.cell(r, *col) {
                 c.label = add_label(tex::string_tokens(cell));
+            }
+        }
+        if quiver {
+            for (k, name) in ["u", "v", "w"].iter().enumerate() {
+                if let Some(t) = keys::value_tokens(e, &format!("/pgfplots/quiver/{name}")) {
+                    let replaced = replace_thisrow(&t, t_table, r);
+                    let mut vars = e.vars();
+                    vars.insert("x".into(), x);
+                    vars.insert("y".into(), y);
+                    vars.insert("z".into(), z);
+                    c.uvw[k] = e.math_string(replaced).and_then(|s| crate::expr::eval(&s, &vars)).unwrap_or(f64::NAN);
+                }
             }
         }
         if let Some((tokens, mathparse)) = &symbolic {
@@ -849,6 +873,36 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         plot.coords.retain(|c| c.x.is_finite());
     }
     Ok(())
+}
+
+/// `quiver`: each point's (u, v, w), from `quiver/u` and its friends (expressions of x, y, z and
+/// the sampling variable), times `scale arrows`.
+fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
+    let var = e.st.variable.clone();
+    let var_y = keys::value(e, "/pgfplots/variable y").trim_start_matches('\\').to_string();
+    let texts: Vec<Option<String>> = ["u", "v", "w"].iter().map(|n| keys::value_tokens(e, &format!("/pgfplots/quiver/{n}")).and_then(|t| e.math_string(t).ok())).collect();
+    let scale = keys::number(e, "/pgfplots/quiver/scale arrows").unwrap_or(1.0);
+    let mut vars = e.vars();
+    for c in plot.coords.iter_mut() {
+        vars.insert("x".into(), c.x);
+        vars.insert("y".into(), c.y);
+        vars.insert("z".into(), c.z);
+        if c.param[0].is_finite() {
+            vars.insert(var.clone(), c.param[0]);
+        }
+        if c.param[1].is_finite() && !var_y.is_empty() {
+            vars.insert(var_y.clone(), c.param[1]);
+        }
+        for (u, text) in c.uvw.iter_mut().zip(&texts) {
+            if !u.is_finite() {
+                *u = match text {
+                    Some(t) if !t.trim().is_empty() => crate::expr::eval(t, &vars).unwrap_or(f64::NAN),
+                    _ => 0.0,
+                };
+            }
+            *u *= scale;
+        }
+    }
 }
 
 /// `data cs`: the input's coordinate system (`cart`, `polar` in degrees, `polarrad`) turned into
