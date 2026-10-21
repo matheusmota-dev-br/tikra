@@ -346,7 +346,6 @@ pub const MAX_EXPANSIONS: usize = 2_000_000;
 /// Cap on tokens in one list (a macro doubling itself on each step stops here).
 pub const MAX_TOKENS: usize = 1_000_000;
 
-
 /// A fast hash for the tables TeX looks into at every token (names, registers, catcodes): FxHash,
 /// as rustc uses. Names come from the document, so crafted ones can collide; that only slows the
 /// lookups, and the engine's caps on statements and expansions bound the work.
@@ -356,11 +355,11 @@ pub struct FxHasher(u64);
 impl Hasher for FxHasher {
     fn write(&mut self, bytes: &[u8]) {
         const K: u64 = 0x51_7c_c1_b7_27_22_0a_95;
-        let mut chunks = bytes.chunks_exact(8);
-        for c in &mut chunks {
-            self.0 = (self.0.rotate_left(5) ^ u64::from_le_bytes(c.try_into().expect("8 bytes"))).wrapping_mul(K);
+        let (chunks, rest) = bytes.as_chunks::<8>();
+        for c in chunks {
+            self.0 = (self.0.rotate_left(5) ^ u64::from_le_bytes(*c)).wrapping_mul(K);
         }
-        for b in chunks.remainder() {
+        for b in rest {
             self.0 = (self.0.rotate_left(5) ^ u64::from(*b)).wrapping_mul(K);
         }
     }
