@@ -61,8 +61,7 @@ fn run(code: String) -> Outcome {
         // the thread's engine is built by a first conversion: what is timed is one in a running process
         let _ = tikra::convert(WARM_UP);
         let start = Instant::now();
-        // TIKRA_LEGACY=1: the earlier interpreter, to compare the two
-        let r = if std::env::var_os("TIKRA_LEGACY").is_some() { tikra::convert_legacy(&code) } else { tikra::convert(&code) };
+        let r = tikra::convert(&code);
         let svg_us = start.elapsed().as_secs_f64() * 1e6;
         match r {
             Ok(out) => Outcome::Drawn { png: tikra::png(&hairlines_to_pixels(&out.svg), DPI, true).map_err(|e| e.to_string()), warnings: out.warnings, svg_us },

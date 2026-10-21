@@ -12,10 +12,6 @@ pub mod engine;
 pub mod expr;
 pub mod keys;
 pub mod label;
-pub mod options;
-pub mod path;
-pub mod reader;
-pub mod render;
 pub mod scene;
 pub mod tex;
 
@@ -65,7 +61,7 @@ pub fn convert(code: &str) -> Result<Output, Error> {
         early.push("TikZ escaped for Markdown (```, \\\\draw, \\[ \\]): undone".to_string());
         base = r;
     }
-    let text = reader::strip_comments(&base);
+    let text = strip_comments(&base);
     let input = if text.contains("\\begin{tikzpicture}") || text.contains("\\begin{pgfpicture}") || tikz_command(&text).is_some() {
         base
     } else if text.contains("\\begin{axis}") || ["\\draw", "\\fill", "\\node", "\\path", "\\filldraw", "\\coordinate"].iter().any(|c| text.contains(c)) {
@@ -79,70 +75,6 @@ pub fn convert(code: &str) -> Result<Output, Error> {
     let mut all = early;
     all.extend(warnings);
     Ok(Output { svg, warnings: all })
-}
-
-/// The earlier interpreter, kept while the engine replaces it.
-pub fn convert_legacy(code: &str) -> Result<Output, Error> {
-    let mut env = reader::Env::new();
-    // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
-    let repaired = mathra::input::latex::undo_doubled_backslashes(code);
-    if repaired.is_some() {
-        env.warn("doubled backslashes (code escaped twice): undid one level");
-    }
-    let mut base = repaired.unwrap_or_else(|| code.to_string());
-    if let Some(r) = repair_markdown(&base) {
-        env.warn("TikZ escaped for Markdown (```, \\\\draw, \\[ \\]): undone");
-        base = r;
-    }
-    let text = reader::strip_comments(&base);
-    // margin: the standalone border, or 2pt
-    env.scene.margin = standalone_border(&text).unwrap_or(2.0 * PT);
-
-    let (preamble, options, body, end) = if let Some(i) = text.find("\\begin{tikzpicture}") {
-        let after: Vec<char> = text[i + "\\begin{tikzpicture}".len()..].chars().collect();
-        let mut k = 0;
-        while k < after.len() && after[k].is_whitespace() {
-            k += 1;
-        }
-        let (options, start) = if after.get(k) == Some(&'[') { reader::block(&after, k).unwrap_or_default() } else { (String::new(), 0) };
-        let rest: String = after[start..].iter().collect();
-        if text.matches("\\begin{tikzpicture}").count() > 1 {
-            env.warn("more than one tikzpicture: only the first was drawn");
-        }
-        (text[..i].to_string(), options, rest, Some("tikzpicture"))
-    } else if let Some(i) = tikz_command(&text) {
-        let after: Vec<char> = text[i + 5..].chars().collect();
-        let mut k = 0;
-        while k < after.len() && after[k].is_whitespace() {
-            k += 1;
-        }
-        let (options, start) = if after.get(k) == Some(&'[') { reader::block(&after, k).unwrap_or_default() } else { (String::new(), k) };
-        let mut rest: String = after[start..].iter().collect();
-        let t = rest.trim_start();
-        if t.starts_with('{') {
-            let c: Vec<char> = t.chars().collect();
-            rest = reader::block(&c, 0).map(|b| b.0).unwrap_or_default();
-        }
-        (text[..i].to_string(), options, rest, None)
-    } else if text.contains("\\begin{axis}") {
-        (String::new(), String::new(), text.clone(), None)
-    } else if ["\\draw", "\\fill", "\\node", "\\path", "\\filldraw", "\\coordinate"].iter().any(|c| text.contains(c)) {
-        // loose statements, with no tikzpicture around them
-        (String::new(), String::new(), text.clone(), None)
-    } else {
-        return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
-    };
-
-    // the preamble only defines styles, colors and macros
-    let preamble = clean_preamble(&preamble);
-    reader::Reader::new(&preamble, &mut env).run(None)?;
-    let mut r = reader::Reader::new(&body, &mut env);
-    r.push_scope(&options)?;
-    r.run(end)?;
-    r.pop_scope();
-
-    let svg = render::svg(&env.scene, code, "Figure");
-    Ok(Output { svg, warnings: env.warnings })
 }
 
 /// TikZ that went through a Markdown generator: code fences, `\\draw` and `\[red\]`.
@@ -185,33 +117,33 @@ fn repair_markdown(t: &str) -> Option<String> {
     changed.then_some(s)
 }
 
+/// The text with TeX comments (`%` to the end of the line, not `\%`) removed.
+fn strip_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let c: Vec<char> = line.chars().collect();
+        let mut i = 0;
+        while i < c.len() {
+            if c[i] == '\\' && i + 1 < c.len() {
+                out.push(c[i]);
+                out.push(c[i + 1]);
+                i += 2;
+                continue;
+            }
+            if c[i] == '%' {
+                break;
+            }
+            out.push(c[i]);
+            i += 1;
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Position of `\\tikz` as a command (not `\\tikzset` or `\\tikzstyle`).
 fn tikz_command(text: &str) -> Option<usize> {
     text.match_indices("\\tikz").map(|(i, _)| i).find(|&i| !text[i + 5..].starts_with(|c: char| c.is_ascii_alphabetic()))
-}
-
-fn standalone_border(text: &str) -> Option<f64> {
-    let i = text.find("\\documentclass[")?;
-    let rest = &text[i + 15..];
-    let end = rest.find(']')?;
-    let o = options::parse(&rest[..end]);
-    let b = o.iter().find(|x| x.key == "border")?.value.clone()?;
-    expr::eval_length(options::strip_braces(&b).split_whitespace().next()?, &expr::Variables::new()).ok().map(|v| v.0)
-}
-
-/// Drops from the preamble what is not a definition (documentclass, usepackage, begin{document}).
-fn clean_preamble(p: &str) -> String {
-    p.lines()
-        .filter(|l| {
-            let t = l.trim_start();
-            !(t.starts_with("\\documentclass")
-                || t.starts_with("\\usepackage")
-                || t.starts_with("\\begin{document}")
-                || t.starts_with("\\usetikzlibrary")
-                || t.starts_with("\\pgfplotsset"))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// PNG pixel cap (100 megapixels, ~400 MB of memory).
