@@ -52,11 +52,13 @@ struct Builder {
     edges: Vec<(Vec<Segment>, Vec<Token>, Vec<Item>)>,
     /// the point a `+` coordinate is relative to (set by `+`, not moved)
     relative_base: Option<Point>,
+    /// (0,0) of the coordinate system the path started in: where a node goes before any coordinate
+    origin: Point,
 }
 
 impl Builder {
     fn point(&self) -> Point {
-        self.current.as_ref().map_or(Point::default(), |c| c.p)
+        self.current.as_ref().map_or(self.origin, |c| c.p)
     }
 
     fn move_to(&mut self, r: Coord) {
@@ -98,7 +100,17 @@ fn statement_in_group(e: &mut Engine, defaults: &str) -> Result<(), Error> {
         }
     }
     e.st.apply_pending();
-    let mut b = Builder { segs: Vec::new(), current: None, subpath_start: None, last: None, node_items: Vec::new(), mid_nodes: Vec::new(), edges: Vec::new(), relative_base: None };
+    let mut b = Builder {
+        segs: Vec::new(),
+        current: None,
+        subpath_start: None,
+        last: None,
+        node_items: Vec::new(),
+        mid_nodes: Vec::new(),
+        edges: Vec::new(),
+        relative_base: None,
+        origin: e.st.transform.apply(Point::default()),
+    };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
@@ -319,7 +331,34 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             }
                             _ => Vec::new(),
                         };
-                        if w == "edge" {
+                        if w == "edge" && opts.is_empty() && peek_words(e, depth, &["from", "parent"])? {
+                            // a tree's edge from parent: options and label nodes, drawn after the child
+                            let o = match peek(e, depth)? {
+                                Some(t) if t.is_char('[') => {
+                                    let _ = next(e, depth)?;
+                                    e.tex.read_until_char(']', false)?
+                                }
+                                _ => Vec::new(),
+                            };
+                            let mut labels = Vec::new();
+                            while let Some(Token::Char('n', Cat::Letter)) = peek(e, depth)? {
+                                let _ = next(e, depth)?;
+                                let w = word(e, 'n');
+                                if w != "node" {
+                                    e.tex.push_tokens(tex::string_tokens(&w));
+                                    break;
+                                }
+                                let (options, _, _, text) = read_node(e, depth, false)?;
+                                labels.extend(tikra_tokens("node["));
+                                labels.extend(options);
+                                labels.extend(tikra_tokens("]"));
+                                labels.push(Token::Char('{', Cat::Begin));
+                                labels.extend(text);
+                                labels.push(Token::Char('}', Cat::End));
+                            }
+                            e.st.tree_edge = Some((o, labels));
+                            e.tree_edge_out = e.st.tree_edge.clone();
+                        } else if w == "edge" {
                             // nodes can follow, then the target
                             let mids = read_mid_nodes(e, depth)?;
                             let r = target(e, b, depth, "edge")?;
@@ -387,7 +426,16 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "parabola" => parabola(e, b, depth)?,
                     "let" => let_operation(e, depth)?,
                     "in" => {}
-                    "pic" | "child" | "svg" | "decorate" => {
+                    "pic" => {
+                        let (options, name, at, content) = read_node(e, depth, false)?;
+                        let at = at.unwrap_or_else(|| b.point());
+                        e.pic(super::pics::PicSpec { options, name, at, content })?;
+                    }
+                    "child" => {
+                        let parent = e.last_node_name.clone();
+                        e.children(parent)?;
+                    }
+                    "svg" | "decorate" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);
                     }
@@ -413,6 +461,34 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
             }
         }
     }
+}
+
+/// Whether the next words are `words` (read if so, left if not).
+fn peek_words(e: &mut Engine, depth: Option<usize>, words: &[&str]) -> Result<bool, Error> {
+    let mut read: Vec<Token> = Vec::new();
+    for w in words {
+        let first = match next(e, depth)? {
+            Some(t) => t,
+            None => {
+                e.tex.push_tokens(read);
+                return Ok(false);
+            }
+        };
+        let ok = matches!(&first, Token::Char(c, Cat::Letter) if w.starts_with(*c));
+        if !ok {
+            e.tex.back(first);
+            e.tex.push_tokens(read);
+            return Ok(false);
+        }
+        let Token::Char(c, _) = first else { unreachable!() };
+        let got = word(e, c);
+        read.extend(tex::string_tokens(&format!("{got} ")));
+        if got != *w {
+            e.tex.push_tokens(read);
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// After an error inside a path: skips to its `;`.
@@ -557,7 +633,17 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
 /// `edge[options] node{…} (target)`: a separate path, drawn after this one; the current point stays.
 fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<MidNode>) -> Result<(), Error> {
     let saved_current = b.current.clone();
-    let mut sub = Builder { segs: Vec::new(), current: None, subpath_start: None, last: None, node_items: Vec::new(), mid_nodes: mids, edges: Vec::new(), relative_base: None };
+    let mut sub = Builder {
+        segs: Vec::new(),
+        current: None,
+        subpath_start: None,
+        last: None,
+        node_items: Vec::new(),
+        mid_nodes: mids,
+        edges: Vec::new(),
+        relative_base: None,
+        origin: e.st.transform.apply(Point::default()),
+    };
     if let Some(c) = &saved_current {
         sub.move_to(c.clone());
     }

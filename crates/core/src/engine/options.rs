@@ -212,7 +212,9 @@ impl Engine {
         }
         // `"text" above, red` is one key in a list only up to the comma: the rest are options
         let options = options.split_whitespace().collect::<Vec<_>>().join(" ");
-        if self.st.quotes_on_path {
+        if self.st.quotes_in_pic {
+            self.st.pic_text = Some((tikra_tokens(&text), tikra_tokens(&options)));
+        } else if self.st.quotes_on_path {
             let mut o = tikra_tokens("every edge quotes/.try,");
             o.extend(tikra_tokens(&options));
             self.st.quoted.push((tikra_tokens(&text), o));
@@ -386,6 +388,13 @@ impl Engine {
                         self.unknown(base, Some(item))?;
                     }
                 }
+            }
+            ".pic" => {
+                // name/.pic={code}: the pic type `name`, under /tikz/pics
+                let name = base.trim_start_matches("/tikz/").trim_start_matches('/');
+                let mut body = tikra_tokens("code=");
+                body.extend(group(v));
+                self.define_code(&format!("/tikz/pics/{name}"), 1, Self::style_body(body));
             }
             ".unknown" => {
                 // `/foo/.unknown/.code={…}` reaches here as a handler of the path /foo/.unknown
@@ -1283,6 +1292,86 @@ keyfn!(k_name_path, |e, v| {
 
 keyfn!(k_name_intersections, |e, v| super::intersections::name_intersections(e, v));
 
+keyfn!(k_at_begin_scope, |e, v| {
+    e.st.at_begin_scope.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_end_scope, |e, v| {
+    e.st.at_end_scope.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_begin_picture, |e, v| {
+    e.st.at_begin_picture.extend(v.unwrap_or_default());
+    Ok(())
+});
+keyfn!(k_at_end_picture, |e, v| {
+    e.st.at_end_picture.extend(v.unwrap_or_default());
+    Ok(())
+});
+
+keyfn!(k_pic_actions, |e, _v| {
+    let p = e.st.pic_mode.clone();
+    let m = &mut e.st.mode;
+    m.draw |= p.draw;
+    m.fill |= p.fill;
+    m.pattern |= p.pattern;
+    m.shade |= p.shade;
+    m.clip |= p.clip;
+    Ok(())
+});
+
+keyfn!(k_level_distance, |e, v| {
+    e.st.level_distance = length(e, &v)?.unwrap_or(1.5);
+    Ok(())
+});
+keyfn!(k_sibling_distance, |e, v| {
+    e.st.sibling_distance = length(e, &v)?.unwrap_or(1.5);
+    Ok(())
+});
+
+/// `grow=down`, `grow=30`, `grow'=…`: the direction of the tree; set in a child, it is that child's.
+fn set_grow(e: &mut Engine, v: &Option<Vec<Token>>, swapped: bool) -> Result<(), Error> {
+    let s = text(e, v)?;
+    e.st.grow_angle = match s.as_str() {
+        "down" | "south" => -90.0,
+        "up" | "north" => 90.0,
+        "left" | "west" => 180.0,
+        "right" | "east" => 0.0,
+        "north east" => 45.0,
+        "north west" => 135.0,
+        "south east" => -45.0,
+        "south west" => -135.0,
+        other => e.number(other)?,
+    };
+    e.st.grow_swapped = swapped;
+    e.st.special_level = Some(e.st.tree_level);
+    Ok(())
+}
+keyfn!(k_grow, |e, v| set_grow(e, &v, false));
+keyfn!(k_grow_swapped, |e, v| set_grow(e, &v, true));
+keyfn!(k_missing, |e, v| {
+    e.st.child_missing = text(e, &v)? != "false";
+    Ok(())
+});
+keyfn!(k_growth_parent_anchor, |e, v| {
+    e.st.growth_anchor = text(e, &v)?;
+    Ok(())
+});
+keyfn!(k_parent_anchor, |e, v| {
+    let s = text(e, &v)?;
+    e.st.parent_anchor = if s == "border" || s.is_empty() { String::new() } else { format!(".{s}") };
+    Ok(())
+});
+keyfn!(k_child_anchor, |e, v| {
+    let s = text(e, &v)?;
+    e.st.child_anchor = if s == "border" || s.is_empty() { String::new() } else { format!(".{s}") };
+    Ok(())
+});
+keyfn!(k_edge_from_parent_path, |e, v| {
+    e.st.edge_from_parent_path = v;
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1407,6 +1496,20 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/level distance", k_level_distance),
+    ("/tikz/sibling distance", k_sibling_distance),
+    ("/tikz/grow", k_grow),
+    ("/tikz/grow'", k_grow_swapped),
+    ("/tikz/missing", k_missing),
+    ("/tikz/growth parent anchor", k_growth_parent_anchor),
+    ("/tikz/parent anchor", k_parent_anchor),
+    ("/tikz/child anchor", k_child_anchor),
+    ("/tikz/edge from parent path", k_edge_from_parent_path),
+    ("/tikz/pic actions", k_pic_actions),
+    ("/tikz/execute at begin scope", k_at_begin_scope),
+    ("/tikz/execute at end scope", k_at_end_scope),
+    ("/tikz/execute at begin picture", k_at_begin_picture),
+    ("/tikz/execute at end picture", k_at_end_picture),
     ("/tikz/fit", k_fit),
     ("/tikz/name path", k_name_path),
     ("/tikz/name path global", k_name_path),
@@ -1465,15 +1568,38 @@ const DEFINITIONS: &str = r"
   diamond/.style={shape=diamond},
   behind path/.style={}, in front of path/.style={},
   execute at begin node/.code={}, execute at end node/.code={},
-  execute at begin scope/.code={}, execute at end scope/.code={},
-  execute at begin picture/.code={}, execute at end picture/.code={},
+  style/.code={\pgfkeysalso{#1}},
   every shadow/.style={}, alias/.code={},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
+  /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
+  /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
+  every pic/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
+\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}
+\tikzset{
+  on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try}},
+    execute at end scope={\endpgfonlayer}},
+  background rectangle/.style={draw}, background top/.style={draw}, background bottom/.style={draw},
+  background left/.style={draw}, background right/.style={draw}, background grid/.style={help lines,draw},
+  inner frame sep/.code={\def\tikz@framexsep{#1}\def\tikz@frameysep{#1}},
+  inner frame xsep/.code={\def\tikz@framexsep{#1}}, inner frame ysep/.code={\def\tikz@frameysep{#1}},
+  outer frame sep/.code={\def\tikz@outerframexsep{#1}\def\tikz@outerframeysep{#1}},
+  outer frame xsep/.code={\def\tikz@outerframexsep{#1}}, outer frame ysep/.code={\def\tikz@outerframeysep{#1}},
+  loose background/.style={inner frame sep=2ex}, tight background/.style={inner frame sep=0ex},
+  framed/.style={show background rectangle}, gridded/.style={show background grid},
+  show background rectangle/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background rectangle] (\tikra@xa,\tikra@ya) rectangle (\tikra@xb,\tikra@yb);}}},
+  show background top/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background top] (\tikra@oxa,\tikra@yb) -- (\tikra@oxb,\tikra@yb);}}},
+  show background bottom/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background bottom] (\tikra@oxa,\tikra@ya) -- (\tikra@oxb,\tikra@ya);}}},
+  show background left/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background left] (\tikra@xa,\tikra@oya) -- (\tikra@xa,\tikra@oyb);}}},
+  show background right/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background right] (\tikra@xb,\tikra@oya) -- (\tikra@xb,\tikra@oyb);}}},
+  show background grid/.style={execute at end picture={\tikra@frame\tikra@onbg{\path[style=background grid] (\tikra@xa,\tikra@ya) grid (\tikra@xb,\tikra@yb);}}},
+}
+\def\tikz@framexsep{1ex}\def\tikz@frameysep{1ex}\def\tikz@outerframexsep{0ex}\def\tikz@outerframeysep{0ex}
+\def\tikra@onbg#1{\pgfonlayer{background}\pgftransformreset#1\endpgfonlayer}
 \def\tikz@picture@start{\pgfkeysalso{/tikz/every picture/.try}}
 \def\tikz@scope@options{\pgfkeysalso{/tikz/every scope/.try}}
 ";

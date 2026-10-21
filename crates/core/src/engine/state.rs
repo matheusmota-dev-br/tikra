@@ -97,6 +97,30 @@ pub struct GState {
     pub swap: bool,
     /// quotes (`"text" above`) in the options being read make nodes on the path, not labels
     pub quotes_on_path: bool,
+    /// `execute at begin scope`… code gathered from the options, run when TikZ runs it
+    pub at_begin_scope: Vec<crate::tex::Token>,
+    pub at_end_scope: Vec<crate::tex::Token>,
+    pub at_begin_picture: Vec<crate::tex::Token>,
+    pub at_end_picture: Vec<crate::tex::Token>,
+    /// pics: the pic's mode (for `pic actions`), its text (quotes), and the prefix of node names
+    pub pic_mode: Mode,
+    pub pic_text: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
+    pub quotes_in_pic: bool,
+    /// `edge from parent[options] node{…}` read in a child: options and label nodes
+    pub tree_edge: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
+    pub name_prefix: String,
+    /// trees: the level being grown, the distances, the direction and the anchors
+    pub tree_level: usize,
+    pub level_distance: f64,
+    pub sibling_distance: f64,
+    pub grow_angle: f64,
+    pub grow_swapped: bool,
+    pub special_level: Option<usize>,
+    pub growth_anchor: String,
+    pub parent_anchor: String,
+    pub child_anchor: String,
+    pub child_missing: bool,
+    pub edge_from_parent_path: Option<Vec<crate::tex::Token>>,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
@@ -163,6 +187,26 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            tree_level: 0,
+            level_distance: 1.5,
+            sibling_distance: 1.5,
+            grow_angle: -90.0,
+            grow_swapped: false,
+            special_level: None,
+            growth_anchor: "center".into(),
+            parent_anchor: String::new(),
+            child_anchor: String::new(),
+            child_missing: false,
+            edge_from_parent_path: None,
+            pic_mode: Mode::default(),
+            pic_text: None,
+            quotes_in_pic: false,
+            tree_edge: None,
+            name_prefix: String::new(),
+            at_begin_scope: Vec::new(),
+            at_end_scope: Vec::new(),
+            at_begin_picture: Vec::new(),
+            at_end_picture: Vec::new(),
             quoted: Vec::new(),
         }
     }
