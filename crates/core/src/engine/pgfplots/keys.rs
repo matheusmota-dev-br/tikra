@@ -483,6 +483,54 @@ const DEFINITIONS: &str = r"
 	/pgfplots/@compat/.initial=0,
 	/pgfplots/xlabel absolute, /pgfplots/ylabel absolute,
 	/pgfplots/group style/.initial=,
+	/pgfplots/colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}},
+	/pgfplots/colormap access/.initial=map,
+	/pgfplots/colormap/hot/.style={/pgfplots/colormap={hot}{color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)}},
+	/pgfplots/colormap/viridis/.style={/pgfplots/colormap={viridis}{rgb=(0.267,0.00487,0.32942) rgb=(0.28192,0.08966,0.41241) rgb=(0.28026,0.1657,0.4765) rgb=(0.26366,0.23763,0.51877) rgb=(0.23744,0.3052,0.54192) rgb=(0.20862,0.36775,0.55267) rgb=(0.18225,0.42618,0.55711) rgb=(0.1592,0.48224,0.55807) rgb=(0.13777,0.53749,0.5549) rgb=(0.12115,0.59274,0.54465) rgb=(0.12808,0.64775,0.5235) rgb=(0.18065,0.7014,0.48819) rgb=(0.27415,0.75198,0.4366) rgb=(0.39517,0.79747,0.36775) rgb=(0.53561,0.83578,0.2819) rgb=(0.68895,0.86545,0.18272) rgb=(0.84557,0.88733,0.0997) rgb=(0.99324,0.90616,0.14394)}},
+	/pgfplots/colormap/plasma/.style={/pgfplots/colormap={plasma}{rgb=(0.050383, 0.029803, 0.527975) rgb=(0.171574, 0.019706, 0.580806) rgb=(0.261183, 0.013308, 0.617911) rgb=(0.35015, 0.004382, 0.646298) rgb=(0.429719, 0.000831, 0.659425) rgb=(0.512206, 0.018833, 0.655209) rgb=(0.584391, 0.068579, 0.632812) rgb=(0.65558, 0.129725, 0.592317) rgb=(0.714883, 0.187299, 0.546338) rgb=(0.771958, 0.249237, 0.494813) rgb=(0.819651, 0.306812, 0.448306) rgb=(0.866078, 0.36966, 0.400126) rgb=(0.904601, 0.429797, 0.356329) rgb=(0.940313, 0.497642, 0.309197) rgb=(0.966798, 0.564396, 0.265118) rgb=(0.986345, 0.640969, 0.217948) rgb=(0.994324, 0.716681, 0.177208) rgb=(0.989587, 0.803205, 0.146529) rgb=(0.970533, 0.887896, 0.145919) rgb=(0.940015, 0.975158, 0.131326)}},
+	/pgfplots/colormap/hot2/.style={/pgfplots/colormap={hot2}{[1cm]rgb255(0cm)=(0,0,0) rgb255(3cm)=(255,0,0) rgb255(6cm)=(255,255,0) rgb255(8cm)=(255,255,255)}},
+	/pgfplots/colormap/bluered/.style={/pgfplots/colormap={bluered}{rgb255(0cm)=(0,0,180); rgb255(1cm)=(0,255,255); rgb255(2cm)=(100,255,0); rgb255(3cm)=(255,255,0); rgb255(4cm)=(255,0,0); rgb255(5cm)=(128,0,0)}},
+	/pgfplots/colormap/cool/.style={/pgfplots/colormap={cool}{rgb255(0cm)=(255,255,255); rgb255(1cm)=(0,128,255); rgb255(2cm)=(255,0,255)}},
+	/pgfplots/colormap/greenyellow/.style={/pgfplots/colormap={greenyellow}{rgb255(0cm)=(0,128,0); rgb255(1cm)=(255,255,0)}},
+	/pgfplots/colormap/redyellow/.style={/pgfplots/colormap={redyellow}{rgb255(0cm)=(255,0,0); rgb255(1cm)=(255,255,0)}},
+	/pgfplots/colormap/blackwhite/.style={/pgfplots/colormap={blackwhite}{gray(0cm)=(0); gray(1cm)=(1)}},
+	/pgfplots/colormap/violet/.style={/pgfplots/colormap={violet}{rgb255=(25,25,122) color=(white) rgb255=(238,140,238)}},
+	/pgfplots/colormap/jet/.style={/pgfplots/colormap={jet}{rgb255(0cm)=(0,0,128) rgb255(1cm)=(0,0,255) rgb255(3cm)=(0,255,255) rgb255(5cm)=(255,255,0) rgb255(7cm)=(255,0,0) rgb255(8cm)=(128,0,0)}},
+	/pgfplots/colormap/viridis, /pgfplots/colormap/hot,
+	/pgfplots/@mesh/.initial=, /pgfplots/@patch/.initial=false,
+	/pgfplots/every mesh/.style={}, /pgfplots/every patch/.style={miter limit=1},
+	/pgfplots/mesh legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
+	/pgfplots/shader/.initial=faceted, /pgfplots/faceted color/.initial=mapped color!80!black,
+	/pgfplots/z buffer/.initial=default,
+	/pgfplots/mesh input/.initial=lattice, /pgfplots/patch type/.initial=,
+	/pgfplots/patch refines/.initial=0, /pgfplots/patch to triangles/.initial=false,
+	/pgfplots/mesh/rows/.initial=, /pgfplots/mesh/cols/.initial=,
+	/pgfplots/mesh/ordering/.initial=x varies, /pgfplots/mesh/color input/.initial=colormap,
+	/pgfplots/mesh/check/.initial=error,
+	/pgfplots/mesh/interior colormap name/.initial=,
+	/pgfplots/matrix plot/.style={/pgfplots/matrix plot*,/pgfplots/y dir=reverse,/pgfplots/axis on top},
+	/pgfplots/matrix plot*/.style={/pgfplots/surf,/pgfplots/mesh input=image,/pgfplots/shader=flat corner,/pgfplots/z buffer=none},
+	/pgfplots/scatter/.initial=false,
+	/pgfplots/scatter src/.code={\pgfkeysalso{/pgfplots/point meta={#1}}},
+	/pgfplots/scatter/use mapped color/.initial={draw=mapped color!80!black,fill=mapped color},
+	/pgfplots/scatter/classes/.initial=,
+	/pgfplots/only marks scatter/.style={/pgfplots/scatter,/tikz/only marks},
+	/pgfplots/point meta rel/.initial=axis wide,
+	/pgfplots/colorbar style/.style={/pgfplots/every colorbar/.append style={#1}},
+	/pgfplots/every colorbar/.style={},
+	/pgfplots/colorbar/width/.initial=0.5cm,
+	/pgfplots/@colorbar pos/.initial=r,
+	/pgfplots/colorbar right/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}\pgfkeyssetvalue{/pgfplots/@colorbar pos}{r}},
+	/pgfplots/colorbar left/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}\pgfkeyssetvalue{/pgfplots/@colorbar pos}{l}},
+	/pgfplots/colorbar horizontal/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}\pgfkeyssetvalue{/pgfplots/@colorbar pos}{b}},
+	/pgfplots/colorbar sampled/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
+	/pgfplots/colorbar sampled line/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
+	/pgfplots/colorbar as palette/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
+	/pgfplots/colorbar as legend/.code={\pgfkeyssetvalue{/pgfplots/colorbar}{true}},
+	/pgfplots/colorbar source/.code=,
+	/tikz/legend columns/.style={/pgfplots/legend columns={#1}},
+	/tikz/legend cell align/.style={/pgfplots/legend cell align={#1}},
+	/tikz/legend plot pos/.style={/pgfplots/legend plot pos={#1}},
 }
 ";
 
@@ -690,6 +738,45 @@ keyfn!(k_handler, |e, _v| {
     Ok(())
 });
 
+// `mesh`, `surf`, `patch`: the plot is a mesh colored by its point meta.
+keyfn!(k_mesh, |e, v| {
+    let name = current_name(e);
+    let value = text(e, &v)?;
+    if value == "false" {
+        set(e, "/pgfplots/@mesh", "");
+        return Ok(());
+    }
+    set(e, "/pgfplots/@mesh", if name == "mesh" { "m" } else { "s" });
+    if name == "patch" {
+        set(e, "/pgfplots/@patch", "true");
+        set(e, "/pgfplots/mesh input", "patches");
+    }
+    run(e, "set point meta if empty=f(x),every mesh/.try,/tikz/color=mapped color")?;
+    if name == "patch" {
+        run(e, "every patch")?;
+    }
+    Ok(())
+});
+
+// `scatter`: marks colored by the colormap.
+keyfn!(k_scatter, |e, v| {
+    let value = text(e, &v)?;
+    let on = value != "false";
+    set(e, "/pgfplots/scatter", if on { "true" } else { "false" });
+    if on {
+        run(e, "set point meta if empty=f(x)")?;
+    }
+    Ok(())
+});
+
+keyfn!(k_set_meta, |e, v| {
+    if keys::value(&e.tex, "/pgfplots/point meta").is_none_or(|m| keys::trim(&m).is_empty() || tex::tokens_to_string(&m).trim() == "none") {
+        let value = v.unwrap_or_default();
+        e.tex.set_meaning(&Token::cs(&keys::macro_name("/pgfplots/point meta")), super::super::macro_tokens(value), false);
+    }
+    Ok(())
+});
+
 // ------------------------------------------------------------------ /pgf/number format
 
 fn nf(e: &mut Engine) -> &mut super::number::NumberFormat {
@@ -750,6 +837,11 @@ keyfn!(k_nf, |e, v| {
 const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/.unknown", k_unknown),
     ("/pgfplots/compat", k_compat),
+    ("/pgfplots/mesh", k_mesh),
+    ("/pgfplots/surf", k_mesh),
+    ("/pgfplots/patch", k_mesh),
+    ("/pgfplots/scatter", k_scatter),
+    ("/pgfplots/set point meta if empty", k_set_meta),
     ("/pgfplots/axis x line", k_line),
     ("/pgfplots/axis y line", k_line),
     ("/pgfplots/axis z line", k_line),
@@ -815,6 +907,8 @@ fn native(e: &mut Engine, path: &str, f: KeyFn) {
 
 /// Defines the pgfplots keys (after TikZ's).
 pub fn define(e: &mut Engine) {
+    // what the colormap gives each point; set while a plot is drawn
+    e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
     for (path, f) in NATIVE {
         native(e, path, *f);
     }
@@ -843,5 +937,6 @@ pub fn define(e: &mut Engine) {
     if let Err(err) = e.run_tokens(tokens) {
         e.warn(format!("internal: pgfplots definitions failed: {err}"));
     }
+    e.tex.warnings.clear();
     e.st.key_path = saved;
 }

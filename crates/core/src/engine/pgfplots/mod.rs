@@ -4,10 +4,12 @@
 //! the order they came, with the TikZ statements among them), the descriptions and the legend
 //! are drawn ([`draw`]).
 
+pub mod colormap;
 pub mod draw;
 pub mod keys;
 pub mod legend;
 pub mod marks;
+pub mod mesh;
 pub mod number;
 pub mod plot;
 pub mod table;

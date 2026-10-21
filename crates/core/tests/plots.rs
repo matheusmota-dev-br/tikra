@@ -54,11 +54,11 @@ fn axis_line_styles() {
 
 #[test]
 fn ticks_follow_the_algorithm() {
-    // x from -6 to 6 (domain -5:5 enlarged by 10%): ticks every 2, seven labels; y: 0, 10, 20
+    // x from -6 to 6 (domain -5:5 enlarged by 10%): ticks every 2, seven labels; y: 0, 5, ..., 25
     let (c, w) = axis("", r"\addplot[samples=3] {x^2};");
     assert!(w.is_empty(), "{w:?}");
-    // 7 x labels, 3 y labels, and the two empty label nodes draw nothing
-    assert_eq!(texts(&c), 10, "{}", texts(&c));
+    // 7 x labels, 6 y labels, and the two empty label nodes draw nothing
+    assert_eq!(texts(&c), 13, "{}", texts(&c));
     // explicit ticks and labels
     let (c, w) = axis("xtick={0,1,2}, xticklabels={a,b,c}, ytick=\\empty", r"\addplot coordinates {(0,0) (2,1)};");
     assert!(w.is_empty(), "{w:?}");

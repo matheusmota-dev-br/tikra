@@ -51,6 +51,9 @@ pub struct Frame {
     pub label_side: [i8; 3],
     /// `xlabel shift`
     pub label_shift: [f64; 3],
+    /// The range of point meta (axis wide) and the colormap it maps to.
+    pub meta: [f64; 2],
+    pub colormap: Option<super::colormap::Colormap>,
 }
 
 impl Frame {
@@ -317,6 +320,8 @@ fn clone_frame(f: &Frame) -> Frame {
         tick_dim: RefCell::new(*f.tick_dim.borrow()),
         label_side: f.label_side,
         label_shift: f.label_shift,
+        meta: f.meta,
+        colormap: f.colormap.clone(),
     }
 }
 
@@ -436,6 +441,11 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             v
         }
     };
+    let mut user: [(Option<f64>, Option<f64>); 3] = [(None, None); 3];
+    for (a, u) in user.iter_mut().enumerate() {
+        let c = axis_char(a);
+        *u = (keys::number(e, &format!("/pgfplots/{c}min")).map(|v| lg(a, v)), keys::number(e, &format!("/pgfplots/{c}max")).map(|v| lg(a, v)));
+    }
     // the coordinates, stacked
     let mut points: Vec<PlotPoints> = Vec::new();
     let mut stack_base: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
@@ -471,7 +481,9 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 if i == 2 && !three_d {
                     continue;
                 }
-                if c[i].is_finite() {
+                // `clip limits`: a point beyond another axis' given limits does not widen this one
+                let outside = (0..3).any(|j| j != i && (j < 2 || three_d) && (user[j].0.is_some_and(|m| c[j] < m) || user[j].1.is_some_and(|m| c[j] > m)));
+                if c[i].is_finite() && !outside {
                     dmin[i] = dmin[i].min(c[i]);
                     dmax[i] = dmax[i].max(c[i]);
                 }
@@ -691,8 +703,22 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let label_shift = [0, 1, 2].map(|a| keys::length(e, &format!("/pgfplots/{}label shift", axis_char(a))).unwrap_or(0.0));
     // the box with its lower left corner at the origin of the picture's coordinates
     let base = e.st.transform.apply(origin_local);
-    let mut frame =
-        Frame { origin: base, e: ev, min, max, log, three_d, zero, cs: Cell::new(Cs::Plain), label_axis: Cell::new(0), tick_dim: RefCell::new([0.0; 3]), label_side, label_shift };
+    let mut frame = Frame {
+        origin: base,
+        e: ev,
+        min,
+        max,
+        log,
+        three_d,
+        zero,
+        cs: Cell::new(Cs::Plain),
+        label_axis: Cell::new(0),
+        tick_dim: RefCell::new([0.0; 3]),
+        label_side,
+        label_shift,
+        meta: meta_range(e, axis),
+        colormap: colormap(e),
+    };
     // the box's lowest corner goes to the origin
     if !three_d {
         let a = frame.at(frame.min);
@@ -710,6 +736,48 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         dist[a] = d;
     }
     Ok(Setup { frame: Rc::new(frame), points, ticks, tick_distance: dist, hide, line: lines })
+}
+
+/// The point meta range of the axis' plots (`point meta min/max` if given).
+fn meta_range(e: &mut Engine, axis: &Axis) -> [f64; 2] {
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for en in &axis.entries {
+        if let Entry::Plot(p) = en {
+            if !p.has_meta {
+                continue;
+            }
+            for c in &p.coords {
+                if c.meta.is_finite() {
+                    lo = lo.min(c.meta);
+                    hi = hi.max(c.meta);
+                }
+            }
+        }
+    }
+    if let Some(v) = keys::number(e, "/pgfplots/point meta min") {
+        lo = v;
+    }
+    if let Some(v) = keys::number(e, "/pgfplots/point meta max") {
+        hi = v;
+    }
+    if !(lo.is_finite() && hi.is_finite()) {
+        return [0.0, 1.0];
+    }
+    if hi - lo < 1e-12 {
+        return [lo - 0.5, hi + 0.5];
+    }
+    [lo, hi]
+}
+
+/// The current colormap (`colormap name`).
+pub fn colormap(e: &mut Engine) -> Option<super::colormap::Colormap> {
+    let name = keys::value(e, "/pgfplots/colormap name");
+    let spec = keys::value(e, &format!("/pgfplots/@colormaps/{name}"));
+    let m = super::colormap::Colormap::parse(&spec, &e.colors);
+    if m.is_none() {
+        e.warn(format!("colormap '{name}' not defined"));
+    }
+    m
 }
 
 fn bbox_size(points: &[Point]) -> (f64, f64) {
@@ -825,6 +893,8 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
         e.open_in_scope(Item::Clip { segments: segs, even_odd: false });
     }
+    // what is clipped does not grow the picture
+    let saved_bbox = (e.canvas.min, e.canvas.max);
     let compat = keys::compat(e);
     f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
     let mut marks = Vec::new();
@@ -857,6 +927,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
     }
     e.end_scope();
+    if clip {
+        (e.canvas.min, e.canvas.max) = saved_bbox;
+    }
     if on_top {
         if f.three_d {
             draw_axis_3d(e, s)?;
@@ -865,8 +938,15 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
     }
     // marks are not clipped (`clip marker paths=false`)
-    for m in marks {
-        super::visual::draw_marks(e, &m)?;
+    let (a, b) = (f.at(f.min), f.at(f.max));
+    let tol = 0.05 * PT;
+    let inside = |p: &Point| p.x >= a.x.min(b.x) - tol && p.x <= a.x.max(b.x) + tol && p.y >= a.y.min(b.y) - tol && p.y <= a.y.max(b.y) + tol;
+    for mut m in marks {
+        // marks outside the axis are not drawn, those on its border are drawn whole
+        if clip && !f.three_d {
+            m.points.retain(|(p, _)| inside(p));
+        }
+        super::visual::draw_marks(e, &m, &f)?;
     }
     // `current axis` exists for the descriptions (`current axis.right of origin`)
     let (a, b) = (f.at(f.min), f.at(f.max));
@@ -1223,7 +1303,7 @@ fn group_at(tokens: &[Token], j: usize) -> (Vec<Token>, usize) {
 }
 
 /// The text of tick `t` (index `k` in the list) of axis `a`.
-fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, scale: i32, extra: bool) -> Result<Vec<Token>, Error> {
+fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, factor: f64, extra: bool) -> Result<Vec<Token>, Error> {
     let f = e.frame.clone().expect("drawing an axis");
     let c = axis_char(a);
     let labels_key = if extra { format!("/pgfplots/extra {c} tick labels") } else { format!("/pgfplots/{c}ticklabels") };
@@ -1231,7 +1311,7 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, scal
         let items = split_labels(&list);
         return Ok(items.get(k).cloned().unwrap_or_default());
     }
-    let shown = |v: f64| if f.log[a] { v } else { v * 10f64.powi(scale) };
+    let shown = |v: f64| if f.log[a] { v } else { v * factor };
     let label_key = if extra { format!("/pgfplots/extra {c} tick label") } else { format!("/pgfplots/{c}ticklabel") };
     if let Some(code) = keys::value_tokens(&*e, &label_key) {
         e.begin_group();
@@ -1299,16 +1379,30 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
         _ => 0.0,
     };
     // scaled ticks: the labels divided by a power of ten
-    let mut scale = 0;
+    // scaled ticks: the labels multiplied by `factor`, and a label that says by what
+    let mut factor = 1.0;
+    let mut scale_label: Option<String> = None;
     if !f.log[a] && !extra {
         let v = e.pv(&format!("scaled {c} ticks"));
         let above = keys::number(e, "/pgfplots/scale ticks above exponent").unwrap_or(3.0) as i32;
         let below = keys::number(e, "/pgfplots/scale ticks below exponent").unwrap_or(-1.0) as i32;
-        scale = match v.as_str() {
-            "true" => ticks::scale_exponent(f.min[a], f.max[a], above, below),
-            "false" => 0,
-            other => other.strip_prefix("base 10:").and_then(|n| n.trim().parse().ok()).unwrap_or(0),
+        let exponent = match v.as_str() {
+            "true" => Some(ticks::scale_exponent(f.min[a], f.max[a], above, below)),
+            "false" => None,
+            other => other.strip_prefix("base 10:").and_then(|n| n.trim().parse().ok()),
         };
+        if let Some(x) = exponent.filter(|x| *x != 0) {
+            factor = 10f64.powi(x);
+            scale_label = Some(format!("$\\cdot 10^{{{}}}$", -x));
+        }
+        if let Some(r) = v.strip_prefix("real:") {
+            if let Ok(d) = e.number(r) {
+                if d != 0.0 {
+                    factor = 1.0 / d;
+                    scale_label = Some(format!("$\\cdot {}$", e.st.number_format.print(d)));
+                }
+            }
+        }
     }
     let interval = keys::flag(e, &format!("/pgfplots/{c} tick label as interval"));
     let n = f.normal(a);
@@ -1347,7 +1441,7 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
         e.begin_group();
         let r = (|| {
             e.keys_tikz(&styles)?;
-            tick_text(e, a, t, next, k, scale, extra)
+            tick_text(e, a, t, next, k, factor, extra)
         })();
         e.end_group();
         let text = r?;
@@ -1367,8 +1461,8 @@ fn tick_labels(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: bool) -
         let mut td = f.tick_dim.borrow_mut();
         td[a] = td[a].max(dim.max(off));
     }
-    if scale != 0 && !vis.is_empty() {
-        let text = tex::string_tokens(&format!("$\\cdot 10^{{{}}}$", -scale));
+    if let Some(label) = scale_label.filter(|_| !vis.is_empty()) {
+        let text = tex::string_tokens(&label);
         let options = toks(&format!("/pgfplots/every tick label,/pgfplots/every {c} tick label,/pgfplots/every {c} tick scale label"));
         f.cs.set(Cs::Description);
         let p = f.rel([0.0, 0.0, 0.0]);
@@ -1459,7 +1553,7 @@ fn draw_axis_3d(e: &mut Engine, s: &Setup) -> Result<(), Error> {
             e.begin_group();
             let r = (|| {
                 e.keys_tikz(&styles)?;
-                tick_text(e, a, t, None, k, 0, false)
+                tick_text(e, a, t, None, k, 1.0, false)
             })();
             e.end_group();
             let text = r?;

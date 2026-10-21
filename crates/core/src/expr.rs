@@ -233,7 +233,20 @@ impl Parser<'_> {
                 self.skip_spaces();
                 if self.peek() != Some('(') {
                     // a variable without a backslash, like the x of pgfplots functions
-                    return self.vars.get(&name).copied().ok_or(Error::Expression(format!("function without parentheses: {name}")));
+                    if let Some(v) = self.vars.get(&name) {
+                        return Ok(*v);
+                    }
+                    // a function without arguments: declared (`declare function={C=4;}`) or pgfmath's
+                    if let Some(body) = self.vars.functions.get(&name).filter(|f| f.0.is_empty()).map(|f| f.1.clone()) {
+                        return eval_at(&body, self.vars, self.depth + 1);
+                    }
+                    return match name.as_str() {
+                        "rand" => Ok(pseudo_random() * 2.0 - 1.0),
+                        "rnd" => Ok(pseudo_random()),
+                        "true" => Ok(1.0),
+                        "false" => Ok(0.0),
+                        _ => Err(Error::Expression(format!("function without parentheses: {name}"))),
+                    };
                 }
                 self.pos += 1;
                 let mut args = vec![self.sum()?];
@@ -302,4 +315,25 @@ mod tests {
         assert!((eval("2^3", &v).unwrap() - 8.0).abs() < 1e-9);
         assert!((eval_length("10pt", &v).unwrap().0 - 0.3515).abs() < 1e-3);
     }
+}
+
+thread_local! {
+    static SEED: std::cell::Cell<u64> = const { std::cell::Cell::new(0x2545_F491_4F6C_DD1D) };
+}
+
+/// pgfmath's `rnd`: a number in [0, 1). Deterministic, so a figure always draws the same.
+fn pseudo_random() -> f64 {
+    SEED.with(|s| {
+        let mut x = s.get();
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        s.set(x);
+        (x >> 11) as f64 / (1u64 << 53) as f64
+    })
+}
+
+/// Starts `rnd` and `rand` over: each figure draws the same numbers.
+pub fn reset_random() {
+    SEED.with(|s| s.set(0x2545_F491_4F6C_DD1D));
 }

@@ -1246,8 +1246,9 @@ keyfn!(k_declare_function, |e, v| {
     let s = text(e, &v)?;
     for def in s.split(';') {
         let Some((head, body)) = def.split_once('=') else { continue };
-        let Some((name, params)) = head.trim().split_once('(') else { continue };
-        let params = params.trim_end_matches(')').split(',').map(|p| p.trim().trim_start_matches('\\').to_string()).collect();
+        // a constant (`C=4;`) has no parameters
+        let (name, params) = head.trim().split_once('(').unwrap_or((head.trim(), ""));
+        let params = params.trim_end_matches(')').split(',').map(|p| p.trim().trim_start_matches('\\').to_string()).filter(|p| !p.is_empty()).collect();
         Rc::make_mut(&mut e.st.functions).insert(name.trim().to_string(), (params, body.trim().to_string()));
     }
     Ok(())

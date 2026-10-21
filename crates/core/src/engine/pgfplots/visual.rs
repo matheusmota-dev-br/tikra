@@ -17,7 +17,10 @@ use super::{toks, Engine};
 #[derive(Debug, Clone)]
 pub struct Marks {
     pub style: Vec<Token>,
-    pub points: Vec<Point>,
+    /// Canvas points and their point meta.
+    pub points: Vec<(Point, f64)>,
+    /// `scatter`: each mark in the colormap's color for its point meta.
+    pub scatter: bool,
 }
 
 /// The canvas points of a plot (None at jumps).
@@ -94,6 +97,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     e.st.apply_pending();
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at begin plot visualization") {
         e.run_tokens(code)?;
+    }
+    if p.mesh.is_some() {
+        super::mesh::draw(e, p, pts, f, &style)?;
+        return Ok(None);
     }
     let handler = keys::value(e, "/tikz/@plot handler");
     let cp = canvas_points(f, pts);
@@ -251,7 +258,9 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     }
     error_bars(e, p, pts, f)?;
     match mark {
-        Some(_) => Ok(Some(Marks { style, points: cp.into_iter().flatten().collect() })),
+        Some(_) => {
+            Ok(Some(Marks { style, points: cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect(), scatter: p.scatter }))
+        }
         None => Ok(None),
     }
 }
@@ -387,16 +396,26 @@ fn error_bars(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Result<(
 
 /// Draws the marks of a plot, as `\pgfplothandlermark` does: `every mark` and `mark options`
 /// apply, each mark is a path at the point.
-pub fn draw_marks(e: &mut Engine, m: &Marks) -> Result<(), Error> {
+pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
     e.begin_group();
     let r = (|| -> Result<(), Error> {
-        e.st.mode = Default::default();
-        e.st.pending = Transform::default();
-        e.process_keys(m.style.clone(), Some("/pgfplots"))?;
-        e.st.apply_pending();
+        let setup = |e: &mut Engine| -> Result<(), Error> {
+            e.st.mode = Default::default();
+            e.st.pending = Transform::default();
+            e.process_keys(m.style.clone(), Some("/pgfplots"))?;
+            e.st.apply_pending();
+            e.st.pending = Transform::default();
+            e.process_keys(toks("every mark"), Some("/tikz"))?;
+            if m.scatter {
+                if let Some(v) = keys::value_tokens(e, "/pgfplots/scatter/use mapped color") {
+                    e.process_keys(v, Some("/tikz"))?;
+                }
+            }
+            Ok(())
+        };
+        let colors = if m.scatter { Some(super::mesh::mapped_colors(e, setup)?) } else { None };
+        setup(e)?;
         let Some(name) = e.st.plot_mark.clone() else { return Ok(()) };
-        e.st.pending = Transform::default();
-        e.process_keys(toks("every mark"), Some("/tikz"))?;
         let local = e.st.pending;
         let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * PT);
         let repeat = keys::number(e, "/tikz/mark repeat").unwrap_or(1.0).max(1.0) as usize;
@@ -408,24 +427,25 @@ pub fn draw_marks(e: &mut Engine, m: &Marks) -> Result<(), Error> {
             }
             None => Vec::new(),
         };
-        draw_mark_set(
-            e,
-            &name,
-            size,
-            &local,
-            m.points
-                .iter()
-                .copied()
-                .enumerate()
-                .filter(|(i, _)| {
-                    let k = i + 1;
-                    if !indices.is_empty() {
-                        return indices.contains(&k);
-                    }
-                    k >= phase && (k - phase).is_multiple_of(repeat)
-                })
-                .map(|(_, p)| p),
-        )
+        let chosen = m.points.iter().copied().enumerate().filter(|(i, _)| {
+            let k = i + 1;
+            if !indices.is_empty() {
+                return indices.contains(&k);
+            }
+            k >= phase && (k - phase).is_multiple_of(repeat)
+        });
+        match colors {
+            Some((draw, fill, _)) => {
+                for (_, (p, meta)) in chosen {
+                    let mapped = super::mesh::map(f, meta);
+                    e.st.draw_color = Some(draw.at(mapped));
+                    e.st.fill_color = Some(fill.at(mapped));
+                    draw_mark_set(e, &name, size, &local, std::iter::once(p))?;
+                }
+                Ok(())
+            }
+            None => draw_mark_set(e, &name, size, &local, chosen.map(|(_, (p, _))| p)),
+        }
     })();
     e.end_group();
     r

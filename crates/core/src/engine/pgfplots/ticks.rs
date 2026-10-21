@@ -76,7 +76,8 @@ pub fn linear(min: f64, max: f64, s: TickSettings) -> (Vec<f64>, f64) {
                 ((max - min).abs() / (n.max(2) - 1) as f64, false)
             }
         };
-        let h = if fixed { h } else { normalize_distance(h) };
+        // TeX divides dimensions with truncation: a distance of exactly 7.5 is a hair less
+        let h = if fixed { h } else { normalize_distance(h * (1.0 - 1e-9)) };
         if !(h.is_finite() && h > 0.0) {
             return (Vec::new(), 0.0);
         }
@@ -236,10 +237,10 @@ mod tests {
         let (t, h) = linear(-6.0, 6.0, settings(195.0));
         assert_eq!(h, 2.0);
         assert_eq!(visible(&t, -6.0, 6.0), vec![-6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0]);
-        // 162pt high: 5 ticks; y from -2.5 to 27.5
+        // 162pt high: 5 ticks; y from -2.5 to 27.5, and TeX's truncated 7.5 snaps to 5
         let (t, h) = linear(-2.5, 27.5, settings(162.0));
-        assert_eq!(h, 10.0);
-        assert_eq!(visible(&t, -2.5, 27.5), vec![0.0, 10.0, 20.0]);
+        assert_eq!(h, 5.0);
+        assert_eq!(visible(&t, -2.5, 27.5), vec![0.0, 5.0, 10.0, 15.0, 20.0, 25.0]);
         let (t, _) = linear(0.0, 1.0, settings(195.0));
         assert_eq!(visible(&t, 0.0, 1.0), vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
     }

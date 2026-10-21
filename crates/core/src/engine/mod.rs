@@ -1464,6 +1464,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
 /// Runs a whole document (or figure) and returns the canvas and the warnings.
 pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
     let mut e = Engine::new();
+    crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
     e.canvas.margin = 2.0 * crate::PT;
     e.tex.push_text(code);

@@ -15,6 +15,8 @@ pub struct Table {
     pub names: Vec<String>,
     /// Cells as text, row by row.
     pub rows: Vec<Vec<String>>,
+    /// Row counts at which an empty line ended a scanline.
+    pub scanlines: Vec<usize>,
 }
 
 /// How cells are separated.
@@ -41,16 +43,21 @@ impl Table {
     /// Parses table text. `header`: `true` (names if the first row is not all numbers), `false`,
     /// or `has colnames`.
     pub fn parse(text: &str, sep: ColSep, header: &str, skip: usize, comment_chars: &str) -> Table {
-        let lines: Vec<&str> = text
-            .lines()
-            .map(|l| {
-                // '#' and '%' start comments, as pgfplotstable's default
-                let cut = l.find(|c: char| c == '#' || c == '%' || comment_chars.contains(c)).unwrap_or(l.len());
-                &l[..cut]
-            })
-            .filter(|l| !l.trim().is_empty())
-            .skip(skip)
-            .collect();
+        let mut lines: Vec<&str> = Vec::new();
+        let mut breaks = Vec::new();
+        for l in text.lines() {
+            // '#' and '%' start comments, as pgfplotstable's default
+            let cut = l.find(|c: char| c == '#' || c == '%' || comment_chars.contains(c)).unwrap_or(l.len());
+            let l = &l[..cut];
+            if l.trim().is_empty() {
+                if !lines.is_empty() && breaks.last() != Some(&lines.len()) {
+                    breaks.push(lines.len());
+                }
+                continue;
+            }
+            lines.push(l);
+        }
+        let lines: Vec<&str> = lines.into_iter().skip(skip).collect();
         let split = |l: &str| -> Vec<String> {
             match sep {
                 ColSep::Space => l.split_whitespace().map(clean_cell).collect(),
@@ -64,7 +71,9 @@ impl Table {
             _ => rows.first().is_some_and(|r| r.iter().any(|c| parse_number(c).is_none())),
         };
         let names = if first_is_names && !rows.is_empty() { rows.remove(0) } else { Vec::new() };
-        Table { names, rows }
+        let shift = skip + usize::from(first_is_names);
+        let scanlines = breaks.into_iter().filter_map(|b| b.checked_sub(shift)).filter(|b| *b > 0).collect();
+        Table { names, rows, scanlines }
     }
 
     pub fn columns(&self) -> usize {

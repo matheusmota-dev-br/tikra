@@ -49,6 +49,15 @@ pub struct Plot {
     pub fill_between: Option<Vec<Token>>,
     /// `x tick=data`: the first plot's x coordinates are kept.
     pub symbolic: bool,
+    /// `mesh` (`'m'`) or `surf`/`patch` (`'s'`) plots, colored by the colormap.
+    pub mesh: Option<char>,
+    pub patch: bool,
+    /// `scatter`: marks colored by their point meta.
+    pub scatter: bool,
+    /// The plot has numeric point meta (`point meta=y`, `explicit`…).
+    pub has_meta: bool,
+    /// Where the input's scanlines end (empty lines in tables and coordinates).
+    pub scanlines: Vec<usize>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -196,6 +205,13 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
     }
     let mut plot = Plot { three_d, ..Default::default() };
     plot.forget = keys::flag(e, "/pgfplots/forget plot");
+    plot.mesh = match keys::value(e, "/pgfplots/@mesh").as_str() {
+        "m" => Some('m'),
+        "s" => Some('s'),
+        _ => None,
+    };
+    plot.patch = keys::flag(e, "/pgfplots/@patch");
+    plot.scatter = keys::flag(e, "/pgfplots/scatter");
     plot.handler = keys::value(e, "/tikz/@plot handler");
     plot.stack = match keys::value(e, "/pgfplots/stack plots").as_str() {
         "x" => Some('x'),
@@ -231,7 +247,7 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
                     plot.coords = coordinates(e, list)?;
                 }
                 "table" => {
-                    plot.coords = read_table(e, three_d)?;
+                    (plot.coords, plot.scanlines) = read_table(e, three_d)?;
                 }
                 "expression" => {
                     let body = match e.tex.next_nonspace() {
@@ -249,6 +265,7 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
                         Ok(text) => {
                             let t = Table::parse(&text, table::ColSep::Space, "false", 0, "");
                             plot.coords = table_coords(e, &t, three_d)?;
+                            plot.scanlines = t.scanlines.clone();
                         }
                         Err(m) => e.warn(format!("\\addplot file: {m}")),
                     }
@@ -292,6 +309,8 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
             break;
         }
     }
+    point_meta(e, &mut plot)?;
+    lattice_from_scanlines(e, &mut plot);
     filter(e, &mut plot)?;
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at end plot") {
         e.run_tokens(code)?;
@@ -514,7 +533,7 @@ fn search_path(e: &mut Engine) -> Vec<String> {
 }
 
 /// `table[options]{file or data}`.
-fn read_table(e: &mut Engine, three_d: bool) -> Result<Vec<Coord>, Error> {
+fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>), Error> {
     // newlines separate rows: read the data with end of line as a character, as pgfplots does
     let saved = (e.tex.catcode('\n'), e.tex.catcode('\r'));
     e.tex.set_catcode('\n', Cat::Other);
@@ -563,16 +582,16 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<Vec<Coord>, Error> {
             Ok(content) => Table::parse(&content, sep, &header, skip, &comment),
             Err(m) => {
                 e.warn(format!("\\addplot table: {m}"));
-                return Ok(Vec::new());
+                return Ok((Vec::new(), Vec::new()));
             }
         }
     } else if trimmed.starts_with('\\') {
         e.warn(format!("\\addplot table {trimmed}: tables read with \\pgfplotstableread are not supported"));
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     } else {
         Table::parse(&text, sep, &header, skip, &comment)
     };
-    table_coords(e, &table, three_d)
+    Ok((table_coords(e, &table, three_d)?, table.scanlines.clone()))
 }
 
 /// The coordinates of a table: the `x`, `y`, `z` columns (by name, index or expression).
@@ -602,7 +621,10 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sx = pick(e, "x", Some(0));
     let sy = pick(e, "y", Some(1));
     let sz = pick(e, "z", if three_d { Some(2) } else { None });
-    let smeta = pick(e, "meta", None);
+    let smeta = match crate::keys::value(&e.tex, "/pgfplots/point meta") {
+        Some(v) if tex::tokens_to_string(&v).contains("\\thisrow") => Src::Expr(v),
+        _ => pick(e, "meta", None),
+    };
     let sey = pick(e, "y error", None);
     let sex = pick(e, "x error", None);
     let seyp = pick(e, "y error plus", None);
@@ -719,4 +741,54 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         plot.coords.retain(|c| c.x.is_finite());
     }
     Ok(())
+}
+
+/// `point meta`: the value each point maps to the colormap with.
+fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    let raw = crate::keys::value(&e.tex, "/pgfplots/point meta").unwrap_or_default();
+    let source = tex::tokens_to_string(crate::keys::trim(&raw)).trim().to_string();
+    match source.as_str() {
+        "" | "none" => {}
+        "x" => plot.coords.iter_mut().for_each(|c| c.meta = c.x),
+        "y" => plot.coords.iter_mut().for_each(|c| c.meta = c.y),
+        "z" => plot.coords.iter_mut().for_each(|c| c.meta = c.z),
+        "f(x)" => {
+            let three = plot.three_d;
+            plot.coords.iter_mut().for_each(|c| c.meta = if three { c.z } else { c.y })
+        }
+        "explicit" | "explicit symbolic" => {}
+        _ => {
+            // \thisrow{…} is evaluated with the table's rows
+            if !source.contains("\\thisrow") {
+                let text = e.math_string(raw.clone())?;
+                let mut vars = e.vars();
+                for c in plot.coords.iter_mut() {
+                    vars.insert("x".into(), c.x);
+                    vars.insert("y".into(), c.y);
+                    vars.insert("z".into(), c.z);
+                    c.meta = crate::expr::eval(&text, &vars).unwrap_or(f64::NAN);
+                }
+            }
+        }
+    }
+    plot.has_meta = !matches!(source.as_str(), "" | "none" | "explicit symbolic");
+    Ok(())
+}
+
+/// A lattice from `mesh/rows`, `mesh/cols` or the input's scanlines.
+fn lattice_from_scanlines(e: &mut Engine, plot: &mut Plot) {
+    if plot.lattice.is_some() || plot.mesh.is_none() {
+        return;
+    }
+    let n = plot.coords.len();
+    let rows = keys::number(e, "/pgfplots/mesh/rows").map(|v| v as usize);
+    let cols = keys::number(e, "/pgfplots/mesh/cols").map(|v| v as usize);
+    let lattice = match (rows, cols) {
+        (_, Some(c)) if c > 0 => Some((n / c, c)),
+        (Some(r), _) if r > 0 => Some((r, n / r)),
+        _ => plot.scanlines.first().filter(|c| **c > 0 && n.is_multiple_of(**c)).map(|c| (n / c, *c)),
+    };
+    if let Some((r, c)) = lattice.filter(|(r, c)| r * c == n && *r > 1 && *c > 1) {
+        plot.lattice = Some((r, c));
+    }
 }
