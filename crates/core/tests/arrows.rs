@@ -4,8 +4,11 @@ use tikra::canvas::{Item, Paint};
 use tikra::scene::{Point, Segment};
 use tikra::PT;
 
-/// The paths of a figure (segments, filled, stroked) and its warnings.
-fn draw(body: &str) -> (Vec<(Vec<Segment>, bool, bool)>, Vec<String>) {
+/// A path of the canvas: segments, filled, stroked.
+type Drawn = (Vec<Segment>, bool, bool);
+
+/// The paths of a figure and its warnings.
+fn draw(body: &str) -> (Vec<Drawn>, Vec<String>) {
     let code = format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}");
     let (canvas, warnings) = tikra::engine::run_document(&code).unwrap();
     let paths = canvas
@@ -57,6 +60,17 @@ fn the_line_ends_inside_the_tip() {
     assert!(near(line_length(r"\draw[-Latex, shorten >=1mm] (0,0) -- (1,0);"), 0.9 - l * PT));
     // `>=` changes `>`
     assert!(near(line_length(r"\draw[>=Latex, ->] (0,0) -- (1,0);"), 1.0 - l * PT));
+}
+
+#[test]
+fn only_the_last_subpath_has_tips() {
+    // pgf splits off the last subpath: both tips are on it, the first one is left alone
+    let (p, _) = draw(r"\draw[<->] (0,0) -- (1,0) (2,0) -- (3,0);");
+    let q = points(&p[0].0);
+    assert!(near(q[1].minus(q[0]).norm(), 1.0) && near(q[3].minus(q[2]).norm(), 1.0 - 0.8 * PT));
+    // a lone point at the end still gets its tips, pointing up
+    let (p, _) = draw(r"\draw[->] (0,0) -- (1,0) (2,0);");
+    assert_eq!(p.len(), 2);
 }
 
 #[test]

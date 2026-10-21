@@ -42,8 +42,8 @@ fn more_than_one_tikzpicture() {
     let two = no_warnings(r"\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture} \begin{tikzpicture}\draw (0,0)--(2,0);\end{tikzpicture}");
     assert_eq!(two.svg.matches("<path").count(), 2);
     let width = |svg: &str| -> f64 { svg.split("width=\"").nth(1).unwrap().split("pt").next().unwrap().parse().unwrap() };
-    // 1 cm + 3.33 pt + 2 cm, and the margins
-    assert!((width(&two.svg) - width(&one.svg) - (2.0 * 28.3465 + 3.333 * 72.0 / 72.27)).abs() < 0.1, "{}", width(&two.svg));
+    // 1 cm + 3.33 pt + 2 cm (each picture half a line width wider at both ends), and the margins
+    assert!((width(&two.svg) - width(&one.svg) - (2.0 * 28.3465 + (3.333 + 0.4) * 72.0 / 72.27)).abs() < 0.1, "{}", width(&two.svg));
     let lines = no_warnings("\\tikz \\draw (0,0)--(1,0);\n\n\\tikz \\draw (0,0)--(1,0);");
     assert!(width(&lines.svg) < width(&one.svg) + 0.1);
 }

@@ -36,6 +36,19 @@ impl Engine {
             self.canvas_frozen = true;
         } else if !self.canvas_frozen {
             self.canvas.include_path(&segs);
+            // a stroked path adds half its line width around its own box (\pgfusepath)
+            if mode.draw {
+                let w = match self.st.double {
+                    Some(_) => 2.0 * self.st.line_width + self.st.double_distance,
+                    None => self.st.line_width,
+                };
+                let mut path = crate::canvas::Canvas::default();
+                path.include_path(&segs);
+                if let (Some(lo), Some(hi)) = (path.min, path.max) {
+                    self.canvas.include(Point::new(lo.x - w / 2.0, lo.y - w / 2.0));
+                    self.canvas.include(Point::new(hi.x + w / 2.0, hi.y + w / 2.0));
+                }
+            }
         }
         let drawn = segs.iter().any(|s| !matches!(s, Segment::MoveTo(_)));
         let fill = if mode.fill || mode.pattern || mode.shade {
@@ -118,18 +131,21 @@ impl Engine {
         }
         let mut at_end = None;
         if !end.is_empty() || end.shortening != 0.0 {
-            if let Some((k, last, reference)) = path_end(segs) {
-                if end.shortening != 0.0 {
-                    set_end(&mut segs[k], toward(last, reference, end.shortening * PT));
+            if let Some((k, movable, last, reference)) = path_end(segs) {
+                if movable && end.shortening != 0.0 {
+                    let p = toward(last, reference, end.shortening * PT);
+                    if let Segment::LineTo(q) | Segment::CurveTo(_, _, q) = &mut segs[k] {
+                        *q = p;
+                    }
                 }
                 at_end = Some((last, reference));
             }
         }
         let mut at_start = None;
         if !start.is_empty() || start.shortening != 0.0 {
-            if let Some((first, reference)) = path_start(segs) {
-                if start.shortening != 0.0 {
-                    segs[0] = Segment::MoveTo(toward(first, reference, start.shortening * PT));
+            if let Some((m, movable, first, reference)) = path_start(segs) {
+                if movable && start.shortening != 0.0 {
+                    segs[m] = Segment::MoveTo(toward(first, reference, start.shortening * PT));
                 }
                 at_start = Some((first, reference));
             }
@@ -163,52 +179,60 @@ struct Tips {
     hull: Vec<Point>,
 }
 
-/// The point at `distance` from `p` toward `q` (`\pgfpointlineatdistance`); along x if they coincide.
+/// The point at `distance` from `p` toward `q` (`\pgfpointlineatdistance`). When they coincide pgf's
+/// normalized vector points up.
 fn toward(p: Point, q: Point, distance: f64) -> Point {
     let d = q.minus(p);
-    let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+    let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(0.0, 1.0) };
     p.plus(u.scale(distance))
 }
 
-fn set_end(s: &mut Segment, p: Point) {
+fn point_of(s: &Segment) -> Option<Point> {
     match s {
-        Segment::MoveTo(q) | Segment::LineTo(q) | Segment::CurveTo(_, _, q) => *q = p,
-        Segment::Close => {}
+        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+        Segment::Close => None,
     }
 }
 
-/// The last segment of a path, its end point and the point the tip is aimed from: the previous
-/// point, or the last control point of a curve (`\pgf@parse@end`; pgf moves only the end point).
-/// When these coincide, the point before. None if the last subpath is a lone point.
-fn path_end(segs: &[Segment]) -> Option<(usize, Point, Point)> {
+/// Where the last subpath (the only one with tips, as pgf splits the path) begins.
+fn last_subpath(segs: &[Segment]) -> Option<usize> {
+    segs.iter().rposition(|s| matches!(s, Segment::MoveTo(_)))
+}
+
+/// The end of the path (`\pgf@parse@end`): the last segment, if it may be shortened (not a lone
+/// point), its end point, and the point the tip is aimed from: the previous point, or the last
+/// control point of a curve, the one before if they coincide. pgf moves only the end point.
+fn path_end(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
     let k = segs.len().checked_sub(1)?;
-    let point = |s: &Segment| match s {
-        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
-        Segment::Close => None,
-    };
     match segs[k] {
-        Segment::LineTo(last) => Some((k, last, point(&segs[k.checked_sub(1)?])?)),
+        Segment::MoveTo(p) => Some((k, false, p, p)),
+        Segment::LineTo(last) => Some((k, true, last, point_of(&segs[k.checked_sub(1)?])?)),
         Segment::CurveTo(c1, c2, last) => {
             let r = if c2 != last {
                 c2
             } else if c1 != last {
                 c1
             } else {
-                point(&segs[k.checked_sub(1)?])?
+                point_of(&segs[k.checked_sub(1)?])?
             };
-            Some((k, last, r))
+            Some((k, true, last, r))
         }
-        _ => None,
+        Segment::Close => None,
     }
 }
 
-/// The first point of a path and the point the tip is aimed from: the next point, or the first
-/// control point of a curve (then the second, if it coincides).
-fn path_start(segs: &[Segment]) -> Option<(Point, Point)> {
-    let Segment::MoveTo(first) = *segs.first()? else { return None };
-    match *segs.get(1)? {
-        Segment::LineTo(p) => Some((first, p)),
-        Segment::CurveTo(c1, c2, p) => Some((
+/// The start of the last subpath (`\pgf@parse@start`): its index, if it may be shortened, the first
+/// point and the point the tip is aimed from: the next point, or the first control point of a curve
+/// (then the second, then its end, while they coincide).
+fn path_start(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
+    let m = last_subpath(segs)?;
+    let first = point_of(&segs[m])?;
+    match segs.get(m + 1) {
+        None => Some((m, false, first, first)),
+        Some(&Segment::LineTo(p)) => Some((m, true, first, p)),
+        Some(&Segment::CurveTo(c1, c2, p)) => Some((
+            m,
+            true,
             first,
             if c1 != first {
                 c1

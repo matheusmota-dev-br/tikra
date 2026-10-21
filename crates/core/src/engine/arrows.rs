@@ -1805,10 +1805,11 @@ impl EndTips {
 
     /// Draws the tips for an end at `at` reached from `from` (canvas cm): pgf's
     /// `\pgf@arrow@draw@arrow` in the frame of `\pgftransformarrow`. Returns the hull points, which
-    /// count for the bounding box.
+    /// count for the bounding box. On a path of no length the tips point up, as pgf's normalized
+    /// null vector does.
     pub fn draw(&self, at: Point, from: Point, stroke: &Stroke, fill_opacity: f64, items: &mut Vec<Item>) -> Vec<Point> {
         let d = at.minus(from);
-        let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+        let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(0.0, 1.0) };
         let n = Point::new(-u.y, u.x);
         let canvas = |p: Point| at.plus(u.scale(p.x * PT)).plus(n.scale(p.y * PT));
         let mut hull = Vec::new();
