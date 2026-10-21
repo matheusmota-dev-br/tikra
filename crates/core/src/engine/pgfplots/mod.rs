@@ -83,6 +83,7 @@ enum C {
     Nextgroupplot,
     Closedcycle,
     Pgfplotsinvokeforeach,
+    Pgfplotstableread,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -95,6 +96,7 @@ const COMMANDS: &[(&str, C)] = &[
     ("nextgroupplot", C::Nextgroupplot),
     ("closedcycle", C::Closedcycle),
     ("pgfplotsinvokeforeach", C::Pgfplotsinvokeforeach),
+    ("pgfplotstableread", C::Pgfplotstableread),
 ];
 
 /// The environments that are axes.
@@ -226,7 +228,7 @@ impl Engine {
     /// pgfplots' commands.
     pub fn pgfplots_command(&mut self, id: u16) -> Result<(), Error> {
         let cmd = COMMANDS[(id - BASE) as usize].1;
-        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot) {
+        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread) {
             let rest = self.skip_statement()?;
             let name = COMMANDS[(id - BASE) as usize].0;
             self.warn(format!("\\{name} outside an axis: '{}' ignored", rest.chars().take(30).collect::<String>().trim()));
@@ -280,6 +282,7 @@ impl Engine {
             }
             C::Nextgroupplot => self.next_group_plot(),
             C::Closedcycle => Ok(()),
+            C::Pgfplotstableread => plot::table_read(self),
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}
                 let list = self.argument()?;

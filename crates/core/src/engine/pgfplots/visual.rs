@@ -149,7 +149,8 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     let bar_width = keys::length(e, "/pgf/bar width").unwrap_or(10.0 * PT);
     define(e, "pgfplotbarwidth", &format!("{}pt", bar_width / PT));
     // stacked bars stand on each other: no shift
-    let bar_shift = if p.stack.is_some() { 0.0 } else { keys::length(e, "/pgf/bar shift").unwrap_or(0.0) };
+    let given = p.bar_shift_given || tex::tokens_to_string(&p.style).contains("bar shift");
+    let bar_shift = if p.stack.is_some() && !given { 0.0 } else { keys::length(e, "/pgf/bar shift").unwrap_or(0.0) };
     define(e, "pgfplotbarshift", &format!("{}pt", bar_shift / PT));
     let stacked = p.stack.is_some();
     // the zero level bars and combs stand on
@@ -574,8 +575,9 @@ fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Fram
         let label = (c.label != super::plot::NO_LABEL).then(|| p.labels.get(c.label as usize).cloned()).flatten();
         // before compat 1.9 the nodes of stacked plots show the stacked value (f(x) after stacking)
         let meta = match p.stack {
-            Some(dir) if !stacked && matches!(source.as_str(), "f(x)" | "y" | "x") => {
-                if dir == 'x' {
+            // f(x) is y (2d): x stacked bars keep it
+            Some(_) if !stacked && matches!(source.as_str(), "f(x)" | "y" | "x") => {
+                if source == "x" {
                     l[0]
                 } else {
                     l[1]

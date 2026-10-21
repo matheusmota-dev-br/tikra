@@ -68,6 +68,8 @@ pub struct Plot {
     pub lattice: Option<(usize, usize)>,
     /// `fill between[of=a and b]`
     pub fill_between: Option<Vec<Token>>,
+    /// `bar shift` (or `bar shift auto`) given to the axis or the plot: stacked bars keep it.
+    pub bar_shift_given: bool,
     /// `x tick=data`: the first plot's x coordinates are kept.
     pub symbolic: bool,
     /// `mesh` (`'m'`) or `surf`/`patch` (`'s'`) plots, colored by the colormap.
@@ -287,6 +289,8 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
     plot.late = keys::value_tokens(e, "/pgfplots/late options").unwrap_or_default();
     plot.scatter = keys::flag(e, "/pgfplots/scatter");
     plot.handler = keys::value(e, "/tikz/@plot handler");
+    let axis_options = e.axis.as_ref().map(|a| tex::tokens_to_string(&a.options)).unwrap_or_default();
+    plot.bar_shift_given = axis_options.contains("bar shift");
     // a prepared contour: its level is z in 3d, the third column (point meta=explicit) in 2d
     if plot.handler == "contour prepared" && keys::value(e, "/pgfplots/point meta").is_empty() {
         if three_d {
@@ -668,9 +672,13 @@ fn search_path(e: &mut Engine) -> Vec<String> {
     s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
 }
 
-/// `table[options]{file or data}`.
-fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>), Error> {
-    // newlines separate rows: read the data with end of line as a character, as pgfplots does
+thread_local! {
+    /// Tables `\pgfplotstableread` keeps, by macro name: their text and their options.
+    static READ_TABLES: std::cell::RefCell<std::collections::HashMap<String, (String, Vec<Token>)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// `[options]{file or data}` with line ends as characters (rows), and the data as text.
+fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
     let saved = (e.tex.catcode('\n'), e.tex.catcode('\r'));
     e.tex.set_catcode('\n', Cat::Other);
     e.tex.set_catcode('\r', Cat::Other);
@@ -696,11 +704,6 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     e.tex.set_catcode('\n', saved.0);
     e.tex.set_catcode('\r', saved.1);
     let (opts, data) = r?;
-    if let Some(o) = opts {
-        let saved = e.st.key_path.clone();
-        e.process_keys(o, Some("/pgfplots/table"))?;
-        e.st.key_path = saved;
-    }
     let mut text = String::new();
     for t in &data {
         match t {
@@ -712,6 +715,48 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
                 text.push(' ');
             }
         }
+    }
+    Ok((opts, text))
+}
+
+/// `\pgfplotstableread[options]{file or data}\macro`: the table, kept for `table {\macro}`.
+pub fn table_read(e: &mut Engine) -> Result<(), Error> {
+    let (opts, text) = table_source(e)?;
+    let name = match e.tex.next_nonspace() {
+        Some(Token::Cs(n)) => n.to_string(),
+        Some(Token::Char(_, Cat::Begin)) => {
+            let body = e.tex.read_group_body()?;
+            match body.iter().find(|t| matches!(t, Token::Cs(_))) {
+                Some(Token::Cs(n)) => n.to_string(),
+                _ => String::new(),
+            }
+        }
+        _ => String::new(),
+    };
+    if name.is_empty() {
+        e.warn("\\pgfplotstableread without a macro to keep the table: ignored");
+        return Ok(());
+    }
+    READ_TABLES.with(|t| t.borrow_mut().insert(name, (text, opts.unwrap_or_default())));
+    Ok(())
+}
+
+/// `table[options]{file or data}`.
+fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>), Error> {
+    let (opts, mut text) = table_source(e)?;
+    // a table `\pgfplotstableread` kept: its options, then the plot's
+    let kept = text.trim().strip_prefix('\\').map(|n| n.trim().to_string()).and_then(|n| READ_TABLES.with(|t| t.borrow().get(&n).cloned()));
+    let mut all_opts = Vec::new();
+    if let Some((t, o)) = kept {
+        text = t;
+        all_opts.extend(o);
+        all_opts.extend(super::toks(","));
+    }
+    all_opts.extend(opts.unwrap_or_default());
+    if !all_opts.is_empty() {
+        let saved = e.st.key_path.clone();
+        e.process_keys(all_opts, Some("/pgfplots/table"))?;
+        e.st.key_path = saved;
     }
     let row_sep = keys::value(e, "/pgfplots/table/row sep");
     if row_sep.contains("\\\\") {
