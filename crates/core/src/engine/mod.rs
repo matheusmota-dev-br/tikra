@@ -7,6 +7,7 @@ pub mod arrows;
 pub mod basic;
 pub mod calendar;
 pub mod chains;
+pub mod circuits;
 pub mod coords;
 pub mod decorations;
 pub mod folding;

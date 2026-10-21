@@ -915,18 +915,31 @@ fn to_path(e: &mut Engine, b: &mut Builder, r: Coord) -> Result<(), Error> {
     Ok(())
 }
 
+/// `execute at begin to` and `execute at end to`: the code they collect, run in the `to`'s group.
+fn run_hook(e: &mut Engine, name: &str) -> Result<(), Error> {
+    match e.tex.meaning_of(name) {
+        Meaning::Macro(m) if !m.body.is_empty() => {
+            let code = tex::substitute(&m.body, &[]);
+            e.run_tokens(code)
+        }
+        _ => Ok(()),
+    }
+}
+
 fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(), Error> {
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
     let res = (|| {
+        run_hook(e, "tikz@atbegin@to")?;
         e.process_keys(tikra_tokens("every to/.try"), Some("/tikz"))?;
         e.process_keys(opts, Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
             b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
         }
         to_path(e, b, r)?;
-        place_mid_nodes(e, b, Some(0.5))
+        place_mid_nodes(e, b, Some(0.5))?;
+        run_hook(e, "tikz@atend@to")
     })();
     e.end_group();
     res
@@ -954,6 +967,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
     let res = (|| {
+        run_hook(e, "tikz@atbegin@to")?;
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(opts.clone(), Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
