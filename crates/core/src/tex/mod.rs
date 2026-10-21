@@ -406,6 +406,9 @@ pub struct Tex {
     pub environments: HashMap<String, (Rc<Macro>, Vec<Token>)>,
     /// the current environment names, innermost last, for `\end`
     pub env_stack: Vec<String>,
+    /// `\setbox\name=\hbox{…}` for a box named by a control sequence (`\pgfnodepartlowerbox`):
+    /// what was put in it, in order
+    pub named_boxes: Vec<(String, Vec<Token>)>,
 }
 
 impl Default for Tex {
@@ -438,6 +441,7 @@ impl Tex {
             warnings: Vec::new(),
             environments: HashMap::new(),
             env_stack: Vec::new(),
+            named_boxes: Vec::new(),
         };
         t.define_primitives();
         t
@@ -639,6 +643,7 @@ impl Tex {
             warnings: Vec::new(),
             environments: HashMap::new(),
             env_stack: Vec::new(),
+            named_boxes: Vec::new(),
         };
         t.catcodes.insert('@', Cat::Letter);
         t
@@ -2415,12 +2420,25 @@ impl Tex {
                 self.push_tokens(out);
             }
             Setbox => {
-                let _ = self.scan_int()?;
+                // a box named by an undefined control sequence (pgf's node part boxes) is kept by name
+                let named = match self.next_nonspace() {
+                    Some(Token::Cs(n)) if matches!(self.meaning(&Token::Cs(n.clone())), Meaning::Undefined) => Some(n.to_string()),
+                    Some(other) => {
+                        self.back(other);
+                        let _ = self.scan_int()?;
+                        None
+                    }
+                    None => None,
+                };
                 self.scan_optional_equals()?;
                 // \setbox0=\hbox{…}: the box is measured as empty
                 if let Some(x) = self.next_x_nonspace()? {
                     if x.is_cs("hbox") || x.is_cs("vbox") {
-                        let _ = self.read_general_text();
+                        let body = self.read_general_text()?;
+                        if let Some(n) = named {
+                            self.named_boxes.retain(|(m, _)| *m != n);
+                            self.named_boxes.push((n, body));
+                        }
                     } else {
                         self.back(x);
                     }
