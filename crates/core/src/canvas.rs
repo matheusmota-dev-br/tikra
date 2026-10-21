@@ -134,6 +134,30 @@ impl Canvas {
     }
 }
 
+impl Item {
+    /// Moves the item by `d` (cm).
+    pub fn translate(&mut self, d: Point) {
+        let t = Transform::translation(d.x, d.y);
+        match self {
+            Item::Path { segments, fill, .. } => {
+                *segments = transform_segments(segments, &t);
+                if let Some(Fill { paint: Paint::Shading(sh), .. }) = fill {
+                    match sh {
+                        Shading::Axial { from, to, .. } => {
+                            *from = from.plus(d);
+                            *to = to.plus(d);
+                        }
+                        Shading::Radial { center, .. } => *center = center.plus(d),
+                    }
+                }
+            }
+            Item::Clip { segments, .. } => *segments = transform_segments(segments, &t),
+            Item::Text { place, .. } => *place = t.compose(place),
+            Item::Group { .. } | Item::End => {}
+        }
+    }
+}
+
 /// The segments with a transformation applied.
 pub fn transform_segments(segments: &[Segment], t: &Transform) -> Vec<Segment> {
     segments

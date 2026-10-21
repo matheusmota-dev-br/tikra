@@ -218,8 +218,26 @@ pub struct Engine {
     pub canvas_frozen: bool,
     /// nested runs of token lists (styles, loop bodies)
     nesting: usize,
+    /// pictures already drawn, and how the document lays them out
+    boxes: Vec<PictureBox>,
+    layout: Vec<Layout>,
     /// keys run so far
     pub keys_run: usize,
+}
+
+/// A finished picture: its canvas and the height of its baseline in it (cm).
+#[derive(Debug, Clone)]
+struct PictureBox {
+    canvas: Canvas,
+    baseline: f64,
+}
+
+/// What a document puts between pictures: TeX typesets them in lines, like words.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Layout {
+    Picture(usize),
+    Space,
+    Par,
 }
 
 /// Cap on nested runs (a style calling itself).
@@ -254,6 +272,8 @@ impl Clone for Engine {
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
+            boxes: self.boxes.clone(),
+            layout: self.layout.clone(),
         }
     }
 }
@@ -288,6 +308,8 @@ impl Engine {
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
+            boxes: Vec::new(),
+            layout: Vec::new(),
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
@@ -347,6 +369,11 @@ impl Engine {
         match m {
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
+            Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
+                if !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
+                    self.layout.push(Layout::Par);
+                }
+            }
             Meaning::Prim(Prim::Begingroup) => self.begin_group(),
             Meaning::Prim(Prim::Endgroup) => self.end_group(),
             Meaning::Native(id) if id >= NATIVE_KEY_BASE => {
@@ -381,6 +408,13 @@ impl Engine {
 
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
+        if self.picture_depth == 0 && c.is_whitespace() {
+            // a space between two pictures is TeX's interword space
+            if matches!(self.layout.last(), Some(Layout::Picture(_))) {
+                self.layout.push(Layout::Space);
+            }
+            return;
+        }
         if c.is_whitespace() || c == ';' || self.text_reported {
             return;
         }
@@ -906,9 +940,10 @@ impl Engine {
         self.depth += 1;
         if self.picture_depth == 0 {
             self.pictures += 1;
-            if self.pictures > 1 {
-                self.warn("more than one tikzpicture: only the first was drawn");
-            }
+            // each picture is drawn on its own canvas, laid out with the others at the end
+            let margin = self.canvas.margin;
+            self.canvas = Canvas { margin, ..Canvas::default() };
+            self.canvas_frozen = false;
         }
         self.picture_depth += 1;
         self.begin_group();
@@ -924,20 +959,37 @@ impl Engine {
 
     fn end_picture(&mut self) {
         self.end_scope();
+        let outermost = self.picture_depth == 1;
+        let baseline = if outermost { self.picture_baseline() } else { 0.0 };
         self.end_group();
         self.picture_depth = self.picture_depth.saturating_sub(1);
         self.depth = self.depth.saturating_sub(1);
+        if outermost {
+            let margin = self.canvas.margin;
+            let canvas = std::mem::replace(&mut self.canvas, Canvas { margin, ..Canvas::default() });
+            self.layout.push(Layout::Picture(self.boxes.len()));
+            self.boxes.push(PictureBox { canvas, baseline });
+        }
+    }
+
+    /// Where the picture's baseline is (`baseline=`): by default its lower edge, as TikZ sets it.
+    fn picture_baseline(&mut self) -> f64 {
+        let lower = self.canvas.min.map_or(0.0, |m| m.y);
+        let Some(spec) = self.st.baseline.clone() else { return lower };
+        let s = spec.trim();
+        if s.is_empty() {
+            return 0.0;
+        }
+        if let Some(inner) = s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+            return self.coordinate(inner).map(|c| c.p.y).unwrap_or(lower);
+        }
+        self.length(s).unwrap_or(lower)
     }
 
     /// `\tikz[options]{…}` or `\tikz[options] statement;`
     fn tikz_command(&mut self) -> Result<(), Error> {
         let o = self.optional()?;
         let body = self.next_statement()?;
-        if self.pictures >= 1 && self.picture_depth == 0 {
-            self.pictures += 1;
-            self.warn("more than one tikzpicture: only the first was drawn");
-            return Ok(());
-        }
         self.begin_picture(o)?;
         self.run_tokens(body)?;
         self.end_picture();
@@ -949,13 +1001,6 @@ impl Engine {
         self.tex.env_stack.push(name.clone());
         match name.as_str() {
             "tikzpicture" => {
-                if self.pictures >= 1 && self.picture_depth == 0 {
-                    // only the first picture is drawn: skip this one to its end
-                    self.pictures += 1;
-                    self.warn("more than one tikzpicture: only the first was drawn");
-                    self.skip_environment(&name)?;
-                    return Ok(());
-                }
                 let o = self.optional()?;
                 self.begin_picture(o)
             }
@@ -1044,12 +1089,6 @@ impl Engine {
             }
         }
         Ok(tex::tokens_to_string(&out))
-    }
-
-    fn skip_environment(&mut self, name: &str) -> Result<(), Error> {
-        let _ = self.environment_body(name)?;
-        self.tex.env_stack.pop();
-        Ok(())
     }
 
     fn end_environment(&mut self) -> Result<(), Error> {
@@ -1356,6 +1395,68 @@ pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
     out
 }
 
+/// TeX's interword space and line spacing for Computer Modern at 10 pt, in cm.
+const SPACE: f64 = 3.33333 * crate::PT;
+const BASELINE_SKIP: f64 = 12.0 * crate::PT;
+const LINE_SKIP: f64 = 1.0 * crate::PT;
+
+/// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
+/// where the source had one, a new line at each paragraph; then one canvas with all of them.
+fn typeset(boxes: &[PictureBox], layout: &[Layout], margin: f64) -> Canvas {
+    let mut out = Canvas { margin, ..Canvas::default() };
+    let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
+    for l in layout {
+        match l {
+            Layout::Par => lines.push(Vec::new()),
+            other => lines.last_mut().expect("a line").push(*other),
+        }
+    }
+    let mut baseline_y = 0.0;
+    let mut previous_depth: Option<f64> = None;
+    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_)))) {
+        let (mut height, mut depth) = (0.0f64, 0.0f64);
+        for l in line {
+            if let Layout::Picture(i) = l {
+                let b = &boxes[*i];
+                let (lo, hi) = (b.canvas.min.map_or(0.0, |m| m.y), b.canvas.max.map_or(0.0, |m| m.y));
+                height = height.max(hi - b.baseline);
+                depth = depth.max(b.baseline - lo);
+            }
+        }
+        if let Some(d) = previous_depth {
+            let gap = BASELINE_SKIP - d - height;
+            baseline_y -= if gap >= 0.0 { BASELINE_SKIP } else { d + LINE_SKIP + height };
+        }
+        let mut x = 0.0;
+        let mut started = false;
+        for l in line {
+            match l {
+                Layout::Space if started => x += SPACE,
+                Layout::Picture(i) => {
+                    let b = &boxes[*i];
+                    let (Some(min), Some(max)) = (b.canvas.min, b.canvas.max) else {
+                        started = true;
+                        continue;
+                    };
+                    let d = Point::new(x - min.x, baseline_y - b.baseline);
+                    for item in &b.canvas.items {
+                        let mut it = item.clone();
+                        it.translate(d);
+                        out.items.push(it);
+                    }
+                    out.include(min.plus(d));
+                    out.include(max.plus(d));
+                    x += max.x - min.x;
+                    started = true;
+                }
+                _ => {}
+            }
+        }
+        previous_depth = Some(depth);
+    }
+    out
+}
+
 /// Runs a whole document (or figure) and returns the canvas and the warnings.
 pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
     let mut e = Engine::new();
@@ -1364,12 +1465,16 @@ pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
     e.tex.push_text(code);
     e.run()?;
     // anything left open is closed
+    while e.picture_depth > 0 {
+        e.end_picture();
+    }
     while !e.scopes.is_empty() {
         e.end_scope();
     }
+    let margin = e.canvas.margin;
+    e.canvas = typeset(&e.boxes, &e.layout, margin);
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
-    let _ = Point::default();
     let _ = Transform::default();
     Ok((e.canvas, warnings))
 }

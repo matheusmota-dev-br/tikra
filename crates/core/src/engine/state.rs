@@ -89,6 +89,8 @@ pub struct GState {
     pub functions: Rc<HashMap<String, (Vec<String>, String)>>,
     /// settings of the node being created
     pub node: super::nodes::NodeSetup,
+    /// `baseline=` of the picture
+    pub baseline: Option<String>,
 }
 
 impl Default for GState {
@@ -146,6 +148,7 @@ impl Default for GState {
             segment_length: 10.0 * PT,
             functions: Rc::new(HashMap::new()),
             node: Default::default(),
+            baseline: None,
         }
     }
 }

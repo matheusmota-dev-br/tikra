@@ -1205,6 +1205,11 @@ keyfn!(k_tikz_unknown, |e, v| e.tikz_unknown(v));
 
 keyfn!(k_ignore, |_e, _v| Ok(()));
 
+keyfn!(k_baseline, |e, v| {
+    e.st.baseline = Some(text(e, &v)?);
+    Ok(())
+});
+
 /// Keys done natively: the path and its function.
 const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/.unknown", k_tikz_unknown),
@@ -1307,7 +1312,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/overlay", k_ignore),
     ("/tikz/on grid", k_ignore),
     ("/tikz/inner frame sep", k_ignore),
-    ("/tikz/baseline", k_ignore),
+    ("/tikz/baseline", k_baseline),
 ];
 
 /// TikZ's own definitions of the keys it defines as styles or values (tikz.code.tex, pgfmoduleshapes).
