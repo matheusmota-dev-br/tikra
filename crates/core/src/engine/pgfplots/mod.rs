@@ -20,6 +20,7 @@ pub mod plot;
 pub mod polar;
 pub mod symbolic;
 pub mod table;
+pub mod ternary;
 pub mod ticks;
 pub mod visual;
 
@@ -124,7 +125,7 @@ impl Engine {
 
     /// An axis with these options (`\nextgroupplot` makes them).
     pub fn begin_axis_with(&mut self, kind: &str, o: Vec<Token>) -> Result<(), Error> {
-        if matches!(kind, "smithchart" | "ternaryaxis") {
+        if kind == "smithchart" {
             self.warn(format!("{kind} not supported: drawn as a cartesian axis"));
         }
         if self.axis.is_some() {
@@ -138,6 +139,10 @@ impl Engine {
         let mut axis = Axis { kind: kind.to_string(), opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
             "polaraxis" => "enlarge x limits=false,every polar axis",
+            "ternaryaxis" => {
+                "enlargelimits=false,xmin=0,xmax=1,ymin=0,ymax=1,zmin=0,zmax=1,\
+                 footnotesize/.append style={every axis title shift=15pt},tiny/.append style={every axis title shift=15pt},every ternary axis"
+            }
             "semilogxaxis" => "every semilogx axis,xmode=log",
             "semilogyaxis" => "every semilogy axis,ymode=log",
             "loglogaxis" => "every loglog axis,xmode=log,ymode=log",
@@ -158,6 +163,17 @@ impl Engine {
         };
         keys::set(self, "/pgfplots/@axis type", if kind == "polaraxis" { "polar" } else { "cart" });
         self.process_keys(o, Some("/pgfplots")).map_err(|err| Error::Figure(format!("axis options: {err}")))?;
+        if kind == "ternaryaxis" {
+            // percentages: whole numbers, never scaled
+            if keys::flag(self, "/pgfplots/ternary limits relative") {
+                keys::run(self, "scaled ticks=false,ticklabel style={/pgf/number format/precision=0}")?;
+            }
+            for c in ['x', 'y', 'z'] {
+                if keys::value(self, &format!("/pgfplots/{c} dir")) == "reverse" {
+                    self.warn(format!("ternaryaxis: '{c} dir=reverse' not supported: drawn forward"));
+                }
+            }
+        }
         self.st.key_path = saved;
         axis.numplots = 0;
         if let Some(code) = keys::value_tokens(self, "/pgfplots/execute at begin axis") {

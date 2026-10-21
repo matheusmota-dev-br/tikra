@@ -665,8 +665,18 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     e.tex.set_catcode('\n', Cat::Other);
     e.tex.set_catcode('\r', Cat::Other);
     let r = (|| -> Result<(Option<Vec<Token>>, Vec<Token>), Error> {
+        // line ends before the options or the data are spaces still
+        let next = |e: &mut Engine| loop {
+            match e.tex.next_nonspace() {
+                Some(Token::Char('\n' | '\r', Cat::Other)) => continue,
+                t => break t,
+            }
+        };
+        if let Some(t) = next(e) {
+            e.tex.back(t);
+        }
         let opts = e.optional()?;
-        let data = match e.tex.next_nonspace() {
+        let data = match next(e) {
             Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
             Some(t) => vec![t],
             None => Vec::new(),
@@ -755,6 +765,29 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         Some(v) if tex::tokens_to_string(&v).contains("\\thisrow") => Src::Expr(v),
         _ => pick(e, "meta", None),
     };
+    // a tieline plot reads the tie's other end of each row too: `tie end x` (or its index),
+    // else the column three after x's
+    let tie: Option<[Src; 3]> = (keys::value(e, "/tikz/@plot handler") == "tieline").then(|| {
+        let mut ends = [Src::None, Src::None, Src::None];
+        for (k, c) in ["x", "y", "z"].iter().enumerate() {
+            let own = [&sx, &sy, &sz][k];
+            let name = keys::value(e, &format!("/pgfplots/table/tie end {c}"));
+            ends[k] = if !name.is_empty() {
+                Src::Col(t.column(&name))
+            } else if let Some(i) = keys::number(e, &format!("/pgfplots/table/tie end {c} index")) {
+                Src::Col(Some(i as usize))
+            } else {
+                match own {
+                    Src::Col(Some(i)) if i + 3 < t.columns() => Src::Col(Some(i + 3)),
+                    _ => Src::None,
+                }
+            };
+        }
+        ends
+    });
+    if tie.as_ref().is_some_and(|t| t.iter().any(|s| matches!(s, Src::None | Src::Col(None)))) {
+        e.warn("tieline: the tie ends' columns are not found (give 'tie end x' and its friends): ties not drawn");
+    }
     let sey = pick(e, "y error", None);
     let sex = pick(e, "x error", None);
     let seyp = pick(e, "y error plus", None);
@@ -816,7 +849,15 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         if m.is_finite() {
             c.err[2] = m;
         }
+        let other = tie.as_ref().map(|ends| {
+            let mut b = c;
+            b.x = get(e, &ends[0]);
+            b.y = get(e, &ends[1]);
+            b.z = get(e, &ends[2]);
+            b
+        });
         out.push(c);
+        out.extend(other);
     }
     Ok(out)
 }

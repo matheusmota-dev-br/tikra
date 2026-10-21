@@ -65,6 +65,10 @@ pub struct Frame {
     /// `polaraxis`: x is an angle in degrees, y a radius; `e[0]`, `e[1]` are the cartesian
     /// unit vectors and `origin` the center.
     pub polar: bool,
+    /// `ternaryaxis`: points are placed by `ternary::at`; `e` are the triangle's edges per
+    /// logical unit. Tick labels are percentages of the ranges with relative limits.
+    pub ternary: bool,
+    pub ternary_relative: bool,
 }
 
 impl Frame {
@@ -78,6 +82,9 @@ impl Frame {
 
     /// The canvas point of logical coordinates.
     pub fn at(&self, l: [f64; 3]) -> Point {
+        if self.ternary {
+            return super::ternary::at(self, l);
+        }
         if self.polar {
             let (s, c) = super::polar::sin_cos(l[0]);
             return self.origin.plus(self.e[0].scale(l[1] * c)).plus(self.e[1].scale(l[1] * s));
@@ -106,6 +113,13 @@ impl Frame {
     pub fn bbox(&self) -> (Point, Point) {
         let mut lo = Point::new(f64::INFINITY, f64::INFINITY);
         let mut hi = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+        if self.ternary {
+            for p in super::ternary::corners(self) {
+                lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+                hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+            }
+            return (lo, hi);
+        }
         if self.polar {
             for p in super::polar::outline(self) {
                 lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
@@ -136,6 +150,9 @@ impl Frame {
 
     /// The outward unit normal of the line that holds axis `a`'s tick labels.
     pub fn normal(&self, a: usize) -> Point {
+        if self.ternary {
+            return super::ternary::normal(self, a);
+        }
         if self.three_d {
             return super::cube::outer_normal(&self.e, self.label_line[a], self.box_line[a]);
         }
@@ -394,6 +411,8 @@ fn clone_frame(f: &Frame) -> Frame {
         box_line: f.box_line,
         data_range: f.data_range,
         polar: f.polar,
+        ternary: f.ternary,
+        ternary_relative: f.ternary_relative,
         label_shift: f.label_shift,
         meta: f.meta,
         colormap: f.colormap.clone(),
@@ -508,7 +527,8 @@ fn register_axis_node(e: &mut Engine, name: &str, lo: Point, hi: Point, blo: Poi
 
 /// Limits, scaling and ticks.
 fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
-    let three_d = axis.entries.iter().any(|en| matches!(en, Entry::Plot(p) if p.three_d)) || !e.pv("zmin").is_empty() || !e.pv("zmax").is_empty();
+    let ternary = axis.kind == "ternaryaxis";
+    let three_d = ternary || axis.entries.iter().any(|en| matches!(en, Entry::Plot(p) if p.three_d)) || !e.pv("zmin").is_empty() || !e.pv("zmax").is_empty();
     if three_d {
         three_d_descriptions(e, axis)?;
     }
@@ -685,7 +705,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
     }
     // enlargelimits (none on a polar axis)
-    for a in 0..if polar { 0 } else { dims } {
+    for a in 0..if polar || ternary { 0 } else { dims } {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
@@ -758,7 +778,13 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         })
     };
     let units = [user_unit(e, 'x'), user_unit(e, 'y'), user_unit(e, 'z')];
-    if polar {
+    if ternary {
+        // a triangle of side `width` (less the labels' room)
+        let v = super::ternary::vectors(width);
+        for a in 0..3 {
+            ev[a] = v[a].scale(1.0 / (max[a] - min[a]).abs().max(1e-300));
+        }
+    } else if polar {
         // the circle (or sector) stretched to width × height, which are equal by default
         let (w, h) = (keys::length(e, "/pgfplots/width"), keys::length(e, "/pgfplots/height"));
         let (mut pw, mut ph) = match (w, h) {
@@ -903,8 +929,12 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         box_line: [*b"v00", *b"0v0", *b"00v"],
         data_range,
         polar,
+        ternary,
+        ternary_relative: ternary && keys::flag(e, "/pgfplots/ternary limits relative"),
     };
-    if three_d {
+    if ternary {
+        // the lower left corner is at the origin already
+    } else if three_d {
         super::cube::prepare(e, &mut frame, dir, &lines);
     } else {
         // `lower` is lower on paper (left for y): with `y dir=reverse` the x tick labels go to
@@ -1198,19 +1228,25 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         let rect = box_path(&f);
         e.draw_with("draw=none,/pgfplots/axis background", rect)?;
     }
-    if f.polar && !on_top {
+    if f.ternary {
+        if !on_top {
+            super::ternary::draw_axis(e, s)?;
+        }
+    } else if f.polar && !on_top {
         super::polar::draw_axis(e, s)?;
     } else if !f.three_d && !on_top {
         draw_axis_2d(e, s)?;
     }
-    if f.three_d && !on_top {
+    if f.three_d && !f.ternary && !on_top {
         super::cube::draw(e, s, false)?;
     }
     // the plots, clipped
     let clip = keys::flag(e, "/pgfplots/clip");
     e.begin_scope();
     if clip {
-        let segs = if f.polar {
+        let segs = if f.ternary {
+            super::ternary::outline(&f)
+        } else if f.polar {
             super::polar::clip_path(&f)
         } else if f.three_d {
             hull_path(&f)
@@ -1269,11 +1305,13 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         (e.canvas.min, e.canvas.max) = saved_bbox;
     }
     // `3d box=complete`: the foreground edges, on top of the plots
-    if f.three_d && e.pv("3d box") != "background" {
+    if f.three_d && !f.ternary && e.pv("3d box") != "background" {
         super::cube::draw(e, s, true)?;
     }
     if on_top {
-        if f.polar {
+        if f.ternary {
+            super::ternary::draw_axis(e, s)?;
+        } else if f.polar {
             super::polar::draw_axis(e, s)?;
         } else if f.three_d {
             super::cube::draw(e, s, false)?;
@@ -1830,6 +1868,7 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
         e.begin_group();
         let r = (|| {
             e.keys_tikz(&styles)?;
+            let (t, next) = if f.ternary { (super::ternary::shown(&f, a, t), next.map(|n| super::ternary::shown(&f, a, n))) } else { (t, next) };
             tick_text(e, a, t, next, k, factor, extra)
         })();
         e.end_group();
@@ -1876,8 +1915,13 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         let p = f.desc(0.0, 0.0);
         let options = toks(&format!("/pgfplots/every axis label,/pgfplots/every axis {c} label"));
         let text = print_numbers(e, &text)?;
-        let items = e.node(NodeSpec { options, name: None, at: None, text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None })?;
-        e.canvas.items.extend(items);
+        // `sloped` in a label is `sloped like x axis`
+        e.begin_group();
+        let slope = e.tex.meaning_of(&pk::macro_name(&format!("/tikz/sloped like {c} axis/.@cmd")));
+        e.tex.set_meaning(&Token::cs(&pk::macro_name("/tikz/sloped/.@cmd")), slope, false);
+        let items = e.node(NodeSpec { options, name: None, at: None, text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None });
+        e.end_group();
+        e.canvas.items.extend(items?);
     }
     if let Some(text) = keys::value_tokens(&*e, "/pgfplots/title") {
         let p = f.desc(0.0, 0.0);
@@ -1915,10 +1959,16 @@ impl Engine {
         };
         let r = (|| -> Result<Point, Error> {
             match system {
+                "cartesian" if f.ternary => {
+                    let x = value(self, 0, "x")?.unwrap_or(0.0);
+                    let y = value(self, 1, "y")?.unwrap_or(0.0);
+                    Ok(super::ternary::cartesian(&f, x, y))
+                }
                 "axis" => {
                     let x = value(self, 0, "x")?.unwrap_or(0.0);
                     let y = value(self, 1, "y")?.unwrap_or(0.0);
-                    let z = value(self, 2, "z")?.unwrap_or(0.0);
+                    // a ternary axis deduces a missing z
+                    let z = value(self, 2, "z")?.unwrap_or(if f.ternary { f64::NAN } else { 0.0 });
                     let l = [f.logical(0, x), f.logical(1, y), if f.three_d { f.logical(2, z) } else { f.min[2] }];
                     Ok(f.at(l))
                 }
@@ -1962,7 +2012,9 @@ impl Engine {
                         Some(p) => self.length(p)?,
                         None => 0.0,
                     };
-                    let base = if f.three_d {
+                    let base = if f.ternary {
+                        super::ternary::edge(&f, a, t)
+                    } else if f.three_d {
                         // a point of the line that holds the tick labels
                         let line = f.label_line[a];
                         let l = [0, 1, 2].map(|k| match line[k] {
@@ -2004,6 +2056,15 @@ impl Engine {
     pub fn pgfplots_plain(&mut self, parts: &[String]) -> Option<Result<Point, Error>> {
         let f = self.frame.clone()?;
         match f.cs.get() {
+            // plain coordinates of a ternary axis are cartesian
+            Cs::Plain if f.ternary => {
+                let r = (|| -> Result<Point, Error> {
+                    let x = self.number(crate::keys::strip_braces(parts.first().map_or("0", |p| p.trim())))?;
+                    let y = self.number(crate::keys::strip_braces(parts.get(1).map_or("0", |p| p.trim())))?;
+                    Ok(super::ternary::cartesian(&f, x, y))
+                })();
+                Some(r)
+            }
             Cs::Plain => None,
             cs => {
                 let r = (|| -> Result<Point, Error> {

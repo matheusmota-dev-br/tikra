@@ -605,6 +605,30 @@ const DEFINITIONS: &str = r"
 	},
 	/pgfplots/polar labels style/.style={/pgfplots/polar labels/.append style={#1}},
 	/pgfplots/xticklabel in circle/.style={xtick align=inside, xticklabel style={rotate=90, anchor=south west}},
+	% ternary axes: limits and labels relative to the ranges (in percent) unless turned off
+	/pgfplots/ternary limits relative/.initial=true, /pgfplots/ternary limits relative/.default=true,
+	/pgfplots/ternary relative limits/.style={/pgfplots/ternary limits relative={#1}},
+	/pgfplots/ternary start x/.initial=, /pgfplots/ternary start y/.initial=, /pgfplots/ternary start z/.initial=,
+	/pgfplots/every ternary axis/.style={
+		grid=major, /pgfplots/tick align=outside, xticklabel style={anchor=west},
+		/pgfplots/every 3d description/.style={},
+		every axis title shift=15pt,
+		every axis x label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+		every axis y label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+		every axis z label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+		every x tick scale label/.style={inner sep=0pt, anchor=near xticklabel, at={(xticklabel cs:0.95,5pt)}},
+		every y tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
+		every z tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
+		every axis legend/.style={shape=rectangle, draw=black, fill=white, anchor=north west, at={(1.03,1.03)},
+			cells={anchor=center}, inner xsep=3pt, inner ysep=2pt, nodes={inner sep=2pt, text depth=0.15em}},
+	},
+	% tieline plots: each table row has a point and its tie's other end
+	/pgfplots/tieline/every tieline/.style={}, /pgfplots/tieline/every curve/.style={},
+	/pgfplots/tieline/tieline style/.style={/pgfplots/tieline/every tieline/.append style={#1}},
+	/pgfplots/tieline/curve style/.style={/pgfplots/tieline/every curve/.append style={#1}},
+	/pgfplots/tieline/each nth tie/.initial=,
+	/pgfplots/table/tie end x/.initial=, /pgfplots/table/tie end y/.initial=, /pgfplots/table/tie end z/.initial=,
+	/pgfplots/table/tie end x index/.initial=, /pgfplots/table/tie end y index/.initial=, /pgfplots/table/tie end z index/.initial=,
 	/pgfplots/polar comb/.code={\pgfkeyssetvalue{/tikz/@plot handler}{polar comb}},
 	/pgfplots/matrix plot/.style={/pgfplots/late options={/pgfplots/y dir=reverse,/pgfplots/axis on top},/pgfplots/matrix plot*},
 	/pgfplots/matrix plot*/.style={/pgfplots/surf,/pgfplots/mesh input=image,/pgfplots/shader=flat corner,/pgfplots/z buffer=none},
@@ -970,6 +994,32 @@ keyfn!(k_contour_filled, |e, v| {
     r
 });
 
+// `sloped like x axis`: the node turned to the axis' direction on paper, never upside down; it
+// replaces rotations given before (`\pgfplotstransformtoaxisdirection`).
+fn sloped_like(e: &mut Engine, a: usize) -> Result<(), Error> {
+    let Some(f) = e.frame.clone() else { return Ok(()) };
+    let d = f.e[a].scale(if f.max[a] < f.min[a] { -1.0 } else { 1.0 });
+    if d.norm() < 1e-12 {
+        return Ok(());
+    }
+    let d = if d.x < 0.0 { d.scale(-1.0) } else { d };
+    let p = e.st.pending;
+    e.st.pending = crate::scene::Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, ..p }.compose(&crate::scene::Transform::rotation(d.y.atan2(d.x).to_degrees()));
+    Ok(())
+}
+keyfn!(k_sloped_x, |e, _v| sloped_like(e, 0));
+keyfn!(k_sloped_y, |e, _v| sloped_like(e, 1));
+keyfn!(k_sloped_z, |e, _v| sloped_like(e, 2));
+
+// `tieline={…}`: the curve through the ties' ends, and the ties.
+keyfn!(k_tieline, |e, v| {
+    set(e, "/tikz/@plot handler", "tieline");
+    let saved = e.st.key_path.clone();
+    let r = e.process_keys(v.unwrap_or_default(), Some("/pgfplots/tieline"));
+    e.st.key_path = saved;
+    r
+});
+
 // `quiver={u=…, v=…}`: arrows from each point by (u, v, w).
 keyfn!(k_quiver, |e, v| {
     set(e, "/pgfplots/@quiver", "true");
@@ -1105,6 +1155,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/group style", k_group_style),
     ("/pgfplots/hist", k_hist),
     ("/pgfplots/quiver", k_quiver),
+    ("/pgfplots/tieline", k_tieline),
+    ("/tikz/sloped like x axis", k_sloped_x),
+    ("/tikz/sloped like y axis", k_sloped_y),
+    ("/tikz/sloped like z axis", k_sloped_z),
     ("/pgfplots/contour prepared", k_contour_prepared),
     ("/pgfplots/contour filled", k_contour_filled),
     ("/pgfplots/boxplot", k_boxplot),

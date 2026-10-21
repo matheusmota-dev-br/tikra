@@ -155,6 +155,36 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         // box plots draw their box; the points are the outliers' marks
         "boxplot" => super::boxplot::draw(e, p, f, index_of_type)?,
         "contour prepared" => super::contour::draw(e, p, pts, f)?,
+        // rows give a point and its tie's other end: the curve through all of them (the points,
+        // then the other ends backwards), then every nth tie
+        "tieline" => {
+            let ends: Vec<Point> = cp.iter().step_by(2).flatten().copied().collect();
+            let others: Vec<Point> = cp.iter().skip(1).step_by(2).flatten().copied().collect();
+            let curve: Vec<Point> = ends.iter().chain(others.iter().rev()).copied().collect();
+            if let Some((first, rest)) = curve.split_first() {
+                let mut segs = vec![Segment::MoveTo(*first)];
+                segs.extend(rest.iter().map(|q| Segment::LineTo(*q)));
+                e.begin_group();
+                let r = (|| {
+                    e.process_keys(toks("/pgfplots/tieline/every curve"), Some("/pgfplots"))?;
+                    e.st.apply_pending();
+                    e.use_path(segs, "addplot")
+                })();
+                e.end_group();
+                r?;
+            }
+            e.process_keys(toks("/pgfplots/tieline/every tieline"), Some("/pgfplots"))?;
+            e.st.apply_pending();
+            let nth = keys::number(e, "/pgfplots/tieline/each nth tie").unwrap_or(1.0).max(1.0) as usize;
+            if keys::value(e, "/tikz/@plot handler") == "tieline" {
+                for (i, pair) in cp.chunks(2).enumerate() {
+                    if let ([Some(a), Some(b)], true) = (pair, (i + 1) % nth == 0) {
+                        segs.push(Segment::MoveTo(*b));
+                        segs.push(Segment::LineTo(*a));
+                    }
+                }
+            }
+        }
         // an arrow per point, each a path of its own (its tips at its end)
         "quiver" => {
             let color = keys::value(e, "/pgfplots/quiver/arrow color");
