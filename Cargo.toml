@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/cli", "crates/wasm"]
-# wasm needs wasm-bindgen to build a package; they stay out of the default `cargo build`
+members = ["crates/core", "crates/cli", "crates/python", "crates/wasm"]
+# python and wasm need maturin and wasm-bindgen to build a package; they stay out of the default `cargo build`
 default-members = ["crates/core", "crates/cli"]
 
 [workspace.package]
