@@ -54,7 +54,7 @@ fn open(v: &[Point]) -> Vec<Segment> {
 /// The mark `name` with radius `r`, at the origin: its pieces in drawing order.
 fn shape(name: &str, r: f64) -> Option<Vec<(Vec<Segment>, Usage)>> {
     let p = Point::new;
-    let k = 0.707_106_78 * r;
+    let k = std::f64::consts::FRAC_1_SQRT_2 * r;
     let plus = lines(&[(p(-r, 0.0), p(r, 0.0)), (p(0.0, r), p(0.0, -r))]);
     let cross = lines(&[(p(-k, -k), p(k, k)), (p(-k, k), p(k, -k))]);
     let pentagon = [p(0.0, r), polar(18.0, r), polar(-54.0, r), polar(234.0, r), polar(162.0, r)];
