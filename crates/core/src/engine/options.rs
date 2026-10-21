@@ -1394,29 +1394,13 @@ keyfn!(k_variable, |e, v| {
     e.st.variable = s.trim().trim_start_matches('\\').to_string();
     Ok(())
 });
-keyfn!(k_smooth, |e, _v| {
-    e.st.plot_handler = "smooth".into();
-    Ok(())
-});
-// the plot handlers named by their key
+// the plot handlers named by their key (pgfplots' keys set the others)
 fn plot_handler(e: &mut Engine, name: &str) -> Result<(), Error> {
     e.st.plot_handler = name.into();
     Ok(())
 }
 keyfn!(k_smooth_cycle, |e, _v| plot_handler(e, "smooth cycle"));
 keyfn!(k_sharp_cycle, |e, _v| plot_handler(e, "sharp cycle"));
-keyfn!(k_xcomb, |e, _v| plot_handler(e, "xcomb"));
-keyfn!(k_ycomb, |e, _v| plot_handler(e, "ycomb"));
-keyfn!(k_polar_comb, |e, _v| plot_handler(e, "polar comb"));
-keyfn!(k_xbar, |e, _v| plot_handler(e, "xbar"));
-keyfn!(k_ybar, |e, _v| plot_handler(e, "ybar"));
-keyfn!(k_const_plot, |e, _v| plot_handler(e, "const plot"));
-keyfn!(k_const_plot_right, |e, _v| plot_handler(e, "const plot mark right"));
-keyfn!(k_const_plot_mid, |e, _v| plot_handler(e, "const plot mark mid"));
-keyfn!(k_jump_left, |e, _v| plot_handler(e, "jump mark left"));
-keyfn!(k_jump_right, |e, _v| plot_handler(e, "jump mark right"));
-keyfn!(k_jump_mid, |e, _v| plot_handler(e, "jump mark mid"));
-keyfn!(k_sharp_plot, |e, _v| plot_handler(e, "sharp plot"));
 keyfn!(k_tension, |e, v| {
     e.st.tension = number(e, &v)?.unwrap_or(0.55);
     Ok(())
@@ -1839,22 +1823,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/domain", k_domain),
     ("/tikz/samples", k_samples),
     ("/tikz/variable", k_variable),
-    ("/tikz/smooth", k_smooth),
-    ("/tikz/sharp plot", k_sharp_plot),
     ("/tikz/smooth cycle", k_smooth_cycle),
     ("/tikz/sharp cycle", k_sharp_cycle),
-    ("/tikz/xcomb", k_xcomb),
-    ("/tikz/ycomb", k_ycomb),
-    ("/tikz/polar comb", k_polar_comb),
-    ("/tikz/xbar", k_xbar),
-    ("/tikz/ybar", k_ybar),
-    ("/tikz/const plot", k_const_plot),
-    ("/tikz/const plot mark left", k_const_plot),
-    ("/tikz/const plot mark right", k_const_plot_right),
-    ("/tikz/const plot mark mid", k_const_plot_mid),
-    ("/tikz/jump mark left", k_jump_left),
-    ("/tikz/jump mark right", k_jump_right),
-    ("/tikz/jump mark mid", k_jump_mid),
     ("/tikz/tension", k_tension),
     ("/tikz/mark", k_mark),
     ("/tikz/only marks", k_only_marks),

@@ -232,7 +232,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             let tension = e.st.tension;
             for run in runs(&cp) {
                 segs.push(Segment::MoveTo(run[0]));
-                if e.st.smooth {
+                if e.st.plot_handler == "smooth" {
                     smooth(&run, tension, &mut segs);
                 } else {
                     for q in &run[1..] {

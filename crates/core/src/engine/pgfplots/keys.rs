@@ -735,11 +735,8 @@ fn handler(e: &mut Engine, name: &str) {
 
 keyfn!(k_handler, |e, _v| {
     let name = current_name(e);
-    if name == "smooth" {
-        e.st.smooth = true;
-    } else if name == "sharp plot" {
-        e.st.smooth = false;
-    }
+    // TikZ's own `plot` draws with the same handler
+    e.st.plot_handler = name.clone();
     let h = match name.as_str() {
         "smooth" | "sharp plot" => "",
         "const plot" | "const plot mark left" => "const",
