@@ -387,7 +387,12 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "parabola" => parabola(e, b, depth)?,
                     "let" => let_operation(e, depth)?,
                     "in" => {}
-                    "pic" | "child" | "svg" | "decorate" => {
+                    "pic" => {
+                        let (options, name, at, content) = read_node(e, depth, false)?;
+                        let at = at.unwrap_or_else(|| b.point());
+                        e.pic(super::pics::PicSpec { options, name, at, content })?;
+                    }
+                    "child" | "svg" | "decorate" => {
                         e.warn(format!("path operation '{w}' not supported: rest of the path ignored"));
                         return skip_rest(e, depth);
                     }

@@ -427,8 +427,10 @@ impl Engine {
             }
         }
         if let Some(n) = &name {
-            self.tex.define_string("tikzlastnode", n, true);
-            self.nodes.insert(n.clone(), info.clone());
+            // inside a pic, names get its prefix
+            let n = format!("{}{n}", self.st.name_prefix);
+            self.tex.define_string("tikzlastnode", &n, true);
+            self.nodes.insert(n, info.clone());
         }
         // labels and pins
         let labels = std::mem::take(&mut self.st.node.labels);

@@ -102,6 +102,11 @@ pub struct GState {
     pub at_end_scope: Vec<crate::tex::Token>,
     pub at_begin_picture: Vec<crate::tex::Token>,
     pub at_end_picture: Vec<crate::tex::Token>,
+    /// pics: the pic's mode (for `pic actions`), its text (quotes), and the prefix of node names
+    pub pic_mode: Mode,
+    pub pic_text: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
+    pub quotes_in_pic: bool,
+    pub name_prefix: String,
     /// `name path=`: the path is kept under this name (intersections)
     pub name_path: Option<String>,
     /// nodes made by quotes in `to`/`edge` options: text and options
@@ -168,6 +173,10 @@ impl Default for GState {
             swap: false,
             quotes_on_path: false,
             name_path: None,
+            pic_mode: Mode::default(),
+            pic_text: None,
+            quotes_in_pic: false,
+            name_prefix: String::new(),
             at_begin_scope: Vec::new(),
             at_end_scope: Vec::new(),
             at_begin_picture: Vec::new(),

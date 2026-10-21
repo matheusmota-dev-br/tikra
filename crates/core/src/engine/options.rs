@@ -212,7 +212,9 @@ impl Engine {
         }
         // `"text" above, red` is one key in a list only up to the comma: the rest are options
         let options = options.split_whitespace().collect::<Vec<_>>().join(" ");
-        if self.st.quotes_on_path {
+        if self.st.quotes_in_pic {
+            self.st.pic_text = Some((tikra_tokens(&text), tikra_tokens(&options)));
+        } else if self.st.quotes_on_path {
             let mut o = tikra_tokens("every edge quotes/.try,");
             o.extend(tikra_tokens(&options));
             self.st.quoted.push((tikra_tokens(&text), o));
@@ -386,6 +388,13 @@ impl Engine {
                         self.unknown(base, Some(item))?;
                     }
                 }
+            }
+            ".pic" => {
+                // name/.pic={code}: the pic type `name`, under /tikz/pics
+                let name = base.trim_start_matches("/tikz/").trim_start_matches('/');
+                let mut body = tikra_tokens("code=");
+                body.extend(group(v));
+                self.define_code(&format!("/tikz/pics/{name}"), 1, Self::style_body(body));
             }
             ".unknown" => {
                 // `/foo/.unknown/.code={…}` reaches here as a handler of the path /foo/.unknown
@@ -1300,6 +1309,17 @@ keyfn!(k_at_end_picture, |e, v| {
     Ok(())
 });
 
+keyfn!(k_pic_actions, |e, _v| {
+    let p = e.st.pic_mode.clone();
+    let m = &mut e.st.mode;
+    m.draw |= p.draw;
+    m.fill |= p.fill;
+    m.pattern |= p.pattern;
+    m.shade |= p.shade;
+    m.clip |= p.clip;
+    Ok(())
+});
+
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
     e.st.auto = match s.as_str() {
@@ -1424,6 +1444,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
+    ("/tikz/pic actions", k_pic_actions),
     ("/tikz/execute at begin scope", k_at_begin_scope),
     ("/tikz/execute at end scope", k_at_end_scope),
     ("/tikz/execute at begin picture", k_at_begin_picture),
@@ -1492,6 +1513,9 @@ const DEFINITIONS: &str = r"
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /tikz/relative/.code={},
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
+  /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
+  /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
+  every pic/.style={}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every node quotes/.style={}, every fit/.style={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}

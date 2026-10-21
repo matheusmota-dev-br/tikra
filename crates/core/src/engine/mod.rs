@@ -10,6 +10,7 @@ pub mod nodes;
 pub mod options;
 pub mod output;
 pub mod path;
+pub mod pics;
 pub mod state;
 
 use std::collections::HashMap;
@@ -77,6 +78,7 @@ pub enum Cmd {
     Unsupported,
     OnLayer,
     EndOnLayer,
+    NamePrefix,
     SetLayers,
     Frame,
 }
@@ -139,6 +141,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfonlayer", Cmd::OnLayer),
     ("endpgfonlayer", Cmd::EndOnLayer),
     ("tikra@frame", Cmd::Frame),
+    ("tikra@nameprefix", Cmd::NamePrefix),
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
@@ -627,7 +630,17 @@ impl Engine {
                 let r = path::statement(self, "");
                 self.recover(r, t)
             }
-            Cmd::Matrix | Cmd::Pic | Cmd::Graph => {
+            Cmd::Pic => {
+                self.tex.push_tokens(tikra_tokens("pic "));
+                let r = path::statement(self, "");
+                self.recover(r, t)
+            }
+            Cmd::NamePrefix => {
+                let p = self.argument_string()?;
+                self.st.name_prefix = if p == ".." { String::new() } else { p };
+                Ok(())
+            }
+            Cmd::Matrix | Cmd::Graph => {
                 let rest = self.skip_statement()?;
                 let _ = rest;
                 let name = tex::show_token(t);
