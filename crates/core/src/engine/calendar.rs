@@ -532,7 +532,8 @@ impl Engine {
     fn font_length(&mut self, s: &str) -> Result<f64, Error> {
         // `em` and `ex` in the ambient font; the calendar's own `font=` counts too
         let v = self.length(s)?;
-        let quad = |pt: f64| crate::label::quad(pt);
+        let sans = self.st.font.contains("\\sffamily");
+        let quad = |pt: f64| crate::label::quad(pt, sans);
         Ok(if s.contains("em") {
             v * self.st.font_size * quad(self.st.font_size) / (self.st.ambient_size * quad(self.st.ambient_size))
         } else if s.contains("ex") {

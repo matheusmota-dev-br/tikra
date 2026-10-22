@@ -234,8 +234,9 @@ impl Engine {
         let nrows = rows.len();
         let ncols = rows.iter().map(Vec::len).max().unwrap_or(0);
 
-        // `matrix anchor=inner node.south`: a cell's node is where the matrix goes
-        let inner = settings.anchor.as_deref().and_then(|a| a.split_once('.')).map(|(n, a)| (n.trim().to_string(), a.trim().to_string()));
+        // `matrix anchor=inner node.south` (or `anchor=…`): a cell's node is where the matrix goes
+        let anchor = self.key_text("/tikz/anchor");
+        let inner = settings.anchor.as_deref().or(Some(anchor.as_str())).and_then(|a| a.split_once('.')).map(|(n, a)| (n.trim().to_string(), a.trim().to_string()));
         if let Some((n, _)) = &inner {
             self.nodes.remove(n);
         }
@@ -311,9 +312,9 @@ impl Engine {
         let mut options = options;
         let mut at = at;
         match (&settings.anchor, inner_at) {
-            (Some(_), Some((r, c, p))) if inner.is_some() => {
+            (_, Some((r, c, p))) if inner.is_some() => {
                 // the matrix's center where it puts that point of the cell at `at` (the box's
-                // center, from the first baseline's left end)
+                // center, from its baseline's left end)
                 let center = Point::new(width / 2.0, (height - depth) / 2.0);
                 at = at.plus(center).minus(Point::new(xs[c], ys[r])).minus(p);
                 options.extend(tikra_tokens(",anchor=center"));

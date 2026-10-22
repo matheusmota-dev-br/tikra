@@ -13,6 +13,8 @@ pub struct Variables {
     pub functions: HashMap<String, (Vec<String>, String)>,
     /// The font size over 10pt, for `em` and `ex` (none: 10pt).
     pub font_scale: Option<f64>,
+    /// The font is sans serif (its `em` and `ex` are cmss's).
+    pub sans: bool,
 }
 
 impl Variables {
@@ -48,8 +50,8 @@ fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
     let f = unit_cm(u)?;
     let scale = vars.font_scale.unwrap_or(1.0);
     Some(match u {
-        "em" => f * scale * crate::label::quad(10.0 * scale),
-        "ex" => f * scale,
+        "em" => f * scale * crate::label::quad(10.0 * scale, vars.sans),
+        "ex" => f * scale * crate::label::x_height(vars.sans) / crate::label::x_height(false),
         _ => f,
     })
 }

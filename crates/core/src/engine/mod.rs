@@ -416,6 +416,8 @@ enum Layout {
     /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
     Skip(f64),
     Par,
+    /// the width of the line (cm), in a `\vbox` of that `\hsize`
+    Width(f64),
 }
 
 /// Cap on nested runs (a style calling itself).
@@ -875,7 +877,8 @@ impl Engine {
     }
 
     pub fn vars(&self) -> crate::expr::Variables {
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0) }
+        let sans = self.st.font.contains("\\sffamily");
+        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), sans }
     }
 
     /// A pgfmath number from text.
@@ -1679,6 +1682,11 @@ impl Engine {
         if outermost {
             let margin = self.canvas.margin;
             let canvas = std::mem::replace(&mut self.canvas, Canvas { margin, ..Canvas::default() });
+            // in a `\vbox` of another `\hsize`, the line is that wide
+            let hsize = self.tex.dimens.get(&255).copied().unwrap_or(0);
+            if hsize != 345 * 65536 && hsize > 0 {
+                self.layout.push(Layout::Width(hsize as f64 / 65536.0 * crate::PT));
+            }
             self.layout.push(Layout::Picture(self.boxes.len()));
             self.boxes.push(PictureBox { canvas, baseline });
         }
@@ -2157,6 +2165,10 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
             match l {
                 Layout::Space if started => x += SPACE,
                 Layout::Skip(w) if started => x += w,
+                Layout::Width(w) => {
+                    out.include(Point::new(0.0, baseline_y));
+                    out.include(Point::new(*w, baseline_y));
+                }
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));

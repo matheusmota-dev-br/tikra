@@ -41,6 +41,19 @@ pub fn font_size(text: &str) -> f64 {
             from = i + cmd.len();
         }
     }
+    // `\fontsize{6}{8}\selectfont`: that size in points
+    let mut from = 0;
+    while let Some(i) = text[from..].find("\\fontsize{") {
+        let i = from + i;
+        let rest = &text[i + 10..];
+        if let Some(v) = rest.split('}').next().and_then(|v| v.trim().trim_end_matches("pt").parse::<f64>().ok()) {
+            if v > 0.0 && at.is_none_or(|a| i > a) {
+                f = v / 10.0;
+                at = Some(i);
+            }
+        }
+        from = i + 10;
+    }
     f
 }
 
@@ -71,6 +84,7 @@ fn clean(text: &str) -> String {
         "sf",
         "tt",
         "rm",
+        "selectfont",
     ];
     let c: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
@@ -88,6 +102,16 @@ fn clean(text: &str) -> String {
                         continue;
                     }
                 }
+            }
+            // `\fontsize{6}{8}`: its two arguments go with it (the size is read before)
+            if name == "fontsize" {
+                i += 9;
+                for _ in 0..2 {
+                    if c.get(i) == Some(&'{') {
+                        i += c[i..].iter().position(|&x| x == '}').map_or(c.len() - i, |p| p + 1);
+                    }
+                }
+                continue;
             }
             // `\hskip0pt` (what `execute at begin node` puts first, to allow a break): no space
             if name == "hskip" {
@@ -175,7 +199,14 @@ fn families(text: &str, all: Option<&str>) -> String {
         if family == "mathtt" {
             return typewriter(t);
         }
-        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\{family}{{{p}}}")).collect();
+        // digits in sans serif as the math font's sans-serif digits (`\mathsf` keeps them roman)
+        let digits = |p: &str| -> String {
+            if family != "mathsf" {
+                return p.to_string();
+            }
+            p.chars().map(|c| if c.is_ascii_digit() { char::from_u32(0x1D7E2 + (c as u32 - '0' as u32)).unwrap_or(c) } else { c }).collect()
+        };
+        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\{family}{{{}}}", digits(p))).collect();
         if parts.is_empty() {
             String::new()
         } else {
@@ -227,7 +258,9 @@ fn dimension(s: &str, size: f64) -> Option<(f64, &str)> {
     let end = s.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).unwrap_or(s.len());
     let v: f64 = s[..end].parse().ok()?;
     let rest = s[end..].trim_start();
-    for (unit, pt) in [("pt", 1.0), ("cm", 72.27 / 2.54), ("mm", 72.27 / 25.4), ("in", 72.27), ("bp", 72.27 / 72.0), ("em", 10.0 * size * quad(10.0 * size)), ("ex", 4.3 * size)] {
+    for (unit, pt) in
+        [("pt", 1.0), ("cm", 72.27 / 2.54), ("mm", 72.27 / 25.4), ("in", 72.27), ("bp", 72.27 / 72.0), ("em", 10.0 * size * quad(10.0 * size, false)), ("ex", 4.3 * size)]
+    {
         if let Some(r) = rest.strip_prefix(unit) {
             return Some((v * pt, r));
         }
@@ -500,6 +533,8 @@ fn design_width(pt: f64, family: char) -> f64 {
         't' => &[(0.0, 1.0119), (9.0, 1.0), (10.0, 1.0), (12.0, 0.9802)],
         // cmmi5 … cmmi12
         'm' => &[(0.0, 1.4283), (6.0, 1.2526), (7.0, 1.1559), (8.0, 1.0584), (9.0, 1.026), (10.0, 1.0), (12.0, 0.9784)],
+        // cmss8 (from 5pt) … cmss17
+        's' => &[(0.0, 1.0625), (9.0, 1.0278), (10.0, 1.0), (12.0, 0.9792), (17.0, 0.9404)],
         // cmbx5 … cmbx12
         'b' => &[(0.0, 1.3083), (6.0, 1.1996), (7.0, 1.1221), (8.0, 1.064), (9.0, 1.0285), (10.0, 1.0), (12.0, 0.9774)],
         // cmr5 … cmr17
@@ -508,9 +543,18 @@ fn design_width(pt: f64, family: char) -> f64 {
     table.iter().rev().find(|(from, _)| pt + 0.01 >= *from).map_or(1.0, |(_, w)| *w)
 }
 
-/// The quad (`1em`) of TeX's roman font of `pt` points, over `pt`.
-pub fn quad(pt: f64) -> f64 {
-    design_width(pt, 'r')
+/// The quad (`1em`) of TeX's roman font of `pt` points, or its sans serif one, over `pt`.
+pub fn quad(pt: f64, sans: bool) -> f64 {
+    design_width(pt, if sans { 's' } else { 'r' })
+}
+
+/// The x-height (`1ex`) of TeX's roman font, or its sans serif one, over `pt`.
+pub fn x_height(sans: bool) -> f64 {
+    if sans {
+        0.4444
+    } else {
+        0.4306
+    }
 }
 
 /// The family most of the text is set in: typewriter (`t`) when all of it is `\texttt`, math (`m`)
@@ -518,6 +562,9 @@ pub fn quad(pt: f64) -> f64 {
 fn family(text: &str, font: &str, bold: bool) -> char {
     if font.contains("\\ttfamily") || text.contains("\\ttfamily") {
         return 't';
+    }
+    if font.contains("\\sffamily") || text.contains("\\sffamily") {
+        return 's';
     }
     // the text outside the groups that `open` starts and `close` ends
     let outside = |t: &str, open: &str, close: char| -> String {
