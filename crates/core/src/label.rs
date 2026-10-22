@@ -41,7 +41,8 @@ pub fn font_size(text: &str) -> f64 {
     f
 }
 
-/// Removes font commands that do not change mathra's drawing (family, series, size).
+/// Removes font commands that do not change mathra's drawing (family, series, size), and writes
+/// `\verb` as `\texttt`.
 fn clean(text: &str) -> String {
     const COMMANDS: &[&str] = &[
         "tiny",
@@ -74,6 +75,17 @@ fn clean(text: &str) -> String {
     while i < c.len() {
         if c[i] == '\\' {
             let name: String = c[i + 1..].iter().take_while(|x| x.is_ascii_alphabetic()).collect();
+            // `\verb!…!` (any delimiter): the text as it is, in typewriter
+            if name == "verb" {
+                if let Some(&d) = c.get(i + 5) {
+                    if let Some(len) = c[i + 6..].iter().position(|&x| x == d) {
+                        let body: String = c[i + 6..i + 6 + len].iter().collect();
+                        out.push_str(&format!("\\texttt{{{body}}}"));
+                        i += 7 + len;
+                        continue;
+                    }
+                }
+            }
             if COMMANDS.contains(&name.as_str()) || name == "bfseries" || name == "bf" {
                 i += 1 + name.chars().count();
                 while c.get(i) == Some(&' ') {
