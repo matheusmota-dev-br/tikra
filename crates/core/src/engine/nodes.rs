@@ -342,6 +342,7 @@ impl Engine {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
         }
+        let outer_name_path = self.st.name_path.clone();
         self.process_keys(tikra_tokens("every node/.try"), Some("/tikz"))?;
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
         // the node begin hook: a node on a chain takes its place and names there
@@ -526,6 +527,13 @@ impl Engine {
         if !fine(info.center()) || !info.geometry.anchors.iter().all(|(_, p)| fine(t.apply(*p))) {
             self.warn(format!("node '{text}': position or size is not finite or beyond ±{limit} cm: ignored"));
             return Ok((Vec::new(), None));
+        }
+        // `name path` among the node's own options names its border
+        if let Some(n) = self.st.name_path.clone().filter(|_| self.st.name_path != outer_name_path) {
+            let g = &info.geometry;
+            let border =
+                g.paths.iter().filter(|p| p.layer == Layer::Background && matches!(p.usage, Usage::Node)).flat_map(|p| transform_segments(&p.segments, &info.transform)).collect();
+            self.named_paths.insert(n, border);
         }
         let items = self.draw_shape(&info, labels, text_width, scope)?;
         if let Some(n) = &name {

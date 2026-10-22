@@ -166,13 +166,18 @@ pub fn name_intersections(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), E
     };
     let points = if sort_by.as_deref() == Some(b.as_str()) { intersections(&pb, &pa) } else { intersections(&pa, &pb) };
     for (k, p) in points.iter().enumerate() {
-        let mut names = vec![format!("{prefix}-{}", k + 1)];
+        let mut names = vec![(format!("{prefix}-{}", k + 1), String::new())];
         if let Some(n) = by.get(k) {
-            names.push(n.trim_start_matches('[').rsplit(']').next().unwrap_or(n).trim().to_string());
+            // `[label=above:$C$]C`: the coordinate's options and name
+            let (options, name) = match n.strip_prefix('[').and_then(|r| r.rsplit_once(']')) {
+                Some((o, name)) => (o.to_string(), name.trim().to_string()),
+                None => (String::new(), n.trim().to_string()),
+            };
+            names.push((name, options));
         }
-        for name in names {
+        for (name, options) in names {
             let items = e.node(NodeSpec {
-                options: Vec::new(),
+                options: super::tikra_tokens(&options),
                 name: Some(name),
                 at: Some(*p),
                 text: Vec::new(),
