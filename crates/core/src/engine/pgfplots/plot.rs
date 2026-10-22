@@ -873,7 +873,12 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     let comment = keys::value(e, "/pgfplots/table/comment chars");
     let trimmed = text.trim();
     let is_file = !trimmed.contains('\n') && !trimmed.contains(' ') && !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphabetic());
-    let table = if is_file {
+    // a file the document wrote (`\pgfplotscolormaptodatafile`)
+    let written = format!("tikra@file@{trimmed}");
+    let table = if is_file && e.tex.is_defined(&written) {
+        let content = e.tex.expand_to_string(vec![Token::cs(&written)])?;
+        Table::parse(&content, sep, &header, skip, &comment)
+    } else if is_file {
         match table::read_file(trimmed, &search_path(e)) {
             Ok(content) => Table::parse(&content, sep, &header, skip, &comment),
             Err(m) => {

@@ -20,6 +20,7 @@ const DEFINITIONS: &str = r"
 \def\pgfplotsmarklistfill{.!80!black}
 \def\numplots{0}\def\numplotsofactualtype{1}\def\plotnumofactualtype{0}\def\plotnum{0}
 \def\pgfplotbarwidth{10pt}\def\pgfplotbarshift{0pt}
+\def\pgfplotscolormaplastindexof#1{\csname pgfpl@cm@#1@last\endcsname}
 \pgfplotscreateplotcyclelist{color}{%
 	blue,every mark/.append style={fill=blue!80!black},mark=*\\%
 	red,every mark/.append style={fill=red!80!black},mark=square*\\%
@@ -570,7 +571,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/group/empty plot/.style={/pgfplots/hide axis=true},
 	/pgfplots/@empty xticklabels/.initial=false, /pgfplots/@empty yticklabels/.initial=false,
 	/pgfplots/@empty zticklabels/.initial=false,
-	/pgfplots/colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}},
+	/pgfplots/colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}\pgfkeysalso{/pgfplots/@colormap defined={#1}}},
 	/pgfplots/colormap access/.initial=map,
 	/pgfplots/colormap/hot/.style={/pgfplots/colormap={hot}{color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)}},
 	/pgfplots/colormap/viridis/.style={/pgfplots/colormap={viridis}{rgb=(0.267,0.00487,0.32942) rgb=(0.28192,0.08966,0.41241) rgb=(0.28026,0.1657,0.4765) rgb=(0.26366,0.23763,0.51877) rgb=(0.23744,0.3052,0.54192) rgb=(0.20862,0.36775,0.55267) rgb=(0.18225,0.42618,0.55711) rgb=(0.1592,0.48224,0.55807) rgb=(0.13777,0.53749,0.5549) rgb=(0.12115,0.59274,0.54465) rgb=(0.12808,0.64775,0.5235) rgb=(0.18065,0.7014,0.48819) rgb=(0.27415,0.75198,0.4366) rgb=(0.39517,0.79747,0.36775) rgb=(0.53561,0.83578,0.2819) rgb=(0.68895,0.86545,0.18272) rgb=(0.84557,0.88733,0.0997) rgb=(0.99324,0.90616,0.14394)}},
@@ -1013,8 +1014,10 @@ keyfn!(k_scatter, |e, v| {
 keyfn!(k_colormap_color, |e, v| {
     let name = current_name(e);
     let s = text(e, &v)?;
-    let (value, map) = match s.split_once(" of ") {
-        Some((a, b)) => (a.trim().to_string(), Some(b.trim().to_string())),
+    // `\i of jet` reads `0of jet`: the first `of` after the number
+    let at = s.char_indices().find(|&(i, _)| s[i..].starts_with("of") && s[..i].trim_end().chars().last().is_some_and(|c| c.is_ascii_digit() || c == '.' || c == ')'));
+    let (value, map) = match at {
+        Some((i, _)) => (s[..i].trim().to_string(), Some(s[i + 2..].trim().to_string())),
         None => (s.trim().to_string(), None),
     };
     let mut map_name = map.unwrap_or_else(|| keys::value(&e.tex, "/pgfplots/colormap name").map(|v| tex::tokens_to_string(&v)).unwrap_or_default());
@@ -1047,6 +1050,16 @@ keyfn!(k_colormap_color, |e, v| {
     let id = format!("pgfplots@colormap@{:.0}@{:.0}@{:.0}", c.r * 1e6, c.g * 1e6, c.b * 1e6);
     e.colors.insert(id.clone(), c);
     e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
+});
+
+// After a colormap is defined: `\pgfplotscolormaplastindexof{name}` (the index of its last color).
+keyfn!(k_colormap_defined, |e, v| {
+    let name = text(e, &v)?;
+    let spec = value(e, &format!("/pgfplots/@colormaps/{name}"));
+    if let Some(cm) = super::colormap::Colormap::parse(&spec, &e.colors) {
+        e.tex.define_string(&format!("pgfpl@cm@{name}@last"), &(cm.stops.len() - 1).to_string(), true);
+    }
+    Ok(())
 });
 
 // `colormap/PuBu`, `colormap/RdPu-6`: the ColorBrewer colormaps (`\usepgfplotslibrary{colorbrewer}`),
@@ -1278,6 +1291,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/boxplot", k_boxplot),
     ("/pgfplots/boxplot prepared", k_boxplot),
     ("/pgfplots/colormap/.unknown", k_colormap_unknown),
+    ("/pgfplots/@colormap defined", k_colormap_defined),
     ("/pgfplots/color of colormap", k_colormap_color),
     ("/pgfplots/const color of colormap", k_colormap_color),
     ("/pgfplots/index of colormap", k_colormap_color),

@@ -18,6 +18,7 @@ impl Colormap {
         let s: Vec<char> = spec.chars().collect();
         let mut i = 0;
         let mut step = 1.0;
+        let mut given_step = None;
         let mut pos: Option<f64> = None;
         let mut stops = Vec::new();
         let skip = |i: &mut usize| {
@@ -54,6 +55,7 @@ impl Colormap {
             if s[i] == '[' {
                 let inner = group(&mut i, '[', ']')?;
                 step = length_cm(&inner).unwrap_or(1.0);
+                given_step = Some(step);
                 continue;
             }
             let start = i;
@@ -93,7 +95,7 @@ impl Colormap {
         if stops.is_empty() {
             return None;
         }
-        Some(Colormap { stops })
+        Some(Colormap { stops: uniform(stops, given_step) })
     }
 
     /// The color at `t` from 0 to 1.
@@ -125,6 +127,88 @@ impl Colormap {
         let b = self.stops[self.stops.len() - 1].0;
         self.stops.iter().map(|(p, c)| (if b > a { (p - a) / (b - a) } else { 0.0 }, *c)).collect()
     }
+}
+
+/// The stops on a uniform grid, as pgfplots keeps a colormap before compat 1.14 (`colormap
+/// uniform=always`): the mesh width is the one given in brackets or the first distance, and a
+/// distance of k mesh widths gets k-1 colors interpolated in between. A distance that is no
+/// multiple (pgfplots refuses it) is kept as it is.
+fn uniform(stops: Vec<(f64, Color)>, given: Option<f64>) -> Vec<(f64, Color)> {
+    let h = match given.filter(|h| *h > 0.0) {
+        Some(h) => h,
+        None => match stops.get(1) {
+            Some(s) if s.0 > stops[0].0 => s.0 - stops[0].0,
+            _ => return stops,
+        },
+    };
+    let mut out = vec![stops[0]];
+    for w in stops.windows(2) {
+        let ((a, ca), (b, cb)) = (w[0], w[1]);
+        let k = ((b - a) / h).round();
+        if k >= 2.0 && ((b - a) / h - k).abs() < 1e-4 * k {
+            for i in 1..k as usize {
+                let t = i as f64 / k;
+                out.push((a + t * (b - a), mix(ca, cb, t)));
+            }
+        }
+        out.push((b, cb));
+    }
+    out
+}
+
+/// A colormap by name, its style run (`colormap/jet`) if it is not defined yet.
+pub fn named(e: &mut super::Engine, name: &str) -> Option<Colormap> {
+    let spec_of = |e: &mut super::Engine| super::keys::value(e, &format!("/pgfplots/@colormaps/{name}"));
+    let mut spec = spec_of(e);
+    if spec.trim().is_empty() {
+        e.begin_group();
+        let _ = super::keys::run(e, &format!("/pgfplots/colormap/{name}"));
+        spec = spec_of(e);
+        e.end_group();
+    }
+    Colormap::parse(&spec, &e.colors)
+}
+
+impl Colormap {
+    /// The stops' positions from 0 to 1000, as pgfplots keeps them.
+    fn positions(&self) -> Vec<f64> {
+        let (a, b) = (self.stops[0].0, self.stops[self.stops.len() - 1].0);
+        self.stops.iter().map(|(p, _)| if b > a { (p - a) / (b - a) * 1000.0 } else { 0.0 }).collect()
+    }
+}
+
+/// `\pgfplotscolormaptodatafile[options]{name}{file}`: the colormap's stops as lines `position,r,g,b`
+/// (`output format=csv`), kept for `table {file}` to read.
+pub fn to_data_file(e: &mut super::Engine) -> Result<(), crate::Error> {
+    let _ = e.optional()?;
+    let name = e.argument_string()?;
+    let file = e.argument_string()?;
+    let Some(cm) = named(e, name.trim()) else {
+        e.warn(format!("\\pgfplotscolormaptodatafile: colormap '{}' not defined", name.trim()));
+        return Ok(());
+    };
+    let n = super::super::pgf_number;
+    let lines: Vec<String> = cm.positions().iter().zip(&cm.stops).map(|(p, (_, c))| format!("{},{},{},{}", n(*p), n(c.r), n(c.g), n(c.b))).collect();
+    e.tex.define_string(&format!("tikra@file@{}", file.trim()), &lines.join("\n"), true);
+    Ok(())
+}
+
+/// `\pgfplotscolormaptoshadingspec{name}{length}\macro`: `\macro` holds the colormap as a PGF
+/// shading's color specification `rgb(0pt)=(…); rgb(…pt)=(…)` over the length.
+pub fn to_shading_spec(e: &mut super::Engine) -> Result<(), crate::Error> {
+    let name = e.argument_string()?;
+    let length = e.argument_string()?;
+    let target = e.argument()?;
+    let Some(crate::tex::Token::Cs(target)) = target.into_iter().find(|t| !t.is_space()) else { return Ok(()) };
+    let Some(cm) = named(e, name.trim()) else {
+        e.warn(format!("\\pgfplotscolormaptoshadingspec: colormap '{}' not defined", name.trim()));
+        return Ok(());
+    };
+    let total = e.length(&length)? / crate::PT;
+    let n = super::super::pgf_number;
+    let parts: Vec<String> = cm.positions().iter().zip(&cm.stops).map(|(p, (_, c))| format!("rgb({}pt)=({},{},{})", n(p / 1000.0 * total), n(c.r), n(c.g), n(c.b))).collect();
+    e.tex.define_string(&target, &parts.join("; "), false);
+    Ok(())
 }
 
 pub fn mix(a: Color, b: Color, f: f64) -> Color {
