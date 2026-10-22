@@ -6,8 +6,8 @@ Reads <work dir>/ref (TeX, from reference.py) and <work dir>/tikra (from the `co
 the core crate), and writes <work dir>/results.json, <work dir>/report.html (every figure that differs,
 side by side) and the summary in Markdown (to --docs, or <work dir>/report.md).
 
-The two drawings never agree pixel for pixel: TeX sets labels in Computer Modern and tikra in STIX
-Two, antialiasing differs, and so can the bounding box by a hair. So a figure is compared by its
+The two drawings never agree pixel for pixel: TeX sets labels in Computer Modern and tikra in Latin
+Modern Math (the same letters, without TeX's optical sizes), antialiasing differs, and so can the bounding box by a hair. So a figure is compared by its
 shape, its color and its size:
 
 - shape: after aligning the two images (the best shift of up to 6 px from each corner and from the
@@ -16,10 +16,14 @@ shape, its color and its size:
   other way round; their harmonic mean is the F1 score.
 - pieces: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
-- color: of tikra's ink near TeX's, the share with about the same color as the nearest TeX ink.
+- color: of tikra's ink near TeX's, the share with about the same color as some TeX ink 1 px around,
+  both blurred by 0.7 px (antialiasing puts a line's dark and light pixels, and its ink, at different
+  places in the two).
+- ink: the share of each drawing's ink within 2 px of a mark of the other, the smaller of the two (an
+  extra or missing fill, away from the edges).
 - size: width and height within 10% (or 4 px).
 
-A figure *matches* with F1 ≥ 0.9, color ≥ 0.9, the same size and no missing or extra piece; it is
+A figure *matches* with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size and no missing or extra piece; it is
 *close* with F1 ≥ 0.75.
 """
 
@@ -39,7 +43,9 @@ RADIUS = 2.0
 SHIFT = 6
 INK = 40  # how far from white (0–255, on the darkest channel) a pixel must be to count as ink
 COLOR = 90  # largest channel difference for two inks to count as the same color
-MATCH, CLOSE, COLOR_OK = 0.90, 0.75, 0.90
+BLUR = 0.7  # px: the blur both drawings get before their colors are compared
+FAINT = 8  # how far from white a pixel must be to count as a mark, for the ink of the other drawing
+MATCH, CLOSE, COLOR_OK, INK_OK = 0.90, 0.75, 0.90, 0.95
 MIN_PIECE = 20  # pixels of outline for a piece to count
 EDGE = 60  # color difference between neighbor pixels that makes an edge
 
@@ -140,20 +146,35 @@ def measure(ref_path, tik_path):
     # color: tikra's ink against the TeX ink nearest to it
     tik_ink_near = tik_ink & (ndimage.distance_transform_edt(~ref_ink) <= RADIUS)
     if tik_ink_near.any():
-        _, nearest_ink = ndimage.distance_transform_edt(~ref_ink, return_indices=True)
-        ys, xs = np.nonzero(tik_ink_near)
-        ref_colors = ref_c[nearest_ink[0][ys, xs], nearest_ink[1][ys, xs]]
-        color = float(np.mean(np.abs(ref_colors - tik_c[ys, xs]).max(axis=1) <= COLOR))
+        # the same color as some TeX ink in the 3×3 pixels around: the two antialias a line's edge at different
+        # phases, so the single nearest TeX pixel can be the light rim of a line tikra draws dark there
+        # both drawings a little blurred: Ghostscript and resvg spread a thin line's ink over the
+        # pixels differently (one dark pixel, or two lighter ones), which is not a color difference
+        ref_b = ndimage.gaussian_filter(ref_c.astype(np.float32), sigma=(BLUR, BLUR, 0))
+        tik_b = ndimage.gaussian_filter(tik_c.astype(np.float32), sigma=(BLUR, BLUR, 0))
+        same = np.zeros(tik_ink.shape, dtype=bool)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                ref_s = np.roll(ref_b, (dy, dx), axis=(0, 1))
+                ink_s = np.roll(ref_ink, (dy, dx), axis=(0, 1))
+                same |= ink_s & (np.abs(ref_s - tik_b).max(axis=2) <= COLOR)
+        color = float(np.count_nonzero(same & tik_ink_near) / np.count_nonzero(tik_ink_near))
     else:
         color = 0.0
     n_ref, missing = pieces(ref_e, tik_e)
     _, extra = pieces(tik_e, ref_e)
+    # ink: how much of each drawing's ink lies near the other's (a fill one has and the other does
+    # not is mostly away from the edges, where the scores above do not look)
+    # (near any mark of the other at all: a light line can be ink in one and just under INK in the other)
+    near_ref = ndimage.distance_transform_edt(~((255 - ref_c).max(axis=2) > FAINT)) <= RADIUS
+    near_tik = ndimage.distance_transform_edt(~((255 - tik_c).max(axis=2) > FAINT)) <= RADIUS
+    ink_share = min(np.count_nonzero(tik_ink & near_ref) / np.count_nonzero(tik_ink), np.count_nonzero(ref_ink & near_tik) / np.count_nonzero(ref_ink))
     return {**base, "f1": round(f1, 4), "precision": round(precision, 4), "recall": round(recall, 4), "color": round(color, 4),
-            "pieces": n_ref, "missing": missing, "extra": extra}
+            "ink": round(float(ink_share), 4), "pieces": n_ref, "missing": missing, "extra": extra}
 
 
 def category(r):
-    if r["f1"] >= MATCH and r["color"] >= COLOR_OK and r["size_ok"] and r["missing"] == 0 and r["extra"] == 0:
+    if r["f1"] >= MATCH and r["color"] >= COLOR_OK and r.get("ink", 1.0) >= INK_OK and r["size_ok"] and r["missing"] == 0 and r["extra"] == 0:
         return "match"
     if r["f1"] >= CLOSE:
         return "close"
@@ -206,13 +227,19 @@ def main():
         results.append(r)
     (work / "results.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
     timing_path = work / "timing.json"
-    summary = report_md(results, json.loads(timing_path.read_text()) if timing_path.exists() else None)
+    timing = json.loads(timing_path.read_text()) if timing_path.exists() else None
+    startup_path = work / "tikra" / "startup.json"
+    if timing is not None and startup_path.exists():
+        timing = {**timing, **json.loads(startup_path.read_text())}
+    summary = report_md(results, timing)
     Path(a.docs or work / "report.md").write_text(summary)
     report_html(results, work)
     print(summary.split("\n## ")[0])
 
 
 CATS = ["match", "close", "different", "fails"]
+# what counts as a figure: TikZ pictures and the basic layer's pgfpicture
+FIGURE_KINDS = ("tikz", "pgf")
 
 
 def table_row(name, rs):
@@ -224,7 +251,7 @@ def table_row(name, rs):
 
 
 def report_md(results, timing=None):
-    figures = [r for r in results if r["kind"] == "tikz"]
+    figures = [r for r in results if r["kind"] in FIGURE_KINDS]
     counted = [r for r in figures if r["category"] != "excluded"]
     excluded = Counter(r["reason"] for r in figures if r["category"] == "excluded")
     c = Counter(r["category"] for r in counted)
@@ -250,10 +277,12 @@ def report_md(results, timing=None):
         "*Fails*: tikra returned an error, panicked or took more than 10 s. Mean F1 counts a failure as 0.",
         "",
         "Not counted: " + ", ".join(f"{n} where {reason.lower()}" for reason, n in excluded.most_common()) + ", "
-        f"and {sum(1 for r in results if r['kind'] != 'tikz')} examples that are not TikZ figures (pgf basic layer, text, tables).",
+        f"and {sum(1 for r in results if r['kind'] not in FIGURE_KINDS)} examples that are not figures (text, tables, key listings).",
         "",
     ]
     if timing:
+        startup_ms = timing.get("startup_us", None)
+        startup_ms = startup_ms / 1000 if startup_ms is not None else None
         same = [r for r in counted if r["hash"] in timing["ms"] and r.get("svg_us")]
         tex = sorted(timing["ms"][r["hash"]] for r in same)
         tik = sorted(r["svg_us"] / 1000 for r in same)
@@ -272,7 +301,8 @@ def report_md(results, timing=None):
                 "",
                 f"Median ratio: tikra is **{mid(sorted(t / k for t, k in zip([timing['ms'][r['hash']] for r in same], [r['svg_us'] / 1000 for r in same]))):.0f}× faster**. "
                 "pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user",
-                "waits for; tikra's is the conversion inside a running process (the command line adds a few ms to start).",
+                "waits for; tikra's is the conversion inside a running process"
+                + (f": the first figure of a process also builds the engine, {startup_ms:.1f} ms more." if startup_ms is not None else "."),
                 "",
             ]
     out += ["## By chapter", "", "Sorted by how many figures do not match, the work left.", "",
@@ -287,9 +317,25 @@ def report_md(results, timing=None):
         for k in {warning_key(w) for w in r["warnings"]}:
             warn[k] += 1
     errors = Counter(warning_key(r["reason"]) for r in counted if r["category"] == "fails")
+    options, commands = Counter(), Counter()
+    for r in counted:
+        if r["category"] == "match":
+            continue
+        for w in set(r["warnings"]):
+            m = re.match(r"option '([^']*)' not supported", w)
+            if m:
+                options[m.group(1)] += 1
+            m = re.match(r"(\\[A-Za-z@]+) (?:is )?not supported", w) or re.match(r"environment (\S+) not supported", w) or re.match(r"path operation '([^']*)' not supported", w)
+            if m:
+                commands[m.group(1)] += 1
     out += ["", "## What tikra reported", "", "Warnings, by how many figures they appear in (the varying part replaced by …):", "",
             "| Figures | Warning |", "|---:|---|"]
     out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in warn.most_common(40)]
+    out += ["", "Options tikra does not know, in figures that do not match, by how many figures they appear in:", "",
+            "| Figures | Option |", "|---:|---|"]
+    out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in options.most_common(60)]
+    out += ["", "Commands, environments and path operations tikra does not know, likewise:", "", "| Figures | Command |", "|---:|---|"]
+    out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in commands.most_common(40)]
     out += ["", "Errors of the figures that fail:", "", "| Figures | Error |", "|---:|---|"]
     out += [f"| {n} | `{k.replace('|', '¦')}` |" for k, n in errors.most_common(20)]
     out.append("")
@@ -299,7 +345,7 @@ def report_md(results, timing=None):
 def report_html(results, work):
     rows = []
     order = {"fails": 0, "different": 1, "close": 2, "match": 3}
-    shown = [r for r in results if r["kind"] == "tikz" and r["category"] in order]
+    shown = [r for r in results if r["kind"] in FIGURE_KINDS and r["category"] in order]
     for r in sorted(shown, key=lambda r: (order[r["category"]], r["manual"], r["file"], r["line"])):
         score = f"F1 {r['f1']:.2f} · color {r['color']:.2f} · missing {r['missing']} of {r['pieces']} pieces · extra {r['extra']}" + ("" if r.get("size_ok") else " · size differs") if "f1" in r else html.escape(r.get("reason", ""))
         warnings = "".join(f"<li>{html.escape(w)}</li>" for w in r["warnings"][:8])

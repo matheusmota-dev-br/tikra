@@ -13,7 +13,9 @@ cd "$(dirname "$0")/../.."
 # the versions inside the TeX Live image, so the manual's examples are the ones that TeX knows
 PGF=3.1.11a
 PGFPLOTS=1.18.2
-work=target/conformance
+# CONFORMANCE_WORK: another working directory (with `ref` and `src` linked from the main one), so
+# that several checkouts can measure at once
+work=${CONFORMANCE_WORK:-target/conformance}
 src=$work/src
 mkdir -p "$src"
 [ -d "$src/pgf-$PGF" ] || curl -sfL "https://github.com/pgf-tikz/pgf/archive/refs/tags/$PGF.tar.gz" | tar xz -C "$src"
@@ -34,7 +36,9 @@ for line in open(sys.argv[1], encoding="utf-8"):
     tex = json.loads(line)["tex"]
     (out / (hashlib.sha1(tex.encode()).hexdigest()[:16] + ".tex")).write_text(tex, encoding="utf-8")
 ' "$work/examples.jsonl" "$work/tikra-in"
-cargo run -q --release -p tikra --example conformance -- "$work/tikra-in" "$work/tikra"
+# data files (`table {plotdata/…}`) are read from the manuals' doc folders, as pdflatex compiled them
+TIKRA_INPUT_DIR="$PWD/$src/pgfplots-$PGFPLOTS/doc/latex/pgfplots:$PWD/$src/pgf-$PGF/doc/generic/pgf" \
+  cargo run -q --release -p tikra --example conformance -- "$work/tikra-in" "$work/tikra"
 
 python3 -I tools/conformance/compare.py "$work/examples.jsonl" "$work" --docs docs/conformance.md
 echo "Side by side: $work/report.html"

@@ -2,8 +2,9 @@
 
 mod common;
 use common::*;
+use tikra::canvas::{Canvas, Item};
 use tikra::color::Color;
-use tikra::scene::{Element, Label, Node, Scene, Shape};
+use tikra::scene::{Label, Transform};
 
 fn png_width(png: &[u8]) -> u32 {
     u32::from_be_bytes([png[16], png[17], png[18], png[19]])
@@ -29,7 +30,7 @@ fn svg_with_opacities_dashes_and_drawn_nodes() {
 fn multiline_label_and_alignments() {
     for a in ["left", "right", "center"] {
         let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node[align={a}] {{line one\\ two}}; \end{{tikzpicture}}"));
-        assert!(r.svg.contains("<g fill="), "{a}");
+        assert!(r.svg.contains("<g transform="), "{a}");
     }
     // math with a fraction and a root: mathra's rules and lines
     let r = no_warnings(r"\begin{tikzpicture} \node {$\frac{a}{b} + \sqrt{x} + \overline{y}$}; \end{tikzpicture}");
@@ -45,24 +46,16 @@ fn mathra_items_with_color_and_ellipse() {
 }
 
 #[test]
-fn empty_scene_has_minimum_size() {
-    let svg = tikra::render::svg(&Scene::default(), "", "empty");
+fn empty_canvas_has_minimum_size() {
+    let svg = tikra::driver::svg(&Canvas::default(), "", "empty");
     assert!(svg.contains("viewBox"));
-    // a node with only an empty label, and a node with a label that has no lines
-    let mut c = Scene::default();
+    // a text whose label has no lines
+    let mut c = Canvas::default();
     let label = Label { lines: Vec::new(), scale: 1.0, color: Color::BLACK, align: 'c', line_height: 0.0 };
     assert_eq!(label.depth(), 0.0);
     assert_eq!(label.height(), 0.0);
-    c.elements.push(Element::Node(Node {
-        center: Default::default(),
-        shape: Shape::Coordinate,
-        half_width: 0.0,
-        half_height: 0.0,
-        label: Some(label),
-        style: Default::default(),
-        rotation: 0.0,
-    }));
-    tikra::render::svg(&c, "", "x");
+    c.push(Item::Text { label, place: Transform::default(), opacity: 1.0 });
+    assert!(tikra::driver::svg(&c, "", "x").contains("viewBox"));
 }
 
 #[test]

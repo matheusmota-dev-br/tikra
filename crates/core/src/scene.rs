@@ -1,5 +1,5 @@
-//! The scene: what is left of the TikZ after reading it. Paths (segments and curves) and nodes (text in a shape).
-//! Everything in centimeters, y pointing up, as in TikZ.
+//! The geometry shared by the engine, the canvas and the driver: points, affine transforms, path
+//! segments and typeset labels. Everything in centimeters, y pointing up, as in TikZ.
 
 use crate::color::Color;
 
@@ -81,6 +81,15 @@ impl Transform {
     pub fn factor(&self) -> f64 {
         (self.a * self.d - self.b * self.c).abs().sqrt()
     }
+    /// The inverse transform; the identity when `self` is singular (a zero scale).
+    pub fn inverse(&self) -> Transform {
+        let det = self.a * self.d - self.b * self.c;
+        if det.abs() < 1e-15 {
+            return Transform::default();
+        }
+        let (a, b, c, d) = (self.d / det, -self.b / det, -self.c / det, self.a / det);
+        Transform { a, b, c, d, e: -(a * self.e + c * self.f), f: -(b * self.e + d * self.f) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,73 +98,6 @@ pub enum Segment {
     LineTo(Point),
     CurveTo(Point, Point, Point),
     Close,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Tip {
-    /// TikZ's default `>`, `to`.
-    Default,
-    Latex,
-    Stealth,
-    Bar,
-    Circle,
-    /// `->>`: two default tips, one behind the other.
-    Double,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Style {
-    /// Stroke color; None = no outline.
-    pub stroke: Option<Color>,
-    pub fill: Option<Color>,
-    /// Hatching (`pattern=north east lines`) and its color.
-    pub pattern: Option<(String, Color)>,
-    /// Line width in cm.
-    pub line_width: f64,
-    /// Dash pattern in cm (on, off, …).
-    pub dash: Option<Vec<f64>>,
-    pub stroke_opacity: f64,
-    pub fill_opacity: f64,
-    pub rounded_corners: f64,
-    pub start_tip: Option<Tip>,
-    pub end_tip: Option<Tip>,
-    /// Arrow tip scale (`scale=` inside `{Latex[scale=1.5]}`, `length=`).
-    pub tip_scale: f64,
-}
-
-impl Default for Style {
-    fn default() -> Self {
-        Style {
-            stroke: None,
-            fill: None,
-            pattern: None,
-            line_width: 0.4 * crate::PT,
-            dash: None,
-            stroke_opacity: 1.0,
-            fill_opacity: 1.0,
-            rounded_corners: 0.0,
-            start_tip: None,
-            end_tip: None,
-            tip_scale: 1.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Path {
-    pub segments: Vec<Segment>,
-    pub style: Style,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Shape {
-    Rectangle,
-    Circle,
-    Ellipse,
-    /// `diamond`
-    Diamond,
-    /// `coordinate`: a point with no size.
-    Coordinate,
 }
 
 /// A typeset label: mathra's boxes, one per line, and the font scale.
@@ -184,122 +126,4 @@ impl Label {
         }
         self.lines[n - 1].depth as f64 * self.scale + (n - 1) as f64 * self.line_height
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Node {
-    /// Center of the shape.
-    pub center: Point,
-    pub shape: Shape,
-    /// Half width and half height of the shape (circle: both equal the radius).
-    pub half_width: f64,
-    pub half_height: f64,
-    pub label: Option<Label>,
-    pub style: Style,
-    pub rotation: f64,
-}
-
-impl Node {
-    /// The border point at `angle` (degrees), as in `(A.30)`.
-    pub fn border_at_angle(&self, angle: f64) -> Point {
-        let (s, c) = angle.to_radians().sin_cos();
-        self.border_toward(Point::new(c, s))
-    }
-
-    /// The border point in direction `d` from the center.
-    pub fn border_toward(&self, d: Point) -> Point {
-        let n = d.norm();
-        if n < 1e-12 {
-            return self.center;
-        }
-        let u = d.scale(1.0 / n);
-        let t = match self.shape {
-            Shape::Rectangle => {
-                let tx = if u.x.abs() > 1e-12 { self.half_width / u.x.abs() } else { f64::INFINITY };
-                let ty = if u.y.abs() > 1e-12 { self.half_height / u.y.abs() } else { f64::INFINITY };
-                tx.min(ty)
-            }
-            Shape::Circle | Shape::Ellipse => {
-                // zero-radius circle (inner sep=0, no text): the border is the center
-                let (a, b) = (self.half_width.max(1e-12), self.half_height.max(1e-12));
-                1.0 / ((u.x / a).powi(2) + (u.y / b).powi(2)).sqrt()
-            }
-            Shape::Diamond => 1.0 / (u.x.abs() / self.half_width.max(1e-12) + u.y.abs() / self.half_height.max(1e-12)),
-            Shape::Coordinate => return self.center,
-        };
-        self.center.plus(u.scale(t))
-    }
-
-    /// Named anchors: north, south east, center, base…
-    pub fn anchor(&self, name: &str) -> Option<Point> {
-        let (w, h) = (self.half_width, self.half_height);
-        let c = self.center;
-        // baseline of the first text line, where the renderer puts it (render::label_svg)
-        let base = self.label.as_ref().map_or(c.y, |r| c.y + (r.height() + r.depth()) / 2.0 - r.height());
-        let corner = |sx: f64, sy: f64| -> Point {
-            match self.shape {
-                Shape::Rectangle | Shape::Coordinate => c.plus(Point::new(sx * w, sy * h)),
-                _ => self.border_toward(Point::new(sx * w.max(1e-9), sy * h.max(1e-9))),
-            }
-        };
-        Some(match name.trim() {
-            "center" | "" => c,
-            "north" => c.plus(Point::new(0.0, h)),
-            "south" => c.plus(Point::new(0.0, -h)),
-            "east" => c.plus(Point::new(w, 0.0)),
-            "west" => c.plus(Point::new(-w, 0.0)),
-            "north east" => corner(1.0, 1.0),
-            "north west" => corner(-1.0, 1.0),
-            "south east" => corner(1.0, -1.0),
-            "south west" => corner(-1.0, -1.0),
-            "base" | "mid" => Point::new(c.x, base),
-            "base west" | "mid west" => Point::new(c.x - w, base),
-            "base east" | "mid east" => Point::new(c.x + w, base),
-            // where the text baseline starts, without the inner sep
-            "text" => Point::new(c.x - self.label.as_ref().map_or(0.0, |r| r.width()) / 2.0, base),
-            other => {
-                let angle: f64 = other.parse().ok()?;
-                return Some(self.border_at_angle(angle));
-            }
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Element {
-    Path(Path),
-    Node(Node),
-    /// Clip for the following elements of the same scope.
-    Clip(Vec<Segment>),
-    EndClip,
-}
-
-impl Element {
-    /// Moves the element by `d`, in cm.
-    pub fn translate(&mut self, d: Point) {
-        match self {
-            Element::Node(n) => n.center = n.center.plus(d),
-            Element::Path(Path { segments, .. }) | Element::Clip(segments) => {
-                for s in segments {
-                    match s {
-                        Segment::MoveTo(q) | Segment::LineTo(q) => *q = q.plus(d),
-                        Segment::CurveTo(a, b, c) => {
-                            for q in [a, b, c] {
-                                *q = q.plus(d);
-                            }
-                        }
-                        Segment::Close => {}
-                    }
-                }
-            }
-            Element::EndClip => {}
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Scene {
-    pub elements: Vec<Element>,
-    /// Extra margin around (the `border` of `standalone`), in cm.
-    pub margin: f64,
 }

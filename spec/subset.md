@@ -31,7 +31,7 @@ A figure becomes a **scene**: paths (straight segments, cubic curves, closings) 
 
 ## Known differences from TeX
 
-- STIX Two font instead of Computer Modern; no sans-serif family (`\sffamily` is ignored).
+- Latin Modern (Computer Modern) from its math font: text italic is the math italic, and typewriter punctuation is the roman one at typewriter width; no sans-serif family (`\sffamily` is ignored).
 - No hyphenation: `text width` breaks only between words.
 - Font size is per node, not per span (`{\small …}` in the middle of the text applies to the whole node).
 - pgfplots ticks may use a different step (pgfplots' algorithm depends on the width).

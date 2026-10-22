@@ -11,6 +11,8 @@ pub struct Variables {
     pub values: HashMap<String, f64>,
     /// name → (parameters without the backslash, body)
     pub functions: HashMap<String, (Vec<String>, String)>,
+    /// The font size over 10pt, for `em` and `ex` (none: 10pt).
+    pub font_scale: Option<f64>,
 }
 
 impl Variables {
@@ -40,6 +42,12 @@ pub fn unit_cm(u: &str) -> Option<f64> {
     })
 }
 
+/// Centimeters per unit, `em` and `ex` in the font of `vars`.
+fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
+    let f = unit_cm(u)?;
+    Some(if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f })
+}
+
 /// Nesting cap (parentheses, signs, calls): `f(x) = f(x)` does not overflow the stack.
 pub const MAX_DEPTH: usize = 200;
 
@@ -48,28 +56,39 @@ pub fn eval(text: &str, vars: &Variables) -> Result<f64, Error> {
 }
 
 fn eval_at(text: &str, vars: &Variables, depth: usize) -> Result<f64, Error> {
-    let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth };
+    eval_units(text, vars, depth).map(|(v, _)| v)
+}
+
+/// The value, and whether a unit appeared in the expression (pgfmath's "units declared").
+fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool), Error> {
+    let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth, units: false };
     p.skip_spaces();
-    let v = p.sum()?;
+    let v = p.ternary()?;
     p.skip_spaces();
     if p.pos < p.c.len() {
         return Err(Error::Expression(format!("leftover '{}' in '{text}'", p.c[p.pos..].iter().collect::<String>())));
     }
-    Ok(v)
+    Ok((v, p.units))
 }
 
 /// Like `eval`, but a number without a unit is returned as is (the caller's default unit)
 /// and one with a unit is converted to cm. Returns (value, had_unit).
 pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
     let t = text.trim();
+    // once: an expression with `rnd` draws a new number each time it is evaluated
+    let first = eval_units(t, vars, 0);
+    if first.is_ok() {
+        return first;
+    }
+    // a unit after the whole expression (`2*\x cm`)
     for u in ["cm", "mm", "pt", "bp", "in", "em", "ex", "pc"] {
         if let Some(n) = t.strip_suffix(u) {
             if let Ok(v) = eval(n, vars) {
-                return Ok((v * unit_cm(u).unwrap(), true));
+                return Ok((v * unit_cm_in(u, vars).unwrap(), true));
             }
         }
     }
-    Ok((eval(t, vars)?, false))
+    first
 }
 
 struct Parser<'a> {
@@ -77,6 +96,8 @@ struct Parser<'a> {
     pos: usize,
     vars: &'a Variables,
     depth: usize,
+    /// a unit was glued to a number
+    units: bool,
 }
 
 impl Parser<'_> {
@@ -88,6 +109,74 @@ impl Parser<'_> {
 
     fn peek(&self) -> Option<char> {
         self.c.get(self.pos).copied()
+    }
+
+    /// `c ? a : b`, then `||`, `&&` and the comparisons, which give 1 or 0, as pgfmath has them.
+    fn ternary(&mut self) -> Result<f64, Error> {
+        let c = self.or()?;
+        self.skip_spaces();
+        if self.peek() != Some('?') {
+            return Ok(c);
+        }
+        self.pos += 1;
+        let a = self.ternary()?;
+        self.skip_spaces();
+        if self.peek() != Some(':') {
+            return Err(Error::Expression("'?' without ':'".into()));
+        }
+        self.pos += 1;
+        let b = self.ternary()?;
+        Ok(if c != 0.0 { a } else { b })
+    }
+
+    fn starts(&self, s: &str) -> bool {
+        s.chars().enumerate().all(|(i, c)| self.c.get(self.pos + i) == Some(&c))
+    }
+
+    fn or(&mut self) -> Result<f64, Error> {
+        let mut v = self.and()?;
+        loop {
+            self.skip_spaces();
+            if !self.starts("||") {
+                return Ok(v);
+            }
+            self.pos += 2;
+            let w = self.and()?;
+            v = f64::from(v != 0.0 || w != 0.0);
+        }
+    }
+
+    fn and(&mut self) -> Result<f64, Error> {
+        let mut v = self.comparison()?;
+        loop {
+            self.skip_spaces();
+            if !self.starts("&&") {
+                return Ok(v);
+            }
+            self.pos += 2;
+            let w = self.comparison()?;
+            v = f64::from(v != 0.0 && w != 0.0);
+        }
+    }
+
+    fn comparison(&mut self) -> Result<f64, Error> {
+        let v = self.sum()?;
+        self.skip_spaces();
+        for op in ["==", "!=", "<=", ">=", "<", ">"] {
+            if self.starts(op) {
+                self.pos += op.len();
+                let w = self.sum()?;
+                return Ok(f64::from(match op {
+                    "==" => v == w,
+                    "!=" => v != w,
+                    "<=" => v <= w,
+                    ">=" => v >= w,
+                    "<" => v < w,
+                    _ => v > w,
+                }));
+            }
+        }
+        Ok(v)
     }
 
     fn sum(&mut self) -> Result<f64, Error> {
@@ -109,34 +198,65 @@ impl Parser<'_> {
     }
 
     fn product(&mut self) -> Result<f64, Error> {
-        let mut v = self.power()?;
+        let mut v = self.signed()?;
         loop {
             self.skip_spaces();
             match self.peek() {
                 Some('*') => {
                     self.pos += 1;
-                    v *= self.power()?;
+                    v *= self.signed()?;
                 }
                 Some('/') => {
                     self.pos += 1;
-                    v /= self.power()?;
+                    v /= self.signed()?;
                 }
                 _ => return Ok(v),
             }
         }
     }
 
+    /// A sign binds less than `^`, as in pgfmath: `-x^2` is `-(x^2)`.
+    fn signed(&mut self) -> Result<f64, Error> {
+        self.skip_spaces();
+        match self.peek() {
+            Some('-') | Some('+') => {
+                let minus = self.peek() == Some('-');
+                self.pos += 1;
+                self.depth += 1;
+                if self.depth > MAX_DEPTH {
+                    return Err(Error::Expression(format!("nesting went past {MAX_DEPTH} levels")));
+                }
+                let v = self.signed();
+                self.depth -= 1;
+                v.map(|v| if minus { -v } else { v })
+            }
+            _ => self.power(),
+        }
+    }
+
     /// `a^b^c` is right-associative; read in a loop so a long `2^2^…^2` does not deepen the stack.
+    /// The exponents may have a sign (`2^-1`).
     fn power(&mut self) -> Result<f64, Error> {
-        let mut terms = vec![self.unary()?];
+        let mut terms = vec![self.postfix()?];
         self.skip_spaces();
         while self.peek() == Some('^') {
             self.pos += 1;
-            terms.push(self.unary()?);
+            terms.push(self.postfix()?);
             self.skip_spaces();
         }
         let last = terms.pop().unwrap_or_default();
         Ok(terms.into_iter().rev().fold(last, |e, base| base.powf(e)))
+    }
+
+    /// A factor and pgfmath's postfix `r` (radians to degrees: `sin(2 r)`).
+    fn postfix(&mut self) -> Result<f64, Error> {
+        let v = self.unary()?;
+        self.skip_spaces();
+        if self.peek() == Some('r') && !self.c.get(self.pos + 1).is_some_and(|c| c.is_ascii_alphanumeric()) {
+            self.pos += 1;
+            return Ok(deg_of(v));
+        }
+        Ok(v)
     }
 
     fn unary(&mut self) -> Result<f64, Error> {
@@ -170,7 +290,7 @@ impl Parser<'_> {
             Some('(') | Some('{') => {
                 let close = if self.peek() == Some('(') { ')' } else { '}' };
                 self.pos += 1;
-                let v = self.sum()?;
+                let v = self.ternary()?;
                 self.skip_spaces();
                 if self.peek() != Some(close) {
                     return Err(Error::Expression(format!("missing '{close}'")));
@@ -197,10 +317,11 @@ impl Parser<'_> {
                 let mut v: f64 = n.parse().map_err(|_| Error::Expression(format!("invalid number: {n}")))?;
                 // a unit glued to a number inside an expression: 2cm, 3pt
                 let rest: String = self.c[self.pos..].iter().take(2).collect();
-                if let Some(f) = unit_cm(&rest) {
+                if let Some(f) = unit_cm_in(&rest, self.vars) {
                     if !self.c.get(self.pos + 2).is_some_and(|c| c.is_ascii_alphabetic()) {
                         self.pos += 2;
                         v *= f;
+                        self.units = true;
                     }
                 }
                 Ok(v)
@@ -233,14 +354,27 @@ impl Parser<'_> {
                 self.skip_spaces();
                 if self.peek() != Some('(') {
                     // a variable without a backslash, like the x of pgfplots functions
-                    return self.vars.get(&name).copied().ok_or(Error::Expression(format!("function without parentheses: {name}")));
+                    if let Some(v) = self.vars.get(&name) {
+                        return Ok(*v);
+                    }
+                    // a function without arguments: declared (`declare function={C=4;}`) or pgfmath's
+                    if let Some(body) = self.vars.functions.get(&name).filter(|f| f.0.is_empty()).map(|f| f.1.clone()) {
+                        return eval_at(&body, self.vars, self.depth + 1);
+                    }
+                    return match name.as_str() {
+                        "rand" => Ok(pseudo_random_signed()),
+                        "rnd" => Ok(pseudo_random()),
+                        "true" => Ok(1.0),
+                        "false" => Ok(0.0),
+                        _ => Err(Error::Expression(format!("function without parentheses: {name}"))),
+                    };
                 }
                 self.pos += 1;
-                let mut args = vec![self.sum()?];
+                let mut args = vec![self.ternary()?];
                 self.skip_spaces();
                 while self.peek() == Some(',') {
                     self.pos += 1;
-                    args.push(self.sum()?);
+                    args.push(self.ternary()?);
                     self.skip_spaces();
                 }
                 if self.peek() != Some(')') {
@@ -257,8 +391,8 @@ impl Parser<'_> {
                 let g = |x: f64| x.to_radians();
                 let a = args[0];
                 Ok(match name.as_str() {
-                    "sin" => g(a).sin(),
-                    "cos" => g(a).cos(),
+                    "sin" => sin_degrees(a),
+                    "cos" => cos_degrees(a),
                     "tan" => g(a).tan(),
                     "asin" => a.asin().to_degrees(),
                     "acos" => a.acos().to_degrees(),
@@ -279,6 +413,29 @@ impl Parser<'_> {
                     "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
                     "mod" => a % args.get(1).copied().unwrap_or(1.0),
                     "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
+                    // pgfmath's hyperbolic and other functions
+                    "sinh" => a.sinh(),
+                    "cosh" => a.cosh(),
+                    "tanh" => a.tanh(),
+                    "cot" => 1.0 / g(a).tan(),
+                    "sec" => 1.0 / sin_degrees(a + 90.0),
+                    "cosec" => 1.0 / sin_degrees(a),
+                    "log2" => a.log2(),
+                    "int" => a.trunc(),
+                    "frac" => a - a.trunc(),
+                    "real" => a,
+                    "neg" => -a,
+                    "sign" => {
+                        if a > 0.0 {
+                            1.0
+                        } else if a < 0.0 {
+                            -1.0
+                        } else {
+                            0.0
+                        }
+                    }
+                    "iseven" => f64::from(a.trunc() % 2.0 == 0.0),
+                    "isodd" => f64::from(a.trunc() % 2.0 != 0.0),
                     other => return Err(Error::Expression(format!("unknown function: {other}"))),
                 })
             }
@@ -301,5 +458,114 @@ mod tests {
         assert!((eval("-\\R + 1", &v).unwrap() - 0.6).abs() < 1e-9);
         assert!((eval("2^3", &v).unwrap() - 8.0).abs() < 1e-9);
         assert!((eval_length("10pt", &v).unwrap().0 - 0.3515).abs() < 1e-3);
+        // a sign binds less than ^ (pgfmath's -x^2 is -(x^2)); an exponent may have one
+        assert_eq!(eval("-2^2", &v).unwrap(), -4.0);
+        assert_eq!(eval("1-2^2", &v).unwrap(), -3.0);
+        assert_eq!(eval("2^-1", &v).unwrap(), 0.5);
+        assert_eq!(eval("3*-2^2", &v).unwrap(), -12.0);
     }
+}
+
+/// The sine of degrees as pgfmath computes it (`\pgfmathsin`): in TeX's fixed point, between the
+/// cosines of the whole degrees around (rounded to five decimals), so `sin(90)` is 1 and the top of a
+/// sine between two whole degrees just below.
+fn sin_degrees(a: f64) -> f64 {
+    pgf_cos_sp(sp_of(a) - 90 * 65536) as f64 / 65536.0
+}
+
+fn cos_degrees(a: f64) -> f64 {
+    pgf_cos_sp(sp_of(a)) as f64 / 65536.0
+}
+
+/// A number as TeX reads it into a dimension: the nearest sp.
+fn sp_of(v: f64) -> i64 {
+    (v * 65536.0).round() as i64
+}
+
+/// `<factor><dimen>` as TeX computes it: the factor's whole part times the dimension, plus its
+/// fraction (in 2^-16) times the dimension cut toward zero.
+fn tex_scale(f: f64, d: i64) -> i64 {
+    let negative = (f < 0.0) != (d < 0);
+    let a = f.abs();
+    let whole = a.trunc() as i64;
+    let fraction = ((a - a.trunc()) * 65536.0).round() as i64;
+    let d = d.abs();
+    let r = whole * d + d * fraction / 65536;
+    if negative {
+        -r
+    } else {
+        r
+    }
+}
+
+/// pgfmath's table: the cosine of a whole degree, to five decimals.
+fn cos_table(n: i64) -> f64 {
+    ((n as f64).to_radians().cos() * 1e5).round() / 1e5
+}
+
+/// pgfmath's cosine of `x` sp degrees, in sp.
+fn pgf_cos_sp(x: i64) -> i64 {
+    let mut x = x;
+    let turns = (x / 65536) / 360 * -360;
+    x += turns * 65536;
+    if x < 0 {
+        x = -x;
+    }
+    if x >= 180 * 65536 {
+        x = 360 * 65536 - x;
+    }
+    let (a, fraction) = (x / 65536, x % 65536);
+    if fraction == 0 {
+        return sp_of(cos_table(a));
+    }
+    tex_scale(cos_table(a), 65536 - fraction) + tex_scale(cos_table((a + 1).min(180)), fraction)
+}
+
+/// Radians to degrees as pgfmath's postfix `r` (times 57.29577, in TeX's fixed point).
+fn deg_of(v: f64) -> f64 {
+    if v.abs() > 285.0 {
+        return v.to_degrees();
+    }
+    tex_scale(57.29577, sp_of(v)) as f64 / 65536.0
+}
+
+thread_local! {
+    static SEED: std::cell::Cell<i64> = const { std::cell::Cell::new(1) };
+}
+
+/// pgf's pseudo-random numbers (`\pgfmathgeneratepseudorandomnumber`): the Park–Miller "minimal
+/// standard" generator with Schrage's factoring, a = 69621, m = 2^31 - 1, so that `\pgfmathsetseed`
+/// gives TeX's sequence.
+pub fn next_random() -> i64 {
+    SEED.with(|s| {
+        let (a, q, r, m) = (69_621i64, 30_845i64, 23_902i64, 2_147_483_647i64);
+        let z = s.get();
+        let mut n = a * (z % q) - r * (z / q);
+        if n < 0 {
+            n += m;
+        }
+        s.set(n);
+        n
+    })
+}
+
+/// `\pgfmathsetseed{n}`.
+pub fn set_seed(seed: i64) {
+    SEED.with(|s| s.set(seed));
+}
+
+/// pgfmath's `rnd`: [0, 1] in steps of 1/100000, as pgf scales the generator's number.
+fn pseudo_random() -> f64 {
+    (next_random() % 100_001) as f64 / 100_000.0
+}
+
+/// pgfmath's `rand`: [-1, 1].
+pub fn pseudo_random_signed() -> f64 {
+    (next_random() % 200_001 - 100_000) as f64 / 100_000.0
+}
+
+/// Starts `rnd` and `rand` over: each figure draws the same numbers.
+pub fn reset_random() {
+    // pgf seeds with \time * \year; a document here always starts from the same seed
+    set_seed(1);
 }

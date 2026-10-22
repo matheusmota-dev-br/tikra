@@ -24,8 +24,9 @@ example, honoring the block's options as the manual's macros do:
 - `preamble`, `pre`, `post`, `render instead`, `vbox`: applied as in the manual;
 - every document loads the libraries that the manual loads for all its examples, on one line.
 
-The same document goes to pdflatex and to tikra. Only TikZ figures count (code with a `tikzpicture`,
-`\tikz` or a pgfplots axis); examples of the pgf basic layer, of text or of tables are listed apart.
+The same document goes to pdflatex and to tikra. Only figures count (code with a `tikzpicture`,
+`\tikz`, a pgfplots axis or the basic layer's `pgfpicture`); examples of text or of tables are listed
+apart.
 
 ## The reference
 
@@ -49,11 +50,17 @@ compares each pair by:
   other way round; their harmonic mean is the F1 score.
 - **pieces**: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
-- **color**: of tikra's ink near TeX's, the share with about the same color as the nearest TeX ink.
+- **color**: of tikra's ink near TeX's, the share with about the same color as some TeX ink in the 3×3
+  pixels around it, both drawings blurred by 0.7 px first. Ghostscript and resvg antialias a line's
+  edge at different phases, and spread a thin line's ink differently (one dark pixel, or two lighter
+  ones); neither is a color difference.
+- **ink**: the share of each drawing's ink that lies within 2 px of a mark of the other (the smaller
+  of the two). A fill one drawing has and the other does not is mostly away from the edges, where the
+  scores above do not look.
 - **size**: width and height within 10% (or 4 px).
 
-A figure **matches** with F1 ≥ 0.9, color ≥ 0.9, the same size and no missing or extra piece; it is
+A figure **matches** with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size and no missing or extra piece; it is
 **close** with F1 ≥ 0.75.
-The tolerance absorbs what is expected to differ: labels in STIX Two instead of Computer Modern,
-antialiasing, a bounding box off by a hair. A figure that does not match although tikra gave no
+The tolerance absorbs what is expected to differ: labels in Latin Modern Math (Computer Modern
+from a math font, without TeX's optical sizes or text italic), antialiasing, a bounding box off by a hair. A figure that does not match although tikra gave no
 warning is counted apart: that is tikra being wrong without saying so.

@@ -51,7 +51,7 @@ Packages, run by `.github/workflows/ci.yml` on every pull request:
 | `npm/test/*.test.*` | 7 | The packed npm package, installed in a scratch project: ESM and `require`, every input form, `render`, `png` options, errors as `Error`, `version()`. |
 | `crates/python/tests/test_tikra.py` | 7 | The Python module as installed: every input form, `render`, `png` (bytes, `dpi`, `background`), `ValueError`, versions. `pypi.yml` runs it against each built wheel and the sdist. |
 
-Unit tests, inside the modules: `color.rs` (mixes), `expr.rs` (basic expressions), `options.rs` (styles), `label.rs` (wrapping and font size). Plus the documentation example in `lib.rs`.
+Unit tests, inside the modules: `color.rs` (mixes), `expr.rs` (basic expressions), `label.rs` (wrapping and font size). Plus the documentation example in `lib.rs`.
 
 ## Coverage
 
@@ -65,10 +65,6 @@ Unit tests, inside the modules: `color.rs` (mixes), `expr.rs` (basic expressions
 | `core/src/expr.rs` | 99.80% | 100.00% | 100.00% |
 | `core/src/label.rs` | 98.23% | 100.00% | 100.00% |
 | `core/src/lib.rs` | 99.44% | 100.00% | 100.00% |
-| `core/src/options.rs` | 100.00% | 100.00% | 100.00% |
-| `core/src/path.rs` | 99.61% | 100.00% | 100.00% |
-| `core/src/reader.rs` | 99.82% | 100.00% | 100.00% |
-| `core/src/render.rs` | 99.63% | 100.00% | 100.00% |
 | `core/src/scene.rs` | 100.00% | 100.00% | 100.00% |
 | **Total** | **99.54%** | **100.00%** | **100.00%** |
 

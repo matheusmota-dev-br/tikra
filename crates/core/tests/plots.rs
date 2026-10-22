@@ -1,170 +1,262 @@
-//! The pgfplots subset: windows, axes, series by expression and by coordinates, legend.
+//! pgfplots: the axis' size, its ticks and labels, plots by expression, coordinates and table,
+//! the cycle list and marks, bars, legends, log axes and TikZ statements inside an axis.
 
 mod common;
 use common::*;
-use tikra::scene::{Element, Segment};
+use tikra::canvas::{Canvas, Item, Paint};
+use tikra::scene::Segment;
 
-fn plot(options: &str, body: &str) -> tikra::Output {
-    figure(&format!(r"\begin{{tikzpicture}}\begin{{axis}}[{options}] {body} \end{{axis}}\end{{tikzpicture}}"))
+const PT: f64 = tikra::PT;
+
+fn canvas(body: &str) -> (Canvas, Vec<String>) {
+    tikra::engine::run_document(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).unwrap_or_else(|e| panic!("{e}\n{body}"))
+}
+
+fn axis(options: &str, body: &str) -> (Canvas, Vec<String>) {
+    canvas(&format!("\\begin{{axis}}[{options}] {body} \\end{{axis}}"))
+}
+
+/// Width and height of the drawing, in pt.
+fn size(c: &Canvas) -> (f64, f64) {
+    let (a, b) = (c.min.unwrap(), c.max.unwrap());
+    ((b.x - a.x) / PT, (b.y - a.y) / PT)
+}
+
+fn texts(c: &Canvas) -> usize {
+    c.items.iter().filter(|i| matches!(i, Item::Text { .. })).count()
+}
+
+fn filled(c: &Canvas) -> Vec<&Vec<Segment>> {
+    c.items.iter().filter_map(|i| if let Item::Path { segments, fill: Some(_), .. } = i { Some(segments) } else { None }).collect()
 }
 
 #[test]
-fn axis_styles() {
-    for axes in ["axis lines=left", "axis lines=middle", "axis lines=center", "axis lines=none", "axis lines=box", ""] {
-        let r = plot(&format!("xmin=-1, xmax=1, ymin=-1, ymax=1, {axes}"), r"\addplot {x};");
-        assert!(r.svg.contains("<path"), "{axes}");
-        assert!(r.warnings.is_empty(), "{axes}: {:?}", r.warnings);
+fn default_size_is_pgfplots() {
+    // 240pt × 207pt with the labels: TeX draws this one 233.6pt × 182.9pt (empty labels included)
+    let (c, w) = axis("", r"\addplot+[sharp plot] coordinates {(0,0) (1,2) (2,3)};");
+    assert!(w.is_empty(), "{w:?}");
+    let (wd, ht) = size(&c);
+    assert!((wd - 233.6).abs() < 2.0 && (ht - 182.9).abs() < 2.0, "{wd} × {ht}");
+    // scale only axis: the box is exactly the size
+    let (c, _) = axis("scale only axis, width=5cm, height=3cm, hide axis", r"\addplot coordinates {(0,0) (1,1)};");
+    let (wd, ht) = size(&c);
+    assert!(wd >= 5.0 / 2.54 * 72.27 - 1.0, "{wd} {ht}");
+}
+
+#[test]
+fn axis_line_styles() {
+    for lines in ["left", "middle", "center", "none", "box", "right"] {
+        let (c, w) = axis(&format!("xmin=-1, xmax=1, ymin=-1, ymax=1, axis lines={lines}"), r"\addplot {x};");
+        assert!(w.is_empty(), "{lines}: {w:?}");
+        assert!(!c.items.is_empty(), "{lines}");
     }
 }
 
 #[test]
-fn window_from_the_data() {
-    let r = plot("", r"\addplot coordinates {(0,0) (10,100) (zz,1) (3)};");
-    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
-    // without data: a window from 0 to 1, with a warning
-    let r = plot("", r"\addlegendentry{nothing}");
-    assert!(r.warnings.iter().any(|a| a.contains("without data")));
-    // xmin = xmax: default window
-    plot("xmin=2, xmax=2, ymin=1, ymax=1", r"\addplot coordinates {(2,1)};");
+fn ticks_follow_the_algorithm() {
+    // x from -6 to 6 (domain -5:5 enlarged by 10%): ticks every 2, seven labels; y: 0, 10, 20 (as TeX draws it)
+    let (c, w) = axis("", r"\addplot[samples=3] {x^2};");
+    assert!(w.is_empty(), "{w:?}");
+    // 7 x labels, 3 y labels, and the two empty label nodes draw nothing
+    assert_eq!(texts(&c), 10, "{}", texts(&c));
+    // explicit ticks and labels
+    let (c, w) = axis("xtick={0,1,2}, xticklabels={a,b,c}, ytick=\\empty", r"\addplot coordinates {(0,0) (2,1)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 3);
 }
 
 #[test]
-fn expression_series_with_domain_and_samples() {
-    let r = plot(
-        "domain=0:2, samples=5, width=8cm, height=5cm, xlabel={$x$}, ylabel={$y$}, title={Title}",
-        r"\addplot[red, thick] {x^2}; \addplot+[domain=-1:1, samples=3] {1/x}; \addplot[samples=zz] {sqrt(x)}; \addplot {\doesnotexist};",
-    );
-    assert!(r.svg.contains("#ff0000"));
-    // an invalid domain on the series or the axis: -5 to 5
-    plot("domain=zz:1", r"\addplot[domain=1:zz] {x};");
+fn expressions_tables_and_coordinates() {
+    let (_, w) =
+        axis("domain=0:2, samples=5, xlabel={$x$}, ylabel={$y$}, title={Title}", r"\addplot[red, thick] {x^2}; \addplot+[domain=-1:1, samples=3] {1/x}; \addplot (x, {sqrt(x)});");
+    assert!(w.is_empty(), "{w:?}");
+    let (c, w) = axis("", "\\addplot table {\nx y\n0 1\n1 3\n2 2\n};");
+    assert!(w.is_empty(), "{w:?}");
+    // three marks (filled circles) of the first cycle list entry
+    assert!(!filled(&c).is_empty());
+    let (_, w) = axis("", r"\addplot table[x=b, y expr=\thisrow{a}*2, row sep=\\] {a b \\ 1 2 \\ 3 4 \\};");
+    assert!(w.is_empty(), "{w:?}");
 }
 
 #[test]
-fn marks_on_coordinate_series() {
-    let c = scene(
-        r"\begin{axis}[xmin=0, xmax=2, ymin=0, ymax=2] \addplot coordinates {(1,1) (2,2)}; \addplot+[red] coordinates {(0,1)}; \addplot[blue] coordinates {(1,0) (0,1)}; \end{axis}",
-    );
-    // marked points: the first two series (no options, and with +)
-    let marks = nodes(&c).iter().filter(|n| n.label.is_none()).count();
-    assert_eq!(marks, 3, "{marks}");
-    assert!(matches!(c.elements.last(), Some(Element::EndClip)));
+fn cycle_list_and_marks() {
+    let (c, _) = axis("", r"\addplot coordinates {(0,0) (1,1)}; \addplot coordinates {(0,1) (1,0)};");
+    let svg = tikra::driver::svg(&c, "", "t");
+    // blue line, red line; marks filled blue!80!black and red!80!black
+    assert!(svg.contains("#0000ff") && svg.contains("#ff0000"), "{svg}");
+    assert!(svg.contains("#0000cc") && svg.contains("#cc0000"), "{svg}");
+    // a plot with its own options does not take marks from the cycle list
+    let (c, _) = axis("", r"\addplot[blue] coordinates {(0,0) (1,1)};");
+    assert!(filled(&c).is_empty());
+    let (c, _) = axis("", r"\addplot[only marks, mark=square*] coordinates {(0,0) (1,1) (2,0)};");
+    assert!(!filled(&c).is_empty());
 }
 
 #[test]
-fn positioned_legend_and_frame() {
-    let r = plot("xmin=0, xmax=1, ymin=0, ymax=1, legend style={at={(0.5,0.9)}, anchor=north}", r"\addplot {x}; \addlegendentry{line} \addlegendentry{no series}");
-    assert!(r.svg.contains("#ffffff"), "the legend's white frame");
-    // an invalid at: default corner
-    plot("xmin=0, xmax=1, ymin=0, ymax=1, legend style={at={(zz)}}", r"\addplot {x}; \addlegendentry{a}");
-    plot(r"xmin=0, xmax=1, ymin=0, ymax=1, legend style={font=\small}", r"\addplot {x}; \addlegendentry{a}");
+fn bars_and_closed_cycles() {
+    let (c, w) = axis("ybar, ymin=0", r"\addplot coordinates {(0,3) (1,2) (2,4)};");
+    assert!(w.is_empty(), "{w:?}");
+    let bars = filled(&c);
+    assert_eq!(bars.len(), 1, "the bars are one path");
+    assert_eq!(bars[0].iter().filter(|s| matches!(s, Segment::Close)).count(), 3);
+    let (c, w) = axis("", r"\addplot[fill=blue] {x^2} \closedcycle;");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(filled(&c).len(), 1);
 }
 
 #[test]
-fn log_variants_are_read_as_linear() {
+fn legend_frame_and_positions() {
+    let legend_box = |opts: &str| {
+        let (c, w) = axis(&format!("width=10cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=1, {opts}"), r"\addplot coordinates {(0,0) (1,1)}; \addlegendentry{data}");
+        assert!(w.is_empty(), "{opts}: {w:?}");
+        let frame = c
+            .items
+            .iter()
+            .find_map(|i| match i {
+                Item::Path { segments, fill: Some(f), .. } if matches!(f.paint, Paint::Solid(col) if col == tikra::color::Color::WHITE) => Some(points(segments)),
+                _ => None,
+            })
+            .expect("a white legend frame");
+        let xs: Vec<f64> = frame.iter().map(|p| p.0).collect();
+        let ys: Vec<f64> = frame.iter().map(|p| p.1).collect();
+        (
+            xs.iter().cloned().fold(f64::INFINITY, f64::min),
+            ys.iter().cloned().fold(f64::INFINITY, f64::min),
+            xs.iter().cloned().fold(f64::MIN, f64::max),
+            ys.iter().cloned().fold(f64::MIN, f64::max),
+        )
+    };
+    let (_, _, right, top) = legend_box("");
+    let (left_nw, _, _, _) = legend_box("legend pos=north west");
+    let (_, bottom_se, right_se, _) = legend_box("legend pos=south east");
+    let (left_out, _, _, _) = legend_box("legend pos=outer north east");
+    assert!(left_nw < right / 2.0, "{left_nw}");
+    assert!(bottom_se < top / 2.0 && right_se < right, "{bottom_se} {right_se}");
+    assert!(left_out > right, "outer north east is outside the box: {left_out} {right}");
+    // \legend and legend entries
+    let (_, w) = axis("legend entries={a,b}", r"\addplot {x}; \addplot {2*x};");
+    assert!(w.is_empty(), "{w:?}");
+    let (_, w) = axis("", r"\addplot {x}; \addplot {2*x}; \legend{$x$,$2x$}");
+    assert!(w.is_empty(), "{w:?}");
+}
+
+#[test]
+fn log_axes() {
     for env in ["semilogyaxis", "semilogxaxis", "loglogaxis"] {
-        let r =
-            figure(&format!(r"\begin{{tikzpicture}}\begin{{{env}}}[xmin=1, xmax=10, ymin=1, ymax=10] \addplot coordinates {{(1,1) (10,10)}}; \end{{{env}}}\end{{tikzpicture}}"));
-        assert!(r.svg.contains("<path"), "{env}");
+        let (c, w) = canvas(&format!(r"\begin{{{env}}} \addplot coordinates {{(1,1) (10,100) (100,1000)}}; \end{{{env}}}"));
+        assert!(w.is_empty(), "{env}: {w:?}");
+        assert!(texts(&c) >= 3, "{env}");
     }
+    let (_, w) = axis("ymode=log, xmin=1, xmax=10", r"\addplot[domain=1:10] {exp(x)};");
+    assert!(w.is_empty(), "{w:?}");
 }
 
 #[test]
-fn axis_without_end_reads_to_the_end() {
-    let c = scene(r"\begin{axis}[xmin=0, xmax=1, ymin=0, ymax=1] \addplot coordinates {(0,0) (1,1)};");
-    assert!(!paths(&c).is_empty());
+fn tikz_statements_inside_an_axis() {
+    let (c, w) = axis("xmin=0, xmax=10, ymin=0, ymax=10", r"\draw[red] (axis cs:0,0) -- (axis cs:10,10); \node at (rel axis cs:0.5,0.5) {mid};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(texts(&c) >= 1);
+    // compat=1.11 on: plain coordinates are axis coordinates
+    let (_, w) = axis("compat=1.18, xmin=0, xmax=1, ymin=0, ymax=1", r"\draw (0,0) -- (1,1); \coordinate (a) at (0.5,0.5);");
+    assert!(w.is_empty(), "{w:?}");
+    // named axes and their anchors
+    let (_, w) = canvas(r"\begin{axis}[name=a] \addplot {x}; \end{axis} \draw (a.outer north east) -- (a.origin) -- (a.south west);");
+    assert!(w.is_empty(), "{w:?}");
 }
 
 #[test]
-fn addplot_errors() {
-    let mut env = tikra::reader::Env::new();
-    assert!(tikra::axes::plot_axis(&mut env, "", r"\addplot coordinates").is_err());
-    // a series with neither expression nor coordinates: empty
-    let mut env = tikra::reader::Env::new();
-    tikra::axes::plot_axis(&mut env, "xmin=0, xmax=1, ymin=0, ymax=1", r"\addplot table {data.csv};").unwrap();
+fn degenerate_input_does_not_fail() {
+    let (_, w) = axis("", "");
+    assert!(w.iter().any(|x| x.contains("without data")), "{w:?}");
+    let (_, w) = axis("xmin=2, xmax=2, ymin=1, ymax=1", r"\addplot coordinates {(2,1)};");
+    assert!(w.is_empty(), "{w:?}");
+    // the step vanishes in precision or the range is huge: no hang
+    axis("xmin=1e17, xmax=1.0000000000000001e17, ymin=0, ymax=1", r"\addplot coordinates {(1e17,0)};");
+    axis("xmin=0, xmax=1e-300, ymin=0, ymax=1", "");
+    axis("ymin=-1e308, ymax=1e308", "");
+    let (_, w) = axis("", r"\addplot coordinates;");
+    assert!(!w.is_empty());
+    let (_, w) = axis("", r"\addplot table {no-such-file.dat};");
+    assert!(w.iter().any(|x| x.contains("not found")), "{w:?}");
+    let (_, w) = axis("", r"\addplot table {../../etc/passwd};");
+    assert!(w.iter().any(|x| x.contains("refused")), "{w:?}");
+    // unknown keys are reported
+    let (_, w) = axis("no such key=1", r"\addplot {x};");
+    assert!(w.iter().any(|x| x.contains("no such key")), "{w:?}");
+    // an axis outside tikzpicture is a picture of its own
+    let r = tikra::convert(r"\begin{axis} \addplot {x}; \end{axis}").unwrap();
+    assert!(r.svg.contains("<path"));
 }
 
 #[test]
-fn huge_or_tiny_window_does_not_hang() {
-    // the step vanishes in precision: at most 50 ticks
-    plot("xmin=1e17, xmax=1.0000000000000001e17, ymin=0, ymax=1", r"\addplot coordinates {(1e17,0)};");
-    plot("xmin=0, xmax=1e-300, ymin=0, ymax=1", "");
-    plot("ymin=-1e308, ymax=1e308", "");
+fn three_d_axis_and_surface() {
+    // view {25}{30}: x and y not enlarged, three ticks wanted at least (`every 3d description`)
+    let (c, w) = axis("", r"\addplot3[surf,shader=interp] {x*y};");
+    assert!(w.is_empty(), "{w:?}");
+    // as TeX: x -4, -2, 0, 2, 4 (the longer axis on paper); y -5, 0, 5; z -20, 0, 20
+    assert_eq!(texts(&c), 11);
+    // 25 × 25 samples: 24 × 24 patches
+    assert_eq!(filled(&c).len(), 24 * 24);
+    // 3d box=complete draws the edges in front too: more lines than the background box alone
+    let strokes = |c: &Canvas| c.items.iter().filter(|i| matches!(i, Item::Path { fill: None, stroke: Some(_), .. })).count();
+    let (c2, w) = axis("3d box=complete", r"\addplot3[surf,shader=interp] {x*y};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(strokes(&c2) > strokes(&c), "{} {}", strokes(&c2), strokes(&c));
 }
 
 #[test]
-fn legend_with_space_before_the_brace() {
-    plot("xmin=0, xmax=1, ymin=0, ymax=1", r"\addplot {x}; \addlegendentry  {with a space}");
+fn group_plots() {
+    // 2 by 2: four axes side by side and below each other, 1cm apart
+    let (c, w) = canvas(
+        r"\begin{groupplot}[group style={group size=2 by 2, x descriptions at=edge bottom}, width=4cm, height=4cm, xtick=\empty, ytick=\empty, xlabel=t]
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \nextgroupplot \addplot coordinates {(0,0) (1,1)};
+        \end{groupplot}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    // the x labels of the bottom row only
+    assert_eq!(texts(&c), 2);
+    let (wd, ht) = size(&c);
+    // two axes of 4cm less 45pt each and 1cm between them
+    let box_pt = 4.0 / 2.54 * 72.27 - 45.0;
+    // (with the empty y label node 35pt left of the first axis, as TeX draws it)
+    assert!(wd > 2.0 * box_pt + 28.0 && wd < 2.0 * box_pt + 80.0, "{wd}");
+    assert!(ht > 2.0 * box_pt + 28.0, "{ht}");
 }
 
 #[test]
-fn incomplete_domains() {
-    for o in ["domain=1", "domain=0:zz", "domain=zz:1"] {
-        plot(o, &format!(r"\addplot[{o}] {{x}};"));
-    }
+fn nodes_near_coords() {
+    // one node per point with its y value, above the points and below for negative ones
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty, nodes near coords", r"\addplot coordinates {(0,1) (1,-1) (2,0.5)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 3);
+    // symbolic point meta is shown as written
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot[nodes near coords, point meta=explicit symbolic] coordinates {(0,1) [a] (1,2) [b]};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 2);
+    // and the text can be anything, with \coordindex
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[ybar, nodes near coords={(\coordindex)}] coordinates {(0,1) (1,2)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 2);
 }
 
 #[test]
-fn only_marks_draws_points_without_a_line() {
-    let c = scene(r"\begin{axis}[xmin=0, xmax=2, ymin=0, ymax=2] \addplot[only marks] coordinates {(0.5,0.5) (1,1) (1.5,1.5)}; \addlegendentry{points} \end{axis}");
-    // three marks plus the one in the legend, and no line joining them
-    let marks = nodes(&c).iter().filter(|n| n.label.is_none()).count();
-    assert_eq!(marks, 4, "{marks}");
-    assert!(paths(&c).iter().all(|p| p.segments.len() != 3), "no polyline through the 3 points");
-    // `mark=*` adds marks to a styled line; `no marks` removes them
-    let with = scene(r"\begin{axis} \addplot[red, mark=*] coordinates {(0,0) (1,1)}; \end{axis}");
-    assert_eq!(nodes(&with).iter().filter(|n| n.label.is_none()).count(), 2);
-    let without = scene(r"\begin{axis} \addplot+[no marks] coordinates {(0,0) (1,1)}; \end{axis}");
-    assert_eq!(nodes(&without).iter().filter(|n| n.label.is_none()).count(), 0);
-}
-
-/// The legend's white frame: the only closed path filled with white.
-fn legend_frame(c: &tikra::scene::Scene) -> (f64, f64, f64, f64) {
-    let frame = paths(c).into_iter().find(|p| p.style.fill == Some(tikra::color::Color::WHITE)).expect("a legend frame");
-    let xs: Vec<f64> = frame.segments.iter().filter_map(|s| if let Segment::MoveTo(p) | Segment::LineTo(p) = s { Some(p.x) } else { None }).collect();
-    let ys: Vec<f64> = frame.segments.iter().filter_map(|s| if let Segment::MoveTo(p) | Segment::LineTo(p) = s { Some(p.y) } else { None }).collect();
-    let min = |v: &[f64]| v.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = |v: &[f64]| v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    (min(&xs), min(&ys), max(&xs), max(&ys))
-}
-
-#[test]
-fn legend_anchor_and_legend_pos_place_the_frame() {
-    let axis = |opts: &str| {
-        scene(&format!(
-            r"\begin{{axis}}[width=10cm, height=6cm, xmin=0, xmax=1, ymin=0, ymax=1, {opts}] \addplot coordinates {{(0,0) (1,1)}}; \addlegendentry{{data}} \end{{axis}}"
-        ))
-    };
-    let (_, _, right, top) = legend_frame(&axis(""));
-    let (left_nw, _, _, top_nw) = legend_frame(&axis("legend style={at={(0.02,0.98)}, anchor=north west}"));
-    let (_, bottom_se, right_se, _) = legend_frame(&axis("legend pos=south east"));
-    let (_, _, right_at, _) = legend_frame(&axis("legend style={at={(0.5,0.98)}}"));
-    let (left_sw, bottom_sw, _, _) = legend_frame(&axis("legend pos=south west"));
-    assert!(right > 4.0 && top > 2.5, "default: north east corner: {right} {top}");
-    assert!(left_nw < 1.0 && top_nw > 2.5, "anchor=north west hangs the legend to the right of `at`: {left_nw}");
-    assert!(close(right_se, right) && bottom_se < 1.0, "legend pos=south east: {right_se} {bottom_se}");
-    assert!((right_at - right / 2.0).abs() < 0.5, "with only `at`, pgfplots keeps the north east anchor: {right_at}");
-    assert!(left_sw < 1.0 && bottom_sw < 1.0);
-    let (left_out, _, _, _) = legend_frame(&axis("legend pos=outer north east"));
-    assert!(left_out > right, "outer north east: outside the axis, to the right: {left_out}");
-    let (_, w) = scene_and_warnings(r"\begin{axis}[legend style={anchor=north by northwest}] \addplot coordinates {(0,0) (1,1)}; \addlegendentry{d} \end{axis}");
-    assert!(w.iter().any(|x| x.contains("legend anchor")), "{w:?}");
-}
-
-#[test]
-fn title_clears_the_arrow_tips_of_middle_axes() {
-    let title_bottom = |lines: &str| {
-        let c = scene(&format!(
-            r"\begin{{axis}}[axis lines={lines}, width=8cm, height=5cm, xmin=-1, xmax=1, ymin=-1, ymax=1, title={{T}}] \addplot coordinates {{(0,0) (1,1)}}; \end{{axis}}"
-        ));
-        // the title is the highest node
-        let n = nodes(&c).into_iter().max_by(|a, b| a.center.y.total_cmp(&b.center.y)).expect("the title");
-        n.center.y - n.half_height
-    };
-    let top_of_tip = |lines: &str| {
-        let c = scene(&format!(r"\begin{{axis}}[axis lines={lines}, width=8cm, height=5cm, xmin=-1, xmax=1, ymin=-1, ymax=1] \end{{axis}}"));
-        paths(&c).iter().flat_map(|p| p.segments.iter()).filter_map(|s| if let Segment::LineTo(p) = s { Some(p.y) } else { None }).fold(f64::MIN, f64::max)
-    };
-    for lines in ["middle", "left", "box"] {
-        assert!(title_bottom(lines) >= top_of_tip(lines) - 1e-9, "{lines}: {} < {}", title_bottom(lines), top_of_tip(lines));
-    }
+fn statistics_and_colorbar() {
+    // hist: 3 bins of 12 values as ybar intervals
+    let (c, w) = axis("xtick=\\empty, ytick=\\empty", r"\addplot+[hist={bins=3}] coordinates {(0,1) (0,2) (0,1) (0,5) (0,4) (0,10) (0,7) (0,10) (0,9) (0,8) (0,9) (0,9)};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!filled(&c).is_empty());
+    // a prepared box plot: a box, two whiskers, a median
+    let (c, w) =
+        axis("xtick=\\empty, ytick=\\empty", r"\addplot[boxplot prepared={lower whisker=1, lower quartile=2, median=3, upper quartile=4, upper whisker=5}] coordinates {};");
+    assert!(w.is_empty(), "{w:?}");
+    let strokes = c.items.iter().filter(|i| matches!(i, Item::Path { stroke: Some(_), .. })).count();
+    assert!(strokes >= 4, "{strokes}");
+    // a colorbar is an axis of its own next to the plot
+    let (c, w) = axis("colorbar", r"\addplot[mesh] {x};");
+    assert!(w.is_empty(), "{w:?}");
+    let (wd, _) = size(&c);
+    assert!(wd > 260.0, "{wd}");
 }

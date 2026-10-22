@@ -1,24 +1,8 @@
 //! Whole figures, made up for these tests, that combine several features at once.
 
-use tikra::scene::{Element, Segment, Shape};
-
-fn figure(tikz: &str) -> tikra::Output {
-    tikra::convert(tikz).unwrap_or_else(|e| panic!("{e}\n{tikz}"))
-}
-
-fn no_warnings(tikz: &str) -> tikra::Output {
-    let r = figure(tikz);
-    assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
-    r
-}
-
-fn scene(tikz: &str) -> tikra::scene::Scene {
-    // the scene is exposed only through the reader; rebuild it here through the public path
-    let mut env = tikra::reader::Env::new();
-    let body = tikz.trim().trim_start_matches("\\begin{tikzpicture}").trim_end_matches("\\end{tikzpicture}");
-    tikra::reader::Reader::new(body, &mut env).run(None).unwrap();
-    env.scene
-}
+mod common;
+use common::*;
+use tikra::scene::Segment;
 
 #[test]
 fn number_line_with_two_variable_foreach() {
@@ -32,8 +16,8 @@ fn number_line_with_two_variable_foreach() {
       \end{tikzpicture}",
     );
     assert!(r.svg.contains("<svg"));
-    let c = scene(r"\foreach \x/\n in {1/a, 2/b, 3/c} { \node at (\x,0) {\n}; }");
-    assert_eq!(c.elements.iter().filter(|e| matches!(e, Element::Node(_))).count(), 3);
+    let c = canvas(r"\foreach \x/\n in {1/a, 2/b, 3/c} { \node at (\x,0) {\n}; }");
+    assert_eq!(texts(&c).len(), 3);
 }
 
 #[test]
@@ -55,8 +39,7 @@ fn folding_fan_with_def_rotated_scope_and_arc() {
 
 #[test]
 fn rectangle_rotates_with_the_scope() {
-    let c = scene(r"\begin{scope}[rotate=90] \draw (0,0) rectangle (2,1); \end{scope}");
-    let Some(Element::Path(t)) = c.elements.first() else { panic!() };
+    let t = first_path(r"\begin{scope}[rotate=90] \draw (0,0) rectangle (2,1); \end{scope}");
     // rotated 90°: the corner (2,0) goes to (0,2)
     assert!(t.segments.iter().any(|s| matches!(s, Segment::LineTo(p) if (p.x).abs() < 1e-9 && (p.y - 2.0).abs() < 1e-9)), "{:?}", t.segments);
 }
@@ -75,16 +58,20 @@ fn flowchart_with_positioning_and_elbows() {
         \draw[arrow] (c.south) -| (d.north);
       \end{tikzpicture}",
     );
-    assert!(r.svg.contains("<polygon"), "the Stealth tip is drawn");
+    // the Stealth tips: closed paths, filled and stroked with the line's width, as pgf does
+    assert!(r.svg.contains(r##"Z" fill="#000000" stroke="#000000""##), "the Stealth tip is drawn");
 }
 
 #[test]
 fn line_between_nodes_stops_at_the_border() {
-    let c = scene(r"\node[draw, minimum width=2cm, minimum height=1cm] (a) at (0,0) {}; \node[draw, circle, minimum size=1cm] (b) at (5,0) {}; \draw (a) -- (b);");
-    let t = c.elements.iter().find_map(|e| if let Element::Path(t) = e { Some(t) } else { None }).unwrap();
+    let c = canvas(r"\node[draw, minimum width=2cm, minimum height=1cm] (a) at (0,0) {}; \node[draw, circle, minimum size=1cm] (b) at (5,0) {}; \draw (a) -- (b);");
+    // the line is the last path, after the two node borders
+    let t = paths(&c).pop().unwrap();
     let (Segment::MoveTo(p), Segment::LineTo(q)) = (t.segments[0], t.segments[1]) else { panic!() };
-    assert!((p.x - 1.0).abs() < 1e-6, "leaves from the rectangle's right border: {p:?}");
-    assert!((q.x - 4.5).abs() < 1e-6, "arrives at the circle's left border: {q:?}");
+    // the borders are pushed out by the outer sep, half the line width (0.2pt), as in TikZ
+    let outer = 0.2 * tikra::PT;
+    assert!((p.x - (1.0 + outer)).abs() < 1e-6, "leaves from the rectangle's right border: {p:?}");
+    assert!((q.x - (4.5 - outer)).abs() < 1e-6, "arrives at the circle's left border: {q:?}");
 }
 
 #[test]
@@ -138,9 +125,28 @@ fn pgfplots_plot_with_legend() {
 
 #[test]
 fn node_shapes() {
-    let c = scene(r"\node[circle, draw] (a) {A}; \node[ellipse, draw] (b) at (2,0) {B}; \node[diamond, draw] (c) at (4,0) {C}; \coordinate (d) at (6,0);");
-    let shapes: Vec<Shape> = c.elements.iter().filter_map(|e| if let Element::Node(n) = e { Some(n.shape) } else { None }).collect();
-    assert_eq!(shapes, [Shape::Circle, Shape::Ellipse, Shape::Diamond]);
+    let c = canvas(r"\node[circle, draw] (a) {A}; \node[ellipse, draw] (b) at (2,0) {B}; \node[diamond, draw] (c) at (4,0) {C}; \coordinate (d) at (6,0);");
+    // three borders and nothing for the coordinate
+    let borders = paths(&c);
+    assert_eq!(borders.len(), 3, "{borders:?}");
+    let curves = |d: &Drawn| d.segments.iter().filter(|s| matches!(s, Segment::CurveTo(..))).count();
+    let lines = |d: &Drawn| d.segments.iter().filter(|s| matches!(s, Segment::LineTo(..))).count();
+    let extent = |d: &Drawn| {
+        let (a, b) = bounds(&d.segments);
+        (b.x - a.x, b.y - a.y)
+    };
+    // the circle: curves, as wide as it is high
+    let (w, h) = extent(&borders[0]);
+    assert!(curves(&borders[0]) >= 4 && (w - h).abs() < 1e-6, "circle: {w} × {h}");
+    // the ellipse: curves, fitted to the text box (not a circle: width and height differ)
+    let (w, h) = extent(&borders[1]);
+    assert!(curves(&borders[1]) >= 4 && (w - h).abs() > 1e-3, "ellipse: {w} × {h}");
+    // the diamond: four straight sides
+    assert!(curves(&borders[2]) == 0 && lines(&borders[2]) >= 3, "diamond: {:?}", borders[2].segments);
+    // the diamond's corners are on its axes: top and bottom at the center's x
+    let (a, b) = bounds(&borders[2].segments);
+    let top = points(&borders[2].segments).into_iter().find(|p| close(p.1, b.y)).unwrap();
+    assert!(close(top.0, (a.x + b.x) / 2.0), "{top:?}");
 }
 
 #[test]
@@ -149,8 +155,8 @@ fn input_repairs() {
     let r = figure("```\n\\\\draw\\[red\\] (0,0) -- (1,1);\n```");
     assert!(r.warnings.iter().any(|a| a.contains("Markdown")), "{:?}", r.warnings);
     // an unknown command becomes a warning, not an error
-    let r = figure(r"\begin{tikzpicture} \draw (0,0) -- (1,0); \matrix {a}; \end{tikzpicture}");
-    assert!(r.warnings.iter().any(|a| a.contains("matrix")));
+    let r = figure(r"\begin{tikzpicture} \draw (0,0) -- (1,0); \spy on (0,0) in node at (1,1); \end{tikzpicture}");
+    assert!(r.warnings.iter().any(|a| a.contains("spy")), "{:?}", r.warnings);
 }
 
 #[test]

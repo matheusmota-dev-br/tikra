@@ -140,4 +140,4 @@ Every pull request runs the same checks (`.github/workflows/ci.yml`): fmt, clipp
 
 ## Licenses
 
-Code: MIT or Apache-2.0. The font comes from mathra (STIX Two Math, SIL OFL 1.1); the Python and npm packages carry its license text.
+Code: MIT or Apache-2.0. Labels are set in Latin Modern Math, the OpenType version of TeX's Computer Modern (GUST Font License), which comes from mathra with its STIX Two Math (SIL OFL 1.1); the Python and npm packages carry both license texts.
