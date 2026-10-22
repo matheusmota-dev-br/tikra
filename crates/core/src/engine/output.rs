@@ -125,6 +125,12 @@ impl Engine {
                     self.canvas.push(Item::Path { segments: segs.clone(), fill, stroke: Some(outer) });
                     self.canvas.push(Item::Path { segments: segs.clone(), fill: None, stroke: Some(inner) });
                 }
+                (None, Some(s)) if self.st.inner_line.0 > 0.0 => {
+                    // the basic layer's inner line, over the stroke
+                    let inner = Stroke { width: self.st.inner_line.0, color: self.st.inner_line.1.unwrap_or(crate::color::Color::WHITE), ..s.clone() };
+                    self.canvas.push(Item::Path { segments: segs.clone(), fill, stroke: Some(s.clone()) });
+                    self.canvas.push(Item::Path { segments: segs.clone(), fill: None, stroke: Some(inner) });
+                }
                 _ => self.canvas.push(Item::Path { segments: segs.clone(), fill, stroke }),
             }
         }

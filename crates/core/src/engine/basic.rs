@@ -120,6 +120,8 @@ enum B {
     SetKeys,
     DecToBase,
     ToDigitList,
+    InnerLineWidth,
+    InnerStrokeColor,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -246,6 +248,8 @@ const COMMANDS: &[(&str, B)] = &[
     ("setkeys", B::SetKeys),
     ("pgfmathdectobase", B::DecToBase),
     ("pgfmathtodigitlist", B::ToDigitList),
+    ("pgfsetinnerlinewidth", B::InnerLineWidth),
+    ("pgfsetinnerstrokecolor", B::InnerStrokeColor),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -354,6 +358,8 @@ pub struct PgfPath {
     pub segments: Vec<Segment>,
     pub last: Option<Point>,
     pub start: Option<Point>,
+    /// built by the quick commands only (`\pgfpathqmoveto`…): it does not make the picture larger
+    pub quick: bool,
 }
 
 impl Engine {
@@ -551,6 +557,7 @@ impl Engine {
     }
 
     pub fn pgf_add(&mut self, s: Segment) {
+        self.pgf_path.quick = false;
         let p = match s {
             Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(p),
             Segment::Close => self.pgf_path.start,
@@ -574,7 +581,10 @@ impl Engine {
     /// Uses the basic layer's path with `actions` (`fill`, `stroke`, `draw`, `clip`, `discard`…).
     fn pgf_use(&mut self, actions: &str) -> Result<(), Error> {
         let segs = std::mem::take(&mut self.pgf_path.segments);
+        let quick = std::mem::take(&mut self.pgf_path.quick);
         self.pgf_path = PgfPath::default();
+        let frozen = self.canvas_frozen;
+        self.canvas_frozen |= quick;
         self.begin_group();
         self.st.mode = Mode::default();
         for a in actions.split(',').map(str::trim) {
@@ -592,6 +602,7 @@ impl Engine {
         // the clip outlives this group: it belongs to the pgf scope around
         let r = self.use_path(segs, "\\pgfusepath");
         self.end_group();
+        self.canvas_frozen = frozen;
         r
     }
 
@@ -701,11 +712,15 @@ impl Engine {
                 let mut step = (1.0, 1.0);
                 if let Some(o) = self.optional()? {
                     for item in crate::keys::split_list(&o) {
-                        let v = item.value.map(|v| self.length_of(v)).transpose()?;
-                        match (item.key.as_str(), v) {
-                            ("step", Some(_)) => {}
-                            ("stepx", Some(v)) => step.0 = v,
-                            ("stepy", Some(v)) => step.1 = v,
+                        let Some(v) = item.value else { continue };
+                        match item.key.as_str() {
+                            // a point: its x and y
+                            "step" => {
+                                let p = self.point_of(v)?;
+                                step = (p.x.abs(), p.y.abs());
+                            }
+                            "stepx" => step.0 = self.length_of(v)?,
+                            "stepy" => step.1 = self.length_of(v)?,
                             _ => {}
                         }
                     }
@@ -1146,29 +1161,12 @@ impl Engine {
             B::NonlinearFlatness => {
                 let _ = self.argument()?;
             }
-            B::QMoveTo | B::QLineTo => {
-                // the quick commands take canvas lengths, untransformed
-                let x = self.argument()?;
-                let y = self.argument()?;
-                let p = Point::new(self.length_of(x)?, self.length_of(y)?);
-                self.pgf_add(if cmd == B::QMoveTo { Segment::MoveTo(p) } else { Segment::LineTo(p) });
-            }
-            B::QCurveTo => {
-                let mut v = [0.0; 6];
-                for k in &mut v {
-                    let a = self.argument()?;
-                    *k = self.length_of(a)?;
-                }
-                self.pgf_add(Segment::CurveTo(Point::new(v[0], v[1]), Point::new(v[2], v[3]), Point::new(v[4], v[5])));
-            }
-            B::QCircle => {
-                let r = self.argument()?;
-                let r = self.length_of(r)?;
-                self.pgf_add(Segment::MoveTo(Point::new(r, 0.0)));
-                for s in super::path::arc_segments(Point::default(), r, r, 0.0, 360.0, &Transform::default()) {
-                    self.pgf_add(s);
-                }
-                self.pgf_add(Segment::Close);
+            B::QMoveTo | B::QLineTo | B::QCurveTo | B::QCircle => {
+                // the quick commands take canvas lengths, untransformed; a path of them only does
+                // not make the picture larger
+                let quick = self.pgf_path.segments.is_empty() || self.pgf_path.quick;
+                self.quick_path(cmd)?;
+                self.pgf_path.quick = quick;
             }
             B::ArcTo => {
                 // {x radius}{y radius}{rotation}{large arc}{counterclockwise}{target}, as SVG's arc
@@ -1187,6 +1185,17 @@ impl Engine {
                 self.pgf_path.last = Some(t.apply(to));
             }
             B::DeclareFunctional => self.declare_functional_shading()?,
+            B::InnerLineWidth => {
+                let v = self.argument()?;
+                self.st.inner_line.0 = self.length_of(v)?;
+            }
+            B::InnerStrokeColor => {
+                let c = self.argument_string()?;
+                match self.color(&c) {
+                    Some(c) => self.st.inner_line.1 = Some(c),
+                    None => self.warn(format!("unknown color '{c}'")),
+                }
+            }
             B::DecToBase => {
                 // \pgfmathdectobase{\macro}{number}{base}: its digits, padded with zeros to
                 // \pgfmathbasenumberlength
@@ -1288,6 +1297,37 @@ impl Engine {
 }
 
 impl Engine {
+    /// `\pgfpathqmoveto{x}{y}`, `\pgfpathqlineto`, `\pgfpathqcurveto` (six lengths) and
+    /// `\pgfpathqcircle{radius}`: canvas lengths, untransformed.
+    fn quick_path(&mut self, cmd: B) -> Result<(), Error> {
+        match cmd {
+            B::QMoveTo | B::QLineTo => {
+                let x = self.argument()?;
+                let y = self.argument()?;
+                let p = Point::new(self.length_of(x)?, self.length_of(y)?);
+                self.pgf_add(if cmd == B::QMoveTo { Segment::MoveTo(p) } else { Segment::LineTo(p) });
+            }
+            B::QCurveTo => {
+                let mut v = [0.0; 6];
+                for k in &mut v {
+                    let a = self.argument()?;
+                    *k = self.length_of(a)?;
+                }
+                self.pgf_add(Segment::CurveTo(Point::new(v[0], v[1]), Point::new(v[2], v[3]), Point::new(v[4], v[5])));
+            }
+            _ => {
+                let r = self.argument()?;
+                let r = self.length_of(r)?;
+                self.pgf_add(Segment::MoveTo(Point::new(r, 0.0)));
+                for s in super::path::arc_segments(Point::default(), r, r, 0.0, 360.0, &Transform::default()) {
+                    self.pgf_add(s);
+                }
+                self.pgf_add(Segment::Close);
+            }
+        }
+        Ok(())
+    }
+
     /// `\pgfpointarcaxesattime{time}{center}{0° axis}{90° axis}{start}{end}`: the point of the arc at
     /// that time, and the direction the arc goes there.
     fn arc_axes_at_time(&mut self) -> Result<(Point, Point), Error> {

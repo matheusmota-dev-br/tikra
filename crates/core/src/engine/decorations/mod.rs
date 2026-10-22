@@ -777,7 +777,7 @@ impl Engine {
         let list = self.argument()?;
         let meta = self.argument_string()? == "1";
         let existing = std::mem::take(&mut self.pgf_path);
-        self.pgf_path = super::basic::PgfPath { segments: Vec::new(), last: existing.last, start: existing.start };
+        self.pgf_path = super::basic::PgfPath { segments: Vec::new(), last: existing.last, start: existing.start, quick: false };
         self.decoration_envs.push(Env { list, meta, existing });
         self.begin_group();
         Ok(())

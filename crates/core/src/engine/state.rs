@@ -238,6 +238,9 @@ pub struct GState {
     pub current_point_local: bool,
     /// `trig format=rad`: the angles of polar coordinates are in radians
     pub trig_rad: bool,
+    /// `\pgfsetinnerlinewidth` and `\pgfsetinnerstrokecolor`: a second, inner line over each
+    /// stroke (cm; white unless a color is set)
+    pub inner_line: (f64, Option<crate::color::Color>),
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
     /// `\pgfsetfillpattern`: the basic layer's fills use the pattern
@@ -331,6 +334,7 @@ impl Default for GState {
             snapshot: None,
             current_point_local: false,
             trig_rad: false,
+            inner_line: (0.0, None),
             fit_fading: true,
             fill_pattern: false,
             save_path: None,
