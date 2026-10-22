@@ -1055,7 +1055,19 @@ keyfn!(k_colormap_color, |e, v| {
 // After a colormap is defined: `\pgfplotscolormaplastindexof{name}` (the index of its last color).
 keyfn!(k_colormap_defined, |e, v| {
     let name = text(e, &v)?;
-    let spec = value(e, &format!("/pgfplots/@colormaps/{name}"));
+    let mut spec = value(e, &format!("/pgfplots/@colormaps/{name}"));
+    // `samples of colormap=(10 of viridis)`: that many colors of the other colormap, equally spaced
+    if let Some(rest) = spec.trim().strip_prefix("samples of colormap") {
+        let arg = rest.trim().trim_start_matches('=').trim().trim_matches(|c| matches!(c, '(' | ')' | '{' | '}'));
+        if let Some((n, other)) = arg.split_once(" of ") {
+            let n: usize = n.trim().parse().unwrap_or(0);
+            if let Some(cm) = super::colormap::named(e, other.split(',').next().unwrap_or("").trim()).filter(|_| n >= 2) {
+                let colors: Vec<String> = (0..n).map(|k| cm.at(k as f64 / (n - 1) as f64)).map(|c| format!("rgb=({},{},{})", c.r, c.g, c.b)).collect();
+                spec = colors.join(" ");
+                set(e, &format!("/pgfplots/@colormaps/{name}"), &spec);
+            }
+        }
+    }
     if let Some(cm) = super::colormap::Colormap::parse(&spec, &e.colors) {
         e.tex.define_string(&format!("pgfpl@cm@{name}@last"), &(cm.stops.len() - 1).to_string(), true);
     }
