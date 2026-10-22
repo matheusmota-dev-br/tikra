@@ -563,20 +563,13 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         }
                     }
                     "rectangle" => {
-                        let r = target(e, b, depth, "rectangle")?;
-                        let a = b.point();
-                        let t = e.st.transform;
-                        let inv = t.inverse();
-                        let (la, lb) = (inv.apply(a), inv.apply(r.p));
-                        b.segs.push(Segment::MoveTo(a));
-                        // in the order of `\tikz@rectB`: first to (a.x, b.y)
-                        for k in [Point::new(la.x, lb.y), lb, Point::new(lb.x, la.y)] {
-                            b.segs.push(Segment::LineTo(t.apply(k)));
+                        // `rectangle node {…} (b)`: the corner comes after the nodes
+                        if matches!(peek(e, depth)?, Some(Token::Char('n', Cat::Letter))) {
+                            pending_op = Some("rectangle".into());
+                            continue;
                         }
-                        b.segs.push(Segment::Close);
-                        b.subpath_start = Some(a);
-                        b.last = Some(OnPath::Segment(a, None, r.p));
-                        b.current = Some(Coord { p: r.p, node: None });
+                        let r = target(e, b, depth, "rectangle")?;
+                        rectangle_to(e, b, r);
                         pending_op = None;
                         place_mid_nodes(e, b, Some(0.5))?;
                     }
@@ -766,12 +759,33 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("to") => to(e, b, to_opts, r)?,
+        Some("rectangle") => {
+            rectangle_to(e, b, r);
+            place_mid_nodes(e, b, Some(0.5))?;
+        }
         _ => {
             b.move_to(r);
             place_mid_nodes(e, b, Some(0.5))?;
         }
     }
     Ok(())
+}
+
+/// A rectangle from the current point to the corner `r`.
+fn rectangle_to(e: &mut Engine, b: &mut Builder, r: Coord) {
+    let a = b.point();
+    let t = e.st.transform;
+    let inv = t.inverse();
+    let (la, lb) = (inv.apply(a), inv.apply(r.p));
+    b.segs.push(Segment::MoveTo(a));
+    // in the order of `\tikz@rectB`: first to (a.x, b.y)
+    for k in [Point::new(la.x, lb.y), lb, Point::new(lb.x, la.y)] {
+        b.segs.push(Segment::LineTo(t.apply(k)));
+    }
+    b.segs.push(Segment::Close);
+    b.subpath_start = Some(a);
+    b.last = Some(OnPath::Segment(a, None, r.p));
+    b.current = Some(Coord { p: r.p, node: None });
 }
 
 /// A line to `r`, stopping at the border of the nodes on both ends.
