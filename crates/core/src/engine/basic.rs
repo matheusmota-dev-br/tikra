@@ -118,6 +118,8 @@ enum B {
     SetPath,
     IntersectionOfPaths,
     SetKeys,
+    DecToBase,
+    ToDigitList,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -242,6 +244,8 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfsetpath", B::SetPath),
     ("pgfintersectionofpaths", B::IntersectionOfPaths),
     ("setkeys", B::SetKeys),
+    ("pgfmathdectobase", B::DecToBase),
+    ("pgfmathtodigitlist", B::ToDigitList),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -256,6 +260,7 @@ pub const DEFINITIONS: &str = r"
 \def\pgfsetblendmode#1{\tikzset{blend mode={#1}}}
 \def\tikzdeclarecoordinatesystem#1#2{\expandafter\def\csname tikra@cs@#1\endcsname##1{#2}}
 \def\define@key#1#2{\expandafter\def\csname KV@#1@#2\endcsname##1}
+\def\pgfmathsetbasenumberlength#1{\def\pgfmathbasenumberlength{#1}}\def\pgfmathbasenumberlength{1}
 \def\breakforeach{\gdef\tikra@foreach@break{1}}
 \def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
 \def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
@@ -1182,6 +1187,37 @@ impl Engine {
                 self.pgf_path.last = Some(t.apply(to));
             }
             B::DeclareFunctional => self.declare_functional_shading()?,
+            B::DecToBase => {
+                // \pgfmathdectobase{\macro}{number}{base}: its digits, padded with zeros to
+                // \pgfmathbasenumberlength
+                let target = self.argument()?;
+                let n = self.argument()?;
+                let base = self.argument()?;
+                let (n, base) = (self.number_of(n)? as i64, (self.number_of(base)? as u32).clamp(2, 36));
+                let mut digits = Vec::new();
+                let mut m = n.unsigned_abs();
+                while m > 0 || digits.is_empty() {
+                    digits.push(char::from_digit((m % u64::from(base)) as u32, base).unwrap_or('0'));
+                    m /= u64::from(base);
+                }
+                let length = self.tex.expand_to_string(tikra_tokens("\\pgfmathbasenumberlength")).ok().and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(1);
+                while digits.len() < length {
+                    digits.push('0');
+                }
+                let s: String = digits.iter().rev().collect();
+                if let Some(name) = target.iter().find(|t| matches!(t, Token::Cs(_))) {
+                    self.tex.set_meaning(name, super::macro_from(&s), false);
+                }
+            }
+            B::ToDigitList => {
+                // \pgfmathtodigitlist{\macro}{number}: its digits as a list
+                let target = self.argument()?;
+                let n = self.argument_string()?;
+                let list = n.trim().chars().map(String::from).collect::<Vec<_>>().join(",");
+                if let Some(name) = target.iter().find(|t| matches!(t, Token::Cs(_))) {
+                    self.tex.set_meaning(name, super::macro_from(&list), false);
+                }
+            }
             B::SetKeys => {
                 // keyval's \setkeys{family}{key=value,…}: the code \define@key gave each key
                 let family = self.argument_string()?;

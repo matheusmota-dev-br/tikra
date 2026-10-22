@@ -1942,6 +1942,17 @@ impl Engine {
                         remember.push((cs[0].clone(), cs[1].clone(), initially));
                     }
                 }
+                // `evaluate={\c=\x*10;}`: assignments, each a variable and its expression
+                "evaluate" if !tex::tokens_to_string(&v).contains(" as ") && tex::tokens_to_string(&v).contains('=') => {
+                    let s = tex::tokens_to_string(&v);
+                    for statement in s.split(';') {
+                        if let Some((name, expr)) = statement.split_once('=') {
+                            if let Some(var) = tikra_tokens(name.trim()).into_iter().find(|t| matches!(t, Token::Cs(_))) {
+                                evaluate.push((var.clone(), Some(var), Some(tikra_tokens(expr.trim()))));
+                            }
+                        }
+                    }
+                }
                 "evaluate" => {
                     let s = tex::tokens_to_string(&v);
                     let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
