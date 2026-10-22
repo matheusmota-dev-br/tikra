@@ -769,8 +769,17 @@ fn line_to(e: &mut Engine, b: &mut Builder, r: Coord) {
     if let Some(n) = a.node.as_ref().and_then(|n| e.nodes.get(n)) {
         let target = r.node.as_ref().and_then(|m| e.nodes.get(m)).map_or(r.p, |m| m.center());
         pa = n.border_toward(target);
-        if let Some(Segment::MoveTo(m)) = b.segs.last_mut() {
-            *m = pa;
+        // the move to a node waits for the border it leaves from: after a line that ended on
+        // the node, a new subpath starts there (a coordinate is a point, its path goes on)
+        if n.shape == "coordinate" {
+            if let Some(Segment::MoveTo(m)) = b.segs.last_mut() {
+                *m = pa;
+            }
+        } else {
+            match b.segs.last_mut() {
+                Some(Segment::MoveTo(m)) => *m = pa,
+                _ => b.segs.push(Segment::MoveTo(pa)),
+            }
         }
     }
     if let Some(n) = r.node.as_ref().and_then(|n| e.nodes.get(n)) {
@@ -1088,6 +1097,11 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                     options.push(Token::other(','));
                 }
                 options.extend(e.tex.read_until_char(']', false)?);
+            }
+            // a second point after the name is the path's next (`coordinate (a) (1,0)`)
+            Some(t) if t.is_char('(') && name.is_some() => {
+                e.tex.back(t);
+                break;
             }
             Some(t) if t.is_char('(') => {
                 let n = read_coordinate_tokens(e)?;
@@ -1981,8 +1995,30 @@ fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error
     let (names, list) = foreach_header(e)?;
     // the rest of the node as it is written, up to its text
     let mut spec = tikra_tokens(&format!("{kind} "));
+    // the letters of the last word, spaces after it skipped
+    let last_word = |spec: &[Token]| -> String {
+        let s: Vec<char> =
+            spec.iter().rev().skip_while(|t| matches!(t, Token::Char(_, Cat::Space))).map_while(|t| if let Token::Char(c, Cat::Letter) = t { Some(*c) } else { None }).collect();
+        s.into_iter().rev().collect()
+    };
+    // inside another `foreach \y in {list}` (the nodes for each pair), before its `in`
+    let mut header = false;
     while let Some(t) = e.tex.get_token() {
+        if !matches!(t, Token::Char(_, Cat::Letter)) {
+            match last_word(&spec).as_str() {
+                "foreach" => header = true,
+                "in" => header = false,
+                _ => {}
+            }
+        }
         match &t {
+            Token::Cs(_) | Token::Char('/', _) if header => spec.push(t),
+            Token::Char(_, Cat::Begin) if last_word(&spec) == "in" => {
+                header = false;
+                spec.push(t);
+                spec.extend(e.tex.read_group_body()?);
+                spec.push(Token::Char('}', Cat::End));
+            }
             Token::Char(_, Cat::Begin) if kind == "node" => {
                 spec.push(t);
                 spec.extend(e.tex.read_group_body()?);
