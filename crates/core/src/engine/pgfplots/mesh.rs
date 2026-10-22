@@ -190,6 +190,17 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
     }
     let closes = list.first().is_some_and(|(q, _)| q.len() > 2);
+    // `z buffer=auto` reverses the columns when the face at xmin is in front, the rows when the
+    // one at ymin is: the lattice cells' corners turn with them
+    let reversed = {
+        let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
+        let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
+        if f.three_d {
+            (az.sin() * el.cos() < -1e-9, -az.cos() * el.cos() < -1e-9)
+        } else {
+            (false, false)
+        }
+    };
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
@@ -273,7 +284,35 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
                 };
                 let mut pieces: Vec<Vec<(Point, Color)>> = Vec::new();
                 let nf = n as f64;
-                if corners.len() == 4 {
+                if corners.len() == 4 && p.lattice.is_some() && !p.image && kind != "bilinear" {
+                    // a cell of a matrix is shaded as two triangles (a shading of type 5), ABD
+                    // then BCD of its corners as the z buffer has turned them (reversing the
+                    // rows or the columns)
+                    let tris: [[usize; 3]; 2] = match reversed {
+                        (false, false) => [[0, 1, 3], [1, 2, 3]],
+                        (false, true) => [[3, 2, 0], [2, 1, 0]],
+                        (true, false) => [[1, 0, 2], [0, 3, 2]],
+                        (true, true) => [[2, 3, 1], [3, 0, 1]],
+                    };
+                    for t in tris {
+                        let bar = |i: usize, j: usize| {
+                            let (a, b) = (i as f64 / nf, j as f64 / nf);
+                            let mut w = [0.0; 4];
+                            w[t[0]] = 1.0 - a - b;
+                            w[t[1]] = a;
+                            w[t[2]] = b;
+                            w
+                        };
+                        for i in 0..n {
+                            for j in 0..n - i {
+                                pieces.push([bar(i, j), bar(i + 1, j), bar(i, j + 1)].iter().map(|w| at(w)).collect());
+                                if i + j + 1 < n {
+                                    pieces.push([bar(i + 1, j), bar(i + 1, j + 1), bar(i, j + 1)].iter().map(|w| at(w)).collect());
+                                }
+                            }
+                        }
+                    }
+                } else if corners.len() == 4 {
                     let bil = |u: f64, v: f64| [(1.0 - u) * (1.0 - v), u * (1.0 - v), u * v, (1.0 - u) * v];
                     for i in 0..n {
                         for j in 0..n {
