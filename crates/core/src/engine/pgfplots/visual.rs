@@ -485,7 +485,25 @@ fn post_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], cp: &[Option<Point>], 
             1.0
         }
     });
-    let points: Vec<Option<[f64; 3]>> = pts.iter().map(|l| l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()).then_some(*l)).collect();
+    let mut points: Vec<Option<[f64; 3]>> = pts.iter().map(|l| l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()).then_some(*l)).collect();
+    // `pos segment=k`: positions along the k-th piece of the plot (between empty lines) only
+    let prefix_text = tex::tokens_to_string(&prefix);
+    if let Some(k) = prefix_text
+        .split_once("pos segment")
+        .and_then(|(_, r)| r.trim_start().strip_prefix('='))
+        .and_then(|r| r.trim_start().split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok())
+    {
+        let mut bounds = vec![0];
+        bounds.extend(p.scanlines.iter().copied());
+        bounds.push(points.len());
+        if let (Some(&lo), Some(&hi)) = (bounds.get(k), bounds.get(k + 1)) {
+            for (i, q) in points.iter_mut().enumerate() {
+                if i < lo || i >= hi {
+                    *q = None;
+                }
+            }
+        }
+    }
     let tl = super::attime::Timeline { points, scale, log: f.log, time: 1.0 };
     let mut placed = Vec::new();
     // the path goes on at the last point when no node has a `pos` (options, `--` and others too)
@@ -502,13 +520,23 @@ fn post_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], cp: &[Option<Point>], 
     super::attime::set(Some(tl));
     let r = (|| -> Result<(), Error> {
         let z = |l: [f64; 3]| if f.three_d { l } else { [l[0], l[1], f.min[2]] };
+        // a scatter plot has no segments: a node goes to the point nearest its `pos`
+        let snapped: Vec<[f64; 3]> =
+            if e.st.only_marks { pts.iter().copied().filter(|l| l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite())).collect() } else { Vec::new() };
         for (item, t, a, b, frac) in placed {
             super::attime::set_time(t);
+            let (a, b, frac) = match snapped.len() {
+                0 => (a, b, frac),
+                n => {
+                    let k = ((t * (n - 1) as f64).round().max(0.0) as usize).min(n - 1);
+                    (snapped[k], snapped[k], 0.0)
+                }
+            };
             let (pa, pb) = (f.at(z(a)), f.at(z(b)));
             let mut code = toks("\\path[draw=none,fill=none]");
             code.extend(prefix.clone());
             code.extend(toks(&format!(" (tikra cs:{}pt,{}pt) -- (tikra cs:{}pt,{}pt) ", pa.x / PT, pa.y / PT, pb.x / PT, pb.y / PT)));
-            code.extend(with_pos(&item, frac));
+            code.extend(with_options(&with_pos(&item, frac), &prefix));
             code.push(Token::other(';'));
             e.run_tokens(code)?;
         }
@@ -527,6 +555,32 @@ fn post_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], cp: &[Option<Point>], 
     })();
     super::attime::set(None);
     r
+}
+
+/// A node with the options given before it on the path (`[yshift=8pt] node[pos=0] {…}`): they
+/// move the node too.
+fn with_options(item: &[Token], prefix: &[Token]) -> Vec<Token> {
+    let opts: Vec<Token> = {
+        let t = crate::keys::trim(prefix);
+        match (t.first(), t.last()) {
+            (Some(a), Some(b)) if a.is_char('[') && b.is_char(']') && t.len() > 2 => t[1..t.len() - 1].to_vec(),
+            _ => return item.to_vec(),
+        }
+    };
+    let Some(open) = item.iter().position(|t| t.is_char('[')) else {
+        let mut out = item.to_vec();
+        let at = out.iter().position(|t| matches!(t, Token::Char(c, _) if !c.is_alphabetic() && !c.is_whitespace())).unwrap_or(out.len());
+        let mut group = vec![Token::other('[')];
+        group.extend(opts);
+        group.push(Token::other(']'));
+        out.splice(at..at, group);
+        return out;
+    };
+    let mut out = item[..=open].to_vec();
+    out.extend(opts);
+    out.push(Token::other(','));
+    out.extend(item[open + 1..].iter().cloned());
+    out
 }
 
 /// The path's options before its first node, and each `node …` or `coordinate …` (with what
