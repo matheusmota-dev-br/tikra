@@ -18,6 +18,7 @@ pub mod legend;
 pub mod marks;
 pub mod mesh;
 pub mod number;
+pub mod patch;
 pub mod plot;
 pub mod polar;
 pub mod smith;

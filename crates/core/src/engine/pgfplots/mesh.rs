@@ -152,6 +152,11 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let zbuffer = keys::value(e, "/pgfplots/z buffer");
     let width = st.line_width;
     let opacity = (st.draw_opacity, st.fill_opacity);
+    let explicit = keys::value(e, "/pgfplots/mesh/color input").starts_with("explicit");
+    if p.patch && p.lattice.is_none() && !explicit {
+        let look = Look { draw, fill, faceted, shader, stroke: st.clone(), surf };
+        return draw_patches(e, p, pts, f, &kind, &look);
+    }
     let to_canvas = |l: &[f64; 3]| if l.iter().take(if f.three_d { 3 } else { 2 }).all(|v| v.is_finite()) { Some(f.at(*l)) } else { None };
     // each patch: its corners (into `canvas`) and the points its colors come from
     let (canvas, mut list): (Vec<Option<Point>>, Vec<PatchSource>) = match p.lattice.filter(|_| p.image) {
@@ -185,7 +190,6 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
     }
     let closes = list.first().is_some_and(|(q, _)| q.len() > 2);
-    let explicit = keys::value(e, "/pgfplots/mesh/color input").starts_with("explicit");
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
@@ -332,6 +336,144 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             st.width = 0.2 * crate::PT;
         }
         e.canvas.push(Item::Path { segments: segs, fill: fill_item, stroke: stroke_item });
+    }
+    Ok(())
+}
+
+/// How a patch plot looks: its colors as functions of `mapped color`, its shader and stroke.
+struct Look {
+    draw: Linear,
+    fill: Linear,
+    faceted: Linear,
+    shader: String,
+    stroke: super::super::GState,
+    /// `surf` or `patch` (filled), not `mesh`.
+    surf: bool,
+}
+
+/// The depth of logical points along the view (larger is nearer), as the z buffer sorts.
+fn depth_fn(e: &mut Engine, f: &Frame) -> impl Fn(&[[f64; 3]]) -> f64 {
+    let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
+    let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
+    let d = [az.sin() * el.cos(), -az.cos() * el.cos(), el.sin()];
+    let (min, max, flat) = (f.min, f.max, [0, 1, 2].map(|i| f.e[i].norm() == 0.0));
+    move |pts: &[[f64; 3]]| {
+        let norm = |i: usize, v: f64| if flat[i] { 0.0 } else { (v - min[i]) / (max[i] - min[i]).abs().max(1e-300) };
+        pts.iter().map(|l| (0..3).map(|i| d[i] * norm(i, l[i])).sum::<f64>()).sum::<f64>() / pts.len().max(1) as f64
+    }
+}
+
+/// `\addplot [patch, patch type=…]` from a list of patches (`mesh input=patches`): each patch
+/// refined (`patch refines`) and cut in triangles (`patch to triangles`) as asked, sorted back to
+/// front in 3d, then filled with one color (`flat`, `faceted`) or shaded (`interp`), its outline
+/// drawn (`faceted`, `faceted interp`, a `mesh`); a curve (`line`, the splines) is drawn.
+fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &str, look: &Look) -> Result<(), Error> {
+    use super::patch::{Edge, Kind, Patch};
+    let count = keys::number(e, "/pgfplots/vertex count").unwrap_or(4.0).max(1.0) as usize;
+    let kind = Kind::from_name(kind, count);
+    let refines = keys::number(e, "/pgfplots/patch refines").unwrap_or(0.0).clamp(0.0, 6.0) as usize;
+    let to_triangles = keys::flag(e, "/pgfplots/patch to triangles");
+    let dims = if f.three_d { 3 } else { 2 };
+    let mut list: Vec<Patch> = Vec::new();
+    for (i, chunk) in pts.chunks(kind.size()).enumerate() {
+        if chunk.len() < kind.size() || chunk.iter().any(|l| l.iter().take(dims).any(|v| !v.is_finite())) {
+            continue;
+        }
+        let metas: Vec<f64> = (0..kind.size()).map(|k| p.coords.get(i * kind.size() + k).map_or(f64::NAN, |c| c.meta)).collect();
+        list.push(Patch { kind, pts: chunk.to_vec(), metas });
+    }
+    for _ in 0..refines {
+        list = list.iter().flat_map(Patch::refine).collect();
+    }
+    if to_triangles {
+        list = list.iter().flat_map(Patch::triangulate).collect();
+    }
+    let zbuffer = keys::value(e, "/pgfplots/z buffer");
+    let depth = depth_fn(e, f);
+    if f.three_d && zbuffer != "none" {
+        list.sort_by(|a, b| depth(&a.pts).total_cmp(&depth(&b.pts)));
+    }
+    let st = &look.stroke;
+    let corner = look.shader == "flat corner";
+    let stroke_of = |c: Color, width: f64| Stroke {
+        color: c,
+        width,
+        dash: st.dash.clone().filter(|d| !d.0.is_empty()),
+        cap: st.cap,
+        join: st.join,
+        miter_limit: st.miter_limit,
+        opacity: st.draw_opacity,
+    };
+    let path = |edges: &[Edge], close: bool| -> Vec<Segment> {
+        let mut segs = Vec::new();
+        for (k, edge) in edges.iter().enumerate() {
+            let (a, rest): (_, Vec<Point>) = match *edge {
+                Edge::Line(a, b) => (a, vec![f.at(b)]),
+                Edge::Curve(a, c1, c2, b) => (a, vec![f.at(c1), f.at(c2), f.at(b)]),
+            };
+            if k == 0 {
+                segs.push(Segment::MoveTo(f.at(a)));
+            }
+            segs.push(if rest.len() == 1 { Segment::LineTo(rest[0]) } else { Segment::CurveTo(rest[0], rest[1], rest[2]) });
+        }
+        if close && !segs.is_empty() {
+            segs.push(Segment::Close);
+        }
+        segs
+    };
+    for patch in list {
+        let m = patch.flat_meta(corner);
+        // a patch whose color comes from a point meta of nan is not drawn
+        if p.has_meta && !m.is_finite() {
+            continue;
+        }
+        let mapped = if m.is_finite() { map(f, m) } else { Color::BLACK };
+        let curve = kind.is_curve();
+        let outline = path(&patch.outline(), !curve);
+        if !e.canvas_frozen {
+            e.canvas.include_path(&outline);
+        }
+        if curve || !look.surf {
+            e.canvas.push(Item::Path { segments: outline, fill: None, stroke: Some(stroke_of(look.draw.at(mapped), st.line_width)) });
+            continue;
+        }
+        let interp = look.shader.contains("interp");
+        if interp && patch.metas.iter().all(|m| m.is_finite()) {
+            // the shading: small pieces of the patch, each of the color at its middle;
+            // a rectangle is shaded as two triangles
+            let parts = if kind == Kind::Rectangle { patch.triangulate() } else { vec![patch.clone()] };
+            for part in parts {
+                let size = {
+                    let c: Vec<Point> = part.pts.iter().map(|l| f.at(*l)).collect();
+                    let (lo, hi) = c.iter().fold((c[0], c[0]), |(lo, hi), q| (Point::new(lo.x.min(q.x), lo.y.min(q.y)), Point::new(hi.x.max(q.x), hi.y.max(q.y))));
+                    (hi.x - lo.x).max(hi.y - lo.y)
+                };
+                let curved = !matches!(part.kind, Kind::Triangle | Kind::Bilinear | Kind::Rectangle | Kind::Polygon(_));
+                let n = ((size / (3.0 * crate::PT)).ceil() as usize).clamp(if curved { 6 } else { 1 }, 48);
+                let mut pieces = part.pieces(n);
+                if f.three_d {
+                    pieces.sort_by(|a, b| depth(&a.0).total_cmp(&depth(&b.0)));
+                }
+                for (q, meta) in pieces {
+                    let c = look.fill.at(map(f, meta));
+                    let mut segs = vec![Segment::MoveTo(f.at(q[0]))];
+                    segs.extend(q[1..].iter().map(|l| Segment::LineTo(f.at(*l))));
+                    segs.push(Segment::Close);
+                    let stroke = Stroke { color: c, width: 0.5 * crate::PT, dash: None, cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: st.draw_opacity };
+                    e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint: Paint::Solid(c), opacity: st.fill_opacity, even_odd: false }), stroke: Some(stroke) });
+                }
+            }
+            if look.shader == "faceted interp" {
+                e.canvas.push(Item::Path { segments: outline, fill: None, stroke: Some(stroke_of(look.faceted.at(mapped), st.line_width)) });
+            }
+            continue;
+        }
+        let edge = if look.shader.starts_with("flat") || interp { look.fill.at(mapped) } else { look.faceted.at(mapped) };
+        e.canvas.push(Item::Path {
+            segments: outline,
+            fill: Some(Fill { paint: Paint::Solid(look.fill.at(mapped)), opacity: st.fill_opacity, even_odd: false }),
+            stroke: Some(stroke_of(edge, st.line_width)),
+        });
     }
     Ok(())
 }
