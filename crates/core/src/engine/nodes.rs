@@ -249,7 +249,7 @@ pub enum OnPath {
 }
 
 impl OnPath {
-    fn at(&self, t: f64) -> (Point, Point) {
+    pub fn at(&self, t: f64) -> (Point, Point) {
         match *self {
             OnPath::Point(p) => (p, Point::new(1.0, 0.0)),
             OnPath::Segment(a, None, b) => (a.lerp(b, t), b.minus(a)),

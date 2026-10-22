@@ -37,6 +37,8 @@ struct MidNode {
     name: Option<String>,
     text: Vec<Token>,
     coordinate: bool,
+    /// a pic (`to … pic {type} (b)`), placed as a node is
+    pic: bool,
 }
 
 struct Builder {
@@ -484,20 +486,26 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 _ => Vec::new(),
                             };
                             let mut labels = Vec::new();
-                            while let Some(Token::Char('n', Cat::Letter)) = peek(e, depth)? {
+                            // the nodes and coordinates on the edge
+                            while let Some(Token::Char(c @ ('n' | 'c'), Cat::Letter)) = peek(e, depth)? {
                                 let _ = next(e, depth)?;
-                                let w = word(e, 'n');
-                                if w != "node" {
+                                let w = word(e, c);
+                                if w != "node" && w != "coordinate" {
                                     e.tex.push_tokens(word_tokens(&w));
                                     break;
                                 }
-                                let (options, _, _, text) = read_node(e, depth, false)?;
-                                labels.extend(tikra_tokens("node["));
+                                let (options, name, _, text) = read_node(e, depth, w == "coordinate")?;
+                                labels.extend(tikra_tokens(&format!("{w}[")));
                                 labels.extend(options);
                                 labels.extend(tikra_tokens("]"));
-                                labels.push(Token::Char('{', Cat::Begin));
-                                labels.extend(text);
-                                labels.push(Token::Char('}', Cat::End));
+                                if let Some(n) = name {
+                                    labels.extend(tikra_tokens(&format!("({n})")));
+                                }
+                                if w == "node" {
+                                    labels.push(Token::Char('{', Cat::Begin));
+                                    labels.extend(text);
+                                    labels.push(Token::Char('}', Cat::End));
+                                }
                             }
                             e.st.tree_edge = Some((o, labels));
                             e.tree_edge_out = e.st.tree_edge.clone();
@@ -541,7 +549,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             let after = std::mem::take(&mut e.after_node_path);
                             e.tex.push_tokens(after);
                         } else {
-                            b.mid_nodes.push(MidNode { options, name, text, coordinate });
+                            b.mid_nodes.push(MidNode { options, name, text, coordinate, pic: false });
                         }
                     }
                     "cycle" => {
@@ -594,8 +602,15 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "in" => {}
                     "pic" => {
                         let (options, name, at, content) = read_node(e, depth, false)?;
-                        let at = at.unwrap_or_else(|| b.point());
-                        e.pic(super::pics::PicSpec { options, name, at, content })?;
+                        if at.is_none() && pending_op.is_some() {
+                            // between an operation and its target: placed on the segment
+                            b.mid_nodes.push(MidNode { options, name, text: content, coordinate: false, pic: true });
+                        } else {
+                            // after a segment, `pos` places it on it as a node
+                            let place = if at.is_none() { Some((b.last.unwrap_or(OnPath::Point(b.point())), None)) } else { None };
+                            let at = at.unwrap_or_else(|| b.point());
+                            e.pic(super::pics::PicSpec { options, name, at, content, place })?;
+                        }
                     }
                     "graph" => e.graph()?,
                     "child" => {
@@ -1009,7 +1024,7 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
         e.process_keys(tikra_tokens("every to/.try"), Some("/tikz"))?;
         e.process_keys(opts, Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
-            b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+            b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false, pic: false });
         }
         to_path(e, b, r)?;
         place_mid_nodes(e, b, Some(0.5))?;
@@ -1047,7 +1062,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(opts.clone(), Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
-            sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+            sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false, pic: false });
         }
         // options that start the to path are the edge path's own, as TikZ runs it in `\path[…]`
         if let Some(leading) = e.st.to.path.as_deref().and_then(leading_options) {
@@ -1094,7 +1109,7 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
         }
         let coordinate = w == "coordinate";
         let (options, name, _, text) = read_node(e, depth, coordinate)?;
-        v.push(MidNode { options, name, text, coordinate });
+        v.push(MidNode { options, name, text, coordinate, pic: false });
     }
     Ok(v)
 }
@@ -1102,6 +1117,10 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
 fn place_mid_nodes(e: &mut Engine, b: &mut Builder, default_pos: Option<f64>) -> Result<(), Error> {
     for m in std::mem::take(&mut b.mid_nodes) {
         let place = b.last.unwrap_or(OnPath::Point(b.point()));
+        if m.pic {
+            e.pic(super::pics::PicSpec { options: m.options, name: m.name, at: b.point(), content: m.text, place: Some((place, default_pos)) })?;
+            continue;
+        }
         let items = e.node(NodeSpec { options: m.options, name: m.name, at: None, text: m.text, place, point: b.point(), coordinate: m.coordinate, default_pos })?;
         b.node_items.extend(items);
     }
