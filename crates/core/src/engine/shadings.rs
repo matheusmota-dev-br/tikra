@@ -14,13 +14,15 @@ use super::Engine;
 const BP: f64 = 2.54 / 72.0;
 
 /// A declared shading: along x, along y, or out from a center; its stops at their positions (bp);
-/// for the axial ones the size across (bp), for the radial one its center.
+/// for the axial ones the size across (bp), for the radial one its center. A shading declared with
+/// the colors it depends on (`[mycolor]`) keeps its stops' colors as written, to take them when used.
 #[derive(Debug, Clone)]
 pub struct BasicShading {
     kind: char,
     stops: Vec<(f64, Color)>,
     across: f64,
     center: Point,
+    colors: Option<Vec<String>>,
 }
 
 impl BasicShading {
@@ -64,7 +66,7 @@ impl BasicShading {
 impl Engine {
     /// `\pgfdeclare(horizontal|vertical|radial)shading[colors]{name}{size or center}{stops}`.
     pub fn declare_shading(&mut self, kind: char) -> Result<(), Error> {
-        let _ = self.optional()?;
+        let depends = self.optional()?.is_some();
         let name = self.argument_string()?;
         let size = self.argument()?;
         let spec = self.argument_string()?;
@@ -75,6 +77,7 @@ impl Engine {
             (self.length_of(size)? / BP, Point::default())
         };
         let mut stops = Vec::new();
+        let mut written = Vec::new();
         for part in spec.split(';') {
             let part = part.trim();
             let Some((model, rest)) = part.split_once('(') else { continue };
@@ -93,10 +96,14 @@ impl Engine {
                 _ => self.color(value).unwrap_or(Color::BLACK),
             };
             stops.push((p, c));
+            written.push(if model.trim() == "color" { value.to_string() } else { String::new() });
         }
-        stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut order: Vec<usize> = (0..stops.len()).collect();
+        order.sort_by(|&a, &b| stops[a].0.total_cmp(&stops[b].0));
+        let stops: Vec<(f64, Color)> = order.iter().map(|&i| stops[i]).collect();
+        let colors = depends.then(|| order.iter().map(|&i| written[i].clone()).collect());
         if !stops.is_empty() {
-            self.basic_shadings.insert(name.trim().to_string(), BasicShading { kind, stops, across, center });
+            self.basic_shadings.insert(name.trim().to_string(), BasicShading { kind, stops, across, center, colors });
         }
         Ok(())
     }
@@ -113,22 +120,63 @@ impl Engine {
             self.warn(format!("shading '{}' not declared: ignored", name.trim()));
             return Ok(());
         };
+        // a box: in vertical mode (a paragraph not started) a line of its own
+        let vertical = matches!(self.layout.last(), None | Some(super::Layout::Par));
         self.begin_picture(None)?;
         let r = self.draw_shading(name.trim(), &Transform::translation(w, h));
         self.end_picture();
+        if vertical {
+            self.layout.push(super::Layout::Par);
+        }
         r
+    }
+
+    /// The declared shading `name`, its colors as they are now if it depends on them.
+    fn shading_named(&self, name: &str) -> Option<BasicShading> {
+        let mut sh = self.basic_shadings.get(name)?.clone();
+        if let Some(colors) = &sh.colors {
+            for (stop, written) in sh.stops.iter_mut().zip(colors) {
+                if let Some(c) = self.color(written).filter(|_| !written.is_empty()) {
+                    stop.1 = c;
+                }
+            }
+        }
+        Some(sh)
     }
 
     /// The shading `name` drawn in its box, centered at the origin of `t`.
     pub fn draw_shading(&mut self, name: &str, t: &Transform) -> Result<(), Error> {
-        let Some(sh) = self.basic_shadings.get(name).cloned() else {
+        let Some(sh) = self.shading_named(name) else {
+            if matches!(name, "axis" | "radial" | "ball") {
+                // TikZ's own shadings, in the colors set last (`top color=…`), at their 100 bp size
+                let saved = std::mem::replace(&mut self.st.shading, name.to_string());
+                let fit = [Segment::MoveTo(t.apply(Point::new(-25.0 * BP, -25.0 * BP))), Segment::LineTo(t.apply(Point::new(25.0 * BP, 25.0 * BP)))];
+                let paint = self.shading_of(&fit);
+                self.st.shading = saved;
+                let corners = [Point::new(-50.0, -50.0), Point::new(50.0, -50.0), Point::new(50.0, 50.0), Point::new(-50.0, 50.0)].map(|p| t.apply(p.scale(BP)));
+                let mut segs = vec![Segment::MoveTo(corners[0])];
+                segs.extend(corners[1..].iter().map(|p| Segment::LineTo(*p)));
+                segs.push(Segment::Close);
+                if self.counts_for_size() {
+                    self.canvas.include_path(&segs);
+                }
+                let fill = Fill { paint: Paint::Shading(paint), opacity: self.st.fill_opacity, even_odd: false };
+                self.canvas.push(Item::Path { segments: segs, fill: Some(fill), stroke: None });
+                return Ok(());
+            }
             self.warn(format!("shading '{name}' not declared: ignored"));
             return Ok(());
         };
         let (w, h) = sh.half_size();
         let corners = [Point::new(-w, -h), Point::new(w, -h), Point::new(w, h), Point::new(-w, h)].map(|p| t.apply(p));
         let mut segs = vec![Segment::MoveTo(corners[0])];
-        segs.extend(corners[1..].iter().map(|p| Segment::LineTo(*p)));
+        if sh.kind == 'r' {
+            // a radial shading paints its outer circle only
+            segs = vec![Segment::MoveTo(t.apply(Point::new(w, 0.0)))];
+            segs.extend(super::path::arc_segments(t.apply(Point::default()), w, w, 0.0, 360.0, t));
+        } else {
+            segs.extend(corners[1..].iter().map(|p| Segment::LineTo(*p)));
+        }
         segs.push(Segment::Close);
         if self.counts_for_size() {
             self.canvas.include_path(&segs);
@@ -158,17 +206,17 @@ impl Engine {
     }
 
     /// A declared shading fitted to the box of `segs`, turned by `angle`, as `\pgfshadepath` does
-    /// (its middle 100 bp spread over the box along the turned axes).
+    /// (the middle 50 bp around its center spread over the box along the turned axes).
     pub fn basic_shading_for(&self, name: &str, segs: &[Segment], angle: f64) -> Option<Shading> {
-        let sh = self.basic_shadings.get(name)?;
+        let sh = self.shading_named(name)?;
         let mut c = crate::canvas::Canvas::default();
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let (w, h) = (hi.x - lo.x, hi.y - lo.y);
         let (s, co) = angle.to_radians().sin_cos();
         let (s, co) = (s.abs(), co.abs());
-        let sx = (w * co + h * s) / (co + s) / (100.0 * BP);
-        let sy = (w * s + h * co) / (co + s) / (100.0 * BP);
+        let sx = (w * co + h * s) / (co + s) / (50.0 * BP);
+        let sy = (w * s + h * co) / (co + s) / (50.0 * BP);
         let center = lo.lerp(hi, 0.5);
         let t = Transform::translation(center.x, center.y).compose(&Transform::rotation(angle)).compose(&Transform::scaling(sx, sy));
         Some(sh.paint(&t))

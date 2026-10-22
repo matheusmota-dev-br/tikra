@@ -123,6 +123,7 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
+    Hskip,
     FontSize,
     FontSeries,
     Unsupported,
@@ -230,6 +231,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
+    ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
     ("pgfsetlayers", Cmd::SetLayers),
@@ -1296,6 +1298,20 @@ impl Engine {
                 }
                 Ok(())
             }
+            // `\hskip 1cm plus 1fil`: glue of its natural width between pictures
+            Cmd::Hskip => {
+                let w = self.tex.scan_dimen()?;
+                for k in ["plus", "minus"] {
+                    if self.tex.scan_keyword(k)? {
+                        let _ = self.tex.scan_dimen();
+                        let _ = self.tex.scan_keyword("fill")? || self.tex.scan_keyword("fil")?;
+                    }
+                }
+                if self.picture_depth == 0 {
+                    self.layout.push(Layout::Skip(w as f64 / 65536.0 * crate::PT));
+                }
+                Ok(())
+            }
             Cmd::Ignore2 => {
                 let _ = self.argument()?;
                 let _ = self.argument()?;
@@ -2146,7 +2162,8 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
-                Layout::Skip(w) if started => x += w,
+                // glue at the start of a paragraph stays (`\hskip 1cm` before a picture)
+                Layout::Skip(w) => x += w,
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));
