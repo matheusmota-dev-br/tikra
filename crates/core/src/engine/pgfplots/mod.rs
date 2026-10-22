@@ -87,6 +87,7 @@ enum C {
     Pgfplotstableread,
     Colormaptodatafile,
     Colormaptoshadingspec,
+    Tikzfillbetween,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -102,6 +103,7 @@ const COMMANDS: &[(&str, C)] = &[
     ("pgfplotstableread", C::Pgfplotstableread),
     ("pgfplotscolormaptodatafile", C::Colormaptodatafile),
     ("pgfplotscolormaptoshadingspec", C::Colormaptoshadingspec),
+    ("tikzfillbetween", C::Tikzfillbetween),
 ];
 
 /// The environments that are axes.
@@ -234,7 +236,10 @@ impl Engine {
     pub fn pgfplots_command(&mut self, id: u16) -> Result<(), Error> {
         let cmd = COMMANDS[(id - BASE) as usize].1;
         if self.axis.is_none()
-            && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread | C::Colormaptodatafile | C::Colormaptoshadingspec)
+            && !matches!(
+                cmd,
+                C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread | C::Colormaptodatafile | C::Colormaptoshadingspec | C::Tikzfillbetween
+            )
         {
             let rest = self.skip_statement()?;
             let name = COMMANDS[(id - BASE) as usize].0;
@@ -292,6 +297,16 @@ impl Engine {
             C::Pgfplotstableread => plot::table_read(self),
             C::Colormaptodatafile => colormap::to_data_file(self),
             C::Colormaptoshadingspec => colormap::to_shading_spec(self),
+            // `\tikzfillbetween[of=A and B, …]{style}`: the area between two named paths
+            C::Tikzfillbetween => {
+                let spec = self.optional()?.unwrap_or_default();
+                let style = self.argument()?;
+                let plot = Plot { style, ..Default::default() };
+                self.begin_group();
+                let r = fillbetween::draw(self, &plot, &spec);
+                self.end_group();
+                r
+            }
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}
                 let list = self.argument()?;
