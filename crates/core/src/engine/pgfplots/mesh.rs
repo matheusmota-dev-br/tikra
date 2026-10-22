@@ -182,23 +182,6 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         }
         None => (pts.iter().map(to_canvas).collect(), patches(p, pts.len(), &kind).into_iter().map(|q| (q.clone(), q)).collect()),
     };
-    // 2d lines through a lattice: a mesh of a one dimensional line has no area
-    if f.three_d && zbuffer != "none" {
-        let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
-        let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
-        let d = [az.sin() * el.cos(), -az.cos() * el.cos(), el.sin()];
-        let norm = |i: usize, v: f64| (v - f.min[i]) / (f.max[i] - f.min[i]).abs().max(1e-300) * if f.e[i].norm() == 0.0 { 0.0 } else { 1.0 };
-        let depth = |(q, _): &(Vec<usize>, Vec<usize>)| -> f64 {
-            let mut s = 0.0;
-            for &k in q {
-                let l = pts[k];
-                s += (0..3).map(|i| d[i] * norm(i, l[i])).sum::<f64>();
-            }
-            s / q.len() as f64
-        };
-        list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
-    }
-    let closes = list.first().is_some_and(|(q, _)| q.len() > 2);
     // `z buffer=auto` reverses the columns when the face at xmin is in front, the rows when the
     // one at ymin is: the lattice cells' corners turn with them
     let reversed = {
@@ -210,6 +193,23 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             (false, false)
         }
     };
+    match (p.lattice.filter(|_| !p.image), zbuffer.as_str()) {
+        _ if !f.three_d || zbuffer == "none" => {}
+        // a matrix is drawn in its order, the rows or columns reversed (`z buffer=auto`)
+        (Some((_, cols)), "default" | "auto") if cols > 1 => {
+            let key = |q: &[usize]| {
+                let (r, c) = (q[0] / cols, q[0] % cols);
+                (if reversed.1 { usize::MAX - r } else { r }, if reversed.0 { usize::MAX - c } else { c })
+            };
+            list.sort_by_key(|(q, _)| key(q));
+        }
+        _ => {
+            let depth = depth_fn(e, f);
+            let of = |q: &[usize]| depth(&q.iter().map(|&k| pts[k]).collect::<Vec<_>>());
+            list.sort_by(|(a, _), (b, _)| of(a).total_cmp(&of(b)));
+        }
+    }
+    let closes = list.first().is_some_and(|(q, _)| q.len() > 2);
     // the plot's colormap (`colormap/blackwhite` among its options), and that of the patches
     // seen from behind (`mesh/interior colormap`)
     let parse_map = |e: &mut Engine, name: &str| super::colormap::Colormap::parse(&keys::value(e, &format!("/pgfplots/@colormaps/{name}")), &e.colors);
