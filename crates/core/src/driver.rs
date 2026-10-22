@@ -262,7 +262,7 @@ fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
             'r' => width - w,
             _ => (width - w) / 2.0,
         };
-        s.push_str(&math_box(line, Point::new(x, -(k as f64) * l.line_height), l.scale, l.stretch, glyphs));
+        s.push_str(&math_box(line, Point::new(x, l.baseline(k)), l.scale, l.stretch, glyphs));
     }
     s
 }

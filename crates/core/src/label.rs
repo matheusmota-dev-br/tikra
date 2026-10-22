@@ -376,58 +376,64 @@ fn hboxes(text: &str, size: f64, stretch: f64) -> String {
     out
 }
 
-/// Splits into lines at top-level `\\`.
-fn manual_lines(text: &str) -> Vec<String> {
+/// Splits into lines at top-level `\\` and `\par`, each with the space (pt) added after it:
+/// `\\[2pt]`, or the `\vskip 1em` after a `\par`.
+fn manual_lines(text: &str, size: f64) -> Vec<(String, f64)> {
     let c: Vec<char> = text.chars().collect();
-    let mut lines = vec![String::new()];
+    let mut lines = vec![(String::new(), 0.0)];
     let mut level = 0;
     let mut math = false;
     let mut i = 0;
+    // a dimension from `i`: up to the char `end`, or a number and a unit of two letters
+    let skip = |i: usize, end: Option<char>| -> (f64, usize) {
+        let rest: String = c[i.min(c.len())..].iter().collect();
+        let len = match end {
+            Some(e) => rest.find(e).unwrap_or(rest.len()),
+            None => {
+                let t = rest.trim_start();
+                let n = t.find(|x: char| !(x.is_ascii_digit() || x == '.' || x == '-')).unwrap_or(t.len());
+                rest.len() - t.len() + (n + 2).min(t.len())
+            }
+        };
+        let v = dimension(&rest[..len], size).map_or(0.0, |(v, _)| v);
+        (v, i + rest[..len].chars().count())
+    };
     while i < c.len() {
         match c[i] {
             '{' => level += 1,
             '}' => level -= 1,
             '$' => math = !math,
-            // `\par` ends a paragraph, a line of its own; `\vskip 1em` after it as an empty line
+            // `\par` ends a paragraph, and a line
             '\\' if level == 0 && !math && c[i + 1..].starts_with(&['p', 'a', 'r']) && !c.get(i + 4).is_some_and(|x| x.is_ascii_alphabetic()) => {
-                lines.push(String::new());
                 i += 4;
                 let mut j = i;
                 while c.get(j).is_some_and(|x| x.is_whitespace()) {
                     j += 1;
                 }
                 if c[j..].starts_with(&['\\', 'v', 's', 'k', 'i', 'p']) {
-                    // the dimension: digits, then a unit of two letters
-                    j += 6;
-                    while c.get(j).is_some_and(|x| x.is_whitespace()) {
-                        j += 1;
-                    }
-                    while c.get(j).is_some_and(|x| x.is_ascii_digit() || *x == '.') {
-                        j += 1;
-                    }
-                    i = (j + 2).min(c.len());
-                    lines.push(String::new());
+                    let (v, next) = skip(j + 6, None);
+                    lines.last_mut().unwrap().1 += v;
+                    i = next;
                 }
+                lines.push((String::new(), 0.0));
                 continue;
             }
             '\\' if level == 0 && !math && c.get(i + 1) == Some(&'\\') => {
-                lines.push(String::new());
                 i += 2;
-                // \\[2pt]
                 if c.get(i) == Some(&'[') {
-                    while i < c.len() && c[i] != ']' {
-                        i += 1;
-                    }
-                    i += 1;
+                    let (v, next) = skip(i + 1, Some(']'));
+                    lines.last_mut().unwrap().1 += v;
+                    i = next + 1;
                 }
+                lines.push((String::new(), 0.0));
                 continue;
             }
             _ => {}
         }
-        lines.last_mut().unwrap().push(c[i]);
+        lines.last_mut().unwrap().0.push(c[i]);
         i += 1;
     }
-    lines.into_iter().map(|l| l.trim().to_string()).collect()
+    lines.into_iter().map(|(l, v)| (l.trim().to_string(), v)).collect()
 }
 
 /// Words separated by spaces outside `$…$` and braces.
@@ -587,7 +593,9 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let space = 333.0f32;
     let mut boxes = Vec::new();
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
-    for line in manual_lines(&text) {
+    // the space after each line besides the baselines' (cm)
+    let mut skips: Vec<f64> = Vec::new();
+    for (line, after) in manual_lines(&text, size) {
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
@@ -623,9 +631,13 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
                 boxes.push(current.unwrap_or_else(MathBox::empty));
             }
         }
+        skips.resize(boxes.len(), 0.0);
+        if let Some(s) = skips.last_mut() {
+            *s = after * 2.54 / 72.27;
+        }
     }
     let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
-    Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch }
+    Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips }
 }
 
 #[cfg(test)]
