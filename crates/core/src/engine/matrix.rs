@@ -136,7 +136,8 @@ impl Engine {
         self.begin_group();
         let r = (|| {
             self.run_tokens(pre)?;
-            let mut options = format!("shape={shape},anchor={anchor}");
+            // the basic layer's node takes no TikZ style (`every node`): only its usage
+            let mut options = format!("shape={shape},anchor={anchor},draw=none,fill=none");
             for (word, key) in [("stroke", "draw"), ("draw", "draw"), ("fill", "fill")] {
                 if usage.contains(word) {
                     options.push_str(&format!(",{key}"));
@@ -276,13 +277,11 @@ impl Engine {
                 xs.push(left[0]);
                 continue;
             }
-            // the widest the rows ask for: between borders, or between origins
-            let mut step: f64 = 0.0;
-            for seps in &cell_seps {
-                let extra = seps.get(c).cloned().unwrap_or_default();
-                let sep = self.sep(&settings.column_sep, &extra);
-                step = step.max(if sep.origins { sep.distance } else { right[c - 1] + sep.distance + left[c] });
-            }
+            // what the first row to reach this column asks for (pgf sets a column's separation
+            // when a row makes the column): between borders, or between origins
+            let extra = rows.iter().zip(&cell_seps).find(|(row, _)| row.len() > c).and_then(|(_, seps)| seps.get(c).cloned()).unwrap_or_default();
+            let sep = self.sep(&settings.column_sep, &extra);
+            let step = if sep.origins { sep.distance } else { right[c - 1] + sep.distance + left[c] };
             xs.push(xs[c - 1] + step);
         }
         let mut ys = Vec::with_capacity(nrows);
