@@ -315,8 +315,11 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 if *opacity < 1.0 {
                     let _ = write!(body, r#"<g opacity="{}">"#, n(opacity.max(0.0)));
                 } else {
-                    body.push_str("<g>");
+                    body.push_str(r#"<g style="isolation:isolate">"#);
                 }
+            }
+            Item::Blend { mode } => {
+                let _ = write!(body, r#"<g style="mix-blend-mode:{mode}">"#);
             }
             Item::Transform { transform: t } => {
                 // the canvas transformation in the SVG's coordinates: y down, in bp

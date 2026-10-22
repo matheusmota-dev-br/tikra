@@ -94,6 +94,10 @@ impl Engine {
             None => None,
         };
         let faded = drawn && (fill.is_some() || stroke.is_some()) && fading.is_some();
+        let blended = drawn && (fill.is_some() || stroke.is_some()) && self.st.blend.is_some();
+        if blended {
+            self.canvas.push(Item::Blend { mode: self.st.blend.clone().unwrap_or_default() });
+        }
         if faded {
             self.canvas.push(fading.expect("checked"));
         }
@@ -118,6 +122,9 @@ impl Engine {
         }
         self.push_tips(tips);
         if faded {
+            self.canvas.push(Item::End);
+        }
+        if blended {
             self.canvas.push(Item::End);
         }
         if mode.clip {
@@ -154,6 +161,12 @@ impl Engine {
                 None
             }
         }
+    }
+
+    /// `blend mode=…`, `\pgfsetblendmode{…}`: pgf's names (`color dodge`) as SVG's (`color-dodge`).
+    pub fn set_blend_mode(&mut self, mode: &str) {
+        let mode = mode.trim().replace(' ', "-");
+        self.st.blend = (mode != "normal" && !mode.is_empty()).then_some(mode);
     }
 
     pub fn shading_of(&self, segs: &[Segment]) -> crate::canvas::Shading {

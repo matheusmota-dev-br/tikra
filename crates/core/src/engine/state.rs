@@ -194,6 +194,8 @@ pub struct GState {
     pub active_in_code: bool,
     pub active_in_nodes: bool,
     pub transparency_group: bool,
+    /// `blend mode`: how what is drawn mixes with what is under it (SVG's name), if not normally
+    pub blend: Option<String>,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
     pub level_distance: f64,
@@ -339,6 +341,7 @@ impl Default for GState {
             active_in_code: false,
             active_in_nodes: false,
             transparency_group: false,
+            blend: None,
             shading: "axis".into(),
             shade_angle: 0.0,
             axis_top: Color { r: 0.5, g: 0.5, b: 0.5 },

@@ -241,6 +241,7 @@ pub const DEFINITIONS: &str = r"
 \def\pgfhorizontaltransformationadjustment{1}\def\pgfverticaltransformationadjustment{1}
 \newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
 \def\pgfidrefnextuse#1#2{\def#1{}}\def\pgfidrefprevuse#1#2{\def#1{}}
+\def\pgfsetblendmode#1{\tikzset{blend mode={#1}}}
 \def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
 \def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
 \def\pgfsysanimkeyrestartalways{}\def\pgfsysanimkeyrestartnever{}\def\pgfsysanimkeyrestartwhennotactive{}

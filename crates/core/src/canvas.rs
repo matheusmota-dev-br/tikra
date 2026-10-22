@@ -101,9 +101,15 @@ pub enum Item {
         segments: Vec<Segment>,
         even_odd: bool,
     },
-    /// A group: what follows, up to the matching `End`, is drawn with this opacity as a whole.
+    /// A group: what follows, up to the matching `End`, is drawn with this opacity as a whole, on
+    /// its own (blend modes inside see what the group draws only).
     Group {
         opacity: f64,
+    },
+    /// What follows, up to the matching `End`, is blended with what is under it by this mode
+    /// (`screen`, `multiply`…, as SVG names them).
+    Blend {
+        mode: String,
     },
     /// `transform canvas`: what follows, up to the matching `End`, is drawn transformed, line widths
     /// and text included (the picture's size does not follow, as in pgf).
@@ -206,7 +212,7 @@ impl Item {
             // the items inside move too: the transformation moves with them
             Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.translate(d)),
-            Item::Group { .. } | Item::End => {}
+            Item::Group { .. } | Item::Blend { .. } | Item::End => {}
         }
     }
 
@@ -234,7 +240,7 @@ impl Item {
             // a transformed group inside: the outer transformation around it
             Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.transform(t)),
-            Item::Group { .. } | Item::End => {}
+            Item::Group { .. } | Item::Blend { .. } | Item::End => {}
         }
     }
 }

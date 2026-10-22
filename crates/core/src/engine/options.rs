@@ -1926,6 +1926,19 @@ keyfn!(k_transparency_group, |e, _v| {
     e.st.transparency_group = true;
     Ok(())
 });
+// `blend mode=screen`: the paths drawn from here on blend with what is under them
+keyfn!(k_blend_mode, |e, v| {
+    let s = text(e, &v)?;
+    e.set_blend_mode(&s);
+    Ok(())
+});
+// `blend group=screen`: a transparency group whose paths blend so
+keyfn!(k_blend_group, |e, v| {
+    let s = text(e, &v)?;
+    e.st.transparency_group = true;
+    e.set_blend_mode(&s);
+    Ok(())
+});
 
 keyfn!(k_auto, |e, v| {
     let s = text(e, &v)?;
@@ -2128,6 +2141,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/fading transform", k_fading_transform),
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
+    ("/tikz/blend mode", k_blend_mode),
+    ("/tikz/blend group", k_blend_group),
     ("/tikz/shading", k_shading),
     ("/tikz/shading angle", k_shading_angle),
     ("/tikz/top color", k_top_color),

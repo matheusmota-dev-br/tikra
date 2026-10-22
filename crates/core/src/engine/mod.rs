@@ -299,6 +299,8 @@ fn path_command(cmd: Cmd) -> Option<&'static str> {
 #[derive(Debug, Clone, Default)]
 struct PgfScope {
     ends: usize,
+    /// the item opened last in it is a fading: a new fading takes its place
+    fading_last: bool,
     /// a path clipped it: what it draws after does not make the picture larger
     pub clipped: bool,
 }
@@ -807,9 +809,20 @@ impl Engine {
 
     /// Opens a canvas item that the current pgf scope closes (a clip, a transparency group).
     pub fn open_in_scope(&mut self, item: Item) {
+        let fading = matches!(item, Item::Fade { .. } | Item::FadePicture { .. });
+        // a fading replaces the scope's fading, as pgf's graphic state holds one
+        if fading && self.scopes.last().is_some_and(|s| s.fading_last && s.ends > 0) {
+            self.canvas.push(Item::End);
+            if let Some(s) = self.scopes.last_mut() {
+                s.ends -= 1;
+            }
+        }
         self.canvas.push(item);
         match self.scopes.last_mut() {
-            Some(s) => s.ends += 1,
+            Some(s) => {
+                s.ends += 1;
+                s.fading_last = fading;
+            }
             None => self.canvas.push(Item::End),
         }
     }
@@ -1517,6 +1530,7 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
+        self.open_transparency_group();
         // a picture is a scope too: `execute at begin scope` first, its end last
         let mut begin = std::mem::take(&mut self.st.at_begin_scope);
         begin.append(&mut self.st.at_begin_picture);
@@ -1524,6 +1538,18 @@ impl Engine {
         end.append(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
         self.run_tokens(begin)
+    }
+
+    /// `transparency group` given to a scope or a picture: what it draws is a group of its own.
+    fn open_transparency_group(&mut self) {
+        if std::mem::take(&mut self.st.transparency_group) {
+            // the scope's opacity is the group's; inside, everything is opaque
+            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
+            self.open_in_scope(Item::Group { opacity });
+            self.st.draw_opacity = 1.0;
+            self.st.fill_opacity = 1.0;
+            self.st.text_opacity = 1.0;
+        }
     }
 
     /// `\begin{scope}[options]` and `\scoped`: a group, a pgf scope, the options, `execute at begin scope`.
@@ -1540,14 +1566,7 @@ impl Engine {
             }
         }
         self.st.apply_pending();
-        if std::mem::take(&mut self.st.transparency_group) {
-            // the scope's opacity is the group's; inside, everything is opaque
-            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
-            self.open_in_scope(Item::Group { opacity });
-            self.st.draw_opacity = 1.0;
-            self.st.fill_opacity = 1.0;
-            self.st.text_opacity = 1.0;
-        }
+        self.open_transparency_group();
         let begin = std::mem::take(&mut self.st.at_begin_scope);
         let end = std::mem::take(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
