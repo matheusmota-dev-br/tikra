@@ -123,6 +123,7 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
+    PgfmathFunction,
     Hskip,
     FontSize,
     FontSeries,
@@ -215,6 +216,27 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("textcolor", Cmd::Textcolor),
     ("pgfmathsetmacro", Cmd::Pgfmathsetmacro),
     ("pgfmathparse", Cmd::Pgfmathparse),
+    ("pgfmathadd", Cmd::PgfmathFunction),
+    ("pgfmathsubtract", Cmd::PgfmathFunction),
+    ("pgfmathmultiply", Cmd::PgfmathFunction),
+    ("pgfmathdivide", Cmd::PgfmathFunction),
+    ("pgfmathpow", Cmd::PgfmathFunction),
+    ("pgfmathmod", Cmd::PgfmathFunction),
+    ("pgfmathmax", Cmd::PgfmathFunction),
+    ("pgfmathmin", Cmd::PgfmathFunction),
+    ("pgfmathveclen", Cmd::PgfmathFunction),
+    ("pgfmathabs", Cmd::PgfmathFunction),
+    ("pgfmathneg", Cmd::PgfmathFunction),
+    ("pgfmathsqrt", Cmd::PgfmathFunction),
+    ("pgfmathexp", Cmd::PgfmathFunction),
+    ("pgfmathln", Cmd::PgfmathFunction),
+    ("pgfmathsin", Cmd::PgfmathFunction),
+    ("pgfmathcos", Cmd::PgfmathFunction),
+    ("pgfmathtan", Cmd::PgfmathFunction),
+    ("pgfmathround", Cmd::PgfmathFunction),
+    ("pgfmathfloor", Cmd::PgfmathFunction),
+    ("pgfmathceil", Cmd::PgfmathFunction),
+    ("pgfmathint", Cmd::PgfmathFunction),
     ("pgfmathtruncatemacro", Cmd::Pgfmathtruncatemacro),
     ("pgfmathsetlengthmacro", Cmd::Pgfmathsetlengthmacro),
     ("pgfmathsetcount", Cmd::Pgfmathsetcount),
@@ -1176,6 +1198,32 @@ impl Engine {
                     }
                     Ok(v) => self.warn(format!("\\pgfmathsetmacro{{{}}}: non-finite result ({v}), macro not defined", tex::show_token(&name))),
                     Err(e) => self.warn(format!("\\pgfmathsetmacro{{{}}}: {e}", tex::show_token(&name))),
+                }
+                Ok(())
+            }
+            // `\pgfmathadd{a}{b}` and friends: the function of the arguments, in \pgfmathresult
+            Cmd::PgfmathFunction => {
+                let name = match &t {
+                    Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
+                    _ => String::new(),
+                };
+                let (op, n) = match name.as_str() {
+                    "add" => ("+", 2),
+                    "subtract" => ("-", 2),
+                    "multiply" => ("*", 2),
+                    "divide" => ("/", 2),
+                    "pow" | "mod" | "max" | "min" | "veclen" => ("", 2),
+                    _ => ("", 1),
+                };
+                let mut args = Vec::new();
+                for _ in 0..n {
+                    let a = self.argument()?;
+                    args.push(format!("({})", self.math_string(a)?));
+                }
+                let text = if op.is_empty() { format!("{name}({})", args.join(",")) } else { args.join(op) };
+                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
+                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
+                    Err(e) => self.warn(format!("\\pgfmath{name}: {e}")),
                 }
                 Ok(())
             }
