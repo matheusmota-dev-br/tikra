@@ -957,6 +957,10 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sex = pick(e, "x error", None);
     let seyp = pick(e, "y error plus", None);
     let seym = pick(e, "y error minus", None);
+    let box_filter = match e.tex.meaning_of(&crate::keys::macro_name("/pgfplots/boxplot/data filter/.@cmd")) {
+        tex::Meaning::Macro(m) if !m.body.is_empty() && !keys::value(e, "/pgfplots/@boxplot").is_empty() => Some(m.body.clone()),
+        _ => None,
+    };
     let mut out = Vec::with_capacity(t.rows.len());
     for r in 0..t.rows.len() {
         // an expression may use the coordinates read so far: `z expr=x^2-y^2`
@@ -1029,6 +1033,25 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             b.z = get(e, &ends[2]);
             b
         });
+        // `boxplot/data filter/.code`: the row's value in `\pgfmathresult` (empty: left out), with
+        // `\thisrow` the row's cells
+        if let Some(body) = &box_filter {
+            let data = keys::value(e, "/pgfplots/boxplot/data");
+            let v = match data.as_str() {
+                "x" => &mut c.x,
+                "z" => &mut c.z,
+                _ => &mut c.y,
+            };
+            if v.is_finite() {
+                let text = super::super::pgf_number(*v);
+                let code = replace_thisrow_as(&tex::substitute(body, &[tex::string_tokens(&text)]), t, r, true);
+                e.begin_group();
+                e.tex.define_string("pgfmathresult", &text, false);
+                let res = e.run_tokens(code).and_then(|_| e.tex.expand_to_string(vec![Token::cs("pgfmathresult")]));
+                e.end_group();
+                *v = table::parse_number(&res?).unwrap_or(f64::NAN);
+            }
+        }
         out.push(c);
         out.extend(other);
     }
@@ -1037,6 +1060,11 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
 
 /// `\thisrow{name}`, `\thisrowno{i}`, `\coordindex`, `\lineno` replaced by the row's values.
 fn replace_thisrow(tokens: &[Token], t: &Table, row: usize) -> Vec<Token> {
+    replace_thisrow_as(tokens, t, row, false)
+}
+
+/// The same, the cells as their text (`raw`) or as numbers in parentheses.
+fn replace_thisrow_as(tokens: &[Token], t: &Table, row: usize, raw: bool) -> Vec<Token> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -1071,6 +1099,12 @@ fn replace_thisrow(tokens: &[Token], t: &Table, row: usize) -> Vec<Token> {
                 (tokens.get(j).map(|t| tex::tokens_to_string(std::slice::from_ref(t))).unwrap_or_default(), j + 1)
             };
             let col = if is_no { arg.trim().parse().ok() } else { t.column(arg.trim()) };
+            if raw {
+                let cell = col.and_then(|c| t.cell(row, c)).unwrap_or("");
+                out.extend(cell.chars().map(|c| Token::Char(c, if c.is_alphabetic() { Cat::Letter } else { Cat::Other })));
+                i = end;
+                continue;
+            }
             let v = col.and_then(|c| t.cell(row, c)).and_then(table::parse_number).unwrap_or(f64::NAN);
             out.extend(tex::string_tokens(&format!("({})", if v.is_nan() { "nan".to_string() } else { format!("{v}") })));
             i = end;
