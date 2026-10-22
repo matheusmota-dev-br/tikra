@@ -233,11 +233,30 @@ const COMMANDS: &[(&str, B)] = &[
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
-/// transformation adjustments before they are computed, and `pgflowlevelscope`.
+/// transformation adjustments before they are computed, and `pgflowlevelscope`. The animations of the
+/// system and basic layers take their arguments and do nothing: a still picture shows what they
+/// animate in its base state.
 pub const DEFINITIONS: &str = r"
 \newif\ifpgfslopedattime \newif\ifpgfallowupsidedownattime \newif\ifpgfresetnontranslationattime
 \def\pgfhorizontaltransformationadjustment{1}\def\pgfverticaltransformationadjustment{1}
 \newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
+\def\pgfidrefnextuse#1#2{\def#1{}}\def\pgfidrefprevuse#1#2{\def#1{}}
+\def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
+\def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
+\def\pgfsysanimkeyrestartalways{}\def\pgfsysanimkeyrestartnever{}\def\pgfsysanimkeyrestartwhennotactive{}
+\def\pgfsysanimkeyrepeat#1{}\def\pgfsysanimkeyrepeatindefinite{}\def\pgfsysanimkeyrepeatdur#1{}
+\def\pgfsysanimkeyfreezeatend{}\def\pgfsysanimkeyremoveatend{}\def\pgfsysanimkeytime#1#2#3#4#5{}
+\def\pgfsysanimkeybase{}\def\pgfsysanimkeysnapshotstart#1{}\def\pgfsysanimkeyoffset#1#2{}
+\def\pgfsysanimkeysyncbegin#1#2#3#4{}\def\pgfsysanimkeysyncend#1#2#3#4{}
+\def\pgfsysanimkeyevent#1#2#3#4#5{}\def\pgfsysanimkeyrepeatevent#1#2#3#4#5{}
+\def\pgfsysanimkeyaccesskey#1#2#3{}\def\pgfsysanimkeyaccumulate{}\def\pgfsysanimkeynoaccumulate{}
+\def\pgfsysanimkeywhom#1#2{}\def\pgfsysanimkeyrotatealong{}\def\pgfsysanimkeynorotatealong{}
+\def\pgfsysanimkeymovealong#1{}\def\pgfsysanimkeytipmarkers#1#2{}\def\pgfsysanimkeycanvastransform#1#2{}
+\def\pgfsysanimvalcurrent{}\def\pgfsysanimvalnone{}\def\pgfsysanimvaltext#1{}\def\pgfsysanimvalscalar#1{}
+\def\pgfsysanimvaldimension#1{}\def\pgfsysanimvalcolor#1{}\def\pgfsysanimvalcolorrgb#1#2#3{}
+\def\pgfsysanimvalcolorcmyk#1#2#3#4{}\def\pgfsysanimvalcolorcmy#1#2#3{}\def\pgfsysanimvalcolorgray#1{}
+\def\pgfsysanimvalpath#1{}\def\pgfsysanimvaltranslate#1#2{}\def\pgfsysanimvalscale#1#2{}
+\def\pgfsysanimvalviewbox#1#2#3#4{}\def\pgfsysanimvaldash#1#2{}
 ";
 
 /// The basic layer's plot handlers, by command, as TikZ's `plot` names them.

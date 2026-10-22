@@ -2,7 +2,8 @@
 //! command, `animate={myself:rotate={…}}` in options. A document drawn without `make snapshot of=t`
 //! shows everything in its base state, so the animations do nothing; with a snapshot time, each
 //! animated attribute takes its value at that time (between two times, numbers, lengths and colors
-//! are interpolated; before the first and after the last, the nearest one holds), as an option. An
+//! are interpolated; before the first, the first one holds; after the last, the animation is over,
+//! unless it freezes, and the attribute is back to its base value), as an option. An
 //! animation that waits for an event (`begin on=click`) has not started in a snapshot.
 
 use crate::tex::{self, Cat, Token};
@@ -63,14 +64,18 @@ impl Engine {
         let attribute = attribute.rsplit(':').next().unwrap_or(attribute).trim().to_string();
         let mut times: Vec<(f64, String)> = Vec::new();
         let mut begin = 0.0;
+        let mut freeze = false;
         for item in crate::keys::split_list(&spec) {
             let value = item.value.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
             let value = value.trim().trim_matches('"').to_string();
             match item.key.as_str() {
                 "begin" => begin = seconds(&value).unwrap_or(0.0),
                 // waiting for an event: not started in a still picture
-                "begin on" | "begin snapshot" if item.key == "begin on" => return Ok(None),
-                "end" | "repeats" | "forever" | "restart" | "freeze" | "remove" | "whom" | "entry control" | "exit control" | "stay" | "jump" => {}
+                "begin on" => return Ok(None),
+                // in a snapshot, the animation started at this time
+                "begin snapshot" => begin = seconds(&value).unwrap_or(0.0),
+                "freeze" => freeze = true,
+                "end" | "repeats" | "forever" | "restart" | "remove" | "whom" | "entry control" | "exit control" | "stay" | "jump" => {}
                 key => {
                     if let Some(s) = seconds(key) {
                         times.push((s, value));
@@ -83,6 +88,10 @@ impl Engine {
         }
         times.sort_by(|a, b| a.0.total_cmp(&b.0));
         let at = t - begin;
+        // over: the attribute is back to its base value, unless the animation freezes
+        if at > times[times.len() - 1].0 && !freeze {
+            return Ok(None);
+        }
         let value = match times.iter().position(|(s, _)| *s > at) {
             Some(0) => times[0].1.clone(),
             None => times[times.len() - 1].1.clone(),

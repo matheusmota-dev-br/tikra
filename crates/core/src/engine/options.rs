@@ -1429,6 +1429,13 @@ keyfn!(k_snapshot, |e, v| {
     e.set_snapshot(&s);
     Ok(())
 });
+// `make snapshot after`: a hair after the time, when animations that end then are over
+keyfn!(k_snapshot_after, |e, v| {
+    let s = text(e, &v)?;
+    e.set_snapshot(&s);
+    e.st.snapshot = e.st.snapshot.map(|t| t + 1e-6);
+    Ok(())
+});
 keyfn!(k_animate, |e, v| e.animate_key(v.unwrap_or_default()));
 // the math library's `evaluate={…}`: \tikzmath statements
 keyfn!(k_evaluate, |e, v| e.math_statements(&v.unwrap_or_default()));
@@ -2046,7 +2053,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/trim left", k_trim_left),
     ("/tikz/evaluate", k_evaluate),
     ("/tikz/make snapshot of", k_snapshot),
-    ("/tikz/make snapshot after", k_snapshot),
+    ("/tikz/make snapshot after", k_snapshot_after),
     ("/tikz/make snapshot if necessary", k_ignore),
     ("/tikz/animate", k_animate),
     ("/tikz/transform canvas", k_transform_canvas),
