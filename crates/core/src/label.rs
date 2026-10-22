@@ -221,6 +221,61 @@ fn dimension(s: &str, size: f64) -> Option<(f64, &str)> {
     None
 }
 
+/// The ligatures of TeX's text fonts: `--` and `---` as dashes, ``` `` ``` and `''` as quotes; not
+/// in math, nor in typewriter text (whose font has none).
+fn ligatures(text: &str) -> String {
+    if !text.contains("--") && !text.contains("``") && !text.contains("''") {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut math = false;
+    let mut rest = text;
+    while let Some(c) = rest.chars().next() {
+        if !math && rest.starts_with("\\texttt{") {
+            // to the matching brace, as it is
+            let mut depth = 0;
+            let end = rest.char_indices().find(|&(_, ch)| {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+                ch == '}' && depth == 0
+            });
+            let end = end.map_or(rest.len(), |(i, _)| i + 1);
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+            continue;
+        }
+        if c == '\\' {
+            // a control symbol (`\$`) or word as it is
+            let n = rest[1..].chars().next().map_or(0, |d| {
+                if d.is_ascii_alphabetic() {
+                    rest[1..].find(|x: char| !x.is_ascii_alphabetic()).unwrap_or(rest.len() - 1)
+                } else {
+                    d.len_utf8()
+                }
+            });
+            out.push_str(&rest[..1 + n]);
+            rest = &rest[1 + n..];
+            continue;
+        }
+        if c == '$' {
+            math = !math;
+        } else if !math {
+            let swap = [("---", "\\textemdash{}"), ("--", "\\textendash{}"), ("``", "\u{201c}"), ("''", "\u{201d}")].into_iter().find(|(l, _)| rest.starts_with(l));
+            if let Some((l, r)) = swap {
+                out.push_str(r);
+                rest = &rest[l.len()..];
+                continue;
+            }
+        }
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
 /// `\vrule width 1pt height 2cm depth 0pt` as mathra's `$\rule[raise]{width}{height}$`, in ems of
 /// the label's font (so that the label's scaling gives the rule its size in points). A height or
 /// depth not given runs to the line's, `running` (points); without it the rules are left out.
@@ -430,7 +485,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let stretch = design_width(10.0 * size, family(text, font, bold));
     let space = 333.0f32;
     let mut boxes = Vec::new();
-    for line in manual_lines(&clean(text)) {
+    let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
+    for line in manual_lines(&text) {
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
             let bare = typeset(&families(&rules(&line, size, None), all), bold, &mut Vec::new());
