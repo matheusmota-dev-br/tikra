@@ -829,7 +829,8 @@ fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
     for t in &data {
         match t {
             Token::Char(c, _) => text.push(*c),
-            Token::Cs(n) if &**n == "\\" => text.push('\n'),
+            // `\\` kept as written: a row's end with `row sep=\\`
+            Token::Cs(n) if &**n == "\\" => text.push_str("\\\\"),
             Token::Cs(n) => {
                 text.push('\\');
                 text.push_str(n);
@@ -881,8 +882,10 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     }
     let row_sep = keys::value(e, "/pgfplots/table/row sep");
     if row_sep.contains("\\\\") {
-        text = text.replace("\\\\", "\n");
+        // the rows end at `\\`, not at the line ends
+        text = text.replace('\n', " ");
     }
+    text = text.replace("\\\\", "\n");
     let sep = table::col_sep(&keys::value(e, "/pgfplots/table/col sep"));
     let header = keys::value(e, "/pgfplots/table/header");
     let skip = keys::number(e, "/pgfplots/table/skip first n").unwrap_or(0.0) as usize;
