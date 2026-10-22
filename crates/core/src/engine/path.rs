@@ -215,6 +215,8 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
     }
+    let behind = std::mem::take(&mut e.behind_path);
+    e.canvas.items.extend(behind);
     e.finish_path(segs, outer, "path")?;
     for (segs, options, items) in std::mem::take(&mut b.edges) {
         edge_path(e, segs, options)?;

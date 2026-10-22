@@ -330,8 +330,13 @@ impl Engine {
         self.st.preactions = Default::default();
         self.st.postactions = Default::default();
         let r = self.node_in_group(spec, &outer);
+        // `behind path`: drawn before the path the node is on
+        let behind = matches!(self.tex.meaning_of("tikra@behindpath"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
         self.end_group();
         let (mut items, labels) = r?;
+        if behind {
+            self.behind_path.append(&mut items);
+        }
         // labels and pins: made after the node, out of its options (TikZ's `append after command`)
         if let Some((info, labels, last, kept)) = labels {
             // the label distances and position that the node's options set still hold
@@ -838,22 +843,21 @@ impl Engine {
         options.extend(opts);
         let items = self.node(NodeSpec { options, name: None, at: Some(at), text: text_tokens, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         if pin {
-            // the pin edge: an edge from the node to the pin's label, between their borders
-            let label = self.last_node.clone();
-            let (from, to) = match &label {
-                Some(l) => (info.border_toward(l.center()), l.border_toward(info.center())),
-                None => (info.border_toward(at), at),
-            };
+            // the pin edge: an edge from the node to the pin's label (arrows, decorations…)
+            let Some(label) = self.last_node.clone() else { return Ok(items) };
+            let saved = (self.last_node.clone(), self.last_node_name.clone());
+            self.nodes.insert("tikra@pin@node".into(), info.clone());
+            self.nodes.insert("tikra@pin@label".into(), label);
             self.begin_group();
-            self.st.mode = Default::default();
-            let mut edge = tikra_tokens("every pin edge/.try,draw");
-            edge.extend(edge_options);
-            self.process_keys(edge, Some("/tikz"))?;
-            let stroke = self.stroke();
+            self.st.transform = Transform::default();
+            let mut path = tikra_tokens("\\path (tikra@pin@node) edge[every pin edge/.try");
+            path.extend(edge_options);
+            path.extend(tikra_tokens("] (tikra@pin@label);"));
+            let r = self.run_tokens(path);
             self.end_group();
-            let mut out = vec![Item::Path { segments: vec![Segment::MoveTo(from), Segment::LineTo(to)], fill: None, stroke: Some(stroke) }];
-            out.extend(items);
-            return Ok(out);
+            r?;
+            (self.last_node, self.last_node_name) = saved;
+            return Ok(items);
         }
         Ok(items)
     }

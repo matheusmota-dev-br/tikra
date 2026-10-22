@@ -2218,7 +2218,7 @@ const DEFINITIONS: &str = r"
   coordinate/.style={shape=coordinate},
   circle/.style={shape=circle}, rectangle/.style={shape=rectangle}, ellipse/.style={shape=ellipse},
   diamond/.style={shape=diamond},
-  behind path/.style={}, in front of path/.style={},
+  behind path/.code={\def\tikra@behindpath{1}}, in front of path/.code={\def\tikra@behindpath{0}},
   execute at begin to/.code={\expandafter\def\expandafter\tikz@atbegin@to\expandafter{\tikz@atbegin@to#1}},
   execute at end to/.code={\expandafter\def\expandafter\tikz@atend@to\expandafter{\tikz@atend@to#1}},
   style/.code={\pgfkeysalso{#1}},

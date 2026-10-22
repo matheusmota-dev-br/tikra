@@ -373,6 +373,8 @@ pub struct Engine {
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
     pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
+    /// what the `behind path` nodes of the path being built draw, drawn before it
+    pub behind_path: Vec<Item>,
     /// open `\pgfdecoration`s
     pub decoration_envs: Vec<decorations::Env>,
     /// paths kept by `name path`
@@ -467,6 +469,7 @@ impl Clone for Engine {
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
+            behind_path: Vec::new(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
             fadings: self.fadings.clone(),
@@ -538,6 +541,7 @@ impl Engine {
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: None,
+            behind_path: Vec::new(),
             tree_child_names: Vec::new(),
             forced_box: None,
             fadings: HashMap::new(),
