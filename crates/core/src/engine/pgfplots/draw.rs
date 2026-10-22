@@ -367,30 +367,10 @@ impl Engine {
     }
 }
 
-/// Draws the axis collected by the survey.
-/// Draws the axis collected by the survey; returns its colorbar, drawn once its group is closed.
-pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
-    let setup = setup(e, axis)?;
-    let frame = setup.frame.clone();
-    e.frame = Some(frame.clone());
-    // the canvas items and bounding box of the axis alone, then moved by `at` and `anchor`
-    let nodes_before: std::collections::HashSet<String> = e.nodes.keys().cloned().collect();
-    let r = e.capture(|e| draw_all(e, axis, &setup));
-    let ((), items, bbox) = match r {
-        Ok(v) => v,
-        Err(err) => {
-            e.frame = None;
-            return Err(err);
-        }
-    };
-    // where the axis goes: `at` (in the picture), by `anchor`
-    let anchor = keys::value(e, "/pgfplots/anchor");
-    let (lo, hi) = frame.bbox();
-    let (blo, bhi) = bbox.unwrap_or((lo, hi));
-    let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).unwrap_or(lo);
-    e.frame = None;
-    // whether the axis' own `xshift` moves it: not when a colorbar is placed at plain description
-    // coordinates of its parent (as pgfplots' `colorbar top` customizations show)
+/// The axis' `at` (in the picture), and whether its own `xshift` moves it: not when a colorbar is
+/// placed at plain description coordinates of its parent (as pgfplots' `colorbar top`
+/// customizations show).
+fn axis_at(e: &mut Engine) -> Result<(Point, bool), Error> {
     let mut shifts = true;
     let at = match keys::value_tokens(e, "/pgfplots/at") {
         Some(v) => {
@@ -419,9 +399,58 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
         }
         None => e.st.transform.apply(Point::default()),
     };
-    // `xshift`, `yshift` and `shift` in the axis options move it (`colorbar shift`)
-    let p = e.st.pending;
-    let d = at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() });
+    Ok((at, shifts))
+}
+
+/// Draws the axis collected by the survey.
+/// Draws the axis collected by the survey; returns its colorbar, drawn once its group is closed.
+pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
+    let mut setup = setup(e, axis)?;
+    let anchor = keys::value(e, "/pgfplots/anchor");
+    // an anchor of the box alone (`origin`, `south west`…) places the axis before it is drawn, as
+    // pgfplots does: what it draws at named coordinates of the picture stays where they are
+    let early = {
+        let (lo, hi) = setup.frame.bbox();
+        let a = anchor.trim();
+        let box_only = !a.starts_with("outer") && !["above", "below", "left of", "right of"].iter().any(|w| a.starts_with(w));
+        if box_only && super::colorbar::parent().is_none() {
+            let anchor_point = named_anchor(&anchor, lo, hi, lo, hi, &setup.frame).unwrap_or(lo);
+            let (at, shifts) = axis_at(e)?;
+            let p = e.st.pending;
+            Some(at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() }))
+        } else {
+            None
+        }
+    };
+    if let Some(d) = early {
+        setup.frame = Rc::new(Frame { origin: setup.frame.origin.plus(d), ..clone_frame(&setup.frame) });
+    }
+    let frame = setup.frame.clone();
+    e.frame = Some(frame.clone());
+    // the canvas items and bounding box of the axis alone, then moved by `at` and `anchor`
+    let nodes_before: std::collections::HashSet<String> = e.nodes.keys().cloned().collect();
+    let r = e.capture(|e| draw_all(e, axis, &setup));
+    let ((), items, bbox) = match r {
+        Ok(v) => v,
+        Err(err) => {
+            e.frame = None;
+            return Err(err);
+        }
+    };
+    // where the axis goes: `at` (in the picture), by `anchor`
+    let (lo, hi) = frame.bbox();
+    let (blo, bhi) = bbox.unwrap_or((lo, hi));
+    let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).unwrap_or(lo);
+    e.frame = None;
+    let d = match early {
+        Some(_) => Point::default(),
+        None => {
+            let (at, shifts) = axis_at(e)?;
+            // `xshift`, `yshift` and `shift` in the axis options move it (`colorbar shift`)
+            let p = e.st.pending;
+            at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() })
+        }
+    };
     for mut it in items {
         it.translate(d);
         e.canvas.items.push(it);
