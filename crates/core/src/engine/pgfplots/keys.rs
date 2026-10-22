@@ -589,7 +589,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/z buffer/.initial=default,
 	/pgfplots/mesh input/.initial=lattice, /pgfplots/patch type/.initial=,
 	/pgfplots/patch refines/.initial=0, /pgfplots/vertex count/.initial=, /pgfplots/patch table/.initial=, /pgfplots/patch table with point meta/.initial=,
-	/pgfplots/patch table with individual point meta/.initial=, /pgfplots/patch to triangles/.initial=false,
+	/pgfplots/patch table with individual point meta/.initial=, /pgfplots/patch to triangles/.initial=false, /pgfplots/patch to triangles/.default=true,
 	/pgfplots/mesh/rows/.initial=, /pgfplots/mesh/cols/.initial=,
 	/pgfplots/mesh/ordering/.initial=x varies, /pgfplots/mesh/color input/.initial=colormap,
 	/pgfplots/mesh/check/.initial=error,

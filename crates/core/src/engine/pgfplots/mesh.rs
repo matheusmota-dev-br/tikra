@@ -351,16 +351,27 @@ struct Look {
     surf: bool,
 }
 
-/// The depth of logical points along the view (larger is nearer), as the z buffer sorts.
+/// The depth of logical points along the view (larger is nearer), as the z buffer sorts: the
+/// scalar product with the direction the axis' unit vectors flatten
+/// (`\pgfplotsgetnormalforcurrentview`), in the coordinates of the data scale transformation.
 fn depth_fn(e: &mut Engine, f: &Frame) -> impl Fn(&[[f64; 3]]) -> f64 {
     let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
     let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
     let d = [az.sin() * el.cos(), -az.cos() * el.cos(), el.sin()];
-    let (min, max, flat) = (f.min, f.max, [0, 1, 2].map(|i| f.e[i].norm() == 0.0));
-    move |pts: &[[f64; 3]]| {
-        let norm = |i: usize, v: f64| if flat[i] { 0.0 } else { (v - min[i]) / (max[i] - min[i]).abs().max(1e-300) };
-        pts.iter().map(|l| (0..3).map(|i| d[i] * norm(i, l[i])).sum::<f64>()).sum::<f64>() / pts.len().max(1) as f64
+    let s = [0, 1, 2].map(|i| super::draw::data_scale_trafo(e, f, i).0);
+    let cross = |a: Point, b: Point| a.x * b.y - a.y * b.x;
+    // the unit vectors of the transformed coordinates, and the direction they flatten
+    let t = [0, 1, 2].map(|i| f.e[i].scale(1.0 / s[i]));
+    let mut n = [cross(t[1], t[2]), cross(t[2], t[0]), cross(t[0], t[1])];
+    // nearer is where `view={az}{el}` looks from: the sign of the flattened logical direction
+    let u = [cross(f.e[1], f.e[2]), cross(f.e[2], f.e[0]), cross(f.e[0], f.e[1])];
+    let toward: f64 = (0..3).map(|i| d[i] * u[i] / (f.max[i] - f.min[i]).abs().max(1e-300)).sum();
+    let along: f64 = (0..3).map(|i| n[i] * s[i] * u[i]).sum();
+    if toward * along < 0.0 {
+        n = n.map(|v| -v);
     }
+    let c = [0, 1, 2].map(|i| n[i] * s[i]);
+    move |pts: &[[f64; 3]]| pts.iter().map(|l| (0..3).map(|i| if c[i] == 0.0 { 0.0 } else { c[i] * l[i] }).sum::<f64>()).sum::<f64>() / pts.len().max(1) as f64
 }
 
 /// `\addplot [patch, patch type=…]` from a list of patches (`mesh input=patches`): each patch
