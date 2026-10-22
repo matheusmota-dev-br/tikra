@@ -144,6 +144,13 @@ impl Engine {
         }
         let commas = split_commas(t);
         let colon = top_level(t, ':');
+        // `(\pgfkeysvalueof{/pgfplots/xmin},0)` with xmin unset: an empty part of a plain point in an axis
+        if colon.is_none() && !t.contains(['(', '{', '[']) && t.split(',').any(|p| p.trim().is_empty()) && t.split(',').count() > 1 {
+            let parts: Vec<String> = t.split(',').map(|p| p.trim().to_string()).collect();
+            if let Some(p) = self.pgfplots_plain(&parts) {
+                return Ok(Coord { p: p?, node: None });
+            }
+        }
         if commas.len() == 1 && colon.is_none() {
             // a node: name, name.anchor, name.angle
             let (name, anchor) = match t.split_once('.') {

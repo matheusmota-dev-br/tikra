@@ -2260,7 +2260,11 @@ impl Engine {
                 let r = (|| -> Result<Point, Error> {
                     let mut l = [f.min[0], f.min[1], f.min[2]];
                     for (a, la) in l.iter_mut().enumerate().take(if f.three_d { 3 } else { 2 }) {
-                        let v = self.number(crate::keys::strip_braces(parts.get(a).map_or("0", |p| p.trim())))?;
+                        // an empty coordinate (`\pgfkeysvalueof{/pgfplots/xmin}` unset) is 0, as TeX recovers
+                        let v = match crate::keys::strip_braces(parts.get(a).map_or("0", |p| p.trim())) {
+                            "" => 0.0,
+                            p => self.number(p)?,
+                        };
                         let (factor, shift) = data_scale_trafo(self, &f, a);
                         *la = shift + v / factor;
                     }
