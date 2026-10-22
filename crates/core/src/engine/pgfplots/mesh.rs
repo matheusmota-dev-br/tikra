@@ -189,9 +189,17 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
+        // a point meta of nan makes the point unbounded: its patches are not drawn
+        if p.has_meta && !explicit && metas.len() < src.len() {
+            continue;
+        }
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
         // `mesh/color input=explicit`: each point has its color
-        let vertex: Option<Vec<Color>> = explicit.then(|| src.iter().map(|&k| vertex_color(e, p, k)).collect());
+        let vertex: Option<Vec<Color>> = match explicit.then(|| src.iter().map(|&k| vertex_color(e, p, k)).collect::<Option<Vec<Color>>>()) {
+            // a point without a color (`[]`) is unbounded, as a nan
+            Some(None) => continue,
+            v => v.flatten(),
+        };
         let mapped = match &vertex {
             Some(v) if shader == "flat corner" => v[0],
             Some(v) => mean(v),
@@ -341,10 +349,14 @@ fn blend(v: &[Color], w: &[f64]) -> Color {
 }
 
 /// The color of point `k` of an explicit color input: `color=red`, `rgb=…`, `R,G,B`, `rgb255=`,
-/// `cmyk=`, `gray=`, `wave=` (nanometres), as written or computed by the survey.
-fn vertex_color(e: &Engine, p: &Plot, k: usize) -> Color {
-    let Some(label) = p.coords.get(k).filter(|c| c.label != super::plot::NO_LABEL).and_then(|c| p.labels.get(c.label as usize)) else { return Color::BLACK };
-    explicit_color(e, &crate::tex::tokens_to_string(label)).unwrap_or(Color::BLACK)
+/// `cmyk=`, `gray=`, `wave=` (nanometres), as written or computed by the survey; None for `[]`.
+fn vertex_color(e: &Engine, p: &Plot, k: usize) -> Option<Color> {
+    let Some(label) = p.coords.get(k).filter(|c| c.label != super::plot::NO_LABEL).and_then(|c| p.labels.get(c.label as usize)) else { return Some(Color::BLACK) };
+    let s = crate::tex::tokens_to_string(label);
+    if s.trim().is_empty() {
+        return None;
+    }
+    Some(explicit_color(e, &s).unwrap_or(Color::BLACK))
 }
 
 pub fn explicit_color(e: &Engine, s: &str) -> Option<Color> {
