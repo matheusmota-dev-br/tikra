@@ -420,6 +420,8 @@ impl Engine {
             };
             let (mut wd, mut ht, mut dp) = match &lbl {
                 Some(l) => (text_width.unwrap_or_else(|| l.width()), l.height(), l.depth()),
+                // an empty text is as wide as the text width all the same
+                None if shape != "coordinate" => (text_width.unwrap_or(0.0), 0.0, 0.0),
                 None => (0.0, 0.0, 0.0),
             };
             // text height and text depth replace the box's

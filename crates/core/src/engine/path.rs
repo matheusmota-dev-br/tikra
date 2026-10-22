@@ -1135,6 +1135,26 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                 let text = e.tex.read_group_body()?;
                 return Ok((options, name, at, text));
             }
+            // `\node\bgroup text\egroup` (as `execute at begin cell` writes it)
+            Some(t) if t.is_cs("bgroup") && !coordinate => {
+                let mut text = Vec::new();
+                let mut depth = 0usize;
+                loop {
+                    match e.tex.get_token() {
+                        None => break,
+                        Some(t) if t.is_cs("egroup") && depth == 0 => break,
+                        Some(t) => {
+                            if t.is_cs("bgroup") || matches!(t, Token::Char(_, Cat::Begin)) {
+                                depth += 1;
+                            } else if t.is_cs("egroup") || matches!(t, Token::Char(_, Cat::End)) {
+                                depth = depth.saturating_sub(1);
+                            }
+                            text.push(t);
+                        }
+                    }
+                }
+                return Ok((options, name, at, text));
+            }
             Some(t) => {
                 e.tex.back(t);
                 break;

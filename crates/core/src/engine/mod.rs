@@ -948,6 +948,21 @@ impl Engine {
         }
         match cmd {
             Cmd::Node => {
+                // `\node[matrix]` is a `\matrix`
+                if let Some(o) = self.tex.next_nonspace() {
+                    let mut back = vec![o.clone()];
+                    let mut matrix = false;
+                    if o.is_char('[') {
+                        let options = self.tex.read_until_char(']', false)?;
+                        matrix = crate::keys::split_list(&options).iter().any(|i| i.key == "matrix" && i.value.is_none());
+                        back.extend(options);
+                        back.push(Token::other(']'));
+                    }
+                    self.tex.push_tokens(back);
+                    if matrix {
+                        return self.matrix();
+                    }
+                }
                 self.tex.push_tokens(tikra_tokens("node "));
                 let r = path::statement(self, "");
                 self.recover(r, t)

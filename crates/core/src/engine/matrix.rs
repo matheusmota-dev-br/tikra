@@ -7,7 +7,7 @@
 
 use crate::canvas::Canvas;
 use crate::scene::{Point, Transform};
-use crate::tex::{self, Cat, Token};
+use crate::tex::{self, Cat, Meaning, Token};
 use crate::Error;
 
 use super::nodes::{NodeSpec, OnPath};
@@ -212,6 +212,20 @@ impl Engine {
         self.process_keys(tikra_tokens("every matrix/.try"), Some("/tikz"))?;
         self.process_keys(options.clone(), Some("/tikz"))?;
         self.st.mode = saved_mode;
+        // the basic layer's `\pgfmatrixemptycode`, `\pgfmatrixbegincode` and `\pgfmatrixendcode`,
+        // what `execute at empty cell`, `execute at begin cell` and `execute at end cell` set
+        for (code, m) in [("pgfmatrixemptycode", 0), ("pgfmatrixbegincode", 1), ("pgfmatrixendcode", 2)] {
+            let target = match m {
+                0 => &mut self.st.matrix.at_empty_cell,
+                1 => &mut self.st.matrix.at_begin_cell,
+                _ => &mut self.st.matrix.at_end_cell,
+            };
+            if target.is_empty() {
+                if let Meaning::Macro(m) = self.tex.meaning_of(code) {
+                    *target = tex::substitute(&m.body, &[]);
+                }
+            }
+        }
         let settings = self.st.matrix.clone();
         let name = name.or_else(|| self.st.node.name.clone());
         let at = at.or(self.st.node.at).unwrap_or_else(|| self.st.transform.apply(Point::default()));
@@ -219,6 +233,13 @@ impl Engine {
         let nrows = rows.len();
         let ncols = rows.iter().map(Vec::len).max().unwrap_or(0);
 
+        // `matrix anchor=inner node.south`: a cell's node is where the matrix goes
+        let inner = settings.anchor.as_deref().and_then(|a| a.split_once('.')).map(|(n, a)| (n.trim().to_string(), a.trim().to_string()));
+        if let Some((n, _)) = &inner {
+            self.nodes.remove(n);
+        }
+        // the cell of that node and its anchor there
+        let mut inner_at: Option<(usize, usize, Point)> = None;
         // first pass: measure every cell alone
         let mut extents = vec![vec![Extent { empty: true, ..Default::default() }; ncols]; nrows];
         for (r, row) in rows.iter().enumerate() {
@@ -234,6 +255,11 @@ impl Engine {
                     s.clipped = c;
                 }
                 res?;
+                if let (Some((n, a)), None) = (&inner, inner_at) {
+                    if let Some(p) = self.nodes.get(n).and_then(|i| i.anchor(a)) {
+                        inner_at = Some((r, c, p));
+                    }
+                }
                 if let (Some(lo), Some(hi)) = (drawn.min, drawn.max) {
                     extents[r][c] = Extent { left: (-lo.x).max(0.0), right: hi.x.max(0.0), up: hi.y.max(0.0), down: (-lo.y).max(0.0), empty: false };
                 }
@@ -278,8 +304,17 @@ impl Engine {
         let cells_every_node = self.tex.meaning(&every_node);
         self.tex.set_meaning(&every_node, outer_every_node, false);
         let mut options = options;
-        if let Some(a) = &settings.anchor {
-            options.extend(tikra_tokens(&format!(",anchor={a}")));
+        let mut at = at;
+        match (&settings.anchor, inner_at) {
+            (Some(_), Some((r, c, p))) if inner.is_some() => {
+                // the matrix's center where it puts that point of the cell at `at` (the box's
+                // center, from the first baseline's left end)
+                let center = Point::new(width / 2.0, (height - depth) / 2.0);
+                at = at.plus(center).minus(Point::new(xs[c], ys[r])).minus(p);
+                options.extend(tikra_tokens(",anchor=center"));
+            }
+            (Some(a), _) if inner.is_none() => options.extend(tikra_tokens(&format!(",anchor={a}"))),
+            _ => {}
         }
         let items =
             self.node(NodeSpec { options, name: name.clone(), at: Some(at), text: Vec::new(), place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
@@ -366,9 +401,7 @@ impl Engine {
             self.tex.define_string("pgfmatrixcurrentrow", &r.to_string(), false);
             self.tex.define_string("pgfmatrixcurrentcolumn", &c.to_string(), false);
             let parity = |n: usize| if n.is_multiple_of(2) { "even" } else { "odd" };
-            let styles = format!("every cell/.try,every {} row/.try,every {} column/.try,row {r}/.try,column {c}/.try,row {r} column {c}/.try", parity(r), parity(c));
-            self.process_keys(tikra_tokens(&styles), Some("/tikz"))?;
-            self.st.apply_pending();
+            // the matrix's `nodes=…` first, then what the cell's styles add to it
             if !settings.nodes_style.is_empty() {
                 let mut v = tikra_tokens("every node/.append style=");
                 v.push(Token::Char('{', Cat::Begin));
@@ -376,10 +409,18 @@ impl Engine {
                 v.push(Token::Char('}', Cat::End));
                 self.process_keys(v, Some("/tikz"))?;
             }
-            if settings.of_nodes && !empty {
+            // `matrix of nodes` sets `cells={anchor=base}`: the nodes' styles may change it
+            let mut styles = if settings.of_nodes { "anchor=base,".to_string() } else { String::new() };
+            styles.push_str(&format!("every cell/.try,every {} row/.try,every {} column/.try,row {r}/.try,column {c}/.try,row {r} column {c}/.try", parity(r), parity(c)));
+            self.process_keys(tikra_tokens(&styles), Some("/tikz"))?;
+            self.st.apply_pending();
+            // a cell that starts a path (`\node[red]{7}; \draw …`) is drawn as it is
+            const PATHS: &[&str] = &["node", "draw", "path", "fill", "filldraw", "shade", "shadedraw", "clip", "coordinate", "pic", "matrix", "useasboundingbox"];
+            let plain = cell.first().is_some_and(|t| PATHS.iter().any(|p| t.is_cs(p)));
+            if settings.of_nodes && !empty && !plain {
                 // |[options]| text
                 let (opts, text) = cell_options(&cell);
-                let mut statement = tikra_tokens("\\node[anchor=base");
+                let mut statement = tikra_tokens("\\node[");
                 if let Some(m) = matrix {
                     statement.extend(tikra_tokens(&format!(",name={m}-{r}-{c}")));
                 }
