@@ -768,6 +768,7 @@ impl Engine {
             if let Some(s) = self.saved.pop() {
                 self.st = s;
             }
+            self.canvas.overlay = self.st.overlay;
             self.close_local_boxes();
         } else {
             self.warn("extra '}'");

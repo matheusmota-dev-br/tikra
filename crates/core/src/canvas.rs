@@ -144,12 +144,14 @@ pub struct Canvas {
     pub margin: f64,
     /// The `local bounding box`es being measured: grown with the picture's.
     pub local: Vec<(Option<Point>, Option<Point>)>,
+    /// `overlay` is on: nothing grows the bounding box.
+    pub overlay: bool,
 }
 
 impl Canvas {
     /// Grows the bounding box to include `p`.
     pub fn include(&mut self, p: Point) {
-        if !(p.x.is_finite() && p.y.is_finite()) {
+        if self.overlay || !(p.x.is_finite() && p.y.is_finite()) {
             return;
         }
         grow(&mut self.min, &mut self.max, p);
