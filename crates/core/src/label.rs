@@ -592,6 +592,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     }
     let space = 333.0f32;
     let mut boxes = Vec::new();
+    // a text that is one group (`{upper line \\ lower line}`): what it groups
+    let text = crate::keys::strip_braces(text);
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
