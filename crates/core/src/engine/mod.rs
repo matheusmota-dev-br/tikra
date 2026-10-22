@@ -1646,6 +1646,10 @@ impl Engine {
     /// `\tikra@frame`: the picture's box, and with the frame seps around it, as macros in pt
     /// (`\tikra@xa`… inner, `\tikra@oxa`… outer) for the backgrounds library.
     fn frame_macros(&mut self) -> Result<(), Error> {
+        // once per picture: the frame is around what the picture drew, not around another frame
+        if matches!(self.tex.meaning_of("tikra@xa"), Meaning::Macro(_)) {
+            return Ok(());
+        }
         let (Some(lo), Some(hi)) = (self.canvas.min, self.canvas.max) else { return Ok(()) };
         let sep = |e: &mut Engine, name: &str| -> f64 {
             let v = match e.tex.meaning_of(name) {
