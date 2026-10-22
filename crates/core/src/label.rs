@@ -89,6 +89,17 @@ fn clean(text: &str) -> String {
                     }
                 }
             }
+            // `\hskip0pt` (what `execute at begin node` puts first, to allow a break): no space
+            if name == "hskip" {
+                i += 6;
+                while c.get(i).is_some_and(|x| *x == ' ' || x.is_ascii_digit() || *x == '.' || *x == '-') {
+                    i += 1;
+                }
+                if c.get(i..i + 2).is_some_and(|u| ["pt", "em", "ex", "cm", "mm"].contains(&u.iter().collect::<String>().as_str())) {
+                    i += 2;
+                }
+                continue;
+            }
             if COMMANDS.contains(&name.as_str()) || name == "bfseries" || name == "bf" {
                 i += 1 + name.chars().count();
                 while c.get(i) == Some(&' ') {
@@ -313,6 +324,55 @@ fn rules(text: &str, size: f64, running: Option<(f64, f64)>) -> String {
     out
 }
 
+/// `\hbox to 2cm{Text\hss}`: the text in a box of that width, to the left of it (`\hss` after),
+/// to the right (`\hss` before) or centered (both); `stretch` is how much the label widens its
+/// boxes afterwards.
+fn hboxes(text: &str, size: f64, stretch: f64) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("\\hbox") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 5..];
+        let parsed = (|| {
+            let a = after.trim_start().strip_prefix("to")?;
+            let (w, a) = dimension(a, size)?;
+            let body = a.trim_start().strip_prefix('{')?;
+            let mut depth = 1;
+            let end = body.char_indices().find(|&(_, c)| {
+                match c {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+                depth == 0
+            })?;
+            Some((w, &body[..end.0], &body[end.0 + 1..]))
+        })();
+        let Some((w, inner, after)) = parsed else {
+            out.push_str("\\hbox");
+            rest = after;
+            continue;
+        };
+        let inner = inner.trim();
+        let (left, inner) = inner.strip_prefix("\\hss").map_or((false, inner), |r| (true, r));
+        let (right, inner) = inner.strip_suffix("\\hss").map_or((false, inner), |r| (true, r));
+        let inner = inner.trim();
+        let em = w / (10.0 * size * stretch);
+        if inner.contains('$') || !(left || right) {
+            out.push_str(inner);
+        } else if left && right {
+            out.push_str(&format!("$\\hspace{{{:.4}em}}\\clap{{{inner}}}\\hspace{{{:.4}em}}$", em / 2.0, em / 2.0));
+        } else if right {
+            out.push_str(&format!("$\\rlap{{{inner}}}\\hspace{{{em:.4}em}}$"));
+        } else {
+            out.push_str(&format!("$\\hspace{{{em:.4}em}}\\llap{{{inner}}}$"));
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Splits into lines at top-level `\\`.
 fn manual_lines(text: &str) -> Vec<String> {
     let c: Vec<char> = text.chars().collect();
@@ -325,6 +385,28 @@ fn manual_lines(text: &str) -> Vec<String> {
             '{' => level += 1,
             '}' => level -= 1,
             '$' => math = !math,
+            // `\par` ends a paragraph, a line of its own; `\vskip 1em` after it as an empty line
+            '\\' if level == 0 && !math && c[i + 1..].starts_with(&['p', 'a', 'r']) && !c.get(i + 4).is_some_and(|x| x.is_ascii_alphabetic()) => {
+                lines.push(String::new());
+                i += 4;
+                let mut j = i;
+                while c.get(j).is_some_and(|x| x.is_whitespace()) {
+                    j += 1;
+                }
+                if c[j..].starts_with(&['\\', 'v', 's', 'k', 'i', 'p']) {
+                    // the dimension: digits, then a unit of two letters
+                    j += 6;
+                    while c.get(j).is_some_and(|x| x.is_whitespace()) {
+                        j += 1;
+                    }
+                    while c.get(j).is_some_and(|x| x.is_ascii_digit() || *x == '.') {
+                        j += 1;
+                    }
+                    i = (j + 2).min(c.len());
+                    lines.push(String::new());
+                }
+                continue;
+            }
             '\\' if level == 0 && !math && c.get(i + 1) == Some(&'\\') => {
                 lines.push(String::new());
                 i += 2;
@@ -346,28 +428,39 @@ fn manual_lines(text: &str) -> Vec<String> {
 }
 
 /// Words separated by spaces outside `$…$` and braces.
-fn words(line: &str) -> Vec<String> {
+/// The pieces a line may break between, each with whether a space comes before it: the words,
+/// and the parts of a hyphenated word (`Fixed-` `Parameter`), as TeX may break after a hyphen.
+fn words(line: &str) -> Vec<(String, bool)> {
     let mut out = Vec::new();
     let mut current = String::new();
     let mut level = 0;
     let mut math = false;
-    for c in line.chars() {
-        match c {
+    let mut space = false;
+    let c: Vec<char> = line.chars().collect();
+    for (i, &ch) in c.iter().enumerate() {
+        match ch {
             '{' => level += 1,
             '}' => level -= 1,
             '$' => math = !math,
             ' ' if level == 0 && !math => {
                 if !current.is_empty() {
-                    out.push(std::mem::take(&mut current));
+                    out.push((std::mem::take(&mut current), space));
                 }
+                space = true;
+                continue;
+            }
+            '-' if level == 0 && !math && i > 0 && c[i - 1].is_alphabetic() && c.get(i + 1).is_some_and(|x| x.is_alphabetic()) => {
+                current.push(ch);
+                out.push((std::mem::take(&mut current), space));
+                space = false;
                 continue;
             }
             _ => {}
         }
-        current.push(c);
+        current.push(ch);
     }
     if !current.is_empty() {
-        out.push(current);
+        out.push((current, space));
     }
     out
 }
@@ -487,6 +580,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let mut boxes = Vec::new();
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     for line in manual_lines(&text) {
+        let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
             let bare = typeset(&families(&rules(&line, size, None), all), bold, &mut Vec::new());
@@ -500,12 +594,15 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             Some(max) => {
                 let max = (max / scale / stretch) as f32;
                 let mut current: Option<MathBox> = None;
-                for w in words(&line) {
+                for (w, spaced) in words(&line) {
                     let c = typeset(&w, bold, warnings);
+                    let gap = if spaced { space } else { 0.0 };
                     current = Some(match current {
                         None => c,
-                        Some(mut a) if a.width + space + c.width <= max => {
-                            a.append(&MathBox::space(space));
+                        Some(mut a) if a.width + gap + c.width <= max => {
+                            if spaced {
+                                a.append(&MathBox::space(space));
+                            }
                             a.append(&c);
                             a
                         }
