@@ -122,6 +122,10 @@ enum B {
     ToDigitList,
     InnerLineWidth,
     InnerStrokeColor,
+    Baseline,
+    BaselineLater,
+    BaselineNow,
+    Svg,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -250,6 +254,10 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfmathtodigitlist", B::ToDigitList),
     ("pgfsetinnerlinewidth", B::InnerLineWidth),
     ("pgfsetinnerstrokecolor", B::InnerStrokeColor),
+    ("pgfsetbaseline", B::Baseline),
+    ("pgfsetbaselinepointlater", B::BaselineLater),
+    ("pgfsetbaselinepointnow", B::BaselineNow),
+    ("pgfpathsvg", B::Svg),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -602,7 +610,9 @@ impl Engine {
         // the clip outlives this group: it belongs to the pgf scope around
         let r = self.use_path(segs, "\\pgfusepath");
         self.end_group();
-        self.canvas_frozen = frozen;
+        if quick {
+            self.canvas_frozen = frozen;
+        }
         r
     }
 
@@ -1185,6 +1195,25 @@ impl Engine {
                 self.pgf_path.last = Some(t.apply(to));
             }
             B::DeclareFunctional => self.declare_functional_shading()?,
+            // the picture's baseline: a height, a point's (evaluated now or when the picture ends)
+            B::Svg => {
+                let data = self.argument_string()?;
+                for s in super::path::svg_path(self, &data, self.pgf_path.last) {
+                    self.pgf_add(s);
+                }
+            }
+            B::Baseline => {
+                let v = self.argument_string()?;
+                self.st.baseline = Some(v);
+            }
+            B::BaselineLater => {
+                let p = self.argument()?;
+                self.st.baseline = Some(format!("tikra@point:{}", tex::tokens_to_string(&p)));
+            }
+            B::BaselineNow => {
+                let p = self.point_arg()?;
+                self.st.baseline = Some(format!("{}pt", t.apply(p).y / PT));
+            }
             B::InnerLineWidth => {
                 let v = self.argument()?;
                 self.st.inner_line.0 = self.length_of(v)?;

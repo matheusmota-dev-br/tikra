@@ -1749,6 +1749,11 @@ impl Engine {
         if let Some(inner) = s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
             return self.coordinate(inner).map(|c| c.p.y).unwrap_or(lower);
         }
+        // \pgfsetbaselinepointlater{point}: the point's height once the picture is drawn
+        if let Some(point) = s.strip_prefix("tikra@point:") {
+            let t = self.st.transform;
+            return self.point_of(tikra_tokens(point)).map(|p| t.apply(p).y).unwrap_or(lower);
+        }
         self.length(s).unwrap_or(lower)
     }
 

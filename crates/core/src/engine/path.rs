@@ -1319,129 +1319,155 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
             _ => return Err(Error::Figure("svg without a {path}".into())),
         };
         let text = e.tex.expand_to_string(data)?;
-        let t = e.st.transform;
-        // local pt to the canvas
-        let to = |p: Point| t.apply(p.scale(crate::PT));
-        let from = |c: Point| t.inverse().apply(c).scale(1.0 / crate::PT);
-        let mut last = from(b.point());
-        let mut start = last;
-        let mut prev_control: Option<Point> = None;
-        let mut prev_quad: Option<Point> = None;
-        // the numbers and command letters of the data
-        let mut tokens: Vec<String> = Vec::new();
-        let mut cur = String::new();
-        for c in text.chars() {
-            let starts_number = c == '-' && !cur.is_empty() && !cur.ends_with(['e', 'E']);
-            if c.is_ascii_alphabetic() && c != 'e' && c != 'E' || c.is_whitespace() || c == ',' || starts_number {
-                if !cur.is_empty() {
-                    tokens.push(std::mem::take(&mut cur));
-                }
-                if c.is_ascii_alphabetic() {
-                    tokens.push(c.to_string());
-                } else if c == '-' {
-                    cur.push(c);
-                }
-            } else {
-                cur.push(c);
-            }
-        }
-        if !cur.is_empty() {
-            tokens.push(cur);
-        }
-        let mut i = 0;
-        let mut cmd = 'M';
-        let num = |i: &mut usize| -> Option<f64> {
-            let v = tokens.get(*i)?.parse().ok()?;
-            *i += 1;
-            Some(v)
-        };
-        while i < tokens.len() {
-            if let Some(c) = tokens[i].chars().next().filter(|c| c.is_ascii_alphabetic()) {
-                cmd = c;
-                i += 1;
-                if c == 'Z' || c == 'z' {
-                    b.segs.push(Segment::Close);
-                    last = start;
-                    b.current = Some(Coord { p: to(last), node: None });
-                    continue;
-                }
-            }
-            let rel = cmd.is_ascii_lowercase();
-            let base = if rel { last } else { Point::default() };
-            let pt = |i: &mut usize| -> Option<Point> { Some(Point::new(num(i)?, num(i)?).plus(base)) };
-            let before = i;
-            match cmd.to_ascii_uppercase() {
-                'M' => {
-                    let Some(p) = pt(&mut i) else { break };
-                    b.move_to(Coord { p: to(p), node: None });
-                    (last, start) = (p, p);
-                    // more pairs after a moveto are lines
-                    cmd = if rel { 'l' } else { 'L' };
-                }
-                'L' => {
-                    let Some(p) = pt(&mut i) else { break };
-                    b.segs.push(Segment::LineTo(to(p)));
-                    last = p;
-                }
-                'H' => {
-                    let Some(x) = num(&mut i) else { break };
-                    last = Point::new(if rel { last.x + x } else { x }, last.y);
-                    b.segs.push(Segment::LineTo(to(last)));
-                }
-                'V' => {
-                    let Some(y) = num(&mut i) else { break };
-                    last = Point::new(last.x, if rel { last.y + y } else { y });
-                    b.segs.push(Segment::LineTo(to(last)));
-                }
-                'C' | 'S' => {
-                    let c1 = if cmd.eq_ignore_ascii_case(&'S') {
-                        prev_control.map_or(last, |c| last.scale(2.0).minus(c))
-                    } else {
-                        let Some(c) = pt(&mut i) else { break };
-                        c
-                    };
-                    let (Some(c2), Some(p)) = (pt(&mut i), pt(&mut i)) else { break };
-                    b.segs.push(Segment::CurveTo(to(c1), to(c2), to(p)));
-                    prev_control = Some(c2);
-                    last = p;
-                }
-                'Q' | 'T' => {
-                    let q = if cmd.eq_ignore_ascii_case(&'T') {
-                        prev_quad.map_or(last, |c| last.scale(2.0).minus(c))
-                    } else {
-                        let Some(c) = pt(&mut i) else { break };
-                        c
-                    };
-                    let Some(p) = pt(&mut i) else { break };
-                    b.segs.push(Segment::CurveTo(to(last.lerp(q, 2.0 / 3.0)), to(p.lerp(q, 2.0 / 3.0)), to(p)));
-                    prev_quad = Some(q);
-                    last = p;
-                }
-                'A' => {
-                    let (Some(rx), Some(ry), Some(phi), Some(large), Some(sweep)) = (num(&mut i), num(&mut i), num(&mut i), num(&mut i), num(&mut i)) else { break };
-                    let Some(p) = pt(&mut i) else { break };
-                    // with y up, pgf turns the other way for the same sweep flag
-                    svg_arc(b, last, p, rx.abs(), ry.abs(), phi, large != 0.0, sweep == 0.0, &t);
-                    last = p;
-                }
-                _ => break,
-            }
-            if !matches!(cmd.to_ascii_uppercase(), 'C' | 'S') {
-                prev_control = None;
-            }
-            if !matches!(cmd.to_ascii_uppercase(), 'Q' | 'T') {
-                prev_quad = None;
-            }
-            if i == before {
-                break;
-            }
-            b.current = Some(Coord { p: to(last), node: None });
-            b.last = Some(OnPath::Point(to(last)));
-        }
+        svg_data(e, b, &text);
         Ok(())
     })();
     e.end_group();
     r
+}
+
+/// The path data of SVG (`M 0 0 l 20 0 …`, in pt) onto the path being built.
+fn svg_data(e: &Engine, b: &mut Builder, text: &str) {
+    let t = e.st.transform;
+    // local pt to the canvas
+    let to = |p: Point| t.apply(p.scale(crate::PT));
+    let from = |c: Point| t.inverse().apply(c).scale(1.0 / crate::PT);
+    let mut last = from(b.point());
+    let mut start = last;
+    let mut prev_control: Option<Point> = None;
+    let mut prev_quad: Option<Point> = None;
+    // the numbers and command letters of the data
+    let mut tokens: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for c in text.chars() {
+        let starts_number = c == '-' && !cur.is_empty() && !cur.ends_with(['e', 'E']);
+        if c.is_ascii_alphabetic() && c != 'e' && c != 'E' || c.is_whitespace() || c == ',' || starts_number {
+            if !cur.is_empty() {
+                tokens.push(std::mem::take(&mut cur));
+            }
+            if c.is_ascii_alphabetic() {
+                tokens.push(c.to_string());
+            } else if c == '-' {
+                cur.push(c);
+            }
+        } else {
+            cur.push(c);
+        }
+    }
+    if !cur.is_empty() {
+        tokens.push(cur);
+    }
+    let mut i = 0;
+    let mut cmd = 'M';
+    let num = |i: &mut usize| -> Option<f64> {
+        let v = tokens.get(*i)?.parse().ok()?;
+        *i += 1;
+        Some(v)
+    };
+    while i < tokens.len() {
+        if let Some(c) = tokens[i].chars().next().filter(|c| c.is_ascii_alphabetic()) {
+            cmd = c;
+            i += 1;
+            if c == 'Z' || c == 'z' {
+                b.segs.push(Segment::Close);
+                last = start;
+                b.current = Some(Coord { p: to(last), node: None });
+                continue;
+            }
+        }
+        let rel = cmd.is_ascii_lowercase();
+        let base = if rel { last } else { Point::default() };
+        let pt = |i: &mut usize| -> Option<Point> { Some(Point::new(num(i)?, num(i)?).plus(base)) };
+        let before = i;
+        match cmd.to_ascii_uppercase() {
+            'M' => {
+                let Some(p) = pt(&mut i) else { break };
+                b.move_to(Coord { p: to(p), node: None });
+                (last, start) = (p, p);
+                // more pairs after a moveto are lines
+                cmd = if rel { 'l' } else { 'L' };
+            }
+            'L' => {
+                let Some(p) = pt(&mut i) else { break };
+                b.segs.push(Segment::LineTo(to(p)));
+                last = p;
+            }
+            'H' => {
+                let Some(x) = num(&mut i) else { break };
+                last = Point::new(if rel { last.x + x } else { x }, last.y);
+                b.segs.push(Segment::LineTo(to(last)));
+            }
+            'V' => {
+                let Some(y) = num(&mut i) else { break };
+                last = Point::new(last.x, if rel { last.y + y } else { y });
+                b.segs.push(Segment::LineTo(to(last)));
+            }
+            'C' | 'S' => {
+                let c1 = if cmd.eq_ignore_ascii_case(&'S') {
+                    prev_control.map_or(last, |c| last.scale(2.0).minus(c))
+                } else {
+                    let Some(c) = pt(&mut i) else { break };
+                    c
+                };
+                let (Some(c2), Some(p)) = (pt(&mut i), pt(&mut i)) else { break };
+                b.segs.push(Segment::CurveTo(to(c1), to(c2), to(p)));
+                prev_control = Some(c2);
+                last = p;
+            }
+            'Q' | 'T' => {
+                let q = if cmd.eq_ignore_ascii_case(&'T') {
+                    prev_quad.map_or(last, |c| last.scale(2.0).minus(c))
+                } else {
+                    let Some(c) = pt(&mut i) else { break };
+                    c
+                };
+                let Some(p) = pt(&mut i) else { break };
+                b.segs.push(Segment::CurveTo(to(last.lerp(q, 2.0 / 3.0)), to(p.lerp(q, 2.0 / 3.0)), to(p)));
+                prev_quad = Some(q);
+                last = p;
+            }
+            'A' => {
+                let (Some(rx), Some(ry), Some(phi), Some(large), Some(sweep)) = (num(&mut i), num(&mut i), num(&mut i), num(&mut i), num(&mut i)) else { break };
+                let Some(p) = pt(&mut i) else { break };
+                // with y up, pgf turns the other way for the same sweep flag
+                svg_arc(b, last, p, rx.abs(), ry.abs(), phi, large != 0.0, sweep == 0.0, &t);
+                last = p;
+            }
+            _ => break,
+        }
+        if !matches!(cmd.to_ascii_uppercase(), 'C' | 'S') {
+            prev_control = None;
+        }
+        if !matches!(cmd.to_ascii_uppercase(), 'Q' | 'T') {
+            prev_quad = None;
+        }
+        if i == before {
+            break;
+        }
+        b.current = Some(Coord { p: to(last), node: None });
+        b.last = Some(OnPath::Point(to(last)));
+    }
+}
+
+/// The basic layer's `\pgfpathsvg{data}`: the segments of SVG path data (in pt, transformed as the
+/// basic layer's points are), from `from` (the canvas point the path is at, if any).
+pub fn svg_path(e: &Engine, text: &str, from: Option<Point>) -> Vec<Segment> {
+    let mut b = Builder {
+        segs: Vec::new(),
+        current: from.map(|p| Coord { p, node: None }),
+        subpath_start: from,
+        last: None,
+        node_items: Vec::new(),
+        mid_nodes: Vec::new(),
+        edges: Vec::new(),
+        relative_base: None,
+        origin: e.st.transform.apply(Point::default()),
+        close_after: false,
+        to_start: None,
+        groups: Vec::new(),
+    };
+    svg_data(e, &mut b, text);
+    b.segs
 }
 
 /// An SVG elliptical arc from `a` to `p` (local pt), as curves on the canvas (SVG's appendix F.6.5).
