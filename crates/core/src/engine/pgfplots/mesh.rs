@@ -340,6 +340,39 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     Ok(())
 }
 
+/// The single path of one dimensional patches without point meta (`supports global path`):
+/// their curves one after the other, joined where they meet. None for other plots.
+pub fn global_path(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Option<Vec<Segment>> {
+    use super::patch::{Edge, Kind, Patch};
+    if !p.patch || p.lattice.is_some() || p.has_meta {
+        return None;
+    }
+    let kind = Kind::from_name(&keys::value(e, "/pgfplots/patch type"), 4);
+    if !kind.is_curve() {
+        return None;
+    }
+    let mut segs = Vec::new();
+    let mut last: Option<Point> = None;
+    for chunk in pts.chunks(kind.size()).filter(|c| c.len() == kind.size()) {
+        let patch = Patch { kind, pts: chunk.to_vec(), metas: vec![f64::NAN; kind.size()] };
+        for edge in patch.outline() {
+            let (a, seg) = match edge {
+                Edge::Line(a, b) => (f.at(a), Segment::LineTo(f.at(b))),
+                Edge::Curve(a, c1, c2, b) => (f.at(a), Segment::CurveTo(f.at(c1), f.at(c2), f.at(b))),
+            };
+            if last.is_none_or(|q| q.minus(a).norm() > 1e-9) {
+                segs.push(Segment::MoveTo(a));
+            }
+            last = Some(match seg {
+                Segment::LineTo(b) | Segment::CurveTo(_, _, b) => b,
+                _ => a,
+            });
+            segs.push(seg);
+        }
+    }
+    Some(segs)
+}
+
 /// How a patch plot looks: its colors as functions of `mapped color`, its shader and stroke.
 struct Look {
     draw: Linear,

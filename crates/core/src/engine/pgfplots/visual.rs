@@ -132,6 +132,24 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         super::contour::draw_filled(e, p, pts, f)?;
         return Ok(None);
     }
+    // one dimensional patches of one color are a single path (`supports global path`), which
+    // `\closedcycle` closes down to the zero level
+    if let Some(mut segs) = super::mesh::global_path(e, p, pts, f) {
+        let ends = (pts.iter().find(|l| l[0].is_finite()), pts.iter().rev().find(|l| l[0].is_finite()));
+        if let (true, (Some(first), Some(last))) = (p.post.iter().any(|t| t.is_cs("closedcycle")), ends) {
+            segs.push(Segment::LineTo(f.at([last[0], f.zero[1], f.min[2]])));
+            segs.push(Segment::LineTo(f.at([first[0], f.zero[1], f.min[2]])));
+            segs.push(Segment::Close);
+        }
+        e.use_path(segs, "addplot")?;
+        let (node_text, nodes) = near_nodes(e, p, pts, &[], f, "", 0.0)?;
+        if e.st.plot_mark.is_none() && nodes.is_empty() {
+            return Ok(None);
+        }
+        let cp = canvas_points(f, pts);
+        let points = cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect();
+        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes }));
+    }
     if p.mesh.is_some() {
         super::mesh::draw(e, p, pts, f, &style)?;
         // marks and nodes near coords on the mesh's points
