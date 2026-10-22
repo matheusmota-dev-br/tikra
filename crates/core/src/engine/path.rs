@@ -553,7 +553,14 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                     "cycle" => {
                         if let Some(p0) = b.subpath_start {
-                            if pending_op.take().is_some() {
+                            if let Some(op) = pending_op.take() {
+                                // `-| cycle`: by the corner, then closed
+                                if op == "-|" || op == "|-" {
+                                    let a = b.point();
+                                    let corner = if op == "-|" { Point::new(p0.x, a.y) } else { Point::new(a.x, p0.y) };
+                                    b.segs.push(Segment::LineTo(corner));
+                                    b.current = Some(Coord { p: corner, node: None });
+                                }
                                 let from = b.point();
                                 b.segs.push(Segment::Close);
                                 b.last = Some(OnPath::Segment(from, None, p0));
@@ -821,9 +828,12 @@ fn curve_to(e: &mut Engine, b: &mut Builder, c1: Point, c2: Point, r: Coord) {
         b.segs.push(Segment::MoveTo(a));
     }
     if let Some(n) = b.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| e.nodes.get(n)) {
+        // from the node's border toward the first control: a new piece if the path came to the
+        // node (`(a) to (b) .. controls … .. (b)`)
         let pa = n.border_toward(c1);
-        if let Some(Segment::MoveTo(m)) = b.segs.last_mut() {
-            *m = pa;
+        match b.segs.last_mut() {
+            Some(Segment::MoveTo(m)) => *m = pa,
+            _ => b.segs.push(Segment::MoveTo(pa)),
         }
     }
     let mut pb = r.p;
@@ -1176,9 +1186,11 @@ fn coordinate_point(e: &mut Engine) -> Result<Point, Error> {
 /// `circle (r)`, `circle (rx and ry)`, `circle[radius=…]`, `ellipse[x radius=…, y radius=…]`.
 fn circle(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
     e.begin_group();
-    let res = (|| -> Result<(f64, f64), Error> {
+    let res = (|| -> Result<(f64, f64, Option<Point>, crate::scene::Transform), Error> {
         // `circle[options]`, or the old `circle (radius)`: a point after the options is the next one
         let mut options = false;
+        e.st.node.at = None;
+        let before = e.st.pending;
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
@@ -1202,12 +1214,14 @@ fn circle(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), E
                 }
             }
         }
-        Ok((rx, ry))
+        Ok((rx, ry, e.st.node.at.take(), before.inverse().compose(&e.st.pending)))
     })();
     e.end_group();
-    let (rx, ry) = res?;
-    let t = e.st.transform;
-    let center = b.point();
+    let (rx, ry, at, turn) = res?;
+    // `at=(c)` centers it elsewhere; the options' transformations (`rotate=30`) turn it about its
+    // center
+    let t = e.st.transform.compose(&turn);
+    let center = at.unwrap_or_else(|| b.point());
     let mut v = arc_segments(center, rx, ry, 0.0, 360.0, &t);
     v.insert(0, Segment::MoveTo(center.plus(t.linear(Point::new(rx, 0.0)))));
     v.push(Segment::Close);
@@ -1552,6 +1566,10 @@ fn arc(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Erro
 
 /// Multiples of `step` between `start` and `end`. None if the step is unusable.
 fn ticks(start: f64, end: f64, step: f64) -> Option<Vec<f64>> {
+    // a step of zero: no lines that way (`ystep=0`)
+    if step == 0.0 {
+        return Some(Vec::new());
+    }
     if !(step > 0.0 && step.is_finite() && start.is_finite() && end.is_finite()) {
         return None;
     }
@@ -1577,6 +1595,9 @@ fn grid(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Err
     })();
     e.end_group();
     let step = res?;
+    if step == (0.0, 0.0) {
+        e.warn("grid: step 0 × 0 draws no lines");
+    }
     let r = target(e, b, depth, "grid")?;
     let t = e.st.transform;
     let inv = t.inverse();
@@ -1861,12 +1882,26 @@ pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, E
 
 /// `parabola (b)`, `parabola bend (c) (b)`, `parabola[bend at end] (b)`.
 fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
-    let mut bend_at_end = false;
+    // `bend pos=f`: a relative bend is from the point that far from the start to the end (the
+    // start by default); `parabola height=h`: the bend is h above the middle; `bend at end`
+    let (mut factor, mut height, mut bend_at_end) = (0.0, None, false);
     if let Some(t) = peek(e, depth)? {
         if t.is_char('[') {
             let _ = next(e, depth)?;
             let o = e.tex.read_until_char(']', false)?;
-            bend_at_end = tex::tokens_to_string(&o).contains("bend at end");
+            for item in crate::keys::split_list(&o) {
+                let value = item.value.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+                match item.key.as_str() {
+                    "bend at end" => bend_at_end = true,
+                    "bend at start" => factor = 0.0,
+                    "bend pos" => factor = e.number(&value)?,
+                    "parabola height" => {
+                        factor = 0.5;
+                        height = Some(e.length(&value)?);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
     let mut bend = None;
@@ -1874,7 +1909,8 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
         let _ = next(e, depth)?;
         let w = word(e, 'b');
         if w == "bend" {
-            bend = Some(target(e, b, depth, "parabola bend")?.p);
+            let relative = matches!(peek(e, depth)?, Some(t) if t.is_char('+'));
+            bend = Some((target(e, b, depth, "parabola bend")?.p, relative));
         }
     }
     let r = target(e, b, depth, "parabola")?;
@@ -1882,6 +1918,12 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
     if b.current.is_none() {
         b.segs.push(Segment::MoveTo(a));
     }
+    let saved = a.lerp(r.p, factor);
+    let bend = match bend {
+        Some((p, true)) => Some(p.minus(a).plus(saved)),
+        Some((p, false)) => Some(p),
+        None => height.map(|h| saved.plus(Point::new(0.0, h))),
+    };
     // \pgfpathparabola: to the bend with its vertex there, then on to the end with its vertex at the bend
     let (bend_vector, end_vector) = match bend {
         Some(v) => (v.minus(a), r.p.minus(v)),

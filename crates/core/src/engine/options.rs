@@ -1532,16 +1532,11 @@ keyfn!(k_loop, |e, _v| {
     e.process_keys(tikra_tokens("every loop/.try"), Some("/tikz"))
 });
 
-/// A grid step in the units of the xy system: a number counts in x and y units, a length in cm.
+/// A grid step (cm): a length as it is, a number in the x or y unit.
 fn grid_step(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<f64, Error> {
     let s = text(e, v)?;
     let (d, unit) = crate::expr::eval_length(&e.math_string(tikra_tokens(&s))?, &e.vars())?;
-    Ok(if unit {
-        let n = if axis == 0 { e.st.x.norm() } else { e.st.y.norm() };
-        d / n.max(1e-12)
-    } else {
-        d
-    })
+    Ok(if unit { d } else { d * if axis == 0 { e.st.x.norm() } else { e.st.y.norm() } })
 }
 
 keyfn!(k_step, |e, v| {
