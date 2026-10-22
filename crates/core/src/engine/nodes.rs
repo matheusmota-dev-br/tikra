@@ -34,6 +34,8 @@ pub struct NodeSetup {
     pub labels: Vec<(Vec<Token>, bool)>,
     /// `fit`: the width and height of the fitted area, which become the text box
     pub fit: Option<(f64, f64)>,
+    /// `rotate fit`: the fitted area is turned by this angle (and so is the node)
+    pub fit_rotate: f64,
     /// `circle through`: the point on the circle (canvas)
     pub through: Option<Point>,
 }

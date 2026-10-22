@@ -1673,6 +1673,9 @@ keyfn!(k_fit, |e, v| {
         lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
         hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
     };
+    // with `rotate fit`, the box is the points' in a coordinate system turned that much
+    let turn = Transform::rotation(e.st.node.fit_rotate);
+    let back = turn.inverse();
     let mut rest = s.as_str();
     while let Some(i) = rest.find('(') {
         let Some(j) = rest[i..].find(')') else { break };
@@ -1682,17 +1685,17 @@ keyfn!(k_fit, |e, v| {
             Some(n) => {
                 for a in ["west", "east", "north", "south"] {
                     if let Some(p) = n.anchor(a) {
-                        grow(p);
+                        grow(back.apply(p));
                     }
                 }
             }
-            None => grow(e.coordinate(&inner)?.p),
+            None => grow(back.apply(e.coordinate(&inner)?.p)),
         }
     }
     if lo.x > hi.x {
         return Ok(());
     }
-    let center = lo.lerp(hi, 0.5);
+    let center = turn.apply(lo.lerp(hi, 0.5));
     e.st_node().at = Some(center);
     e.st_node().fit = Some((hi.x - lo.x, hi.y - lo.y));
     set_value(e, "/tikz/anchor", "center");
@@ -1701,6 +1704,12 @@ keyfn!(k_fit, |e, v| {
     Ok(())
 });
 
+// `rotate fit=30`: the fitted box is turned, and the node with it
+keyfn!(k_rotate_fit, |e, v| {
+    let a = number(e, &v)?.unwrap_or(0.0);
+    e.st_node().fit_rotate = a;
+    e.process_keys(tikra_tokens(&format!("rotate={a}")), Some("/tikz"))
+});
 keyfn!(k_name_path, |e, v| {
     let s = text(e, &v)?;
     e.st.name_path = Some(s);
@@ -2218,6 +2227,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/execute at begin picture", k_at_begin_picture),
     ("/tikz/execute at end picture", k_at_end_picture),
     ("/tikz/fit", k_fit),
+    ("/tikz/rotate fit", k_rotate_fit),
     ("/tikz/name path", k_name_path),
     ("/tikz/name path global", k_name_path),
     ("/tikz/name intersections", k_name_intersections),
