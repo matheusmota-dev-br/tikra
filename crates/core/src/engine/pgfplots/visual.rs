@@ -694,6 +694,50 @@ pub(super) fn reverse(segs: &[Segment]) -> Vec<Segment> {
     out
 }
 
+/// The ends of a plot's error bars, `[x minus, x plus, y minus, y plus]` per point (NaN: none):
+/// pgfplots widens the axis limits to them.
+pub fn error_ends(e: &mut Engine, p: &Plot) -> Result<Vec<[f64; 4]>, Error> {
+    e.begin_group();
+    let r = (|| -> Result<Vec<[f64; 4]>, Error> {
+        e.process_keys(p.style.clone(), Some("/pgfplots"))?;
+        let mut out = vec![[f64::NAN; 4]; p.coords.len()];
+        for axis in 0..2 {
+            let c = ['x', 'y'][axis];
+            let dir = keys::value(e, &format!("/pgfplots/error bars/{c} dir"));
+            if dir == "none" || dir.is_empty() {
+                continue;
+            }
+            let mode = keys::value(e, &format!("/pgfplots/error bars/@{c} mode"));
+            let fixed = keys::number(e, &format!("/pgfplots/error bars/@{c} value")).unwrap_or(0.0);
+            for (i, co) in p.coords.iter().enumerate() {
+                let (em, ep) = error_amounts(co, axis, &mode, fixed);
+                let raw = [co.x, co.y][axis];
+                if dir != "plus" && em != 0.0 {
+                    out[i][axis * 2] = raw - em;
+                }
+                if dir != "minus" && ep != 0.0 {
+                    out[i][axis * 2 + 1] = raw + ep;
+                }
+            }
+        }
+        Ok(out)
+    })();
+    e.end_group();
+    r
+}
+
+/// The minus and plus error of a point on `axis`, by the error bars' mode.
+fn error_amounts(co: &super::plot::Coord, axis: usize, mode: &str, fixed: f64) -> (f64, f64) {
+    let raw = [co.x, co.y][axis];
+    let (em, ep) = match mode {
+        "explicit" => (co.err[axis * 2], co.err[axis * 2 + 1]),
+        "explicit relative" => (co.err[axis * 2] * raw.abs(), co.err[axis * 2 + 1] * raw.abs()),
+        "fixed relative" => (fixed * raw.abs(), fixed * raw.abs()),
+        _ => (fixed, fixed),
+    };
+    (if em.is_finite() { em.abs() } else { 0.0 }, if ep.is_finite() { ep.abs() } else { 0.0 })
+}
+
 /// Error bars: a line from minus to plus error, with `error mark` at its ends.
 fn error_bars(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Result<(), Error> {
     let ydir = keys::value(e, "/pgfplots/error bars/y dir");
@@ -714,14 +758,9 @@ fn error_bars(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Result<(
             if !(l[0].is_finite() && l[1].is_finite()) {
                 continue;
             }
-            let raw = p.coords.get(i).map_or(f64::NAN, |c| [c.x, c.y][axis]);
-            let (em, ep) = match mode.as_str() {
-                "explicit" => (p.coords[i].err[axis * 2], p.coords[i].err[axis * 2 + 1]),
-                "explicit relative" => (p.coords[i].err[axis * 2] * raw.abs(), p.coords[i].err[axis * 2 + 1] * raw.abs()),
-                "fixed relative" => (fixed * raw.abs(), fixed * raw.abs()),
-                _ => (fixed, fixed),
-            };
-            let (em, ep) = (if em.is_finite() { em.abs() } else { 0.0 }, if ep.is_finite() { ep.abs() } else { 0.0 });
+            let Some(co) = p.coords.get(i) else { continue };
+            let raw = [co.x, co.y][axis];
+            let (em, ep) = error_amounts(co, axis, &mode, fixed);
             if em == 0.0 && ep == 0.0 {
                 continue;
             }

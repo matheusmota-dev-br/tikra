@@ -654,6 +654,20 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             }
         }
+        // error bars: their ends are in view (`\pgfplots@PREPARE@errorbar@stream@it@`)
+        if !three_d && p.boxplot.is_none() {
+            for (k, ends) in super::visual::error_ends(e, p)?.into_iter().enumerate() {
+                let Some(c) = v.get(k).copied() else { break };
+                for (j, end) in ends.into_iter().enumerate() {
+                    let a = j / 2;
+                    let end = lg(a, end);
+                    if end.is_finite() && c[1 - a].is_finite() {
+                        dmin[a] = dmin[a].min(end);
+                        dmax[a] = dmax[a].max(end);
+                    }
+                }
+            }
+        }
         // a box plot: its outliers at its position, and its box and whiskers in view
         if p.boxplot.is_some() {
             let index = boxplots;
