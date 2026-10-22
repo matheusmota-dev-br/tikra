@@ -287,6 +287,28 @@ impl Engine {
                 };
                 Ok(Coord { p, node: None })
             }
+            other if matches!(self.tex.meaning_of(&format!("tikra@cs@{other}")), tex::Meaning::Macro(_)) => {
+                // \tikzdeclarecoordinatesystem{name}{code}: the code runs with the options as #1,
+                // and its last point (a pgf point) is the coordinate
+                let tex::Meaning::Macro(m) = self.tex.meaning_of(&format!("tikra@cs@{other}")) else { unreachable!() };
+                let body = tex::substitute(&m.body, &[super::tikra_tokens(args)]);
+                let at = body.iter().rposition(|t| matches!(t, tex::Token::Cs(n) if n.starts_with("pgfpoint") || n.starts_with("pgfqpoint")));
+                let at = at.ok_or_else(|| Error::Figure(format!("coordinate system '{other}' gives no point")))?;
+                // the point is the last one at the top level
+                let mut depth = 0i32;
+                let mut start = at;
+                for (k, t) in body.iter().enumerate() {
+                    match t {
+                        tex::Token::Char(_, tex::Cat::Begin) => depth += 1,
+                        tex::Token::Char(_, tex::Cat::End) => depth -= 1,
+                        tex::Token::Cs(n) if depth == 0 && (n.starts_with("pgfpoint") || n.starts_with("pgfqpoint")) => start = k,
+                        _ => {}
+                    }
+                }
+                self.run_tokens(body[..start].to_vec())?;
+                let p = self.point_of(body[start..].to_vec())?;
+                Ok(Coord { p: self.st.transform.apply(p), node: None })
+            }
             other => match self.pgfplots_cs(other, args) {
                 Some(r) => r,
                 None => match self.three_d_coordinate(other, &items)? {

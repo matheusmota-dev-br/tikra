@@ -117,6 +117,7 @@ enum B {
     GetPath,
     SetPath,
     IntersectionOfPaths,
+    SetKeys,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -240,6 +241,7 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfgetpath", B::GetPath),
     ("pgfsetpath", B::SetPath),
     ("pgfintersectionofpaths", B::IntersectionOfPaths),
+    ("setkeys", B::SetKeys),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -252,6 +254,8 @@ pub const DEFINITIONS: &str = r"
 \newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
 \def\pgfidrefnextuse#1#2{\def#1{}}\def\pgfidrefprevuse#1#2{\def#1{}}
 \def\pgfsetblendmode#1{\tikzset{blend mode={#1}}}
+\def\tikzdeclarecoordinatesystem#1#2{\expandafter\def\csname tikra@cs@#1\endcsname##1{#2}}
+\def\define@key#1#2{\expandafter\def\csname KV@#1@#2\endcsname##1}
 \def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
 \def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
 \def\pgfsysanimkeyrestartalways{}\def\pgfsysanimkeyrestartnever{}\def\pgfsysanimkeyrestartwhennotactive{}
@@ -1177,6 +1181,18 @@ impl Engine {
                 self.pgf_path.last = Some(t.apply(to));
             }
             B::DeclareFunctional => self.declare_functional_shading()?,
+            B::SetKeys => {
+                // keyval's \setkeys{family}{key=value,…}: the code \define@key gave each key
+                let family = self.argument_string()?;
+                let list = self.argument()?;
+                for item in crate::keys::split_list(&list) {
+                    let mut code = vec![Token::cs(&format!("KV@{family}@{}", item.key.trim()))];
+                    code.push(Token::Char('{', tex::Cat::Begin));
+                    code.extend(item.value.unwrap_or_default());
+                    code.push(Token::Char('}', tex::Cat::End));
+                    self.run_tokens(code)?;
+                }
+            }
             B::GetPath | B::SetPath => {
                 // \pgfgetpath\macro keeps the path being built under the macro's name;
                 // \pgfsetpath\macro makes it the path being built again
