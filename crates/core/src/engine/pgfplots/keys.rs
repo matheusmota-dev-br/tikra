@@ -391,6 +391,8 @@ const DEFINITIONS: &str = r"
 	/pgfplots/3d box foreground style/.style={/pgfplots/every 3d box foreground/.append style={#1}},
 	/pgfplots/cycle list name/.initial=color,
 	/pgfplots/cycle multi list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multi@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multi@}},
+	/pgfplots/cycle multiindex list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multiindex@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multiindex@}},
+	/pgfplots/cycle multiindex* list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multiindex*@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multiindex*@}},
 	/pgfplots/cycle list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@internal@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@internal@}},
 	/pgfplots/cycle list shift/.initial=,
 	/pgfplots/mark list fill/.initial=.!80!black,

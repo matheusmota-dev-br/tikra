@@ -202,11 +202,22 @@ pub fn cycle_entry(e: &mut Engine, k: usize) -> Result<Vec<Token>, Error> {
         let mut out = Vec::new();
         let mut rest = k;
         let mut chosen = Vec::new();
-        for l in lists.iter().rev() {
-            chosen.push(l[rest % l.len()].clone());
-            rest /= l.len();
+        if name.starts_with("@multiindex") {
+            // `cycle multiindex list`: the same index into every list, the shorter ones padded
+            // with nothing (restarted with `cycle multiindex* list`)
+            let longest = lists.iter().map(Vec::len).max().unwrap_or(1);
+            for l in &lists {
+                let i = if name == "@multiindex*@" { k % l.len() } else { k % longest };
+                chosen.push(l.get(i).cloned().unwrap_or_default());
+            }
+            chosen.reverse();
+        } else {
+            for l in lists.iter().rev() {
+                chosen.push(l[rest % l.len()].clone());
+                rest /= l.len();
+            }
         }
-        for entry in chosen.into_iter().rev() {
+        for entry in chosen.into_iter().rev().filter(|c| !c.is_empty()) {
             if !out.is_empty() {
                 out.push(Token::other(','));
             }
