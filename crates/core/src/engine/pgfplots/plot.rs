@@ -148,7 +148,6 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
     // `plot[behavior options]`
     let mut behavior = Vec::new();
     if let Some(Token::Char('p', Cat::Letter)) = peek(e) {
-        let _ = e.tex.next_nonspace();
         let w = word(e);
         if w == "plot" {
             if let Some(o) = e.optional()? {
@@ -689,36 +688,45 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
             let y = parts.get(1).map_or(f64::NAN, |p| axis_value(e, 'y', p));
             let z = parts.get(2).map_or(0.0, |p| value(e, p));
             let mut c = Coord::new(x, y, z);
-            // error bars, then [meta]
+            // error bars (`+- (…)`, or `+= (…) -= (…)`), then [meta]
             let mut j = i;
-            while j < list.len() && list[j].is_space() {
-                j += 1;
-            }
-            if j + 1 < list.len() && (list[j].is_char('+') || list[j].is_char('-')) && (list[j + 1].is_char('-') || list[j + 1].is_char('=')) {
-                let kind = (list[j].is_char('+'), list[j + 1].is_char('-'));
-                let mut k = j + 2;
-                while k < list.len() && list[k].is_space() {
-                    k += 1;
+            loop {
+                while j < list.len() && list[j].is_space() {
+                    j += 1;
                 }
-                if k < list.len() && list[k].is_char('(') {
-                    let mut kk = k;
-                    if let Some(inside) = read_paren(&mut kk) {
-                        let p = split_commas(&inside);
-                        let ex = p.first().map_or(f64::NAN, |v| value(e, v));
-                        let ey = p.get(1).map_or(f64::NAN, |v| value(e, v));
-                        match kind {
-                            (true, true) => c.err = [ex, ex, ey, ey],
-                            (true, false) => {
-                                c.err[1] = ex;
-                                c.err[3] = ey;
-                            }
-                            _ => {
-                                c.err[0] = ex;
-                                c.err[2] = ey;
-                            }
-                        }
-                        j = kk;
+                if !(j + 1 < list.len() && (list[j].is_char('+') || list[j].is_char('-')) && (list[j + 1].is_char('-') || list[j + 1].is_char('='))) {
+                    break;
+                }
+                let before = j;
+                {
+                    let kind = (list[j].is_char('+'), list[j + 1].is_char('-'));
+                    let mut k = j + 2;
+                    while k < list.len() && list[k].is_space() {
+                        k += 1;
                     }
+                    if k < list.len() && list[k].is_char('(') {
+                        let mut kk = k;
+                        if let Some(inside) = read_paren(&mut kk) {
+                            let p = split_commas(&inside);
+                            let ex = p.first().map_or(f64::NAN, |v| value(e, v));
+                            let ey = p.get(1).map_or(f64::NAN, |v| value(e, v));
+                            match kind {
+                                (true, true) => c.err = [ex, ex, ey, ey],
+                                (true, false) => {
+                                    c.err[1] = ex;
+                                    c.err[3] = ey;
+                                }
+                                _ => {
+                                    c.err[0] = ex;
+                                    c.err[2] = ey;
+                                }
+                            }
+                            j = kk;
+                        }
+                    }
+                }
+                if j == before {
+                    break;
                 }
             }
             while j < list.len() && list[j].is_space() {
@@ -986,6 +994,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sex = pick(e, "x error", None);
     let seyp = pick(e, "y error plus", None);
     let seym = pick(e, "y error minus", None);
+    let sexp = pick(e, "x error plus", None);
+    let sexm = pick(e, "x error minus", None);
     let mut out = Vec::with_capacity(t.rows.len());
     let mut rows = Vec::with_capacity(t.rows.len());
     for r in 0..t.rows.len() {
@@ -1044,6 +1054,13 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         }
         if m.is_finite() {
             c.err[2] = m;
+        }
+        let (p, m) = (get(e, &sexp), get(e, &sexm));
+        if p.is_finite() {
+            c.err[1] = p;
+        }
+        if m.is_finite() {
+            c.err[0] = m;
         }
         let other = tie.as_ref().map(|ends| {
             let mut b = c;
