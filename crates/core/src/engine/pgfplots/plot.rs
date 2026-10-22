@@ -1027,6 +1027,29 @@ fn replace_thisrow(tokens: &[Token], t: &Table, row: usize) -> Vec<Token> {
 
 /// `restrict x to domain`, `restrict y to domain`, `unbounded coords`.
 fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    // `x filter/.code={…}`: the code changes `\pgfmathresult`, the coordinate (empty: none)
+    for a in 0..3 {
+        let key = format!("/pgfplots/{} filter", ["x", "y", "z"][a]);
+        match e.tex.meaning_of(&crate::keys::macro_name(&format!("{key}/.@cmd"))) {
+            tex::Meaning::Macro(m) if !m.body.is_empty() => {}
+            _ => continue,
+        }
+        for c in plot.coords.iter_mut() {
+            let v = match a {
+                0 => &mut c.x,
+                1 => &mut c.y,
+                _ => &mut c.z,
+            };
+            if !v.is_finite() {
+                continue;
+            }
+            e.begin_group();
+            e.tex.define_string("pgfmathresult", &super::super::pgf_number(*v), false);
+            let r = e.run_key(&key, None).and_then(|_| e.tex.expand_to_string(vec![Token::cs("pgfmathresult")]));
+            e.end_group();
+            *v = table::parse_number(&r?).unwrap_or(f64::NAN);
+        }
+    }
     for (axis, key) in [('x', "/pgfplots/restrict x to domain"), ('y', "/pgfplots/restrict y to domain")] {
         let d = keys::value(e, key);
         if let Some((a, b)) = d.split_once(':') {
