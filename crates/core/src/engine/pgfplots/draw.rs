@@ -819,12 +819,24 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
     }
     // enlargelimits (none on a polar axis)
+    // `abs=1cm`: an amount on paper, applied once the axis is scaled
+    let mut abs_dim: [Option<(f64, bool, bool)>; 3] = [None; 3];
     for a in 0..if polar || ternary || smith { 0 } else { dims } {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
         let auto = if three_d { a == 2 } else { a < 2 };
         let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
+        let dim = v.trim_matches(|c| c == '{' || c == '}').split(',').find_map(|p| {
+            let (k, val) = p.split_once('=')?;
+            (matches!(k.trim(), "abs" | "abs value") && has_unit(val)).then(|| val.trim().to_string())
+        });
+        if let Some(d) = dim {
+            if let Ok(len) = e.length(&d) {
+                abs_dim[a] = Some((len, lo, hi));
+            }
+            continue;
+        }
         // TeX multiplies the range (a dimension) by the factor read as a dimension: 0.1 is 6554 sp
         let rel = (rel * 65536.0).round() / 65536.0;
         // an absolute amount is a coordinate: logarithmic on a log axis
@@ -1001,6 +1013,26 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 } else {
                     ev[1] = Point::new(0.0, s * target);
                 }
+            }
+        }
+    }
+    // `enlarge x limits={abs=1cm}`: the axis keeps its length, the data leave that room
+    if !three_d {
+        for a in 0..2 {
+            let Some((d, lo, hi)) = abs_dim[a] else { continue };
+            let range = (max[a] - min[a]).abs();
+            let unit = ev[a].norm();
+            let length = unit * range;
+            let room = d * (f64::from(u8::from(lo)) + f64::from(u8::from(hi)));
+            if range > 0.0 && length > room {
+                let u2 = (length - room) / range;
+                if lo {
+                    min[a] -= d / u2;
+                }
+                if hi {
+                    max[a] += d / u2;
+                }
+                ev[a] = ev[a].scale(u2 / unit);
             }
         }
     }
@@ -1354,6 +1386,12 @@ pub(super) fn view_angles(e: &mut Engine) -> (f64, f64) {
     } else {
         (az, el)
     }
+}
+
+/// Whether a coordinate's part has a unit (`1cm`, `-2pt`).
+fn has_unit(part: &str) -> bool {
+    let t = part.trim().trim_end_matches('}');
+    ["cm", "mm", "pt", "in", "em", "ex", "bp", "pc"].iter().any(|u| t.ends_with(u))
 }
 
 fn text_is_empty(s: &str) -> bool {
@@ -2397,6 +2435,8 @@ impl Engine {
             // plain coordinates are pgfplots' internal ones: the data scaled by a power of ten
             // and shifted so that the smallest data value is 0 (`\pgfplots@set@optimal@datatrafo@for@`),
             // logarithms on a log axis
+            // a coordinate with units (`(1cm,0pt)`) stays TikZ's
+            Cs::Plain if parts.iter().any(|p| has_unit(p)) => None,
             Cs::Plain if !f.polar && !f.smith => {
                 let r = (|| -> Result<Point, Error> {
                     let mut l = f.min;
