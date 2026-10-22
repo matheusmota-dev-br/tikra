@@ -414,7 +414,8 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
     let early = {
         let (lo, hi) = setup.frame.bbox();
         let a = anchor.trim();
-        let box_only = !a.starts_with("outer") && !["above", "below", "left of", "right of"].iter().any(|w| a.starts_with(w));
+        let box_only =
+            !a.starts_with("outer") && !["above", "below", "left of", "right of"].iter().any(|w| a.starts_with(w)) && named_anchor(&anchor, lo, hi, lo, hi, &setup.frame).is_some();
         if box_only && super::colorbar::parent().is_none() {
             let anchor_point = named_anchor(&anchor, lo, hi, lo, hi, &setup.frame).unwrap_or(lo);
             let (at, shifts) = axis_at(e)?;
@@ -442,7 +443,12 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
     // where the axis goes: `at` (in the picture), by `anchor`
     let (lo, hi) = frame.bbox();
     let (blo, bhi) = bbox.unwrap_or((lo, hi));
-    let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).unwrap_or(lo);
+    // `anchor=mynode.center`: a node drawn in the axis (`title style={name=…}`)
+    let node_anchor = || {
+        let (n, a) = anchor.trim().rsplit_once('.')?;
+        e.nodes.get(n.trim()).filter(|_| !nodes_before.contains(n.trim())).and_then(|info| info.anchor(a.trim()))
+    };
+    let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).or_else(node_anchor).unwrap_or(lo);
     e.frame = None;
     let d = match early {
         Some(_) => Point::default(),
