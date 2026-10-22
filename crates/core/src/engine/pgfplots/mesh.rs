@@ -201,8 +201,32 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             (false, false)
         }
     };
+    // the plot's colormap (`colormap/blackwhite` among its options), and that of the patches
+    // seen from behind (`mesh/interior colormap`)
+    let parse_map = |e: &mut Engine, name: &str| super::colormap::Colormap::parse(&keys::value(e, &format!("/pgfplots/@colormaps/{name}")), &e.colors);
+    let name = keys::value(e, "/pgfplots/colormap name");
+    let outer = parse_map(e, &name).or_else(|| f.colormap.clone());
+    let inner_name = keys::value(e, "/pgfplots/mesh/interior colormap name");
+    let inner = if inner_name.is_empty() || !f.three_d { None } else { parse_map(e, &inner_name) };
+    let thresh = keys::number(e, "/pgfplots/mesh/interior colormap thresh").unwrap_or(0.0);
+    let is_inside = interior_fn(e, f, thresh);
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
+        // the normal at the corner the z buffer made first (`compute normal`), its sign kept
+        let inside = || {
+            let c: Vec<[f64; 3]> = q.iter().map(|&k| pts[k]).collect();
+            match (c.len(), reversed) {
+                (4, (false, true)) => is_inside(c[3], c[2], c[0], -1.0),
+                (4, (true, false)) => is_inside(c[1], c[0], c[2], -1.0),
+                (4, (true, true)) => is_inside(c[2], c[3], c[1], 1.0),
+                _ => is_inside(c[0], c[1], c[c.len() - 1], 1.0),
+            }
+        };
+        let cmap = match &inner {
+            Some(c) if q.len() > 2 && inside() => Some(c),
+            _ => outer.as_ref(),
+        };
+        let map = |_: &Frame, m: f64| cmap.map_or(Color::BLACK, |c| c.at((m - f.meta[0]) / (f.meta[1] - f.meta[0])));
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
         // a patch whose color comes from a point meta of nan is not drawn (with `flat corner`, the
         // first corner's)
@@ -230,7 +254,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         // a parallelogram whose color changes along one side only is an axial shading (as the
         // colorbar's): exact, without pieces
         if closes && shader == "interp" && vertex.is_none() && corners.len() == 4 && metas.len() == 4 {
-            if let Some(cm) = &f.colormap {
+            if let Some(cm) = cmap {
                 let same = |a: f64, b: f64| (a - b).abs() <= 1e-12 * (a.abs() + b.abs() + 1.0);
                 let pick = if same(metas[0], metas[1]) && same(metas[3], metas[2]) {
                     Some((corners[0], corners[1], corners[3], corners[2], metas[0], metas[3]))
@@ -427,6 +451,14 @@ struct Look {
 /// scalar product with the direction the axis' unit vectors flatten
 /// (`\pgfplotsgetnormalforcurrentview`), in the coordinates of the data scale transformation.
 fn depth_fn(e: &mut Engine, f: &Frame) -> impl Fn(&[[f64; 3]]) -> f64 {
+    let (n, s) = toward_viewer(e, f);
+    let c = [0, 1, 2].map(|i| n[i] * s[i]);
+    move |pts: &[[f64; 3]]| pts.iter().map(|l| (0..3).map(|i| if c[i] == 0.0 { 0.0 } else { c[i] * l[i] }).sum::<f64>()).sum::<f64>() / pts.len().max(1) as f64
+}
+
+/// The direction toward the viewer in the coordinates of the data scale transformation, and the
+/// transformation's factors.
+fn toward_viewer(e: &mut Engine, f: &Frame) -> ([f64; 3], [f64; 3]) {
     let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
     let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
     let d = [az.sin() * el.cos(), -az.cos() * el.cos(), el.sin()];
@@ -442,8 +474,26 @@ fn depth_fn(e: &mut Engine, f: &Frame) -> impl Fn(&[[f64; 3]]) -> f64 {
     if toward * along < 0.0 {
         n = n.map(|v| -v);
     }
-    let c = [0, 1, 2].map(|i| n[i] * s[i]);
-    move |pts: &[[f64; 3]]| pts.iter().map(|l| (0..3).map(|i| if c[i] == 0.0 { 0.0 } else { c[i] * l[i] }).sum::<f64>()).sum::<f64>() / pts.len().max(1) as f64
+    (n, s)
+}
+
+/// `mesh/interior colormap`: whether a patch with corners `a`, `b` (next in x) and `d` (next in
+/// y) shows its inside, its normal (times `sign`) at least `thresh` (a cosine) away from the
+/// viewer.
+fn interior_fn(e: &mut Engine, f: &Frame, thresh: f64) -> impl Fn([f64; 3], [f64; 3], [f64; 3], f64) -> bool {
+    let (n, s) = toward_viewer(e, f);
+    move |a: [f64; 3], b: [f64; 3], d: [f64; 3], sign: f64| {
+        let u = [0, 1, 2].map(|i| (b[i] - a[i]) * s[i]);
+        let v = [0, 1, 2].map(|i| (d[i] - a[i]) * s[i]);
+        let normal = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        let dot: f64 = (0..3).map(|i| -n[i] * normal[i] * sign).sum();
+        let len = (n.iter().map(|x| x * x).sum::<f64>() * normal.iter().map(|x| x * x).sum::<f64>()).sqrt();
+        if thresh == 0.0 {
+            dot < 0.0
+        } else {
+            dot / len.max(1e-300) < thresh
+        }
+    }
 }
 
 /// `\addplot [patch, patch type=…]` from a list of patches (`mesh input=patches`): each patch
