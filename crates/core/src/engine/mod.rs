@@ -899,7 +899,7 @@ impl Engine {
     }
 
     pub fn vars(&self) -> crate::expr::Variables {
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0) }
+        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), in_pt: false }
     }
 
     /// A pgfmath number from text.
@@ -1188,8 +1188,10 @@ impl Engine {
                 let expr = self.argument()?;
                 let Some(name) = name.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
                 let text = self.math_string(expr)?;
-                // a result with units is in pt, as pgfmath gives it
-                let v = crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v });
+                // lengths in pt, as pgfmath counts them
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                let v = crate::expr::eval_length(&text, &vars).map(|(v, _)| v);
                 match v {
                     Ok(v) if v.is_finite() => {
                         let s = match cmd {
@@ -1208,7 +1210,9 @@ impl Engine {
             Cmd::Pgfmathparse => {
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                match crate::expr::eval_length(&text, &vars).map(|(v, _)| v) {
                     Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }

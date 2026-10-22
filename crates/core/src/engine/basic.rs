@@ -273,6 +273,36 @@ pub const DEFINITIONS: &str = r"
 \def\tikzdeclarecoordinatesystem#1#2{\expandafter\def\csname tikra@cs@#1\endcsname##1{#2}}
 \def\define@key#1#2{\expandafter\def\csname KV@#1@#2\endcsname##1}
 \def\pgfmathsetbasenumberlength#1{\def\pgfmathbasenumberlength{#1}}\def\pgfmathbasenumberlength{1}
+% pgfmath's commands of one function: \pgfmathresult is its value
+\def\pgfmathsin#1{\pgfmathparse{sin(#1)}}
+\def\pgfmathcos#1{\pgfmathparse{cos(#1)}}
+\def\pgfmathtan#1{\pgfmathparse{tan(#1)}}
+\def\pgfmathsqrt#1{\pgfmathparse{sqrt(#1)}}
+\def\pgfmathabs#1{\pgfmathparse{abs(#1)}}
+\def\pgfmathneg#1{\pgfmathparse{neg(#1)}}
+\def\pgfmathround#1{\pgfmathparse{round(#1)}}
+\def\pgfmathfloor#1{\pgfmathparse{floor(#1)}}
+\def\pgfmathceil#1{\pgfmathparse{ceil(#1)}}
+\def\pgfmathexp#1{\pgfmathparse{exp(#1)}}
+\def\pgfmathln#1{\pgfmathparse{ln(#1)}}
+\def\pgfmathdeg#1{\pgfmathparse{deg(#1)}}
+\def\pgfmathrad#1{\pgfmathparse{rad(#1)}}
+\def\pgfmathint#1{\pgfmathparse{int(#1)}}
+\def\pgfmathfrac#1{\pgfmathparse{frac(#1)}}
+\def\pgfmathasin#1{\pgfmathparse{asin(#1)}}
+\def\pgfmathacos#1{\pgfmathparse{acos(#1)}}
+\def\pgfmathatan#1{\pgfmathparse{atan(#1)}}
+\def\pgfmathadd#1#2{\pgfmathparse{(#1)+(#2)}}
+\def\pgfmathsubtract#1#2{\pgfmathparse{(#1)-(#2)}}
+\def\pgfmathmultiply#1#2{\pgfmathparse{(#1)*(#2)}}
+\def\pgfmathdivide#1#2{\pgfmathparse{(#1)/(#2)}}
+\def\pgfmathmax#1#2{\pgfmathparse{max(#1,#2)}}
+\def\pgfmathmin#1#2{\pgfmathparse{min(#1,#2)}}
+\def\pgfmathmod#1#2{\pgfmathparse{mod(#1,#2)}}
+\def\pgfmathveclen#1#2{\pgfmathparse{veclen(#1,#2)}}
+\def\pgfmathpow#1#2{\pgfmathparse{pow(#1,#2)}}
+\def\pgfmathatan2#1#2{\pgfmathparse{atan2(#1,#2)}}
+\def\pgfmathreciprocal#1{\pgfmathparse{1/(#1)}}
 \def\breakforeach{\gdef\tikra@foreach@break{1}}
 \def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
 \def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}

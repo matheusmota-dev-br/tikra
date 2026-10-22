@@ -13,6 +13,8 @@ pub struct Variables {
     pub functions: HashMap<String, (Vec<String>, String)>,
     /// The font size over 10pt, for `em` and `ex` (none: 10pt).
     pub font_scale: Option<f64>,
+    /// lengths count in pt (as pgfmath counts them: `100/2cm` is 100/56.9), not in cm
+    pub in_pt: bool,
 }
 
 impl Variables {
@@ -45,7 +47,8 @@ pub fn unit_cm(u: &str) -> Option<f64> {
 /// Centimeters per unit, `em` and `ex` in the font of `vars`.
 fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
     let f = unit_cm(u)?;
-    Some(if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f })
+    let f = if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f };
+    Some(if vars.in_pt { f / (2.54 / 72.27) } else { f })
 }
 
 /// Nesting cap (parentheses, signs, calls): `f(x) = f(x)` does not overflow the stack.

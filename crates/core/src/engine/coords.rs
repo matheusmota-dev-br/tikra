@@ -247,6 +247,13 @@ impl Engine {
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
             }
             "visualization" => Ok(Coord { p: self.visualization_cs(args)?, node: None }),
+            "intersection" => {
+                // `first line={(A)--(B)}, second line={(C)--(D)}`
+                let (Some(a), Some(b)) = (get("first line"), get("second line")) else {
+                    return Err(Error::Figure("intersection cs: only lines are supported".into()));
+                };
+                Ok(Coord { p: self.line_intersection(&format!("{a} and {b}"))?, node: None })
+            }
             "barycentric" => {
                 // the nodes' centers, weighted
                 let (mut sum, mut weight) = (Point::default(), 0.0);
