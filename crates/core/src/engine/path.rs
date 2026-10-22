@@ -405,10 +405,20 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         return skip_rest(e, depth);
                     }
                 }
-                let w = match next(e, depth)? {
+                let mut w = match next(e, depth)? {
                     Some(Token::Char(c, Cat::Letter)) => word(e, c),
                     _ => String::new(),
                 };
+                // `.. coordinate (bc) controls …`: nodes on the curve, before its controls
+                while w == "node" || w == "coordinate" {
+                    let coordinate = w == "coordinate";
+                    let (options, name, _, text) = read_node(e, depth, coordinate)?;
+                    b.mid_nodes.push(MidNode { options, name, text, coordinate });
+                    w = match next(e, depth)? {
+                        Some(Token::Char(c, Cat::Letter)) => word(e, c),
+                        _ => String::new(),
+                    };
+                }
                 if w != "controls" {
                     e.warn("'..' without 'controls'");
                     return skip_rest(e, depth);
@@ -1130,7 +1140,8 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                 }
                 options.extend(e.tex.read_until_char(']', false)?);
             }
-            Some(t) if t.is_char('(') => {
+            // a second `(…)` is the path's next point (`coordinate (a) (1,0)`)
+            Some(t) if t.is_char('(') && name.is_none() => {
                 let n = read_coordinate_tokens(e)?;
                 name = Some(e.tex.expand_to_string(n)?.trim().to_string());
             }
