@@ -374,6 +374,9 @@ pub struct Engine {
     pub functional_shadings: HashMap<String, functional::Functional>,
     /// marks declared by `\pgfdeclareplotmark`: their code
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
+    /// plot handlers declared by `\pgfdeclareplothandler`: the code for each point (`##1` the
+    /// point, `#1`… the handler's arguments)
+    pub plot_handlers: HashMap<String, String>,
     /// paths kept by `save path`
     pub saved_paths: HashMap<String, Vec<crate::scene::Segment>>,
     /// the points `\pgfintersectionofpaths` found (canvas)
@@ -485,6 +488,7 @@ impl Clone for Engine {
             basic_shadings: self.basic_shadings.clone(),
             functional_shadings: self.functional_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
+            plot_handlers: self.plot_handlers.clone(),
             saved_paths: self.saved_paths.clone(),
             pgf_solutions: self.pgf_solutions.clone(),
             anim_shifts: Vec::new(),
@@ -559,6 +563,7 @@ impl Engine {
             basic_shadings: HashMap::new(),
             functional_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
+            plot_handlers: HashMap::new(),
             saved_paths: HashMap::new(),
             pgf_solutions: Vec::new(),
             anim_shifts: Vec::new(),

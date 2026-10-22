@@ -126,6 +126,8 @@ enum B {
     BaselineLater,
     BaselineNow,
     Svg,
+    DeclarePlotHandler,
+    UsePlotHandler,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -258,6 +260,8 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfsetbaselinepointlater", B::BaselineLater),
     ("pgfsetbaselinepointnow", B::BaselineNow),
     ("pgfpathsvg", B::Svg),
+    ("pgfdeclareplothandler", B::DeclarePlotHandler),
+    ("tikra@plothandler", B::UsePlotHandler),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -1230,6 +1234,30 @@ impl Engine {
             }
             B::DeclareFunctional => self.declare_functional_shading()?,
             // the picture's baseline: a height, a point's (evaluated now or when the picture ends)
+            B::DeclarePlotHandler => {
+                // \pgfdeclareplothandler{\macro}{#1…}{point=code}: \macro{args} makes it the
+                // plot handler, the code run at each point
+                let name = self.argument()?;
+                let params = self.argument()?;
+                let options = self.argument()?;
+                let Some(Token::Cs(name)) = name.into_iter().find(|t| matches!(t, Token::Cs(_))) else { return Ok(()) };
+                let n = params.iter().filter(|t| matches!(t, Token::Char(_, tex::Cat::Param))).count();
+                let mut point = String::new();
+                for item in crate::keys::split_list(&options) {
+                    if item.key.trim() == "point" {
+                        point = tex::tokens_to_string(&item.value.unwrap_or_default());
+                    }
+                }
+                self.plot_handlers.insert(name.to_string(), point);
+                let args: String = (1..=n).map(|k| format!("{{#{k}}}")).collect();
+                let params: String = (1..=n).map(|k| format!("#{k}")).collect();
+                self.run_tokens(tikra_tokens(&format!("\\def\\{name}{params}{{\\tikra@plothandler{{{name}}}{{{args}}}}}")))?;
+            }
+            B::UsePlotHandler => {
+                let name = self.argument_string()?;
+                let args = self.argument()?;
+                self.st.basic_plot = (format!("custom:{name}"), args);
+            }
             B::Svg => {
                 let data = self.argument_string()?;
                 for s in super::path::svg_path(self, &data, self.pgf_path.last) {
@@ -1478,6 +1506,20 @@ impl Engine {
                 v.extend(tikra_tokens("\\pgfplotstreamend"));
                 if let Some(m) = code.iter().find(|t| matches!(t, Token::Cs(_))) {
                     self.tex.set_meaning(m, super::macro_tokens(v), true);
+                }
+            }
+            h if h.starts_with("custom:") => {
+                // a declared handler: its code at each point, `##1` the point, `#k` its arguments
+                let code = self.plot_handlers.get(&h["custom:".len()..]).cloned().unwrap_or_default();
+                let inv = self.st.transform.inverse();
+                let params = super::options::split_arguments(&self.st.basic_plot.1, 9);
+                for p in points {
+                    let q = inv.apply(p);
+                    let mut text = code.replace("##1", &format!("\\pgfqpoint{{{}pt}}{{{}pt}}", q.x / PT, q.y / PT));
+                    for (k, a) in params.iter().enumerate() {
+                        text = text.replace(&format!("#{}", k + 1), &tex::tokens_to_string(a));
+                    }
+                    self.run_tokens(tikra_tokens(&text))?;
                 }
             }
             h if h == "mark" || h.starts_with("mark listed:") => {
