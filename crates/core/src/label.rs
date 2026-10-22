@@ -113,6 +113,7 @@ fn clean(text: &str) -> String {
 /// width, spaces too.
 fn typewriter(t: &str) -> String {
     const WIDTH: f32 = 0.525;
+    const SHORT: f32 = 7.0 / 9.0;
     let font = FONT.get();
     let mut out = String::from("$");
     let mut run = String::new();
@@ -129,11 +130,16 @@ fn typewriter(t: &str) -> String {
             continue;
         }
         flush(&mut run, &mut out);
+        // cmtt's parentheses and brackets are shorter than the roman ones, from 1/12 em below the
+        // baseline to 25/36 above: the roman glyph shrunk to that height, the box of cmtt's
+        let short = matches!(c, '(' | ')' | '[' | ']');
         let advance = if c == ' ' { 0.0 } else { font.glyph(c).map_or(WIDTH, |g| font.advance(g) / font.units_per_em()) };
+        let advance = if short { advance * SHORT } else { advance };
         let side = ((WIDTH - advance) / 2.0).max(0.0);
         let glyph = match c {
             ' ' => String::new(),
             '_' | '#' | '%' | '&' | '$' => format!("\\text{{\\{c}}}"),
+            c if short => format!("\\smash{{\\scalebox{{{SHORT:.4}}}{{{c}}}}}\\rule[-0.0833em]{{0em}}{{0.7778em}}"),
             c => format!("\\text{{{c}}}"),
         };
         out.push_str(&format!("\\hspace{{{side}em}}{glyph}\\hspace{{{side}em}}"));
@@ -207,7 +213,7 @@ fn dimension(s: &str, size: f64) -> Option<(f64, &str)> {
     let end = s.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).unwrap_or(s.len());
     let v: f64 = s[..end].parse().ok()?;
     let rest = s[end..].trim_start();
-    for (unit, pt) in [("pt", 1.0), ("cm", 72.27 / 2.54), ("mm", 72.27 / 25.4), ("in", 72.27), ("bp", 72.27 / 72.0), ("em", 10.0 * size), ("ex", 4.3 * size)] {
+    for (unit, pt) in [("pt", 1.0), ("cm", 72.27 / 2.54), ("mm", 72.27 / 25.4), ("in", 72.27), ("bp", 72.27 / 72.0), ("em", 10.0 * size * quad(10.0 * size)), ("ex", 4.3 * size)] {
         if let Some(r) = rest.strip_prefix(unit) {
             return Some((v * pt, r));
         }
@@ -216,8 +222,9 @@ fn dimension(s: &str, size: f64) -> Option<(f64, &str)> {
 }
 
 /// `\vrule width 1pt height 2cm depth 0pt` as mathra's `$\rule[raise]{width}{height}$`, in ems of
-/// the label's font (so that the label's scaling gives the rule its size in points).
-fn rules(text: &str, size: f64) -> String {
+/// the label's font (so that the label's scaling gives the rule its size in points). A height or
+/// depth not given runs to the line's, `running` (points); without it the rules are left out.
+fn rules(text: &str, size: f64, running: Option<(f64, f64)>) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(i) = rest.find("\\vrule") {
@@ -241,11 +248,11 @@ fn rules(text: &str, size: f64) -> String {
             }
             r = more;
         }
-        let em = 10.0 * size;
-        // TeX's running dimensions stand in as a strut
-        let (h, d) = (h.unwrap_or(0.7 * em), d.unwrap_or(0.3 * em));
-        out.push_str(&format!("$\\rule[{:.4}em]{{{:.4}em}}{{{:.4}em}}$", -d / em, w / em, (h + d) / em));
         rest = r;
+        let Some((line_h, line_d)) = running else { continue };
+        let em = 10.0 * size;
+        let (h, d) = (h.unwrap_or(line_h), d.unwrap_or(line_d));
+        out.push_str(&format!("$\\rule[{:.4}em]{{{:.4}em}}{{{:.4}em}}$", -d / em, w / em, (h + d) / em));
     }
     out.push_str(rest);
     out
@@ -344,6 +351,11 @@ fn design_width(pt: f64, family: char) -> f64 {
     table.iter().rev().find(|(from, _)| pt + 0.01 >= *from).map_or(1.0, |(_, w)| *w)
 }
 
+/// The quad (`1em`) of TeX's roman font of `pt` points, over `pt`.
+pub fn quad(pt: f64) -> f64 {
+    design_width(pt, 'r')
+}
+
 /// The family most of the text is set in: typewriter (`t`) when all of it is `\texttt`, math (`m`)
 /// when all of it is between dollars, else bold (`b`) or roman (`r`).
 fn family(text: &str, font: &str, bold: bool) -> char {
@@ -416,10 +428,17 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let scale = EM_CM * size / 1000.0;
     let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
     let stretch = design_width(10.0 * size, family(text, font, bold));
-    let text = families(&rules(&clean(text), size), all);
     let space = 333.0f32;
     let mut boxes = Vec::new();
-    for line in manual_lines(&text) {
+    for line in manual_lines(&clean(text)) {
+        let line = if line.contains("\\vrule") {
+            // the rules run to the height and depth of the rest of the line
+            let bare = typeset(&families(&rules(&line, size, None), all), bold, &mut Vec::new());
+            let pt = 10.0 * size / 1000.0;
+            families(&rules(&line, size, Some((bare.height as f64 * pt, bare.depth as f64 * pt))), all)
+        } else {
+            families(&line, all)
+        };
         match text_width {
             None => boxes.push(typeset(&line, bold, warnings)),
             Some(max) => {

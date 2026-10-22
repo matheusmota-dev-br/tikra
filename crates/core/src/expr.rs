@@ -42,10 +42,16 @@ pub fn unit_cm(u: &str) -> Option<f64> {
     })
 }
 
-/// Centimeters per unit, `em` and `ex` in the font of `vars`.
+/// Centimeters per unit, `em` and `ex` in the font of `vars` (an em is the font's quad, wider
+/// than its size in the small designs and narrower in the large ones).
 fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
     let f = unit_cm(u)?;
-    Some(if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f })
+    let scale = vars.font_scale.unwrap_or(1.0);
+    Some(match u {
+        "em" => f * scale * crate::label::quad(10.0 * scale),
+        "ex" => f * scale,
+        _ => f,
+    })
 }
 
 /// Nesting cap (parentheses, signs, calls): `f(x) = f(x)` does not overflow the stack.
