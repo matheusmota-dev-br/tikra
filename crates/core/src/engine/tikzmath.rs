@@ -1,8 +1,9 @@
 //! The math library: `\tikzmath{…}` and the `evaluate={…}` key run statements ended by `;` —
 //! declarations (`integer \i, \j;`, `real \x;`, `coordinate \c;`), assignments (`\x = 2*3;`,
-//! `\a{\i,\j} = \i+\j;`, `\x1 = 4;`, `\c = (1,2)+(30:1);`), `let \x = text;`, `for \i in {list} {…};`
-//! and `if cond then {…} else {…};`. A variable is a macro holding its value; one assigned with an
-//! index takes the index as its argument, and a coordinate also sets `\cx` and `\cy` (in pt).
+//! `\a{\i,\j} = \i+\j;`, `\x1 = 4;`, `\c = (1,2)+(30:1);`), `let \x = text;`, `for \i in {list} {…};`,
+//! `if cond then {…} else {…};` and `{code};` (TikZ code, run as it is). A variable is a macro
+//! holding its value; one assigned with an index takes the index as its argument, and a coordinate
+//! also sets `\cx` and `\cy` (in pt).
 
 use crate::tex::{self, Cat, Token};
 use crate::Error;
@@ -101,6 +102,12 @@ impl Engine {
     }
 
     fn math_statement(&mut self, s: &[Token]) -> Result<(), Error> {
+        // `{ \draw …; };`: TeX (TikZ) code, run as it is
+        if let Some((code, after)) = group(s) {
+            if crate::keys::trim(after).is_empty() {
+                return self.run_tokens(code);
+            }
+        }
         let (word, rest) = first_word(s);
         match word.as_str() {
             "int" | "integer" | "real" | "coordinate" => {
