@@ -512,6 +512,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/restrict x to domain*/.initial=, /pgfplots/restrict y to domain*/.initial=,
 	/pgfplots/x filter/.code=, /pgfplots/y filter/.code=, /pgfplots/z filter/.code=, /pgfplots/pre filter/.code=, /pgfplots/filter point/.code=,
 	/pgfplots/@restrict expr/.initial=, /pgfplots/@restrict expr domain/.initial=,
+	/pgfplots/@visualization depends on/.initial=,
 	/pgfplots/@ticklabel strut/.initial=false, /pgfplots/typeset ticklabels with strut/.style={/pgfplots/@ticklabel strut=true},
 	/pgfplots/table/create col/linear regression/variance format/.initial=log,
 	/pgfplots/restrict expr to domain/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}\pgfkeysalso{/pgfplots/unbounded coords=jump}},
@@ -868,6 +869,17 @@ keyfn!(k_unknown, |e, v| {
 });
 
 // `compat=1.x`: the level, and the label placement it implies (`compat/labels`).
+// `visualization depends on={expr \as \macro}`: one more, kept as a group
+keyfn!(k_visualization_depends_on, |e, v| {
+    let path = keys::macro_name("/pgfplots/@visualization depends on");
+    let mut list = keys::value(&e.tex, "/pgfplots/@visualization depends on").unwrap_or_default();
+    list.push(Token::Char('{', tex::Cat::Begin));
+    list.extend(v.unwrap_or_default());
+    list.push(Token::Char('}', tex::Cat::End));
+    e.tex.set_meaning(&Token::cs(&path), super::super::macro_tokens(list), false);
+    Ok(())
+});
+
 keyfn!(k_compat, |e, v| {
     let s = text(e, &v)?;
     let level = match s.as_str() {
@@ -1249,6 +1261,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/.unknown", k_unknown),
     ("/pgfplots/table/.unknown", k_table_unknown),
     ("/pgfplots/compat", k_compat),
+    ("/pgfplots/visualization depends on", k_visualization_depends_on),
     ("/pgfplots/mesh", k_mesh),
     ("/pgfplots/surf", k_mesh),
     ("/pgfplots/patch", k_mesh),

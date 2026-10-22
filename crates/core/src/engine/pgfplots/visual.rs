@@ -45,6 +45,8 @@ pub struct NearNode {
     pub data: [f64; 3],
     /// The point's `coordinate style`.
     pub style: Vec<Token>,
+    /// The point's `visualization depends on` macros and their values.
+    pub deps: Vec<(String, String)>,
 }
 
 /// The canvas points of a plot (None at jumps).
@@ -701,7 +703,8 @@ fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Fram
             }
         };
         let style = p.coord_styles.get(c.style as usize).cloned().unwrap_or_default();
-        nodes.push(NearNode { point, at: at.plus(shift), align: a, meta, label, index: i, data: [c.x, c.y, c.z], style });
+        let deps = p.deps.get(c.deps as usize).cloned().unwrap_or_default();
+        nodes.push(NearNode { point, at: at.plus(shift), align: a, meta, label, index: i, data: [c.x, c.y, c.z], style, deps });
     }
     Ok((text, nodes))
 }
@@ -727,6 +730,9 @@ pub fn draw_near_nodes(e: &mut Engine, m: &Marks) -> Result<(), Error> {
                 };
                 define(e, "pgfplotspointmeta", &meta);
                 define(e, "coordindex", &n.index.to_string());
+                for (name, value) in &n.deps {
+                    define(e, name, value);
+                }
                 for (k, c) in ['x', 'y', 'z'].iter().enumerate() {
                     super::keys::set(e, &format!("/data point/{c}"), &super::super::pgf_number(n.data[k]));
                 }
@@ -958,10 +964,12 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         };
         drawn?;
         // `coordinate style`: each such mark with its style too
+        // `scatter/classes`: the class' style colors the mark, not the colormap
+        let classes = m.scatter && keys::value_tokens(e, "/pgfplots/scatter/classes").is_some();
         for (p, meta, style) in styled {
             e.begin_group();
             let r = (|| -> Result<(), Error> {
-                if let Some((draw, fill, _)) = &colors {
+                if let Some((draw, fill, _)) = colors.as_ref().filter(|_| !classes) {
                     let mapped = super::mesh::map(f, meta);
                     e.st.draw_color = Some(draw.at(mapped));
                     e.st.fill_color = Some(fill.at(mapped));

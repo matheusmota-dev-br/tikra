@@ -26,6 +26,8 @@ pub struct Coord {
     pub uvw: [f64; 3],
     /// `coordinate style`: an index into the plot's `coord_styles` (`NO_LABEL`: none).
     pub style: u32,
+    /// `visualization depends on`: an index into the plot's `deps` (`NO_LABEL`: none).
+    pub deps: u32,
 }
 
 /// No label.
@@ -46,7 +48,7 @@ fn add_label(tokens: Vec<Token>) -> u32 {
 
 impl Coord {
     pub fn new(x: f64, y: f64, z: f64) -> Coord {
-        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3], style: NO_LABEL }
+        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3], style: NO_LABEL, deps: NO_LABEL }
     }
 }
 
@@ -93,6 +95,8 @@ pub struct Plot {
     pub boxplot: Option<Box<super::boxplot::BoxStats>>,
     /// The styles of single coordinates (`coordinate style/.condition`, `.from`).
     pub coord_styles: Vec<Vec<Token>>,
+    /// `visualization depends on={expr \as \macro}`: the macros' values at single coordinates.
+    pub deps: Vec<Vec<(String, String)>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -192,12 +196,39 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
     plot.style = style;
     plot.index = index;
     if !plot.forget {
+        // a scatter plot with classes has a legend entry per class: its mark
+        let classes = if plot.scatter {
+            e.begin_group();
+            let r = e.process_keys(style_for_classes(&spec), Some("/pgfplots"));
+            let c = scatter_classes(e);
+            e.end_group();
+            r?;
+            c
+        } else {
+            Vec::new()
+        };
         let a = e.axis.as_mut().expect("in an axis");
         a.numplots += 1;
-        a.images.push(spec);
+        if classes.is_empty() {
+            a.images.push(spec);
+        } else {
+            for (_, s) in classes {
+                let mut image = spec.clone();
+                image.extend(super::toks(",/tikz/only marks,"));
+                image.extend(s);
+                a.images.push(image);
+            }
+        }
     }
     e.axis.as_mut().expect("in an axis").entries.push(Entry::Plot(Box::new(plot)));
     Ok(())
+}
+
+/// The plot's options, for reading its `scatter/classes`.
+fn style_for_classes(spec: &[Token]) -> Vec<Token> {
+    let mut s = super::toks("/pgfplots/every axis plot,");
+    s.extend(spec.iter().cloned());
+    s
 }
 
 /// The entry of the cycle list for plot `k` (`\pgfplots@getautoplotspec`).
@@ -1206,7 +1237,30 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     let restrict = keys::value_tokens(e, "/pgfplots/@restrict expr").zip(Some(keys::value(e, "/pgfplots/@restrict expr domain")));
     let conditions = split_groups(&crate::keys::value(&e.tex, "/pgfplots/coordinate style/@conditions").unwrap_or_default());
     let from = keys::value_tokens(e, "/pgfplots/coordinate style/@from");
-    if codes.iter().all(Option::is_none) && exprs.iter().all(Vec::is_empty) && restrict.is_none() && conditions.is_empty() && from.is_none() {
+    let classes = if plot.scatter { scatter_classes(e) } else { Vec::new() };
+    // `visualization depends on`: (expression, verbatim, macro)
+    let deps: Vec<(Vec<Token>, bool, String)> = split_groups(&crate::keys::value(&e.tex, "/pgfplots/@visualization depends on").unwrap_or_default())
+        .into_iter()
+        .filter_map(|d| {
+            let at = d.iter().position(|t| t.is_cs("as"))?;
+            let name = d[at + 1..].iter().find_map(|t| if let Token::Cs(n) = t { Some(n.to_string()) } else { None })?;
+            let mut expr = crate::keys::trim(&d[..at]).to_vec();
+            let text = tex::tokens_to_string(&expr);
+            let verbatim = text.trim_start().starts_with("value");
+            if verbatim {
+                expr = tex::strip_outer_braces(crate::keys::trim(&super::toks(text.trim_start().trim_start_matches("value"))).to_vec());
+            }
+            Some((expr, verbatim, name))
+        })
+        .collect();
+    if codes.iter().all(Option::is_none)
+        && exprs.iter().all(Vec::is_empty)
+        && restrict.is_none()
+        && conditions.is_empty()
+        && from.is_none()
+        && classes.is_empty()
+        && deps.is_empty()
+    {
         return Ok(());
     }
     let number = |v: f64| super::super::pgf_number(v);
@@ -1271,8 +1325,17 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
                 }
             }
         }
-        // the coordinate's own style: `.from` (a table cell), then the conditions that hold
+        // the coordinate's own style: its `scatter/classes` class (by its symbolic point meta),
+        // `.from` (a table cell), then the conditions that hold
         let mut style = Vec::new();
+        // (the labels are still being collected)
+        let label = (raw.label != NO_LABEL).then(|| LABELS.with(|l| l.borrow().get(raw.label as usize).cloned())).flatten();
+        if let Some(l) = label {
+            let name = tex::tokens_to_string(&l);
+            if let Some((_, s)) = classes.iter().find(|(n, _)| *n == name.trim()) {
+                style.extend(s.clone());
+            }
+        }
         if let Some(from) = &from {
             // `\thisrow{style}`: the cell's text
             let text = tex::tokens_to_string(from);
@@ -1295,6 +1358,16 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
                 style.extend(s.clone());
             }
         }
+        let mut values = Vec::new();
+        for (expr, verbatim, name) in &deps {
+            let tokens = substitute(expr, cur[0]);
+            let v = if *verbatim { e.tex.expand_to_string(tokens)?.trim().to_string() } else { super::super::pgf_number(eval(e, tokens, cur)) };
+            values.push((name.clone(), v));
+        }
+        if !values.is_empty() {
+            plot.coords[k].deps = plot.deps.len() as u32;
+            plot.deps.push(values);
+        }
         let c = &mut plot.coords[k];
         (c.x, c.y, c.z) = (cur[0], cur[1], cur[2]);
         if style.iter().any(|t| !t.is_space()) {
@@ -1310,6 +1383,12 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         });
     }
     Ok(())
+}
+
+/// `scatter/classes={a={mark=square*,blue},b={…}}`: each class' name and style.
+pub fn scatter_classes(e: &mut Engine) -> Vec<(String, Vec<Token>)> {
+    let Some(v) = keys::value_tokens(e, "/pgfplots/scatter/classes") else { return Vec::new() };
+    crate::keys::split_list(&v).into_iter().map(|i| (i.key.trim().to_string(), i.value.map(tex::strip_outer_braces).unwrap_or_default())).collect()
 }
 
 /// The brace groups of a list (`{a}{b}`).
