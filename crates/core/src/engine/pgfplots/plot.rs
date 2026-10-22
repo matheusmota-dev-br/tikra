@@ -873,6 +873,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     enum Src {
         Col(Option<usize>),
         Expr(Vec<Token>),
+        /// A column made for the plot (`create col/linear regression`).
+        Values(Vec<f64>),
         None,
     }
     let pick = |e: &mut Engine, axis: &str, default: Option<usize>| -> Src {
@@ -880,6 +882,30 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             return Src::Expr(expr);
         }
         let name = keys::value(e, &format!("/pgfplots/table/{axis}"));
+        let created = name.trim().trim_start_matches('{').trim_start();
+        if let Some(options) = created.strip_prefix("create col/linear regression") {
+            // `={y=…}`: the options, up to their closing brace
+            let options = options.trim().trim_start_matches('=').trim();
+            let options = match options.strip_prefix('{') {
+                Some(inner) => {
+                    let mut depth = 1;
+                    let end = inner
+                        .char_indices()
+                        .find(|(_, c)| {
+                            match c {
+                                '{' => depth += 1,
+                                '}' => depth -= 1,
+                                _ => {}
+                            }
+                            depth == 0
+                        })
+                        .map_or(inner.len(), |(i, _)| i);
+                    &inner[..end]
+                }
+                None => options.trim_end_matches('}'),
+            };
+            return Src::Values(linear_regression(e, t, options));
+        }
         if !name.is_empty() {
             return Src::Col(t.column(&name));
         }
@@ -935,6 +961,7 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         let get = |e: &mut Engine, s: &Src| -> f64 {
             match s {
                 Src::Col(Some(c)) => t.cell(r, *c).and_then(table::parse_number).unwrap_or(f64::NAN),
+                Src::Values(v) => v.get(r).copied().unwrap_or(f64::NAN),
                 Src::Col(None) | Src::None => f64::NAN,
                 Src::Expr(tokens) => {
                     let replaced = replace_thisrow(tokens, t, r);
@@ -1003,6 +1030,96 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     }
     FILTER_ROWS.with(|f| *f.borrow_mut() = Some((t.clone(), rows)));
     Ok(out)
+}
+
+/// `create col/linear regression={y=…}`: the least squares line through the table's points (in
+/// logarithms on log axes, weighted by `variance` or `variance list`), at every row's x; its slope
+/// and intercept are kept in `\pgfplotstableregressiona` and `\pgfplotstableregressionb`.
+fn linear_regression(e: &mut Engine, t: &Table, options: &str) -> Vec<f64> {
+    let mut opt = std::collections::HashMap::new();
+    for part in crate::keys::split_top_level(options) {
+        if let Some((k, v)) = part.split_once('=') {
+            opt.insert(k.trim().to_string(), v.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string());
+        }
+    }
+    let column = |name: Option<&String>, fallback: &str, index: usize| -> Option<usize> {
+        let n = name.cloned().unwrap_or_else(|| fallback.to_string());
+        if n.is_empty() {
+            Some(index)
+        } else {
+            t.column(&n)
+        }
+    };
+    let plot_x = keys::value(e, "/pgfplots/table/x");
+    let xs = column(opt.get("x"), &plot_x, 0);
+    let ys = column(opt.get("y"), "", 1);
+    let (Some(xc), Some(yc)) = (xs, ys) else {
+        e.warn("create col/linear regression: column not found");
+        return vec![f64::NAN; t.rows.len()];
+    };
+    // the modes: given, else the axis'
+    let mode = |e: &mut Engine, c: char| -> Option<f64> {
+        let m = opt.get(&format!("{c}mode")).cloned().unwrap_or_default();
+        let log = match m.as_str() {
+            "log" => true,
+            "linear" => false,
+            _ => keys::value(e, &format!("/pgfplots/{c}mode")) == "log",
+        };
+        // the logarithm's base: `log basis`, else e
+        log.then(|| keys::number(e, &format!("/pgfplots/log basis {c}")).filter(|b| *b > 0.0 && *b != 1.0).unwrap_or(std::f64::consts::E))
+    };
+    let (xlog, ylog) = (mode(e, 'x'), mode(e, 'y'));
+    let linear_variance = opt.get("variance format").cloned().unwrap_or_else(|| keys::value(e, "/pgfplots/table/create col/linear regression/variance format")) == "linear";
+    let mut variances: std::collections::VecDeque<f64> = match opt.get("variance list") {
+        Some(list) => list.split(',').filter_map(|v| e.number(v.trim()).ok()).collect(),
+        None => match opt.get("variance").and_then(|n| t.column(n)) {
+            Some(c) => (0..t.rows.len()).map(|r| t.cell(r, c).and_then(table::parse_number).unwrap_or(1.0)).collect(),
+            None => Default::default(),
+        },
+    };
+    let log_of = |v: f64, base: Option<f64>| match base {
+        Some(b) => v.ln() / b.ln(),
+        None => v,
+    };
+    let (mut s, mut sx, mut sxx, mut sy, mut sxy) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    let mut parsed = Vec::with_capacity(t.rows.len());
+    for r in 0..t.rows.len() {
+        let x = t.cell(r, xc).and_then(table::parse_number).unwrap_or(f64::NAN);
+        let y = t.cell(r, yc).and_then(table::parse_number).unwrap_or(f64::NAN);
+        if !(x.is_finite() && y.is_finite()) {
+            parsed.push(f64::NAN);
+            continue;
+        }
+        let (px, py) = (log_of(x, xlog), log_of(y, ylog));
+        parsed.push(px);
+        let var = variances.pop_front().unwrap_or(1.0);
+        let mut w = 1.0 / (var * var);
+        // a variance of y given for y itself: its logarithm's is dy / (y ln b)
+        if let (Some(b), true) = (ylog, linear_variance) {
+            w *= (y * b.ln()).powi(2);
+        }
+        s += w;
+        sx += px * w;
+        sxx += px * px * w;
+        sy += py * w;
+        sxy += px * py * w;
+    }
+    let delta = s * sxx - sx * sx;
+    let a = (s * sxy - sx * sy) / delta;
+    let b = (sxx * sy - sx * sxy) / delta;
+    for (name, v) in [("pgfplotstableregressiona", a), ("pgfplotstableregressionb", b)] {
+        e.tex.define_string(name, &format!("{v:e}"), true);
+    }
+    parsed
+        .into_iter()
+        .map(|px| {
+            let v = a * px + b;
+            match ylog {
+                Some(base) => base.powf(v),
+                None => v,
+            }
+        })
+        .collect()
 }
 
 /// `\thisrow{name}`, `\thisrowno{i}`, `\coordindex`, `\lineno` replaced by the row's values.

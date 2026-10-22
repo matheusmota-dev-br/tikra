@@ -508,6 +508,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/restrict x to domain*/.initial=, /pgfplots/restrict y to domain*/.initial=,
 	/pgfplots/x filter/.code=, /pgfplots/y filter/.code=, /pgfplots/z filter/.code=, /pgfplots/pre filter/.code=, /pgfplots/filter point/.code=,
 	/pgfplots/@restrict expr/.initial=, /pgfplots/@restrict expr domain/.initial=,
+	/pgfplots/table/create col/linear regression/variance format/.initial=log,
 	/pgfplots/restrict expr to domain/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}\pgfkeysalso{/pgfplots/unbounded coords=jump}},
 	/pgfplots/restrict expr to domain*/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}},
 	/pgfplots/skip coords between index/.style 2 args={/pgfplots/x filter/.append code={\ifnum\coordindex<#1 \else\ifnum\coordindex<#2 \def\pgfmathresult{}\fi\fi}},
