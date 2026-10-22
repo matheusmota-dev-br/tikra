@@ -56,6 +56,8 @@ struct Builder {
     close_after: bool,
     /// the node just made: a `to` or `edge` right after it starts there (`\tikz@to@use@last@fig@name`)
     to_start: Option<Coord>,
+    /// the current point where each `{` of the path opened, for `current point is local`
+    groups: Vec<Option<Coord>>,
 }
 
 impl Builder {
@@ -200,6 +202,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        groups: Vec::new(),
     };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
@@ -458,8 +461,21 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     e.st.apply_pending();
                 }
             }
-            Token::Char(_, Cat::Begin) => e.begin_group(),
-            Token::Char(_, Cat::End) => e.end_group(),
+            Token::Char(_, Cat::Begin) => {
+                e.begin_group();
+                e.st.current_point_local = false;
+                b.groups.push(b.current.clone());
+            }
+            Token::Char(_, Cat::End) => {
+                // `current point is local`: the path goes on from where the group began
+                let local = e.st.current_point_local;
+                e.end_group();
+                if let Some(c) = b.groups.pop() {
+                    if local {
+                        b.current = c;
+                    }
+                }
+            }
             Token::Char(c, Cat::Letter) => {
                 let w = word(e, *c);
                 match w.as_str() {
@@ -1001,6 +1017,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        groups: Vec::new(),
     };
     if let Some(c) = b.to_start.clone().or_else(|| saved_current.clone()) {
         sub.move_to(c);

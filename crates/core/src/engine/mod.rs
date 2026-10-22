@@ -1056,7 +1056,12 @@ impl Engine {
             }
             Cmd::Tikzset => {
                 let a = self.argument()?;
-                self.keys_command(a, Some("/tikz"), true)
+                self.keys_command(a, Some("/tikz"), true)?;
+                // `\tikzset{xshift=1cm}` in a picture transforms what follows in the group
+                if self.picture_depth > 0 {
+                    self.st.apply_pending();
+                }
+                Ok(())
             }
             Cmd::Pgfset => {
                 let a = self.argument()?;

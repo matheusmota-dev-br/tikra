@@ -230,6 +230,8 @@ pub struct GState {
     pub allow_upside_down: bool,
     /// `make snapshot of`: the time (s) the animations are shown at
     pub snapshot: Option<f64>,
+    /// `current point is local`: a group of the path leaves the current point where it found it
+    pub current_point_local: bool,
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
     /// `\pgfsetfillpattern`: the basic layer's fills use the pattern
@@ -321,6 +323,7 @@ impl Default for GState {
             trim_left: None,
             allow_upside_down: false,
             snapshot: None,
+            current_point_local: false,
             fit_fading: true,
             fill_pattern: false,
             save_path: None,

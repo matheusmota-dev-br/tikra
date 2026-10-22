@@ -91,7 +91,8 @@ impl Engine {
 
     /// Reads a coordinate's text (macros already expanded) as a canvas point.
     pub fn coordinate(&mut self, inner: &str) -> Result<Coord, Error> {
-        let t = inner.trim();
+        // `({$(A)!.5!(B)$} -| C)`: a coordinate in braces is that coordinate
+        let t = strip_braces(inner.trim()).trim();
         // ([options] point): the options transform this point only
         if let Some(rest) = t.strip_prefix('[') {
             let Some(end) = closing_bracket(t) else { return Err(Error::Figure(format!("unmatched bracket in ({t})"))) };
@@ -245,6 +246,37 @@ impl Engine {
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
             }
             "visualization" => Ok(Coord { p: self.visualization_cs(args)?, node: None }),
+            "barycentric" => {
+                // the nodes' centers, weighted
+                let (mut sum, mut weight) = (Point::default(), 0.0);
+                for (name, w) in &items {
+                    let w = self.number(w)?;
+                    let node = self.nodes.get(name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
+                    sum = sum.plus(node.center().scale(w));
+                    weight += w;
+                }
+                if weight.abs() < 1e-12 {
+                    return Err(Error::Figure("barycentric cs: the weights add up to zero".into()));
+                }
+                Ok(Coord { p: sum.scale(1.0 / weight), node: None })
+            }
+            "tangent" => {
+                // where a line from the point touches the node's circle (its east anchor gives the
+                // radius); `solution=2` is the other side
+                let name = get("node").unwrap_or_default();
+                let node = self.nodes.get(&name).cloned().ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
+                let point = get("point").unwrap_or_default();
+                let point = self.coordinate(point.trim().trim_start_matches('(').trim_end_matches(')'))?.p;
+                let c = node.center();
+                let r = node.anchor("east").map_or(0.0, |e| e.minus(c).norm());
+                let d = point.minus(c);
+                let mut angle = (r / d.norm().max(1e-12)).clamp(-1.0, 1.0).acos().to_degrees();
+                if get("solution").and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(1) > 1 {
+                    angle = -angle;
+                }
+                let dir = d.scale(1.0 / d.norm().max(1e-12));
+                Ok(Coord { p: c.plus(Transform::rotation(angle).apply(dir.scale(r))), node: None })
+            }
             "node" => {
                 let name = get("name").unwrap_or_default();
                 let node = self.nodes.get(&name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
@@ -351,13 +383,14 @@ impl Engine {
                     i += 1 + t_end + 1 + (after.chars().count() - target_text.chars().count()) + consumed.chars().count();
                 }
                 _ => {
-                    // a factor: 0.5*(A), {\x}*(A)
+                    // a factor: 0.5*(A), {\x}*(A), cos(0)*sin(90)*(A): up to the `*` before a point
                     let start = i;
                     let mut depth = 0;
-                    while i < c.len() && (depth > 0 || (c[i] != '*' && c[i] != '(')) {
+                    let before_point = |i: usize| c[i] == '*' && c[i + 1..].iter().find(|x| **x != ' ') == Some(&'(');
+                    while i < c.len() && (depth > 0 || !before_point(i)) {
                         match c[i] {
-                            '{' => depth += 1,
-                            '}' => depth -= 1,
+                            '{' | '(' => depth += 1,
+                            '}' | ')' => depth -= 1,
                             _ => {}
                         }
                         i += 1;
