@@ -344,7 +344,7 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
     let mut glyphs = Vec::new();
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs);
     glyphs.append(&mut defs.glyphs);
-    let font = mathra::font::font();
+    let font = crate::label::FONT.get();
     let mut seen = HashSet::new();
     for g in glyphs {
         if seen.insert(g.0) {

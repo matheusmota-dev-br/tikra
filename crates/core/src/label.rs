@@ -9,6 +9,9 @@ use crate::scene::Label;
 /// Centimeters per em in a 10pt font.
 const EM_CM: f64 = 10.0 * 2.54 / 72.27;
 
+/// The font labels are set in: Latin Modern Math, the Computer Modern that TeX sets the figures in.
+pub const FONT: mathra::font::MathFont = mathra::font::MathFont::LatinModern;
+
 /// Size factor of the LaTeX font commands (10pt = 1).
 pub fn font_size(text: &str) -> f64 {
     // the last size command in the text is the one in effect
@@ -105,11 +108,53 @@ fn clean(text: &str) -> String {
     out
 }
 
+/// Typewriter text as TeX's `cmtt` sets it, every character half an em and a fortieth wide: letters
+/// and digits from the math font's monospace alphabet, the others (which it lacks) centered in that
+/// width, spaces too.
+fn typewriter(t: &str) -> String {
+    const WIDTH: f32 = 0.525;
+    let font = FONT.get();
+    let mut out = String::from("$");
+    let mut run = String::new();
+    let flush = |run: &mut String, out: &mut String| {
+        if !run.is_empty() {
+            out.push_str(&format!("\\mathtt{{{run}}}"));
+            run.clear();
+        }
+    };
+    // the text has no backslash: its braces only group
+    for c in t.chars().filter(|c| !matches!(c, '{' | '}')) {
+        if c.is_ascii_alphanumeric() {
+            run.push(c);
+            continue;
+        }
+        flush(&mut run, &mut out);
+        let advance = if c == ' ' { 0.0 } else { font.glyph(c).map_or(WIDTH, |g| font.advance(g) / font.units_per_em()) };
+        let side = ((WIDTH - advance) / 2.0).max(0.0);
+        let glyph = match c {
+            ' ' => String::new(),
+            '_' | '#' | '%' | '&' | '$' => format!("\\text{{\\{c}}}"),
+            c => format!("\\text{{{c}}}"),
+        };
+        out.push_str(&format!("\\hspace{{{side}em}}{glyph}\\hspace{{{side}em}}"));
+    }
+    flush(&mut run, &mut out);
+    out.push('$');
+    if out == "$$" {
+        String::new()
+    } else {
+        out
+    }
+}
+
 /// Text in another family (`\texttt{…}`, `\textit{…}`, `\emph{…}`, `\textsf{…}`, or all of it
 /// under `\ttfamily`, `\itshape`, `\sffamily`) as the math font's letters of that family, the
 /// closest it has to TeX's typewriter, italic and sans serif fonts; its spaces kept.
 fn families(text: &str, all: Option<&str>) -> String {
     let set = |t: &str, family: &str| -> String {
+        if family == "mathtt" {
+            return typewriter(t);
+        }
         let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\{family}{{{p}}}")).collect();
         if parts.is_empty() {
             String::new()
@@ -268,7 +313,7 @@ fn words(line: &str) -> Vec<String> {
 fn typeset(text: &str, bold: bool, warnings: &mut Vec<String>) -> MathBox {
     let options = mathra::Options { display: false, ..Default::default() };
     let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
-    match mathra::typeset(&tex, &options) {
+    match mathra::typeset_in_font(&tex, &options, FONT) {
         Ok((c, applied)) => {
             warnings.extend(applied.into_iter().map(|a| format!("{} {}", a.rule, a.description)));
             c
