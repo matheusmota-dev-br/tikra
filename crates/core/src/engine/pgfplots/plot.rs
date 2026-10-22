@@ -423,12 +423,68 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         _ => {}
     }
     point_meta(e, plot)?;
+    if plot.patch {
+        patch_table(e, plot);
+    }
     lattice_from_scanlines(e, plot);
     filter(e, plot)?;
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at end plot") {
         e.run_tokens(code)?;
     }
     Ok(())
+}
+
+/// `patch table={0 1 2\\ 1 2 3\\}` (or a file name): the patches are rows of indices into the
+/// points read; `patch table with point meta` adds a color to each row, `… with individual point
+/// meta` one to each of its corners. The points become the patches' corners, one after another,
+/// each with its color.
+fn patch_table(e: &mut Engine, plot: &mut Plot) {
+    let mut found = None;
+    for (key, kind) in [("patch table", 0), ("patch table with point meta", 1), ("patch table with individual point meta", 2)] {
+        let v = keys::value(e, &format!("/pgfplots/{key}"));
+        if !v.trim().is_empty() {
+            found = Some((v, kind));
+        }
+    }
+    let Some((text, kind)) = found else { return };
+    let text = text.replace("\\\\", "\n");
+    let trimmed = text.trim();
+    let text = if !trimmed.contains('\n') && !trimmed.contains(' ') && trimmed.chars().any(|c| c.is_alphabetic()) {
+        match table::read_file(trimmed, &search_path(e)) {
+            Ok(t) => t,
+            Err(m) => {
+                e.warn(format!("patch table: {m}"));
+                return;
+            }
+        }
+    } else {
+        text
+    };
+    let t = Table::parse(&text, table::ColSep::Space, "false", 0, "");
+    let mut coords = Vec::new();
+    for row in &t.rows {
+        let v: Vec<f64> = row.iter().filter_map(|c| table::parse_number(c)).collect();
+        let n = match kind {
+            0 => v.len(),
+            1 => v.len().saturating_sub(1),
+            _ => v.len() / 2,
+        };
+        for (i, idx) in v[..n].iter().enumerate() {
+            let Some(c) = plot.coords.get(*idx as usize) else { continue };
+            let mut c = *c;
+            match kind {
+                1 => c.meta = v[n],
+                2 => c.meta = v.get(n + i).copied().unwrap_or(f64::NAN),
+                _ => {}
+            }
+            coords.push(c);
+        }
+    }
+    plot.coords = coords;
+    plot.scanlines.clear();
+    if kind > 0 {
+        plot.has_meta = true;
+    }
 }
 
 fn word_after_space(e: &mut Engine) -> String {
