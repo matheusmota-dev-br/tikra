@@ -24,6 +24,8 @@ pub struct Coord {
     /// The sampling variable's value (expressions), and `quiver`'s (u, v, w).
     pub param: [f64; 2],
     pub uvw: [f64; 3],
+    /// `coordinate style`: an index into the plot's `coord_styles` (`NO_LABEL`: none).
+    pub style: u32,
 }
 
 /// No label.
@@ -44,7 +46,7 @@ fn add_label(tokens: Vec<Token>) -> u32 {
 
 impl Coord {
     pub fn new(x: f64, y: f64, z: f64) -> Coord {
-        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3] }
+        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3], style: NO_LABEL }
     }
 }
 
@@ -89,6 +91,8 @@ pub struct Plot {
     pub late: Vec<Token>,
     /// `boxplot`, `boxplot prepared`: the box's numbers (the points are the outliers).
     pub boxplot: Option<Box<super::boxplot::BoxStats>>,
+    /// The styles of single coordinates (`coordinate style/.condition`, `.from`).
+    pub coord_styles: Vec<Vec<Token>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -1083,7 +1087,9 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
         exprs.push(split_groups(&list));
     }
     let restrict = keys::value_tokens(e, "/pgfplots/@restrict expr").zip(Some(keys::value(e, "/pgfplots/@restrict expr domain")));
-    if codes.iter().all(Option::is_none) && exprs.iter().all(Vec::is_empty) && restrict.is_none() {
+    let conditions = split_groups(&crate::keys::value(&e.tex, "/pgfplots/coordinate style/@conditions").unwrap_or_default());
+    let from = keys::value_tokens(e, "/pgfplots/coordinate style/@from");
+    if codes.iter().all(Option::is_none) && exprs.iter().all(Vec::is_empty) && restrict.is_none() && conditions.is_empty() && from.is_none() {
         return Ok(());
     }
     let number = |v: f64| super::super::pgf_number(v);
@@ -1148,8 +1154,36 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
                 }
             }
         }
+        // the coordinate's own style: `.from` (a table cell), then the conditions that hold
+        let mut style = Vec::new();
+        if let Some(from) = &from {
+            // `\thisrow{style}`: the cell's text
+            let text = tex::tokens_to_string(from);
+            let cell = text.trim().strip_prefix("\\thisrow").map(|n| n.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string());
+            let text = match (cell, row) {
+                (Some(name), Some((t, r))) => t.column(&name).and_then(|c| t.cell(r, c)).unwrap_or("").to_string(),
+                _ => e.tex.expand_to_string(from.clone())?,
+            };
+            let text = text.trim();
+            let text = text.strip_prefix('{').and_then(|t| t.strip_suffix('}')).unwrap_or(text);
+            style.extend(super::toks(text.trim()));
+        }
+        for pair in conditions.chunks(2) {
+            let [test, s] = pair else { break };
+            let v = eval(e, substitute(test, cur[0]), cur);
+            if v != 0.0 && !v.is_nan() {
+                if !style.is_empty() {
+                    style.push(Token::other(','));
+                }
+                style.extend(s.clone());
+            }
+        }
         let c = &mut plot.coords[k];
         (c.x, c.y, c.z) = (cur[0], cur[1], cur[2]);
+        if style.iter().any(|t| !t.is_space()) {
+            c.style = plot.coord_styles.len() as u32;
+            plot.coord_styles.push(style);
+        }
     }
     if drop.iter().any(|d| *d) {
         let mut k = 0;

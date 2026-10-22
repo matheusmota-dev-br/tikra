@@ -25,6 +25,8 @@ pub struct Marks {
     /// `nodes near coords`: what the nodes say, and the nodes.
     pub node_text: Vec<Token>,
     pub nodes: Vec<NearNode>,
+    /// Points with a `coordinate style` of their own, drawn after the others.
+    pub styled: Vec<(Point, f64, Vec<Token>)>,
 }
 
 /// A node of `nodes near coords`.
@@ -41,6 +43,8 @@ pub struct NearNode {
     pub index: usize,
     /// `/data point/x` and its friends.
     pub data: [f64; 3],
+    /// The point's `coordinate style`.
+    pub style: Vec<Token>,
 }
 
 /// The canvas points of a plot (None at jumps).
@@ -140,8 +144,8 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             return Ok(None);
         }
         let cp = canvas_points(f, pts);
-        let points = cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect();
-        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes }));
+        let (points, styled) = mark_points(p, &cp);
+        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled }));
     }
     let handler = keys::value(e, "/tikz/@plot handler");
     let cp = canvas_points(f, pts);
@@ -400,8 +404,26 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     if mark.is_none() && nodes.is_empty() {
         return Ok(None);
     }
-    let points = cp.iter().enumerate().filter_map(|(i, c)| c.map(|c| (c, p.coords.get(i).map_or(f64::NAN, |k| k.meta)))).collect();
-    Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes }))
+    let (points, styled) = mark_points(p, &cp);
+    Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled }))
+}
+
+/// The marks' points with their point meta, and apart those with a `coordinate style`.
+#[allow(clippy::type_complexity)]
+fn mark_points(p: &Plot, cp: &[Option<Point>]) -> (Vec<(Point, f64)>, Vec<(Point, f64, Vec<Token>)>) {
+    let mut points = Vec::new();
+    let mut styled = Vec::new();
+    for (i, c) in cp.iter().enumerate() {
+        let Some(c) = c else { continue };
+        let co = p.coords.get(i);
+        let meta = co.map_or(f64::NAN, |k| k.meta);
+        // only the markers of a scatter plot are drawn one by one, with their style
+        match co.and_then(|k| p.coord_styles.get(k.style as usize)).filter(|_| p.scatter) {
+            Some(s) => styled.push((*c, meta, s.clone())),
+            None => points.push((*c, meta)),
+        }
+    }
+    (points, styled)
 }
 
 /// The nodes after a plot (`\addplot … node[pos=0.3] {…};`): at the last point, or with `pos` at
@@ -635,7 +657,8 @@ fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Fram
                 other => other.to_string(),
             }
         };
-        nodes.push(NearNode { point, at: at.plus(shift), align: a, meta, label, index: i, data: [c.x, c.y, c.z] });
+        let style = p.coord_styles.get(c.style as usize).cloned().unwrap_or_default();
+        nodes.push(NearNode { point, at: at.plus(shift), align: a, meta, label, index: i, data: [c.x, c.y, c.z], style });
     }
     Ok((text, nodes))
 }
@@ -673,7 +696,11 @@ pub fn draw_near_nodes(e: &mut Engine, m: &Marks) -> Result<(), Error> {
                         e.tex.expand_fully(t)?
                     }
                 };
-                let options = toks(&format!("{},/pgfplots/every node near coord", n.align));
+                let mut options = toks(&format!("{},/pgfplots/every node near coord", n.align));
+                if !n.style.is_empty() {
+                    options.push(Token::other(','));
+                    options.extend(n.style.clone());
+                }
                 let items = e.node(NodeSpec { options, name: None, at: Some(n.at), text, place: OnPath::Point(n.at), point: n.at, coordinate: false, default_pos: None })?;
                 e.canvas.items.extend(items);
                 Ok(())
@@ -865,7 +892,8 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
             }
             k >= phase && (k - phase).is_multiple_of(repeat)
         });
-        match colors {
+        let styled = m.styled.clone();
+        let drawn = match &colors {
             Some((draw, fill, _)) => {
                 for (_, (p, meta)) in chosen {
                     let mapped = super::mesh::map(f, meta);
@@ -884,7 +912,29 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
                 Ok(())
             }
             None => draw_mark_set(e, &name, size, &local, chosen.map(|(_, (p, _))| p)),
+        };
+        drawn?;
+        // `coordinate style`: each such mark with its style too
+        for (p, meta, style) in styled {
+            e.begin_group();
+            let r = (|| -> Result<(), Error> {
+                if let Some((draw, fill, _)) = &colors {
+                    let mapped = super::mesh::map(f, meta);
+                    e.st.draw_color = Some(draw.at(mapped));
+                    e.st.fill_color = Some(fill.at(mapped));
+                }
+                e.st.pending = local;
+                e.process_keys(style, Some("/tikz"))?;
+                let local = e.st.pending;
+                e.st.pending = Transform::default();
+                let name = e.st.plot_mark.clone().unwrap_or_else(|| name.clone());
+                // a shift in the style moves the mark
+                draw_mark_set(e, &name, size, &local, std::iter::once(p.plus(Point::new(local.e, local.f))))
+            })();
+            e.end_group();
+            r?;
         }
+        Ok(())
     })();
     e.end_group();
     r

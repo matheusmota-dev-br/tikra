@@ -341,6 +341,16 @@ impl Engine {
                     self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/@expressions"))), macro_tokens(Vec::new()), false);
                 }
             }
+            // pgfplots' `coordinate style/.condition={test}{style}` and `coordinate style/.from={style}`
+            ".condition" => {
+                let path = format!("{base}/@conditions");
+                let mut list = keys::value(&self.tex, &path).unwrap_or_default();
+                list.extend(v);
+                self.tex.set_meaning(&Token::cs(&macro_name(&path)), macro_tokens(list), false);
+            }
+            ".from" => {
+                self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/@from"))), macro_tokens(v), false);
+            }
             // pgfplots' `x filter/.expression={…}`: the filter's value is the expression's (after
             // the filter's code, `.append expression` after the expressions before)
             ".expression" | ".append expression" => {

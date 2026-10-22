@@ -1494,6 +1494,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         // marks outside the axis are not drawn, those on its border are drawn whole
         if clip && !f.three_d && !f.polar && !f.smith {
             m.points.retain(|(p, _)| inside(p));
+            m.styled.retain(|(p, _, _)| inside(p));
             m.nodes.retain(|n| inside(&n.point));
         }
         super::visual::draw_marks(e, &m, &f)?;
