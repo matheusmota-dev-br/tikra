@@ -200,8 +200,9 @@ fn label_matrix(t: &Transform) -> String {
     format!("matrix({} {} {} {} {} {})", num(t.a, 5), num(-t.b, 5), num(-t.c, 5), num(t.d, 5), n(t.e * BP), n(-t.f * BP))
 }
 
-/// The items of a mathra box with its baseline at `origin` (label cm, y up), `scale` cm per unit.
-fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, glyphs: &mut Vec<GlyphId>) -> String {
+/// The items of a mathra box with its baseline at `origin` (label cm, y up), `scale` cm per unit,
+/// glyphs `stretch` times as wide.
+fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64, glyphs: &mut Vec<GlyphId>) -> String {
     let mut s = String::new();
     let k = scale * BP;
     let inner = |x: f64, y: f64| -> (f64, f64) { ((origin.x + x * scale) * BP, -(origin.y + y * scale) * BP) };
@@ -212,7 +213,7 @@ fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, glyphs: &mut
                 let (px, py) = inner(*x as f64, *y as f64);
                 let f = *gs as f64 * k;
                 let fill = color.as_ref().map(|c| format!(r#" fill="{c}""#)).unwrap_or_default();
-                let _ = write!(s, r##"<use href="#tr-g{}" transform="translate({} {}) scale({} {})"{fill}/>"##, id.0, n(px), n(py), num(f, 5), num(-f, 5));
+                let _ = write!(s, r##"<use href="#tr-g{}" transform="translate({} {}) scale({} {})"{fill}/>"##, id.0, n(px), n(py), num(f * stretch, 5), num(-f, 5));
             }
             MathItem::Rule { x, y, width, height, color } => {
                 let (px, py) = inner(*x as f64, (*y + *height) as f64);
@@ -261,7 +262,7 @@ fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
             'r' => width - w,
             _ => (width - w) / 2.0,
         };
-        s.push_str(&math_box(line, Point::new(x, -(k as f64) * l.line_height), l.scale, glyphs));
+        s.push_str(&math_box(line, Point::new(x, -(k as f64) * l.line_height), l.scale, l.stretch, glyphs));
     }
     s
 }

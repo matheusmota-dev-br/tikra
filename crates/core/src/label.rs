@@ -326,12 +326,96 @@ fn typeset(text: &str, bold: bool, warnings: &mut Vec<String>) -> MathBox {
     }
 }
 
+/// How much wider than its 10pt design TeX's font of `pt` points sets text, in the family the text
+/// is in: LaTeX picks the Computer Modern of the design size at or below it (`cmr7` for
+/// `\scriptsize`, `cmr17` for `\Huge`), whose letters are proportionally wider at small sizes and
+/// narrower at large ones, while the label font has only the 10pt design. From the fonts' metrics.
+fn design_width(pt: f64, family: char) -> f64 {
+    let table: &[(f64, f64)] = match family {
+        // cmtt8, cmtt9, cmtt10 and cmtt12
+        't' => &[(0.0, 1.0119), (9.0, 1.0), (10.0, 1.0), (12.0, 0.9802)],
+        // cmmi5 … cmmi12
+        'm' => &[(0.0, 1.4283), (6.0, 1.2526), (7.0, 1.1559), (8.0, 1.0584), (9.0, 1.026), (10.0, 1.0), (12.0, 0.9784)],
+        // cmbx5 … cmbx12
+        'b' => &[(0.0, 1.3083), (6.0, 1.1996), (7.0, 1.1221), (8.0, 1.064), (9.0, 1.0285), (10.0, 1.0), (12.0, 0.9774)],
+        // cmr5 … cmr17
+        _ => &[(0.0, 1.3611), (6.0, 1.2222), (7.0, 1.1389), (8.0, 1.0625), (9.0, 1.0278), (10.0, 1.0), (12.0, 0.9791), (17.0, 0.9172)],
+    };
+    table.iter().rev().find(|(from, _)| pt + 0.01 >= *from).map_or(1.0, |(_, w)| *w)
+}
+
+/// The family most of the text is set in: typewriter (`t`) when all of it is `\texttt`, math (`m`)
+/// when all of it is between dollars, else bold (`b`) or roman (`r`).
+fn family(text: &str, font: &str, bold: bool) -> char {
+    if font.contains("\\ttfamily") || text.contains("\\ttfamily") {
+        return 't';
+    }
+    // the text outside the groups that `open` starts and `close` ends
+    let outside = |t: &str, open: &str, close: char| -> String {
+        let mut out = String::new();
+        let mut rest = t;
+        while let Some(i) = rest.find(open) {
+            out.push_str(&rest[..i]);
+            rest = &rest[i + open.len()..];
+            rest = rest.find(close).map_or("", |j| &rest[j + 1..]);
+        }
+        out.push_str(rest);
+        out
+    };
+    // letters or digits, not counting the names of control words
+    let letters = |t: &str| {
+        t.split('\\').enumerate().any(|(k, w)| {
+            let w = if k == 0 { w } else { w.trim_start_matches(|c: char| c.is_ascii_alphabetic()) };
+            w.chars().any(|c| c.is_alphanumeric())
+        })
+    };
+    if !letters(text) {
+        return 'r';
+    }
+    if !letters(&outside(text, "\\texttt{", '}')) {
+        return 't';
+    }
+    if !letters(&outside(text, "$", '$')) {
+        return 'm';
+    }
+    if bold {
+        'b'
+    } else {
+        'r'
+    }
+}
+
+/// The box `f` times as wide, its items moved with it (the glyphs are widened when drawn).
+fn widen(mut b: MathBox, f: f32) -> MathBox {
+    use mathra::layout::Item;
+    for item in &mut b.items {
+        match item {
+            Item::Glyph { x, .. } => *x *= f,
+            Item::Rule { x, width, .. } => {
+                *x *= f;
+                *width *= f;
+            }
+            Item::Line { x1, x2, .. } => {
+                *x1 *= f;
+                *x2 *= f;
+            }
+            Item::Ellipse { cx, rx, .. } => {
+                *cx *= f;
+                *rx *= f;
+            }
+        }
+    }
+    b.width *= f;
+    b
+}
+
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
     let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
+    let stretch = design_width(10.0 * size, family(text, font, bold));
     let text = families(&rules(&clean(text), size), all);
     let space = 333.0f32;
     let mut boxes = Vec::new();
@@ -339,7 +423,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         match text_width {
             None => boxes.push(typeset(&line, bold, warnings)),
             Some(max) => {
-                let max = (max / scale) as f32;
+                let max = (max / scale / stretch) as f32;
                 let mut current: Option<MathBox> = None;
                 for w in words(&line) {
                     let c = typeset(&w, bold, warnings);
@@ -360,7 +444,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             }
         }
     }
-    Label { lines: boxes, scale, color, align, line_height: 1.2 * EM_CM * size }
+    let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
+    Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch }
 }
 
 #[cfg(test)]

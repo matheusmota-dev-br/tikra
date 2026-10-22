@@ -110,6 +110,9 @@ pub struct Label {
     pub align: char,
     /// Distance between baselines, in cm.
     pub line_height: f64,
+    /// Horizontal scale of the glyphs (the boxes' positions already carry it): TeX's fonts of
+    /// other design sizes are wider or narrower than the one font labels are drawn with.
+    pub stretch: f64,
 }
 
 impl Label {
