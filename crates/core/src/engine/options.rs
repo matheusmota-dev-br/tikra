@@ -1636,6 +1636,10 @@ keyfn!(k_declare_function, |e, v| {
 keyfn!(k_tikz_unknown, |e, v| e.tikz_unknown(v));
 
 keyfn!(k_ignore, |_e, _v| Ok(()));
+keyfn!(k_trig_format, |e, v| {
+    e.st.trig_rad = v.is_some_and(|v| tex::tokens_to_string(&v).trim() == "rad");
+    Ok(())
+});
 keyfn!(k_overlay, |e, v| {
     e.st.overlay = v.is_none_or(|v| tex::tokens_to_string(&v).trim() != "false");
     e.canvas.overlay = e.st.overlay;
@@ -2091,6 +2095,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_overlay),
+    ("/pgf/trig format", k_trig_format),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),

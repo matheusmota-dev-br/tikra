@@ -170,8 +170,8 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     };
     // 2d lines through a lattice: a mesh of a one dimensional line has no area
     if f.three_d && zbuffer != "none" {
-        let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
-        let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
+        let (az, el) = super::draw::view_angles(e);
+        let (az, el) = (az.to_radians(), el.to_radians());
         let d = [az.sin() * el.cos(), -az.cos() * el.cos(), el.sin()];
         let norm = |i: usize, v: f64| (v - f.min[i]) / (f.max[i] - f.min[i]).abs().max(1e-300) * if f.e[i].norm() == 0.0 { 0.0 } else { 1.0 };
         let depth = |(q, _): &(Vec<usize>, Vec<usize>)| -> f64 {

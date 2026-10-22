@@ -888,8 +888,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         ev[0] = Point::new(if bw > 1e-12 { pw / bw } else { 1.0 }, 0.0);
         ev[1] = Point::new(0.0, if bh > 1e-12 { ph / bh } else { 1.0 });
     } else if three_d && units.iter().all(Option::is_none) {
-        let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0);
-        let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
+        let (az, el) = view_angles(e);
         let (saz, caz) = az.to_radians().sin_cos();
         let (sel, cel) = (-el).to_radians().sin_cos();
         let ratio: Vec<f64> = e.pv("plot box ratio").replace(['{', '}'], " ").split_whitespace().filter_map(|x| x.parse().ok()).collect();
@@ -1289,6 +1288,17 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
         let [dlo, dhi] = f.data_range[a];
         let scale = Some((dlo, dhi, size));
         Ok(ticks::linear(lo, hi, TickSettings { length_pt, max_space, try_min, distance, scale }))
+    }
+}
+
+/// The view's azimuth and elevation, in degrees (`trig format=rad` gives them in radians).
+pub(super) fn view_angles(e: &mut Engine) -> (f64, f64) {
+    let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0);
+    let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
+    if e.st.trig_rad {
+        (az.to_degrees(), el.to_degrees())
+    } else {
+        (az, el)
     }
 }
 
