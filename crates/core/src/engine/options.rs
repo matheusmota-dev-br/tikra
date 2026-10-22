@@ -2284,7 +2284,6 @@ const DEFINITIONS: &str = r"
   every shadow/.style={}, cap/.style={line cap=#1},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
-  /tikz/relative/.code={},
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
@@ -2300,7 +2299,7 @@ const DEFINITIONS: &str = r"
 \def\pgfmatrixnextcell{\tikra@nextcell}
 \def\pgfmatrixendrow{\tikra@endrow}
 \tikzset{
-  on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try}},
+  on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try,#1}},
     execute at end scope={\endpgfonlayer}},
   background rectangle/.style={draw}, background top/.style={draw}, background bottom/.style={draw},
   background left/.style={draw}, background right/.style={draw}, background grid/.style={help lines,draw},
