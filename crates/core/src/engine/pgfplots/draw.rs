@@ -917,7 +917,18 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         for k in 0..3 {
             let range = (max[k] - min[k]).abs().max(1e-12);
             let s = if dir[k] { -1.0 } else { 1.0 };
-            ev[k] = Point::new(base[k].x * sx * s / range, base[k].y * sy * s / range);
+            // 1/range as pgfplots multiplies it (compat before 1.3's pgfbasic scaling): a TeX
+            // dimension, in sp, of the range in the data scale transformation's units
+            let [lo, hi] = data_range[k];
+            let f = if log[k] || keys::flag(e, "/pgfplots/@disabledatascaling") || !(lo.is_finite() && hi.is_finite()) {
+                1.0
+            } else {
+                let size = keys::length(e, if k == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if k == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+                ticks::data_scale(lo, hi, size)
+            };
+            let inverse = ((65536.0 / (range * f)).round() / 65536.0 * f).max(1e-300);
+            let inverse = if inverse.is_finite() && inverse > 0.0 { inverse } else { 1.0 / range };
+            ev[k] = Point::new(base[k].x * sx * s * inverse, base[k].y * sy * s * inverse);
         }
     } else {
         for a in 0..dims {
