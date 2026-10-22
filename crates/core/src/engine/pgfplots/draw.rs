@@ -1278,6 +1278,13 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
     if trimmed.len() == 1 && trimmed[0].is_cs("empty") {
         return Ok((Vec::new(), 0.0));
     }
+    // `xtickten={1,2}` on a log axis: ticks at 10^1 and 10^2
+    if f.log[a] && text_is_empty(&e.tex.expand_to_string(trimmed.clone())?) {
+        if let Some(list) = pk::value(&e.tex, &format!("/pgfplots/{c}tickten")).filter(|l| !pk::trim(l).is_empty()) {
+            let v = number_list(e, list)?;
+            return Ok((v.into_iter().map(|k| k * std::f64::consts::LN_10).collect(), 0.0));
+        }
+    }
     let text = e.tex.expand_to_string(trimmed.clone())?;
     let text = text.trim();
     if text == "data" {
@@ -1345,6 +1352,10 @@ pub(super) fn view_angles(e: &mut Engine) -> (f64, f64) {
     } else {
         (az, el)
     }
+}
+
+fn text_is_empty(s: &str) -> bool {
+    s.trim().is_empty()
 }
 
 /// The ticks of axis `a` that are drawn: (index in the list, logical value).
@@ -1941,6 +1952,16 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
             _ => ("10".to_string(), t / std::f64::consts::LN_10),
         };
         let fmt = NumberFormat { style: super::number::Style::Fixed, precision: 2, ..e.st.number_format.clone() };
+        // `log identify minor tick positions` (extra ticks): 5·10^-6 rather than 10^-5.3
+        if base_text == "10" && keys::flag(e, "/pgfplots/log identify minor tick positions") {
+            let j = exp.floor();
+            let m = 10f64.powf(exp - j);
+            let i = m.round();
+            if (exp - exp.round()).abs() > 1e-4 && (2.0..=9.0).contains(&i) && (m - i).abs() < 1e-3 * i {
+                let sci = NumberFormat { style: super::number::Style::Sci, ..e.st.number_format.clone() };
+                return Ok(tex::string_tokens(&format!("${}$", sci.print(i * 10f64.powf(j)))));
+            }
+        }
         if keys::flag(e, "/pgfplots/@log fixed point") {
             let v = (exp * (base_text.parse::<f64>().unwrap_or(10.0)).ln()).exp();
             let ff = NumberFormat { style: super::number::Style::FixedRelative, precision: 3, ..e.st.number_format.clone() };
@@ -2100,10 +2121,20 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
             tick_text(e, a, t, next, k, factor, extra)
         })();
         e.end_group();
-        let text = r?;
+        let mut text = r?;
+        // `typeset ticklabels with strut`: every label as high and deep as a strut
+        if keys::flag(e, "/pgfplots/@ticklabel strut") {
+            let mut strut = toks("\\vrule width 0pt height 0.84em depth 0.36em");
+            strut.extend(text);
+            text = strut;
+        }
         let options = toks(&format!("anchor={anchor},{styles}"));
-        let (items, _, bbox) =
-            e.capture(|e| e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None }))?;
+        // `\ticknum` in the label's options too (`name=tick no \ticknum`)
+        e.begin_group();
+        e.tex.set_meaning(&Token::cs("ticknum"), super::super::macro_from(&k.to_string()), false);
+        let r = e.capture(|e| e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None }));
+        e.end_group();
+        let (items, _, bbox) = r?;
         if let Some((lo, hi)) = bbox {
             let corner = Point::new(if n.x > 0.0 { hi.x } else { lo.x }, if n.y > 0.0 { hi.y } else { lo.y });
             let d = (corner.x - p.x) * n.x + (corner.y - p.y) * n.y;
