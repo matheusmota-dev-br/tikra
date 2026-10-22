@@ -155,6 +155,28 @@ impl Engine {
         Ok(())
     }
 
+    /// `\pgfpointcurvilinearbezierpolar{x}{y}`: the point as far along the curve as (x,y) is from
+    /// the origin, turned about the curve's start by the angle of (x,y) (of (−x,−y) when x < 0,
+    /// the distance then counting backwards), into `\pgf@x`, `\pgf@y`.
+    pub fn point_curvilinear_polar(&mut self) -> Result<(), Error> {
+        let (a, b) = (self.argument()?, self.argument()?);
+        let (x, y) = (self.length_of(a)? / PT, self.length_of(b)? / PT);
+        let Some(c) = self.st.curvilinear.clone() else { return Ok(()) };
+        let mut dir = if x == 0.0 && y == 0.0 { Point::new(1.0, 0.0) } else { Point::new(x, y).scale(1.0 / x.hypot(y)) };
+        let mut d = x.hypot(y);
+        if x < 0.0 {
+            dir = dir.scale(-1.0);
+            d = -d;
+        }
+        let p = c.at(c.time(d));
+        let start = c.points[0];
+        let v = p.minus(start);
+        let r = start.plus(Point::new(dir.x * v.x - dir.y * v.y, dir.y * v.x + dir.x * v.y));
+        self.tex.dimens.insert(4050, (r.x / PT * 65536.0).round() as i64);
+        self.tex.dimens.insert(4051, (r.y / PT * 65536.0).round() as i64);
+        Ok(())
+    }
+
     /// `\pgf@sys@tonumber\reg`: the register's value in pt, without the unit.
     pub fn to_number(&mut self) -> Result<(), Error> {
         let Some(t) = self.tex.get_token() else { return Ok(()) };

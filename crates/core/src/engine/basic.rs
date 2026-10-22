@@ -986,7 +986,8 @@ impl Engine {
                     (y, "") => y.to_string(),
                     (y, x) => format!("{y} {x}"),
                 };
-                let place = t.apply(at);
+                // under a nonlinear transformation, the text goes where its point goes
+                let place = if self.st.nonlinear.is_empty() { t.apply(at) } else { self.nonlinear_point(t.apply(at))? };
                 // a shading as the text: its box, placed by the anchor (its baseline is its bottom)
                 let words: Vec<&Token> = text.iter().filter(|x| !x.is_space()).collect();
                 if let [Token::Cs(cmd), ..] = words[..] {
@@ -1012,7 +1013,10 @@ impl Engine {
                         }
                     }
                 }
-                let options = tikra_tokens(&format!("shape=rectangle,inner sep=0pt,outer sep=0pt,anchor={anchor},rotate={rotate}"));
+                // the text is scaled and turned by the transformation in force, as pgf boxes it
+                let linear = t.a != 1.0 || t.b != 0.0 || t.c != 0.0 || t.d != 1.0;
+                let shape = if linear { ",transform shape" } else { "" };
+                let options = tikra_tokens(&format!("shape=rectangle,inner sep=0pt,outer sep=0pt,anchor={anchor},rotate={rotate}{shape}"));
                 let items = self.node(NodeSpec { options, name: None, at: Some(place), text, place: OnPath::Point(place), point: place, coordinate: false, default_pos: None })?;
                 self.canvas.items.extend(items);
             }

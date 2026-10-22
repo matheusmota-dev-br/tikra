@@ -85,6 +85,7 @@ pub enum Cmd {
     ApproximateNonlinearTranslation,
     SetCurvilinear,
     PointCurvilinear,
+    PointCurvilinearPolar,
     ToNumber,
     MathSinCos,
     SetFadingForPath,
@@ -188,6 +189,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfapproximatenonlineartranslation", Cmd::ApproximateNonlinearTranslation),
     ("pgfsetcurvilinearbeziercurve", Cmd::SetCurvilinear),
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
+    ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
     ("pgf@sys@tonumber", Cmd::ToNumber),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
@@ -902,11 +904,13 @@ impl Engine {
         crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), in_pt: false }
     }
 
-    /// A pgfmath number from text.
+    /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).
     pub fn number(&mut self, text: &str) -> Result<f64, Error> {
         let t = tex::string_tokens(text);
         let s = self.math_string(t)?;
-        crate::expr::eval(&s, &self.vars())
+        let mut vars = self.vars();
+        vars.in_pt = true;
+        crate::expr::eval(&s, &vars)
     }
 
     /// A pgfmath length in cm (a number without a unit is in pt, as pgf reads lengths).
@@ -1011,6 +1015,7 @@ impl Engine {
             Cmd::ApproximateNonlinearTranslation => self.approximate_nonlinear(false),
             Cmd::SetCurvilinear => self.set_curvilinear(),
             Cmd::PointCurvilinear => self.point_curvilinear(),
+            Cmd::PointCurvilinearPolar => self.point_curvilinear_polar(),
             Cmd::ToNumber => self.to_number(),
             Cmd::MathSinCos => self.math_sincos(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
