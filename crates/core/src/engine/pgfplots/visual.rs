@@ -339,10 +339,30 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     if closed {
         if let (Some(first), Some(last)) = (pts.iter().find(|l| l[0].is_finite()), pts.iter().rev().find(|l| l[0].is_finite())) {
             if stacked && p.stack == Some('y') {
-                for (i, l) in pts.iter().enumerate().rev() {
-                    if l[0].is_finite() {
-                        segs.push(Segment::LineTo(at(l[0], base.get(i).copied().unwrap_or(f.zero[1]))));
+                // the previous plot backwards, with its plot handler: a step that holds to the
+                // right holds to the left when walked back
+                let back: Vec<Point> = pts.iter().enumerate().rev().filter(|(_, l)| l[0].is_finite()).map(|(i, l)| at(l[0], base.get(i).copied().unwrap_or(f.zero[1]))).collect();
+                let step = match handler.as_str() {
+                    "const" => "const right",
+                    "const right" => "const",
+                    "const mid" => "const mid",
+                    _ => "",
+                };
+                for (k, b) in back.iter().enumerate() {
+                    if k > 0 {
+                        let a = back[k - 1];
+                        match step {
+                            "const" => segs.push(Segment::LineTo(Point::new(b.x, a.y))),
+                            "const right" => segs.push(Segment::LineTo(Point::new(a.x, b.y))),
+                            "const mid" => {
+                                let m = (a.x + b.x) / 2.0;
+                                segs.push(Segment::LineTo(Point::new(m, a.y)));
+                                segs.push(Segment::LineTo(Point::new(m, b.y)));
+                            }
+                            _ => {}
+                        }
                     }
+                    segs.push(Segment::LineTo(*b));
                 }
             } else {
                 segs.push(Segment::LineTo(at(last[0], f.zero[1])));
@@ -350,6 +370,15 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             }
             segs.push(Segment::Close);
         }
+    }
+    // `\addplot coordinates {…} -- cycle;`: the path closed
+    let mut rest: Vec<Token> = p.post.iter().filter(|t| !t.is_cs("closedcycle")).cloned().collect();
+    let text = tex::tokens_to_string(&rest);
+    if let Some(after) = text.trim_start().strip_prefix("--").map(str::trim_start).and_then(|t| t.strip_prefix("cycle")) {
+        if !closed && !segs.is_empty() {
+            segs.push(Segment::Close);
+        }
+        rest = super::toks(after);
     }
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
@@ -363,7 +392,6 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         let _ = draw;
     }
     // the rest of the path: nodes at the last point, those with `pos` along the plot
-    let rest: Vec<Token> = p.post.iter().filter(|t| !t.is_cs("closedcycle")).cloned().collect();
     if rest.iter().any(|t| !t.is_space()) {
         post_nodes(e, p, pts, &cp, f, rest)?;
     }
