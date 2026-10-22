@@ -213,6 +213,13 @@ const DEFINITIONS: &str = r"
 	/pgfplots/legend image code/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
 	/pgfplots/legend image with text/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{empty}},
 	/pgfplots/title/.initial=, /pgfplots/xlabel/.initial=, /pgfplots/ylabel/.initial=, /pgfplots/zlabel/.initial=,
+	/pgfplots/use units/.initial=true, /pgfplots/use units/.default=true,
+	/pgfplots/x unit/.initial=, /pgfplots/y unit/.initial=, /pgfplots/z unit/.initial=,
+	/pgfplots/x unit prefix/.initial=, /pgfplots/y unit prefix/.initial=, /pgfplots/z unit prefix/.initial=,
+	/pgfplots/change x base/.initial=false, /pgfplots/change x base/.default=true,
+	/pgfplots/change y base/.initial=false, /pgfplots/change y base/.default=true,
+	/pgfplots/change z base/.initial=false, /pgfplots/change z base/.default=true,
+	/pgfplots/@x scale label off/.initial=false, /pgfplots/@y scale label off/.initial=false, /pgfplots/@z scale label off/.initial=false,
 	/pgfplots/xlabel shift/.initial=0pt, /pgfplots/ylabel shift/.initial=0pt, /pgfplots/zlabel shift/.initial=0pt,
 	/pgfplots/label shift/.style={/pgfplots/xlabel shift={#1},/pgfplots/ylabel shift={#1},/pgfplots/zlabel shift={#1}},
 	/pgfplots/extra description/.code=,
@@ -1074,6 +1081,50 @@ keyfn!(k_colormap_defined, |e, v| {
     Ok(())
 });
 
+// `x SI prefix=kilo` (the units library): the prefix of the unit in the label; with `change x base`
+// the tick labels in that unit too (`scaled x ticks=base 10:-3`, without a scale label).
+keyfn!(k_si_prefix, |e, v| {
+    let c = current_key_axis(e);
+    let name = text(e, &v)?;
+    let table: &[(&str, i32, &str)] = &[
+        ("yocto", 24, "y"),
+        ("zepto", 21, "z"),
+        ("atto", 18, "a"),
+        ("femto", 15, "f"),
+        ("pico", 12, "p"),
+        ("nano", 9, "n"),
+        ("micro", 6, "\\mu"),
+        ("milli", 3, "m"),
+        ("centi", 2, "c"),
+        ("deci", 1, "d"),
+        ("deca", -1, "da"),
+        ("hecto", -2, "h"),
+        ("kilo", -3, "k"),
+        ("mega", -6, "M"),
+        ("giga", -9, "G"),
+        ("tera", -12, "T"),
+        ("peta", -15, "P"),
+        ("exa", -18, "E"),
+        ("zetta", -21, "Z"),
+        ("yotta", -24, "Y"),
+    ];
+    let Some(&(_, exp, prefix)) = table.iter().find(|(n, _, _)| *n == name) else {
+        e.warn(format!("{c} SI prefix={name} not supported: ignored"));
+        return Ok(());
+    };
+    set(e, &format!("/pgfplots/{c} unit prefix"), prefix);
+    if flag(e, &format!("/pgfplots/change {c} base")) {
+        set(e, &format!("/pgfplots/scaled {c} ticks"), &format!("base 10:{exp}"));
+        set(e, &format!("/pgfplots/@{c} scale label off"), "true");
+    }
+    Ok(())
+});
+
+/// The axis letter of the key being run (`/pgfplots/x SI prefix` → `x`).
+fn current_key_axis(e: &Engine) -> char {
+    current_name(e).chars().next().unwrap_or('x')
+}
+
 // `colormap/PuBu`, `colormap/RdPu-6`: the ColorBrewer colormaps (`\usepgfplotslibrary{colorbrewer}`),
 // equally spaced colors.
 keyfn!(k_colormap_unknown, |e, _v| {
@@ -1303,6 +1354,9 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/boxplot", k_boxplot),
     ("/pgfplots/boxplot prepared", k_boxplot),
     ("/pgfplots/colormap/.unknown", k_colormap_unknown),
+    ("/pgfplots/x SI prefix", k_si_prefix),
+    ("/pgfplots/y SI prefix", k_si_prefix),
+    ("/pgfplots/z SI prefix", k_si_prefix),
     ("/pgfplots/@colormap defined", k_colormap_defined),
     ("/pgfplots/color of colormap", k_colormap_color),
     ("/pgfplots/const color of colormap", k_colormap_color),

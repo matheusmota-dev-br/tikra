@@ -2066,7 +2066,7 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
         let mut td = f.tick_dim.borrow_mut();
         td[a] = td[a].max(dim.max(off));
     }
-    if let Some(label) = scale_label.filter(|_| !vis.is_empty()) {
+    if let Some(label) = scale_label.filter(|_| !vis.is_empty() && !keys::flag(e, &format!("/pgfplots/@{c} scale label off"))) {
         let text = tex::string_tokens(&label);
         let options = toks(&format!("/pgfplots/every tick label,/pgfplots/every {c} tick label,/pgfplots/every {c} tick scale label"));
         f.cs.set(Cs::Description);
@@ -2084,9 +2084,16 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let labels: &[(usize, &str)] = if f.three_d { &[(0, "x"), (1, "y"), (2, "z")] } else { &[(0, "x"), (1, "y")] };
     for &(a, c) in labels {
         // an empty label is still a node in TeX's drawing: it takes room at its place
-        let text = keys::value_tokens(&*e, &format!("/pgfplots/{c}label")).unwrap_or_default();
+        let mut text = keys::value_tokens(&*e, &format!("/pgfplots/{c}label")).unwrap_or_default();
         if s.hide[a] {
             continue;
+        }
+        // the units library: ` [km]` after the label (`x unit=m`, `x unit prefix=k`)
+        let unit = keys::value(e, &format!("/pgfplots/{c} unit"));
+        if !unit.trim().is_empty() && keys::flag(e, "/pgfplots/use units") {
+            let prefix = keys::value(e, &format!("/pgfplots/{c} unit prefix"));
+            text.extend(tex::string_tokens(" "));
+            text.extend(toks(&format!("$\\left[\\mathrm{{{prefix}{unit}}}\\right]$")));
         }
         f.label_axis.set(a);
         let p = f.desc(0.0, 0.0);
