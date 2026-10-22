@@ -660,7 +660,7 @@ pub fn draw_near_nodes(e: &mut Engine, m: &Marks) -> Result<(), Error> {
 }
 
 fn unit(p: Point) -> Point {
-    p.scale(1.0 / p.norm().max(1e-12))
+    super::draw::unit(p)
 }
 
 fn rect(segs: &mut Vec<Segment>, a: Point, b: Point) {

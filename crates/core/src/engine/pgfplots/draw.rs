@@ -180,8 +180,7 @@ impl Frame {
         }
         let b = if a == 0 { 1 } else { 0 };
         let d = self.e[b];
-        let n = d.norm().max(1e-12);
-        let u = d.scale(1.0 / n);
+        let u = unit(d);
         let side = if self.label_side[a] > 0 { 1.0 } else { -1.0 };
         // e[b] points to growing b: the lower side is outward against it
         let sign = if self.max[b] >= self.min[b] { 1.0 } else { -1.0 };
@@ -1055,7 +1054,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let mut hide = [keys::flag(e, "/pgfplots/hide x axis"), keys::flag(e, "/pgfplots/hide y axis"), keys::flag(e, "/pgfplots/hide z axis")];
     // an axis of no length on paper (z at view {0}{90}) is hidden (`\pgfplots@hide@ztrue`)
     for (a, h) in hide.iter_mut().enumerate() {
-        if a < dims && frame.e[a].norm() < 1e-12 {
+        if a < dims && frame.e[a].norm() * (frame.max[a] - frame.min[a]).abs() < 1e-9 {
             *h = true;
         }
     }
@@ -1296,7 +1295,7 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
 /// The ticks of axis `a` that are drawn: (index in the list, logical value).
 pub(super) fn visible(f: &Frame, a: usize, list: &[f64]) -> Vec<(usize, f64)> {
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
-    let tol = 0.05 * PT / f.e[a].norm().max(1e-12);
+    let tol = 0.05 * PT / f.e[a].norm().max(f64::MIN_POSITIVE);
     list.iter().copied().enumerate().filter(|(_, t)| *t >= lo - tol && *t <= hi + tol).collect()
 }
 
@@ -1310,7 +1309,13 @@ fn on_axis(f: &Frame, a: usize, t: f64, b_value: f64) -> Point {
 }
 
 pub(super) fn unit(p: Point) -> Point {
-    p.scale(1.0 / p.norm().max(1e-12))
+    // tiny vectors are not zero: an axis up to 10^21 has a unit vector of 10^-20 pt
+    let n = p.norm();
+    if n > 0.0 {
+        p.scale(1.0 / n)
+    } else {
+        p
+    }
 }
 
 /// Everything of the axis, in pgfplots' order.
@@ -1682,7 +1687,7 @@ fn obscured(s: &Setup, a: usize, t: f64) -> bool {
     if s.line[a] != "center" || f.three_d {
         return false;
     }
-    let tol = 0.05 * PT / f.e[a].norm().max(1e-12);
+    let tol = 0.05 * PT / f.e[a].norm().max(f64::MIN_POSITIVE);
     let near = |v: f64| (t - v).abs() <= tol;
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
     match s.line[1 - a].as_str() {
