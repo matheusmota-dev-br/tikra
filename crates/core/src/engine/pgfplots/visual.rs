@@ -800,6 +800,7 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         let Some(name) = e.st.plot_mark.clone() else { return Ok(()) };
         let local = e.st.pending;
         let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * PT);
+        let cube = f.three_d && (name == "cube" || name == "cube*");
         let repeat = keys::number(e, "/tikz/mark repeat").unwrap_or(1.0).max(1.0) as usize;
         let phase = keys::number(e, "/tikz/mark phase").unwrap_or(1.0).max(1.0) as usize;
         let indices: Vec<usize> = match keys::value_tokens(e, "/tikz/mark indices") {
@@ -830,15 +831,72 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
                         }
                         e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
                     }
-                    draw_mark_set(e, &name, size, &local, std::iter::once(p))?;
+                    if cube {
+                        draw_cubes(e, &name, e.st.mark_size, f, std::iter::once(p))?;
+                    } else {
+                        draw_mark_set(e, &name, size, &local, std::iter::once(p))?;
+                    }
                 }
                 Ok(())
             }
+            None if cube => draw_cubes(e, &name, e.st.mark_size, f, chosen.map(|(_, (p, _))| p)),
             None => draw_mark_set(e, &name, size, &local, chosen.map(|(_, (p, _))| p)),
         }
     })();
     e.end_group();
     r
+}
+
+/// `mark=cube` and `cube*` in a 3d axis: a cube with edges `size` long along the axes
+/// (`cube/size x=\pgfplotmarksize`); `cube*` fills the three faces in front.
+fn draw_cubes(e: &mut Engine, name: &str, size: f64, f: &Frame, points: impl Iterator<Item = Point>) -> Result<(), Error> {
+    let half = [0, 1, 2].map(|k| {
+        let n = f.e[k].norm();
+        if n > 0.0 {
+            f.e[k].scale(0.5 * size / n)
+        } else {
+            Point::default()
+        }
+    });
+    let stroke = e.stroke();
+    let fill = Fill { paint: Paint::Solid(e.st.fill_paint_color()), opacity: e.st.fill_opacity, even_odd: false };
+    for p in points {
+        let at = |s: [f64; 3]| p.plus(half[0].scale(s[0])).plus(half[1].scale(s[1])).plus(half[2].scale(s[2]));
+        let face = |k: usize, side: f64| -> Vec<Segment> {
+            // the four corners of the face at `side` across axis k, around
+            let (a, b) = ((k + 1) % 3, (k + 2) % 3);
+            let mut c = Vec::new();
+            for (u, v) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, 1.0), (1.0, -1.0)] {
+                let mut s = [0.0; 3];
+                s[k] = side;
+                s[a] = u;
+                s[b] = v;
+                c.push(at(s));
+            }
+            vec![Segment::MoveTo(c[0]), Segment::LineTo(c[1]), Segment::LineTo(c[2]), Segment::LineTo(c[3]), Segment::Close]
+        };
+        if name == "cube*" {
+            for k in 0..3 {
+                let segs = face(k, if f.fg[k][0] { -1.0 } else { 1.0 });
+                if !e.canvas_frozen {
+                    e.canvas.include_path(&segs);
+                }
+                e.canvas.push(Item::Path { segments: segs, fill: Some(fill.clone()), stroke: Some(stroke.clone()) });
+            }
+        } else {
+            let mut segs = face(0, -1.0);
+            segs.extend(face(0, 1.0));
+            for (u, v) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, 1.0), (1.0, -1.0)] {
+                segs.push(Segment::MoveTo(at([1.0, u, v])));
+                segs.push(Segment::LineTo(at([-1.0, u, v])));
+            }
+            if !e.canvas_frozen {
+                e.canvas.include_path(&segs);
+            }
+            e.canvas.push(Item::Path { segments: segs, fill: None, stroke: Some(stroke.clone()) });
+        }
+    }
+    Ok(())
 }
 
 /// Marks named `name` of size `size` at `points`, in the current state.
