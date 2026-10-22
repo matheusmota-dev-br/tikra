@@ -55,6 +55,7 @@ const SAVED: &[&str] = &[
     "/pgfplots/colorbar/width",
     "/pgfplots/colorbar pos*",
     "/pgfplots/@colorbar sampled",
+    "/pgfplots/@colorbar line",
     "/pgfplots/colormap access",
 ];
 
@@ -108,7 +109,23 @@ impl Engine {
             let (lo, hi) = (cb.meta[0], cb.meta[1]);
             let at = |k: usize| lo + (hi - lo) * k as f64 / (n - 1) as f64;
             let mut coords = String::new();
-            for side in [0, 1] {
+            // `colorbar sampled line`: one line of samples in the middle, with the axis line on the
+            // tick labels' side only
+            let line = sampled.is_some() && keys::flag(self, "/pgfplots/@colorbar line");
+            let mut extra = String::new();
+            if line {
+                for k in 0..n {
+                    let v = num(at(k));
+                    coords.push_str(&if horizontal { format!("({v},0.5) ") } else { format!("(0.5,{v}) ") });
+                }
+                let pos = keys::value(self, "/pgfplots/colorbar pos*");
+                extra = if horizontal {
+                    format!("axis x line*={},y axis line style={{/pgfplots/every colorbar sampled line}},", if pos == "t" { "top" } else { "bottom" })
+                } else {
+                    format!("axis y line*={},x axis line style={{/pgfplots/every colorbar sampled line}},", if pos == "l" { "left" } else { "right" })
+                };
+            }
+            for side in [0, 1].into_iter().filter(|_| !line) {
                 for k in 0..n {
                     let v = num(at(k));
                     coords.push_str(&if horizontal { format!("({v},{side}) ") } else { format!("({side},{v}) ") });
@@ -118,8 +135,9 @@ impl Engine {
                 }
             }
             let meta = if horizontal { "x" } else { "y" };
-            let code =
-                format!("\\begin{{axis}}[every colorbar,colorbar shift,colorbar=false]\\addplot[{style},point meta={meta},forget plot] coordinates {{{coords}}};\\end{{axis}}");
+            let code = format!(
+                "\\begin{{axis}}[every colorbar,colorbar shift,colorbar=false,{extra}]\\addplot[{style},point meta={meta},forget plot] coordinates {{{coords}}};\\end{{axis}}"
+            );
             let before = PARENT.with(|p| p.replace(Some(cb.parent.clone())));
             let r = self.run_tokens(toks(&code));
             PARENT.with(|p| *p.borrow_mut() = before);
