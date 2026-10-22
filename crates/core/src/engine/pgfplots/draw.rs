@@ -774,13 +774,20 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             std::mem::swap(&mut min[a], &mut max[a]);
         }
     }
-    // enlargelimits (none on a polar axis)
-    for a in 0..if polar || ternary || smith { 0 } else { dims } {
+    // enlargelimits (a polar axis enlarges only the largest radius, `\pgfplots@enlarge@limit@for@polar`)
+    for a in if ternary || smith {
+        0..0
+    } else if polar {
+        1..2
+    } else {
+        0..dims
+    } {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
         let auto = if three_d { a == 2 } else { a < 2 };
         let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
+        let lo = lo && !polar;
         let amount = abs.unwrap_or(rel * (max[a] - min[a]));
         if amount > 1e-9 * (max[a].abs() + 1.0) && !invalid {
             if lo {
@@ -883,9 +890,10 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             pw = (pw - 45.0 * PT).max(0.0);
             ph = (ph - 45.0 * PT).max(0.0);
         }
-        let (bw, bh) = super::polar::unit_size(min[0], max[0], min[1], max[1]);
-        ev[0] = Point::new(if bw > 1e-12 { pw / bw } else { 1.0 }, 0.0);
-        ev[1] = Point::new(0.0, if bh > 1e-12 { ph / bh } else { 1.0 });
+        // the whole circle's diameter, also for a sector (`…get@unit@scales@for@limits@polar`)
+        let d = 2.0 * max[1].abs();
+        ev[0] = Point::new(if d > 1e-12 { pw / d } else { 1.0 }, 0.0);
+        ev[1] = Point::new(0.0, if d > 1e-12 { ph / d } else { 1.0 });
     } else if three_d && units.iter().all(Option::is_none) {
         let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0);
         let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
@@ -1423,6 +1431,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         if clip && !f.three_d && !f.polar && !f.smith {
             m.points.retain(|(p, _)| inside(p));
             m.nodes.retain(|n| inside(&n.point));
+        } else if clip && f.polar {
+            m.points.retain(|(p, _)| super::polar::contains(&f, *p));
+            m.nodes.retain(|n| super::polar::contains(&f, n.point));
         }
         super::visual::draw_marks(e, &m, &f)?;
         super::visual::draw_near_nodes(e, &m)?;
