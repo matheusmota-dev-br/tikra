@@ -881,9 +881,8 @@ fn direction_anchor(angle: f64) -> &'static str {
     }
 }
 
-/// `\textcolor{color}{text}` as the whole text: (color, text).
+/// `\textcolor{color}{text}` as the whole text, or `\color{color}` before it: (color, text).
 fn whole_textcolor(t: &str) -> Option<(String, String)> {
-    let rest = t.trim().strip_prefix("\\textcolor")?.trim_start();
     let group = |s: &str| -> Option<(String, usize)> {
         let s2 = s.strip_prefix('{')?;
         let mut depth = 1;
@@ -901,6 +900,12 @@ fn whole_textcolor(t: &str) -> Option<(String, String)> {
         }
         None
     };
+    // `\color{…}` first: the rest of the text in that color
+    if let Some(rest) = t.trim().strip_prefix("\\color").map(str::trim_start) {
+        let (c, n) = group(rest)?;
+        return Some((c, rest[n..].trim().to_string()));
+    }
+    let rest = t.trim().strip_prefix("\\textcolor")?.trim_start();
     let (c, n) = group(rest)?;
     let rest = rest[n..].trim_start();
     let (inner, m) = group(rest)?;
