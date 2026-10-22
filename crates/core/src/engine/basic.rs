@@ -95,6 +95,23 @@ enum B {
     UsePlotMark,
     PlotMarkSize,
     DeclarePlotMark,
+    Triangle,
+    ArrowFrame,
+    LineAtTime,
+    CurveAtTime,
+    ArcAxesAtTime,
+    Invert,
+    Adjustments,
+    LowLevel,
+    LowLevelObj,
+    LowLevelSync,
+    NonlinearFlatness,
+    QMoveTo,
+    QLineTo,
+    QCurveTo,
+    QCircle,
+    ArcTo,
+    ArcToPrecomputed,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -196,7 +213,32 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfuseplotmark", B::UsePlotMark),
     ("pgfsetplotmarksize", B::PlotMarkSize),
     ("pgfdeclareplotmark", B::DeclarePlotMark),
+    ("pgftransformtriangle", B::Triangle),
+    ("pgftransformarrow", B::ArrowFrame),
+    ("pgftransformlineattime", B::LineAtTime),
+    ("pgftransformcurveattime", B::CurveAtTime),
+    ("pgftransformarcaxesattime", B::ArcAxesAtTime),
+    ("pgftransforminvert", B::Invert),
+    ("pgftransformationadjustments", B::Adjustments),
+    ("pgflowlevel", B::LowLevel),
+    ("pgflowlevelobj", B::LowLevelObj),
+    ("pgflowlevelsynccm", B::LowLevelSync),
+    ("pgfsettransformnonlinearflatness", B::NonlinearFlatness),
+    ("pgfpathqmoveto", B::QMoveTo),
+    ("pgfpathqlineto", B::QLineTo),
+    ("pgfpathqcurveto", B::QCurveTo),
+    ("pgfpathqcircle", B::QCircle),
+    ("pgfpatharcto", B::ArcTo),
+    ("pgfpatharctoprecomputed", B::ArcToPrecomputed),
 ];
+
+/// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
+/// transformation adjustments before they are computed, and `pgflowlevelscope`.
+pub const DEFINITIONS: &str = r"
+\newif\ifpgfslopedattime \newif\ifpgfallowupsidedownattime \newif\ifpgfresetnontranslationattime
+\def\pgfhorizontaltransformationadjustment{1}\def\pgfverticaltransformationadjustment{1}
+\newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
+";
 
 /// The basic layer's plot handlers, by command, as TikZ's `plot` names them.
 const PLOT_HANDLERS: &[(&str, &str)] = &[
@@ -248,6 +290,7 @@ const POINTS: &[&str] = &[
     "pgfpointshapeborder",
     "pgfpointintersectionoflines",
     "pgfpointtransformed",
+    "pgfpointarcaxesattime",
 ];
 
 pub fn define(e: &mut Engine) {
@@ -448,6 +491,7 @@ impl Engine {
                 let t = ((p[2].x - p[0].x) * s.y - (p[2].y - p[0].y) * s.x) / den;
                 p[0].plus(r.scale(t))
             }
+            "pgfpointarcaxesattime" => self.arc_axes_at_time()?.0,
             "pgfpointtransformed" => {
                 let p = arg(self)?;
                 let p = self.point_of(p)?;
@@ -983,12 +1027,190 @@ impl Engine {
                 let code = self.argument()?;
                 self.plot_marks_declared.insert(name.trim().to_string(), code);
             }
+            B::Triangle => {
+                // the origin goes to the first point, (1pt,0pt) to the second, (0pt,1pt) to the third
+                let o = self.point_arg()?;
+                let x = self.point_arg()?;
+                let y = self.point_arg()?;
+                let (x, y) = (x.minus(o).scale(1.0 / PT), y.minus(o).scale(1.0 / PT));
+                self.st.transform = t.compose(&Transform { a: x.x, b: x.y, c: y.x, d: y.y, e: o.x, f: o.y });
+            }
+            B::ArrowFrame => {
+                // at the end point, the x axis pointing away from the start
+                let from = self.point_arg()?;
+                let to = self.point_arg()?;
+                let d = to.minus(from);
+                let d = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+                self.st.transform = t.compose(&Transform { a: d.x, b: d.y, c: -d.y, d: d.x, e: to.x, f: to.y });
+            }
+            B::LineAtTime => {
+                let time = self.argument()?;
+                let time = self.number_of(time)?;
+                let p = self.point_arg()?;
+                let q = self.point_arg()?;
+                self.transform_at_time(p.lerp(q, time), q.minus(p));
+            }
+            B::CurveAtTime => {
+                let time = self.argument()?;
+                let s = self.number_of(time)?;
+                let mut c = [Point::default(); 4];
+                for p in &mut c {
+                    *p = self.point_arg()?;
+                }
+                let u = 1.0 - s;
+                let at = c[0].scale(u * u * u).plus(c[1].scale(3.0 * u * u * s)).plus(c[2].scale(3.0 * u * s * s)).plus(c[3].scale(s * s * s));
+                let tangent = c[1].minus(c[0]).scale(u * u).plus(c[2].minus(c[1]).scale(2.0 * u * s)).plus(c[3].minus(c[2]).scale(s * s));
+                self.transform_at_time(at, tangent);
+            }
+            B::ArcAxesAtTime => {
+                let (at, tangent) = self.arc_axes_at_time()?;
+                self.transform_at_time(at, tangent);
+            }
+            B::Invert => self.st.transform = t.inverse(),
+            B::Adjustments => {
+                // how much a horizontal and a vertical length shrink to come out at their size
+                let h = 1.0 / t.linear(Point::new(1.0, 0.0)).norm().max(1e-12);
+                let v = 1.0 / t.linear(Point::new(0.0, 1.0)).norm().max(1e-12);
+                for (name, value) in [("pgfhorizontaltransformationadjustment", h), ("pgfverticaltransformationadjustment", v)] {
+                    self.tex.set_meaning(&Token::cs(name), super::macro_tokens(tikra_tokens(&format!("{value}"))), false);
+                }
+            }
+            B::LowLevel => {
+                let code = self.argument()?;
+                self.low_level(code)?;
+            }
+            B::LowLevelObj => {
+                let code = self.argument()?;
+                let body = self.argument()?;
+                self.begin_group();
+                self.begin_scope();
+                let r = self.low_level(code).and_then(|()| self.run_tokens(body));
+                self.end_scope();
+                self.end_group();
+                r?;
+            }
+            B::LowLevelSync => {
+                // the coordinate transformation moves to the canvas, line widths and all
+                self.open_in_scope(crate::canvas::Item::Transform { transform: t });
+                self.st.transform = Transform::default();
+            }
+            B::NonlinearFlatness => {
+                let _ = self.argument()?;
+            }
+            B::QMoveTo | B::QLineTo => {
+                // the quick commands take canvas lengths, untransformed
+                let x = self.argument()?;
+                let y = self.argument()?;
+                let p = Point::new(self.length_of(x)?, self.length_of(y)?);
+                self.pgf_add(if cmd == B::QMoveTo { Segment::MoveTo(p) } else { Segment::LineTo(p) });
+            }
+            B::QCurveTo => {
+                let mut v = [0.0; 6];
+                for k in &mut v {
+                    let a = self.argument()?;
+                    *k = self.length_of(a)?;
+                }
+                self.pgf_add(Segment::CurveTo(Point::new(v[0], v[1]), Point::new(v[2], v[3]), Point::new(v[4], v[5])));
+            }
+            B::QCircle => {
+                let r = self.argument()?;
+                let r = self.length_of(r)?;
+                self.pgf_add(Segment::MoveTo(Point::new(r, 0.0)));
+                for s in super::path::arc_segments(Point::default(), r, r, 0.0, 360.0, &Transform::default()) {
+                    self.pgf_add(s);
+                }
+                self.pgf_add(Segment::Close);
+            }
+            B::ArcTo => {
+                // {x radius}{y radius}{rotation}{large arc}{counterclockwise}{target}, as SVG's arc
+                let rx = self.argument()?;
+                let ry = self.argument()?;
+                let rot = self.argument()?;
+                let large = self.argument()?;
+                let ccw = self.argument()?;
+                let (rx, ry, rot) = (self.length_of(rx)?.abs(), self.length_of(ry)?.abs(), self.number_of(rot)?);
+                let (large, ccw) = (self.number_of(large)? != 0.0, self.number_of(ccw)? != 0.0);
+                let to = self.point_arg()?;
+                let from = self.last_local();
+                for s in super::path::svg_arc_segments(from.scale(1.0 / PT), to.scale(1.0 / PT), rx / PT, ry / PT, rot, large, ccw, &t) {
+                    self.pgf_add(s);
+                }
+                self.pgf_path.last = Some(t.apply(to));
+            }
+            B::ArcToPrecomputed => {
+                // {center}{start angle}{end angle}{end point}{x radius}{y radius}{the radii's ratios}: the
+                // arc of the axis-parallel ellipse
+                let c = self.point_arg()?;
+                let a0 = self.argument()?;
+                let a1 = self.argument()?;
+                let (a0, a1) = (self.number_of(a0)?, self.number_of(a1)?);
+                let end = self.point_arg()?;
+                let rx = self.argument()?;
+                let ry = self.argument()?;
+                let (rx, ry) = (self.length_of(rx)?, self.length_of(ry)?);
+                let _ = self.argument()?;
+                let _ = self.argument()?;
+                for s in super::path::arc_segments(t.apply(c), rx, ry, a0, a1, &t) {
+                    self.pgf_add(s);
+                }
+                self.pgf_path.last = Some(t.apply(end));
+            }
         }
         Ok(())
     }
 }
 
 impl Engine {
+    /// `\pgfpointarcaxesattime{time}{center}{0° axis}{90° axis}{start}{end}`: the point of the arc at
+    /// that time, and the direction the arc goes there.
+    fn arc_axes_at_time(&mut self) -> Result<(Point, Point), Error> {
+        let time = self.argument()?;
+        let time = self.number_of(time)?;
+        let c = self.point_arg()?;
+        let x = self.point_arg()?;
+        let y = self.point_arg()?;
+        let a0 = self.argument()?;
+        let a1 = self.argument()?;
+        let (a0, a1) = (self.number_of(a0)?, self.number_of(a1)?);
+        let (s, co) = (a0 + (a1 - a0) * time).to_radians().sin_cos();
+        let tangent = y.scale(co).minus(x.scale(s));
+        let tangent = if a0 > a1 { tangent.scale(-1.0) } else { tangent };
+        Ok((c.plus(x.scale(co)).plus(y.scale(s)), tangent))
+    }
+
+    /// The coordinate system of a point on a line or curve: shifted there; with `\pgfslopedattimetrue`
+    /// turned along `tangent` (kept upright unless `\pgfallowupsidedownattimetrue`); with
+    /// `\pgfresetnontranslationattimetrue` without the rotations and scalings before.
+    fn transform_at_time(&mut self, at: Point, tangent: Point) {
+        let on = |e: &Engine, name: &str| e.tex.meaning_of(name) == Meaning::Prim(tex::Prim::Iftrue);
+        let mut t = self.st.transform.compose(&Transform::translation(at.x, at.y));
+        if on(self, "ifpgfresetnontranslationattime") {
+            t = Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, ..t };
+        }
+        if on(self, "ifpgfslopedattime") {
+            let mut d = tangent;
+            if !on(self, "ifpgfallowupsidedownattime") && d.x < 0.0 {
+                d = d.scale(-1.0);
+            }
+            let d = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+            t = t.compose(&Transform { a: d.x, b: d.y, c: -d.y, d: d.x, e: 0.0, f: 0.0 });
+        }
+        self.st.transform = t;
+    }
+
+    /// `\pgflowlevel{code}`: the transformation the code makes (from none) applies to the canvas, up
+    /// to the end of the scope, line widths and text included.
+    fn low_level(&mut self, code: Vec<Token>) -> Result<(), Error> {
+        self.begin_group();
+        self.st.transform = Transform::default();
+        let r = self.run_tokens(code);
+        let t = self.st.transform;
+        self.end_group();
+        r?;
+        self.open_in_scope(crate::canvas::Item::Transform { transform: t });
+        Ok(())
+    }
+
     /// A multipart node's text from the boxes `\setbox\pgfnodepart<name>box=\hbox{…}` filled: the
     /// text part first, then the others with `\nodepart{name}`.
     fn node_part_boxes(&mut self) -> Vec<Token> {

@@ -2253,6 +2253,7 @@ pub fn define_keys(e: &mut Engine) {
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
     lexer.push_text(DEFINITIONS);
+    lexer.push_text(super::basic::DEFINITIONS);
     lexer.push_text(super::decorations::DEFINITIONS);
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);

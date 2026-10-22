@@ -1390,10 +1390,16 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
 
 /// An SVG elliptical arc from `a` to `p` (local pt), as curves on the canvas (SVG's appendix F.6.5).
 #[allow(clippy::too_many_arguments)]
-fn svg_arc(b: &mut Builder, a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) {
+fn svg_arc(b: &mut Builder, a: Point, p: Point, rx: f64, ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) {
+    b.segs.extend(svg_arc_segments(a, p, rx, ry, phi, large, sweep, t));
+}
+
+/// The curves of an SVG elliptical arc from `a` to `p` (local pt) on the canvas; `sweep` turns it
+/// counterclockwise. A radius of zero or no distance makes it a line.
+#[allow(clippy::too_many_arguments)]
+pub fn svg_arc_segments(a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) -> Vec<Segment> {
     if rx < 1e-12 || ry < 1e-12 || a.minus(p).norm() < 1e-12 {
-        b.segs.push(Segment::LineTo(t.apply(p.scale(crate::PT))));
-        return;
+        return vec![Segment::LineTo(t.apply(p.scale(crate::PT)))];
     }
     let (s, c) = phi.to_radians().sin_cos();
     let d = a.minus(p).scale(0.5);
@@ -1426,7 +1432,7 @@ fn svg_arc(b: &mut Builder, a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f
         .compose(&crate::scene::Transform::scaling(crate::PT, crate::PT))
         .compose(&crate::scene::Transform::translation(center.x, center.y))
         .compose(&crate::scene::Transform::rotation(phi));
-    b.segs.extend(crate::canvas::transform_segments(&local, &m));
+    crate::canvas::transform_segments(&local, &m)
 }
 
 /// `arc (start:end:radius)`, `arc (start:end:rx and ry)`, `arc[start angle=…, end angle=…, radius=…]`.
