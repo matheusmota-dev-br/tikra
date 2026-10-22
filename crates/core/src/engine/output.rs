@@ -428,9 +428,11 @@ fn path_start(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
     }
 }
 
-/// A path that leaves its first point (`\pgf@path@check@proper`).
+/// A path whose last subpath leaves its first point (`\pgf@path@check@proper`: each move starts
+/// the test again).
 fn proper(segs: &[Segment]) -> bool {
-    let points: Vec<Point> = segs
+    let last = segs.iter().rposition(|s| matches!(s, Segment::MoveTo(_))).unwrap_or(0);
+    let points: Vec<Point> = segs[last..]
         .iter()
         .flat_map(|s| match *s {
             Segment::MoveTo(p) | Segment::LineTo(p) => vec![p],
