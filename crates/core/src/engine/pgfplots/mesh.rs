@@ -112,6 +112,15 @@ pub fn image_corners(pts: &[[f64; 3]], rows: usize, cols: usize) -> Vec<[f64; 3]
 fn patches(p: &Plot, n: usize, kind: &str) -> Vec<Vec<usize>> {
     if let Some((rows, cols)) = p.lattice {
         let mut v = Vec::new();
+        // `patch type=line`: the segments along the scanlines only
+        if kind == "line" {
+            for r in 0..rows {
+                for c in 0..cols.saturating_sub(1) {
+                    v.push(vec![r * cols + c, r * cols + c + 1]);
+                }
+            }
+            return v;
+        }
         for r in 0..rows.saturating_sub(1) {
             for c in 0..cols.saturating_sub(1) {
                 let k = r * cols + c;
