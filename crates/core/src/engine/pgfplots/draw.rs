@@ -1139,7 +1139,18 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let mut ticks: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut dist = [0.0; 3];
     for a in 0..dims {
-        let (t, d) = tick_list(e, a, &frame, axis)?;
+        let (mut t, d) = tick_list(e, a, &frame, axis)?;
+        // `xtickmin`, `xtickmax`: no tick outside
+        let c = axis_char(a);
+        let tol = 1e-9 * (frame.max[a] - frame.min[a]).abs().max(1e-300);
+        if let Some(lo) = keys::number(e, &format!("/pgfplots/{c}tickmin")) {
+            let lo = frame.logical(a, lo);
+            t.retain(|v| *v >= lo - tol);
+        }
+        if let Some(hi) = keys::number(e, &format!("/pgfplots/{c}tickmax")) {
+            let hi = frame.logical(a, hi);
+            t.retain(|v| *v <= hi + tol);
+        }
         ticks[a] = t;
         dist[a] = d;
     }
