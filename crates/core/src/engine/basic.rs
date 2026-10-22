@@ -114,6 +114,9 @@ enum B {
     ArcToPrecomputed,
     DeclareFunctional,
     ShadeColorToRgb,
+    GetPath,
+    SetPath,
+    IntersectionOfPaths,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -234,6 +237,9 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfpatharctoprecomputed", B::ArcToPrecomputed),
     ("pgfdeclarefunctionalshading", B::DeclareFunctional),
     ("pgfshadecolortorgb", B::ShadeColorToRgb),
+    ("pgfgetpath", B::GetPath),
+    ("pgfsetpath", B::SetPath),
+    ("pgfintersectionofpaths", B::IntersectionOfPaths),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -315,6 +321,7 @@ const POINTS: &[&str] = &[
     "pgfpointintersectionoflines",
     "pgfpointtransformed",
     "pgfpointarcaxesattime",
+    "pgfpointintersectionsolution",
 ];
 
 pub fn define(e: &mut Engine) {
@@ -516,6 +523,14 @@ impl Engine {
                 p[0].plus(r.scale(t))
             }
             "pgfpointarcaxesattime" => self.arc_axes_at_time()?.0,
+            "pgfpointintersectionsolution" => {
+                // the solution (counted from 1) in the current coordinate system
+                let k = arg(self)?;
+                let k = self.number_of(k)?;
+                let p = (k >= 1.0).then(|| self.pgf_solutions.get(k as usize - 1).copied()).flatten();
+                let p = p.ok_or_else(|| Error::Figure(format!("no intersection {k}")))?;
+                self.st.transform.inverse().apply(p)
+            }
             "pgfpointtransformed" => {
                 let p = arg(self)?;
                 let p = self.point_of(p)?;
@@ -1162,6 +1177,39 @@ impl Engine {
                 self.pgf_path.last = Some(t.apply(to));
             }
             B::DeclareFunctional => self.declare_functional_shading()?,
+            B::GetPath | B::SetPath => {
+                // \pgfgetpath\macro keeps the path being built under the macro's name;
+                // \pgfsetpath\macro makes it the path being built again
+                let m = self.argument()?;
+                let name = m.iter().find_map(|t| if let Token::Cs(n) = t { Some(n.to_string()) } else { None }).unwrap_or_default();
+                if cmd == B::GetPath {
+                    self.saved_paths.insert(format!("pgf@{name}"), self.pgf_path.segments.clone());
+                } else if let Some(segs) = self.saved_paths.get(&format!("pgf@{name}")).cloned() {
+                    self.pgf_path = PgfPath::default();
+                    for s in segs {
+                        self.pgf_add(s);
+                    }
+                }
+            }
+            B::IntersectionOfPaths => {
+                // each code builds a path (what it draws is drawn); where the two paths cross
+                let mut paths = Vec::new();
+                for _ in 0..2 {
+                    let code = self.argument()?;
+                    self.begin_group();
+                    self.begin_scope();
+                    self.pgf_path = PgfPath::default();
+                    let r = self.run_tokens(code);
+                    paths.push(std::mem::take(&mut self.pgf_path.segments));
+                    self.pgf_path = PgfPath::default();
+                    self.end_scope();
+                    self.end_group();
+                    r?;
+                }
+                self.pgf_solutions = super::intersections::intersections(&paths[0], &paths[1]);
+                let n = self.pgf_solutions.len();
+                self.tex.set_meaning(&Token::cs("pgfintersectionsolutions"), super::macro_tokens(tikra_tokens(&n.to_string())), false);
+            }
             B::ShadeColorToRgb => self.shade_color_to_rgb()?,
             B::ArcToPrecomputed => {
                 // {center}{start angle}{end angle}{end point}{x radius}{y radius}{the radii's ratios}: the

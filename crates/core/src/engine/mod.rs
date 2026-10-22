@@ -372,6 +372,8 @@ pub struct Engine {
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
     /// paths kept by `save path`
     pub saved_paths: HashMap<String, Vec<crate::scene::Segment>>,
+    /// the points `\pgfintersectionofpaths` found (canvas)
+    pub pgf_solutions: Vec<Point>,
     /// patterns declared by the basic layer
     pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -480,6 +482,7 @@ impl Clone for Engine {
             functional_shadings: self.functional_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
             saved_paths: self.saved_paths.clone(),
+            pgf_solutions: self.pgf_solutions.clone(),
             user_patterns: self.user_patterns.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
@@ -552,6 +555,7 @@ impl Engine {
             functional_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
             saved_paths: HashMap::new(),
+            pgf_solutions: Vec::new(),
             user_patterns: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
