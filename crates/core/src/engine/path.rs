@@ -204,7 +204,12 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
-    let segs = std::mem::take(&mut b.segs);
+    let mut segs = std::mem::take(&mut b.segs);
+    // a move to a node waits for the next point, which tells it where on the border to start
+    // (`\tikz@moveto@waiting`): alone (`\draw (a) edge (b);`), it never reaches the path
+    if matches!(segs[..], [Segment::MoveTo(_)]) && b.current.as_ref().is_some_and(|c| c.node.is_some()) {
+        segs.clear();
+    }
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
     }
