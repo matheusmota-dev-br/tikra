@@ -1945,7 +1945,7 @@ impl Engine {
                 "evaluate" => {
                     let s = tex::tokens_to_string(&v);
                     let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-                    let using = s.split("using").nth(1).map(|x| tex::string_tokens(x.trim()));
+                    let using = s.split("using").nth(1).map(|x| tikra_tokens(x.trim()));
                     let target = if s.contains(" as ") { cs.get(1).cloned() } else { None };
                     if let Some(var) = cs.first() {
                         evaluate.push((var.clone(), target, using));
@@ -1994,6 +1994,11 @@ impl Engine {
             }
             self.end_group();
             r?;
+            // `\breakforeach`: this was the last iteration
+            if matches!(self.tex.meaning_of("tikra@foreach@break"), Meaning::Macro(m) if !m.body.is_empty()) {
+                self.tex.set_meaning(&Token::cs("tikra@foreach@break"), macro_tokens(Vec::new()), true);
+                break;
+            }
         }
         self.depth -= 1;
         Ok(())
@@ -2081,13 +2086,17 @@ fn split_slash(item: &[Token]) -> Vec<Vec<Token>> {
 /// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
 pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
     let mut raw: Vec<Vec<Token>> = Vec::new();
-    let mut current = Vec::new();
+    let mut current: Vec<Token> = Vec::new();
     let mut depth = 0usize;
+    // an item that starts with `(` runs to its `)` (`(0,0), (1,1)`), as pgffor reads it
+    let mut parens = 0usize;
     for t in list {
         match t {
             Token::Char(_, Cat::Begin) => depth += 1,
             Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
-            Token::Char(',', _) if depth == 0 => {
+            Token::Char('(', _) if depth == 0 && (parens > 0 || current.iter().all(Token::is_space)) => parens += 1,
+            Token::Char(')', _) if depth == 0 && parens > 0 => parens -= 1,
+            Token::Char(',', _) if depth == 0 && parens == 0 => {
                 raw.push(std::mem::take(&mut current));
                 continue;
             }

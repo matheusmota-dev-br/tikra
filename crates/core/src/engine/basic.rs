@@ -256,6 +256,7 @@ pub const DEFINITIONS: &str = r"
 \def\pgfsetblendmode#1{\tikzset{blend mode={#1}}}
 \def\tikzdeclarecoordinatesystem#1#2{\expandafter\def\csname tikra@cs@#1\endcsname##1{#2}}
 \def\define@key#1#2{\expandafter\def\csname KV@#1@#2\endcsname##1}
+\def\breakforeach{\gdef\tikra@foreach@break{1}}
 \def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
 \def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
 \def\pgfsysanimkeyrestartalways{}\def\pgfsysanimkeyrestartnever{}\def\pgfsysanimkeyrestartwhennotactive{}
