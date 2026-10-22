@@ -1867,6 +1867,7 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         }
         let c = axis_char(a);
         let b = 1 - a;
+        let discontinuity = e.pv(&format!("axis {c} discontinuity"));
         // shifted outwards: away from the other axis' middle, along the normal for a centered line
         let ub = unit(f.e[b]).scale(if f.max[b] >= f.min[b] { 1.0 } else { -1.0 });
         let line = |bv: f64| {
@@ -1878,7 +1879,8 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
                 f.normal(a)
             };
             let d = out.scale(sa);
-            vec![Segment::MoveTo(on_axis(f, a, f.min[a], bv).plus(d)), Segment::LineTo(on_axis(f, a, f.max[a], bv).plus(d))]
+            let (p0, p1) = (on_axis(f, a, f.min[a], bv).plus(d), on_axis(f, a, f.max[a], bv).plus(d));
+            discontinuous(p0, p1, &discontinuity)
         };
         match s.line[a].as_str() {
             "center" => e.draw_with(&format!("/pgfplots/every inner {c} axis line"), line(f.zero[b]))?,
@@ -1892,6 +1894,35 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// An axis line from `p0` to `p1`, with `axis x discontinuity` near its start: a zigzag of 12pt
+/// (`crunch`) or a 4pt gap between two bars (`parallel`), 4pt from the start.
+fn discontinuous(p0: Point, p1: Point, kind: &str) -> Vec<Segment> {
+    let u = unit(p1.minus(p0));
+    let n = Point::new(-u.y, u.x);
+    let at = |s: f64, h: f64| p0.plus(u.scale(s * PT)).plus(n.scale(h * PT));
+    match kind {
+        "crunch" => vec![
+            Segment::MoveTo(p0),
+            Segment::LineTo(at(4.0, 0.0)),
+            Segment::LineTo(at(7.0, 4.0)),
+            Segment::LineTo(at(13.0, -4.0)),
+            Segment::LineTo(at(16.0, 0.0)),
+            Segment::LineTo(p1),
+        ],
+        "parallel" => vec![
+            Segment::MoveTo(p0),
+            Segment::LineTo(at(4.0, 0.0)),
+            Segment::MoveTo(at(4.0, -8.0)),
+            Segment::LineTo(at(4.0, 8.0)),
+            Segment::MoveTo(at(8.0, -8.0)),
+            Segment::LineTo(at(8.0, 8.0)),
+            Segment::MoveTo(at(8.0, 0.0)),
+            Segment::LineTo(p1),
+        ],
+        _ => vec![Segment::MoveTo(p0), Segment::LineTo(p1)],
+    }
 }
 
 /// Replaces `\pgfmathprintnumber[options]{x}` in `tokens` by the number as printed.
