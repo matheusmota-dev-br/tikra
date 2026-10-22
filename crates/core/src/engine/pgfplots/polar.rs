@@ -203,6 +203,10 @@ pub(super) fn draw_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         let c = axis_char(a);
         let styles = format!("/pgfplots/every tick label,/pgfplots/every {c} tick label");
         let off = tick_offset(e, a);
+        let sloped = match e.tex.meaning_of(&crate::keys::macro_name(&format!("/pgfplots/every {c} tick label/.@cmd"))) {
+            crate::tex::Meaning::Macro(m) => crate::tex::tokens_to_string(&crate::tex::substitute(&m.body, &[])).contains("sloped"),
+            _ => false,
+        };
         for (k, t) in list.iter().enumerate() {
             let (p, out) = if a == 0 {
                 let p = f.at([*t, ymax, 0.0]);
@@ -222,10 +226,22 @@ pub(super) fn draw_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
             e.end_group();
             let text = r?;
             // the node's border faces the axis: an angle anchor against the outward direction
-            let angle = (-out.y).atan2(-out.x).to_degrees();
+            let mut angle = (-out.y).atan2(-out.x).to_degrees();
+            // `sloped like x axis` turns an angle's label along the circle, never upside down:
+            // the anchor turns with it
+            if a == 0 && sloped {
+                let (sn, cs) = sin_cos(*t);
+                let mut d = f.e[0].scale(-sn).plus(f.e[1].scale(cs));
+                if d.x < 0.0 {
+                    d = d.scale(-1.0);
+                }
+                angle -= d.y.atan2(d.x).to_degrees();
+                f.slope.set(Some(d));
+            }
             let options = toks(&format!("anchor={angle},{styles}"));
-            let items = e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
-            e.canvas.items.extend(items);
+            let items = e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None });
+            f.slope.set(None);
+            e.canvas.items.extend(items?);
         }
     }
     Ok(())
