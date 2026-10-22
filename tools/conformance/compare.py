@@ -6,8 +6,8 @@ Reads <work dir>/ref (TeX, from reference.py) and <work dir>/tikra (from the `co
 the core crate), and writes <work dir>/results.json, <work dir>/report.html (every figure that differs,
 side by side) and the summary in Markdown (to --docs, or <work dir>/report.md).
 
-The two drawings never agree pixel for pixel: TeX sets labels in Computer Modern and tikra in STIX
-Two, antialiasing differs, and so can the bounding box by a hair. So a figure is compared by its
+The two drawings never agree pixel for pixel: TeX sets labels in Computer Modern and tikra in Latin
+Modern Math (the same letters, without TeX's optical sizes), antialiasing differs, and so can the bounding box by a hair. So a figure is compared by its
 shape, its color and its size:
 
 - shape: after aligning the two images (the best shift of up to 6 px from each corner and from the

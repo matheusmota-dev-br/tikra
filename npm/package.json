@@ -6,7 +6,7 @@
   "homepage": "https://matheusmota-dev-br.github.io/tikra/",
   "repository": { "type": "git", "url": "git+https://github.com/matheusmota-dev-br/tikra.git", "directory": "npm" },
   "bugs": "https://github.com/matheusmota-dev-br/tikra/issues",
-  "license": "(MIT OR Apache-2.0) AND OFL-1.1",
+  "license": "(MIT OR Apache-2.0) AND OFL-1.1 AND LicenseRef-GUST-Font-License",
   "type": "module",
   "exports": {
     ".": {
@@ -24,5 +24,5 @@
   "types": "./index.d.ts",
   "sideEffects": false,
   "engines": { "node": ">=18" },
-  "files": ["web", "node", "tikra.wasm", "index.d.ts", "index.d.cts", "LICENSE-MIT", "LICENSE-APACHE", "OFL-STIXTwoMath.txt"]
+  "files": ["web", "node", "tikra.wasm", "index.d.ts", "index.d.cts", "LICENSE-MIT", "LICENSE-APACHE", "OFL-STIXTwoMath.txt", "GUST-FONT-LICENSE-LatinModernMath.txt"]
 }

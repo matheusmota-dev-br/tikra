@@ -61,6 +61,6 @@ compares each pair by:
 
 A figure **matches** with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size and no missing or extra piece; it is
 **close** with F1 ≥ 0.75.
-The tolerance absorbs what is expected to differ: labels in STIX Two instead of Computer Modern,
-antialiasing, a bounding box off by a hair. A figure that does not match although tikra gave no
+The tolerance absorbs what is expected to differ: labels in Latin Modern Math (Computer Modern
+from a math font, without TeX's optical sizes or text italic), antialiasing, a bounding box off by a hair. A figure that does not match although tikra gave no
 warning is counted apart: that is tikra being wrong without saying so.

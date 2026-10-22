@@ -8,9 +8,9 @@ description = "TikZ and pgfplots figures to SVG and PNG, without a TeX install. 
 readme = "README.md"
 requires-python = ">=3.9"
 dynamic = ["version"]
-license = "(MIT OR Apache-2.0) AND OFL-1.1"
-# copies of the repository root files and of mathra's font license: the OFL requires its text next to
-# the embedded font
+license = "(MIT OR Apache-2.0) AND OFL-1.1 AND LicenseRef-GUST-Font-License"
+# copies of the repository root files and of mathra's font licenses: the OFL (STIX Two Math) and the
+# GUST Font License (Latin Modern Math, which SPDX does not list) require their text next to the fonts
 license-files = ["licenses/*"]
 authors = [{ name = "Matheus Mota" }]
 keywords = ["tikz", "pgfplots", "latex", "svg", "png", "figures", "diagrams", "plots", "rust", "python", "cli", "javascript", "webassembly"]
