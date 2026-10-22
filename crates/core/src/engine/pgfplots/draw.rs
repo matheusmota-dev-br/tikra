@@ -1368,6 +1368,18 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let pre_main = e.canvas.items.len();
     let compat = keys::compat(e);
     f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
+    // before compat 1.11 TikZ's unit vectors are those of the data scale transformation: a radius
+    // or a relative coordinate is in its units
+    let units = (e.st.x, e.st.y, e.st.z);
+    if compat < 111 && !f.polar && !f.smith && !f.ternary {
+        let inverse = e.st.transform.inverse();
+        let unit = |e: &mut Engine, a: usize| inverse.linear(f.e[a].scale(1.0 / data_scale_trafo(e, &f, a).0));
+        e.st.x = unit(e, 0);
+        e.st.y = unit(e, 1);
+        if f.three_d {
+            e.st.z = unit(e, 2);
+        }
+    }
     let mut marks = Vec::new();
     let plots: Vec<&Plot> = axis.entries.iter().filter_map(|en| if let Entry::Plot(p) = en { Some(&**p) } else { None }).collect();
     let mut k = 0usize;
@@ -1404,6 +1416,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
     }
     e.end_scope();
+    (e.st.x, e.st.y, e.st.z) = units;
     if clip {
         (e.canvas.min, e.canvas.max) = saved_bbox;
     }
@@ -1701,6 +1714,18 @@ fn obscured(s: &Setup, a: usize, t: f64) -> bool {
         "high" => near(hi),
         _ => false,
     }
+}
+
+/// The data scale transformation of axis `a` (`\pgfplots@set@optimal@datatrafo@for@`): `10^E` and
+/// the smallest data value, which goes to 0; (1, 0) for a logarithmic axis or `disabledatascaling`.
+/// Before compat 1.11, plain coordinates in an axis are in its units.
+pub(super) fn data_scale_trafo(e: &mut Engine, f: &Frame, a: usize) -> (f64, f64) {
+    let [lo, hi] = f.data_range[a];
+    if f.log[a] || keys::flag(e, "/pgfplots/@disabledatascaling") || !(lo.is_finite() && hi.is_finite()) {
+        return (1.0, 0.0);
+    }
+    let size = keys::length(e, if a == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if a == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+    (ticks::data_scale(lo, hi, size), lo)
 }
 
 /// The axis lines: a closed box, or separate lines (with arrows) for `axis lines=…`.
@@ -2219,6 +2244,20 @@ impl Engine {
                     let x = self.number(crate::keys::strip_braces(parts.first().map_or("0", |p| p.trim())))?;
                     let y = self.number(crate::keys::strip_braces(parts.get(1).map_or("0", |p| p.trim())))?;
                     Ok(super::ternary::cartesian(&f, x, y))
+                })();
+                Some(r)
+            }
+            // before compat 1.11, the coordinates of the data scale transformation: 10^E times the
+            // data, less the smallest data value (`\pgfplots@set@optimal@datatrafo@for@`)
+            Cs::Plain if !f.polar && !f.smith => {
+                let r = (|| -> Result<Point, Error> {
+                    let mut l = [f.min[0], f.min[1], f.min[2]];
+                    for (a, la) in l.iter_mut().enumerate().take(if f.three_d { 3 } else { 2 }) {
+                        let v = self.number(crate::keys::strip_braces(parts.get(a).map_or("0", |p| p.trim())))?;
+                        let (factor, shift) = data_scale_trafo(self, &f, a);
+                        *la = shift + v / factor;
+                    }
+                    Ok(f.at(l))
                 })();
                 Some(r)
             }
