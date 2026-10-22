@@ -12,6 +12,7 @@ pub mod contour;
 pub mod cube;
 pub mod draw;
 pub mod fillbetween;
+pub mod fpu;
 pub mod group;
 pub mod keys;
 pub mod legend;

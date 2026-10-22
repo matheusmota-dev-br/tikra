@@ -484,12 +484,47 @@ fn sample_points(e: &mut Engine, domain_key: &str, samples_key: &str, log: bool)
     if n == 1 {
         return Ok(vec![a]);
     }
+    if !log {
+        if let Some(v) = tex_samples(a, b, n) {
+            return Ok(v);
+        }
+    }
     let mut v = Vec::with_capacity(n);
     for k in 0..n {
         let t = k as f64 / (n - 1) as f64;
         v.push(if log && a > 0.0 && b > 0.0 { (a.ln() + t * (b.ln() - a.ln())).exp() } else { a + t * (b - a) });
     }
     Ok(v)
+}
+
+/// The samples of `domain=a:b` as pgfplots loops over them, in pgf's floating point unit
+/// (`\pgfplots@domain@to@foreach` and the `a,a+h,...,b` loop of `\pgfplotsforeachungrouped`):
+/// `a + (b - a)/(n - 1)` is the second sample, `h` its distance to `a`, and the loop adds `h`
+/// while the sample is at most `b + h/2`. The steps keep few digits, so the last sample can fall a
+/// little short of `b`, which moves the data limits and, sometimes, the ticks.
+fn tex_samples(a: f64, b: f64, n: usize) -> Option<Vec<f64>> {
+    use super::fpu::Num;
+    if n < 2 || a == b {
+        return None;
+    }
+    let (fa, fb) = (Num::from_f64(a)?, Num::from_f64(b)?);
+    let q = fb.plus(fa.negated()).over(Num::from_f64((n - 1) as f64)?);
+    let h = fa.plus(q).plus(fa.negated());
+    if h.is_zero() {
+        return None;
+    }
+    let end = b + 0.5 * h.value();
+    let up = h.value() > 0.0;
+    let mut v = Vec::with_capacity(n + 1);
+    let mut x = fa;
+    while (up && x.value() <= end) || (!up && x.value() >= end) {
+        v.push(x.value());
+        x = x.plus(h);
+        if v.len() > 2 * n + 2 {
+            return None;
+        }
+    }
+    Some(v)
 }
 
 /// Samples `(x(var), y(var)[, z(var, y)])`.
