@@ -124,7 +124,6 @@ fn clean(text: &str) -> String {
 /// width, spaces too.
 fn typewriter(t: &str) -> String {
     const WIDTH: f32 = 0.525;
-    const SHORT: f32 = 7.0 / 9.0;
     let font = FONT.get();
     let mut out = String::from("$");
     let mut run = String::new();
@@ -142,16 +141,20 @@ fn typewriter(t: &str) -> String {
         }
         flush(&mut run, &mut out);
         // cmtt's parentheses and brackets are shorter than the roman ones, from 1/12 em below the
-        // baseline to 25/36 above: the roman glyph shrunk to that height, the box of cmtt's
-        let short = matches!(c, '(' | ')' | '[' | ']');
+        // baseline to 25/36 above: the roman glyph shrunk to that height, in the box of cmtt's
+        // (bottom, top)
+        let short = match c {
+            '(' | ')' | '[' | ']' => Some((7.0 / 9.0, -1.0 / 12.0, 25.0 / 36.0)),
+            _ => None,
+        };
         let advance = if c == ' ' { 0.0 } else { font.glyph(c).map_or(WIDTH, |g| font.advance(g) / font.units_per_em()) };
-        let advance = if short { advance * SHORT } else { advance };
+        let advance = advance * short.map_or(1.0, |s: (f32, f32, f32)| s.0);
         let side = ((WIDTH - advance) / 2.0).max(0.0);
-        let glyph = match c {
-            ' ' => String::new(),
-            '_' | '#' | '%' | '&' | '$' => format!("\\text{{\\{c}}}"),
-            c if short => format!("\\smash{{\\scalebox{{{SHORT:.4}}}{{{c}}}}}\\rule[-0.0833em]{{0em}}{{0.7778em}}"),
-            c => format!("\\text{{{c}}}"),
+        let glyph = match (c, short) {
+            (' ', _) => String::new(),
+            ('_' | '#' | '%' | '&' | '$', _) => format!("\\text{{\\{c}}}"),
+            (c, Some((scale, bottom, top))) => format!("\\smash{{\\scalebox{{{scale:.4}}}{{{c}}}}}\\rule[{bottom:.4}em]{{0em}}{{{:.4}em}}", top - bottom),
+            (c, None) => format!("\\text{{{c}}}"),
         };
         out.push_str(&format!("\\hspace{{{side}em}}{glyph}\\hspace{{{side}em}}"));
     }
@@ -575,7 +578,12 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
     let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
-    let stretch = design_width(10.0 * size, family(text, font, bold));
+    let mut stretch = design_width(10.0 * size, family(text, font, bold));
+    if all == Some("mathit") {
+        // text italic (cmti) is narrower than the math italic it is drawn with: by 0.943 on the
+        // lowercase letters of English text, weighted by how often they come
+        stretch *= 0.943;
+    }
     let space = 333.0f32;
     let mut boxes = Vec::new();
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
