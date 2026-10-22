@@ -294,9 +294,15 @@ impl Engine {
             let step = if sep.origins { sep.distance } else { down[r - 1] + sep.distance + up[r] };
             ys.push(ys[r - 1] - step);
         }
+        // the matrix's baseline is its last row's, as a \vbox's
+        if let Some(&last) = ys.last() {
+            for y in &mut ys {
+                *y -= last;
+            }
+        }
         let width = if ncols == 0 { 0.0 } else { xs[ncols - 1] + right[ncols - 1] };
-        let height = up.first().copied().unwrap_or(0.0);
-        let depth = if nrows == 0 { 0.0 } else { -(ys[nrows - 1] - down[nrows - 1]) };
+        let height = up.first().map_or(0.0, |u| u + ys[0]);
+        let depth = down.last().copied().unwrap_or(0.0);
 
         // the matrix is a node around the cells
         self.forced_box = Some((width, height, depth));
