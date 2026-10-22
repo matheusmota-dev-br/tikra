@@ -236,6 +236,8 @@ pub struct GState {
     pub snapshot: Option<f64>,
     /// `current point is local`: a group of the path leaves the current point where it found it
     pub current_point_local: bool,
+    /// `trig format=rad`: the angles of polar coordinates are in radians
+    pub trig_rad: bool,
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
     /// `\pgfsetfillpattern`: the basic layer's fills use the pattern
@@ -328,6 +330,7 @@ impl Default for GState {
             allow_upside_down: false,
             snapshot: None,
             current_point_local: false,
+            trig_rad: false,
             fit_fading: true,
             fill_pattern: false,
             save_path: None,

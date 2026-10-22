@@ -180,6 +180,7 @@ impl Engine {
                 "north west" => 135.0,
                 "south east" => -45.0,
                 "south west" => -135.0,
+                a if self.st.trig_rad => self.number(a)?.to_degrees(),
                 a => self.number(a)?,
             };
             let r = t[c + 1..].trim();

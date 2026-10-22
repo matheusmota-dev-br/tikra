@@ -1454,6 +1454,10 @@ keyfn!(k_snapshot_after, |e, v| {
     e.st.snapshot = e.st.snapshot.map(|t| t + 1e-6);
     Ok(())
 });
+keyfn!(k_trig_format, |e, v| {
+    e.st.trig_rad = text(e, &v)?.trim() == "rad";
+    Ok(())
+});
 keyfn!(k_current_point_local, |e, v| {
     e.st.current_point_local = text(e, &v)?.trim() != "false";
     Ok(())
@@ -2123,6 +2127,8 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/make snapshot after", k_snapshot_after),
     ("/tikz/make snapshot if necessary", k_ignore),
     ("/tikz/current point is local", k_current_point_local),
+    ("/tikz/trig format", k_trig_format),
+    ("/pgf/trig format", k_trig_format),
     ("/tikz/animate", k_animate),
     ("/tikz/transform canvas", k_transform_canvas),
     ("/tikz/trim right", k_trim_right),

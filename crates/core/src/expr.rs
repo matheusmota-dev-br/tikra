@@ -370,6 +370,7 @@ impl Parser<'_> {
                     };
                 }
                 self.pos += 1;
+                let units_before = self.units;
                 let mut args = vec![self.ternary()?];
                 self.skip_spaces();
                 while self.peek() == Some(',') {
@@ -424,6 +425,11 @@ impl Parser<'_> {
                     "int" => a.trunc(),
                     "frac" => a - a.trunc(),
                     "real" => a,
+                    // its value without the units its argument declared (a ratio of lengths)
+                    "scalar" => {
+                        self.units = units_before;
+                        a
+                    }
                     "neg" => -a,
                     "sign" => {
                         if a > 0.0 {
