@@ -88,7 +88,7 @@ impl Engine {
         };
         let stroke = mode.draw.then(|| self.stroke());
         // a path fading masks this path, fitted to it
-        let fading = match self.st.path_fading.clone() {
+        let fading = match self.st.path_fading.clone().filter(|_| mode.fade) {
             Some(f) if self.picture_fadings.contains_key(&f) => self.picture_fading_for(&f, &segs, self.st.fit_fading),
             Some(f) => self.fading_for(&f, &segs).map(|mask| Item::Fade { mask }),
             None => None,
@@ -133,46 +133,27 @@ impl Engine {
 
     /// A fading by name, fitted to the path's bounding box (`fit fading`, on by default).
     fn fading_for(&mut self, name: &str, segs: &[Segment]) -> Option<crate::canvas::Shading> {
-        let (white, black) = (crate::color::Color::WHITE, crate::color::Color::BLACK);
         let mut c = crate::canvas::Canvas::default();
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let center = lo.lerp(hi, 0.5);
         let fit = crate::scene::Transform::translation(center.x, center.y)
             .compose(&crate::scene::Transform::scaling(((hi.x - lo.x) / 50.0).max(1e-9), ((hi.y - lo.y) / 50.0).max(1e-9)))
-            .compose(&crate::scene::Transform::rotation(self.st.fading_angle));
-        let axial = |angle: f64, from: crate::color::Color, to: crate::color::Color| crate::canvas::Shading::Axial {
-            transform: fit.compose(&crate::scene::Transform::rotation(angle)),
-            stops: vec![(0.0, from), (0.25, from), (0.75, to), (1.0, to)],
-        };
-        let circle =
-            |edge: f64| crate::canvas::Shading::Radial { transform: fit, focus: Point::default(), stops: vec![(0.0, white), (edge / 50.0, white), (0.5, black), (1.0, black)] };
-        Some(match name {
-            // the library's: opaque on one side, transparent on the other
-            "north" => axial(0.0, white, black),
-            "south" => axial(0.0, black, white),
-            "east" => axial(-90.0, white, black),
-            "west" => axial(-90.0, black, white),
-            "circle with fuzzy edge 10 percent" => circle(22.5),
-            "circle with fuzzy edge 15 percent" => circle(21.25),
-            "circle with fuzzy edge 20 percent" => circle(20.0),
-            "fuzzy ring 15 percent" => crate::canvas::Shading::Radial {
-                transform: fit,
-                focus: Point::default(),
-                stops: vec![(0.0, black), (21.25 / 50.0, black), (23.125 / 50.0, white), (0.5, black), (1.0, black)],
-            },
-            other => match self.fadings.get(other).cloned() {
-                Some(mut sh) => {
-                    let (crate::canvas::Shading::Axial { transform, .. } | crate::canvas::Shading::Radial { transform, .. }) = &mut sh;
-                    *transform = fit.compose(transform);
-                    sh
-                }
-                None => {
-                    self.warn(format!("fading '{other}' not supported: drawn without it"));
-                    return None;
-                }
-            },
-        })
+            .compose(&self.st.fading_transform);
+        if let Some(sh) = library_fading(name, &fit) {
+            return Some(sh);
+        }
+        match self.fadings.get(name).cloned() {
+            Some(mut sh) => {
+                let (crate::canvas::Shading::Axial { transform, .. } | crate::canvas::Shading::Radial { transform, .. }) = &mut sh;
+                *transform = fit.compose(transform);
+                Some(sh)
+            }
+            None => {
+                self.warn(format!("fading '{name}' not supported: drawn without it"));
+                None
+            }
+        }
     }
 
     pub fn shading_of(&self, segs: &[Segment]) -> crate::canvas::Shading {
@@ -490,4 +471,33 @@ pub fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
         }
     }
     out
+}
+
+/// The fadings of the fadings library (opaque on one side and transparent on the other, or round),
+/// their 100 bp shadings placed by `fit`.
+pub fn library_fading(name: &str, fit: &crate::scene::Transform) -> Option<crate::canvas::Shading> {
+    let fit = *fit;
+    let (white, black) = (crate::color::Color::WHITE, crate::color::Color::BLACK);
+    let axial = |angle: f64, from: crate::color::Color, to: crate::color::Color| crate::canvas::Shading::Axial {
+        transform: fit.compose(&crate::scene::Transform::rotation(angle)),
+        stops: vec![(0.0, from), (0.25, from), (0.75, to), (1.0, to)],
+    };
+    let circle =
+        |edge: f64| crate::canvas::Shading::Radial { transform: fit, focus: Point::default(), stops: vec![(0.0, white), (edge / 50.0, white), (0.5, black), (1.0, black)] };
+    Some(match name {
+        // the library's: opaque on one side, transparent on the other
+        "north" => axial(0.0, white, black),
+        "south" => axial(0.0, black, white),
+        "east" => axial(-90.0, white, black),
+        "west" => axial(-90.0, black, white),
+        "circle with fuzzy edge 10 percent" => circle(22.5),
+        "circle with fuzzy edge 15 percent" => circle(21.25),
+        "circle with fuzzy edge 20 percent" => circle(20.0),
+        "fuzzy ring 15 percent" => crate::canvas::Shading::Radial {
+            transform: fit,
+            focus: Point::default(),
+            stops: vec![(0.0, black), (21.25 / 50.0, black), (23.125 / 50.0, white), (0.5, black), (1.0, black)],
+        },
+        _ => return None,
+    })
 }

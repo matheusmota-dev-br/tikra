@@ -1864,15 +1864,31 @@ keyfn!(k_outer_color, |e, v| {
     Ok(())
 });
 
+// `path fading=name` names the fading and fades this path (not the paths of a scope it is given
+// to); `path fading` alone fades it with the fading named last
 keyfn!(k_path_fading, |e, v| {
     let s = text(e, &v)?;
-    e.st.path_fading = if s.is_empty() || s == "none" { None } else { Some(s) };
+    if s == "none" {
+        e.st.mode.fade = false;
+    } else {
+        if !s.is_empty() {
+            e.st.path_fading = Some(s);
+        }
+        e.st.mode.fade = true;
+    }
     Ok(())
 });
 keyfn!(k_fading_angle, |e, v| {
     let s = text(e, &v)?;
-    e.st.fading_angle = e.number(&s)?;
+    e.st.fading_transform = Transform::rotation(e.number(&s)?);
     Ok(())
+});
+// `fading transform={rotate=90}`: the transformations of the options, for the path fading
+keyfn!(k_fading_transform, |e, v| {
+    let saved = std::mem::take(&mut e.st.pending);
+    let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    e.st.fading_transform = std::mem::replace(&mut e.st.pending, saved);
+    r
 });
 keyfn!(k_local_bounding_box, |e, v| {
     let s = text(e, &v)?;
@@ -2109,6 +2125,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/slice", k_slice),
     ("/tikz/local bounding box", k_local_bounding_box),
     ("/tikz/fading angle", k_fading_angle),
+    ("/tikz/fading transform", k_fading_transform),
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
     ("/tikz/shading", k_shading),

@@ -66,6 +66,8 @@ pub struct Mode {
     pub shade: bool,
     /// `use as bounding box`
     pub bounding_box: bool,
+    /// `path fading`: the path is faded (by the fading named last)
+    pub fade: bool,
     /// `path picture={…}`: drawn inside the path, clipped to it
     pub picture: Option<Vec<Token>>,
 }
@@ -185,8 +187,8 @@ pub struct GState {
     pub radial_outer: Color,
     /// `path fading=`: the fading's name; `transparency group` for the scope being opened
     pub path_fading: Option<String>,
-    /// `fading angle`: the path fading turned in the path's box.
-    pub fading_angle: f64,
+    /// `fading transform` (and `fading angle`): the path fading transformed in the path's box.
+    pub fading_transform: Transform,
     /// `handle active characters in code` (and `… in nodes`): active characters in options and
     /// coordinates read as the characters they are
     pub active_in_code: bool,
@@ -333,7 +335,7 @@ impl Default for GState {
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,
-            fading_angle: 0.0,
+            fading_transform: Transform::default(),
             active_in_code: false,
             active_in_nodes: false,
             transparency_group: false,
