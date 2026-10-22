@@ -375,14 +375,42 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             segs.push(Segment::Close);
         }
     }
-    // `\addplot coordinates {…} -- cycle;`: the path closed
+    // the path goes on after the plot: `-- cycle`, `|- (0,0) -- cycle`
     let mut rest: Vec<Token> = p.post.iter().filter(|t| !t.is_cs("closedcycle")).cloned().collect();
-    let text = tex::tokens_to_string(&rest);
-    if let Some(after) = text.trim_start().strip_prefix("--").map(str::trim_start).and_then(|t| t.strip_prefix("cycle")) {
-        if !closed && !segs.is_empty() {
-            segs.push(Segment::Close);
+    if !closed && !segs.is_empty() {
+        let mut text = tex::tokens_to_string(&rest);
+        let mut moved = false;
+        loop {
+            let t = text.trim_start();
+            let Some(op) = ["--", "|-", "-|"].into_iter().find(|op| t.starts_with(op)) else { break };
+            let after = t[2..].trim_start();
+            if let Some(more) = after.strip_prefix("cycle") {
+                segs.push(Segment::Close);
+                text = more.to_string();
+                moved = true;
+                break;
+            }
+            let Some(inner) = after.strip_prefix('(').and_then(|a| a.find(')').map(|i| (a[..i].to_string(), a[i + 1..].to_string()))) else { break };
+            let Ok(q) = e.coordinate(&inner.0) else { break };
+            let q = q.p;
+            let cur = segs.iter().rev().find_map(|s| match s {
+                Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+                Segment::Close => None,
+            });
+            if let Some(c) = cur {
+                match op {
+                    "|-" => segs.push(Segment::LineTo(Point::new(c.x, q.y))),
+                    "-|" => segs.push(Segment::LineTo(Point::new(q.x, c.y))),
+                    _ => {}
+                }
+            }
+            segs.push(Segment::LineTo(q));
+            text = inner.1;
+            moved = true;
         }
-        rest = super::toks(after);
+        if moved {
+            rest = super::toks(&text);
+        }
     }
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
