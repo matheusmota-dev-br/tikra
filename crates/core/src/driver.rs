@@ -99,6 +99,8 @@ struct Defs {
     count: usize,
     /// glyphs drawn inside definitions (a pattern's tile)
     glyphs: Vec<GlyphId>,
+    /// the page's lower left corner (SVG units): patterns tile from there, as in PDF
+    corner: (f64, f64),
 }
 
 impl Defs {
@@ -113,7 +115,7 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
         Paint::Solid(c) => c.hex(),
         Paint::Pattern { name, color } => {
             let id = defs.id("p");
-            defs.text.push_str(&pattern(name, &id, &color.hex()));
+            defs.text.push_str(&pattern(name, &id, &color.hex(), defs.corner));
             format!("url(#{id})")
         }
         Paint::Tile { items, origin, size, transform: t } => {
@@ -125,7 +127,9 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
             let (w, h) = (size.x * BP, size.y * BP);
             // the tile's corner in SVG space (y down): its content is placed from there
             let (x0, y0) = (origin.x * BP, -(origin.y + size.y) * BP);
-            let m = format!("matrix({} {} {} {} {} {})", n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
+            // from the page's corner
+            let (cx, cy) = defs.corner;
+            let m = format!("matrix({} {} {} {} {} {})", n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP + cx), n(-t.f * BP + cy));
             let _ = write!(
                 defs.text,
                 r#"<pattern id="{id}" patternUnits="userSpaceOnUse" x="{}" y="{}" width="{}" height="{}" patternTransform="{m}"><g transform="translate({} {})">{inner}</g></pattern>"#,
@@ -168,8 +172,9 @@ fn fill_attributes(f: &Fill, defs: &mut Defs) -> String {
     a
 }
 
-/// pgf's patterns (the `patterns` library), at their size in TeX: 3 pt cells, 0.4 pt lines.
-fn pattern(name: &str, id: &str, c: &str) -> String {
+/// pgf's patterns (the `patterns` library), at their size in TeX: 3 pt cells, 0.4 pt lines; tiled
+/// from the page's lower left corner `corner`.
+fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
     // the cell size in bp, from 3 pt
     let t = 3.0 * 72.0 / 72.27;
     let w = 0.4 * 72.0 / 72.27;
@@ -183,13 +188,22 @@ fn pattern(name: &str, id: &str, c: &str) -> String {
         "crosshatch" => (t, line(0.0, t, t, 0.0) + &line(0.0, 0.0, t, t)),
         "dots" => (t, format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/>"#, n(t / 2.0), n(t / 2.0), n(0.5 * 72.0 / 72.27))),
         "crosshatch dots" => (t, format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/><circle cx="0" cy="0" r="{}" fill="{c}"/>"#, n(t / 2.0), n(t / 2.0), n(0.5), n(0.5))),
-        "bricks" => (t * 2.0, line(0.0, 0.0, t * 2.0, 0.0) + &line(0.0, t, t * 2.0, t) + &line(0.0, 0.0, 0.0, t) + &line(t, t, t, t * 2.0)),
+        // 4 mm tiles (pgf's y up is y down here, a tile further: pgf's y is the tile's size less y)
+        "bricks" => {
+            let mm = 72.0 / 25.4;
+            let w = 0.8 * 72.0 / 72.27;
+            let line = |x1: f64, y1: f64, x2: f64, y2: f64| {
+                format!(r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{c}" stroke-width="{}"/>"#, n(x1 * mm), n(y1 * mm), n(x2 * mm), n(y2 * mm), n(w))
+            };
+            (4.0 * mm, line(0.0, 3.0, 4.0, 3.0) + &line(0.0, 1.0, 4.0, 1.0) + &line(1.0, 4.0, 1.0, 3.0) + &line(3.0, 3.0, 3.0, 1.0) + &line(1.0, 1.0, 1.0, 0.0))
+        }
         "checkerboard" => {
-            (t * 2.0, format!(r#"<rect width="{}" height="{}" fill="{c}"/><rect x="{}" y="{}" width="{}" height="{}" fill="{c}"/>"#, n(t), n(t), n(t), n(t), n(t), n(t)))
+            let s = 2.0 * 72.0 / 25.4;
+            (s * 2.0, format!(r#"<rect y="{}" width="{}" height="{}" fill="{c}"/><rect x="{}" width="{}" height="{}" fill="{c}"/>"#, n(s), n(s), n(s), n(s), n(s), n(s)))
         }
         _ => (t, line(0.0, t, t, 0.0)),
     };
-    format!(r#"<pattern id="{id}" patternUnits="userSpaceOnUse" width="{}" height="{}">{body}</pattern>"#, n(size), n(size))
+    format!(r#"<pattern id="{id}" patternUnits="userSpaceOnUse" x="{}" y="{}" width="{}" height="{}">{body}</pattern>"#, n(corner.0), n(corner.1), n(size), n(size))
 }
 
 /// The SVG matrix for a label: inner coordinates in bp with y down, mapped by `place` (cm, y up).
@@ -340,7 +354,7 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
     let (width, height) = (((x1 - x0) * BP).max(0.0), ((y1 - y0) * BP).max(0.0));
 
     let mut body = String::new();
-    let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new() };
+    let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs);
     glyphs.append(&mut defs.glyphs);
