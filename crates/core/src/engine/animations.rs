@@ -6,6 +6,7 @@
 //! unless it freezes, and the attribute is back to its base value), as an option. An
 //! animation that waits for an event (`begin on=click`) has not started in a snapshot.
 
+use crate::scene::{Point, Transform};
 use crate::tex::{self, Cat, Token};
 use crate::Error;
 
@@ -59,9 +60,12 @@ impl Engine {
 
     /// The option an animated attribute gives at the snapshot time (none without a snapshot).
     pub fn animation_option(&mut self, attribute: &str, spec: Vec<Token>) -> Result<Option<Vec<Token>>, Error> {
-        let Some(t) = self.st.snapshot else { return Ok(None) };
         // `whom:attribute`: the object is the one the options belong to here
         let attribute = attribute.rsplit(':').next().unwrap_or(attribute).trim().to_string();
+        let Some(t) = self.st.snapshot else {
+            self.animation_room(&attribute, &spec);
+            return Ok(None);
+        };
         let mut times: Vec<(f64, String)> = Vec::new();
         let mut begin = 0.0;
         let mut freeze = false;
@@ -105,6 +109,33 @@ impl Engine {
         v.extend(tikra_tokens(&value));
         v.push(Token::Char('}', Cat::End));
         Ok(Some(v))
+    }
+
+    /// The shifts an `xshift`, `yshift` or `shift` animation goes through: as pgf does, the picture
+    /// makes room for the animated object at each of them.
+    fn animation_room(&mut self, attribute: &str, spec: &[Token]) {
+        if !matches!(attribute, "xshift" | "yshift" | "shift" | "position" | "translate") {
+            return;
+        }
+        let linear = Transform { e: 0.0, f: 0.0, ..self.st.transform };
+        for item in crate::keys::split_list(spec) {
+            if seconds(&item.key).is_none() {
+                continue;
+            }
+            let value = item.value.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+            let value = value.trim().trim_matches('"').trim().to_string();
+            let d = match attribute {
+                "xshift" => self.length(&value).map(|x| Point::new(x, 0.0)),
+                "yshift" => self.length(&value).map(|y| Point::new(0.0, y)),
+                _ => {
+                    let origin = self.st.transform.apply(Point::default());
+                    self.coordinate(value.trim_start_matches('(').trim_end_matches(')')).map(|c| c.p.minus(origin))
+                }
+            };
+            if let Ok(d) = d {
+                self.anim_shifts.push(if attribute == "xshift" || attribute == "yshift" { linear.apply(d) } else { d });
+            }
+        }
     }
 
     /// `:attribute = {…}` after a command or in a path (the `:` read): the option it gives, if any.

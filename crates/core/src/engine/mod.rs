@@ -348,6 +348,8 @@ pub struct Engine {
     on_layer: Vec<(String, Vec<Item>)>,
     /// the last node made (a tree's parent), its name, and how many tree parents were named
     pub last_node: Option<nodes::NodeInfo>,
+    /// the shifts a node's animations move it by (canvas), which its picture's size makes room for
+    pub anim_shifts: Vec<Point>,
     pub last_node_name: Option<String>,
     tree_count: usize,
     /// the chains of the chains library (global, as TikZ keeps their counts)
@@ -485,6 +487,7 @@ impl Clone for Engine {
             plot_marks_declared: self.plot_marks_declared.clone(),
             saved_paths: self.saved_paths.clone(),
             pgf_solutions: self.pgf_solutions.clone(),
+            anim_shifts: Vec::new(),
             user_patterns: self.user_patterns.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
@@ -558,6 +561,7 @@ impl Engine {
             plot_marks_declared: HashMap::new(),
             saved_paths: HashMap::new(),
             pgf_solutions: Vec::new(),
+            anim_shifts: Vec::new(),
             user_patterns: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
