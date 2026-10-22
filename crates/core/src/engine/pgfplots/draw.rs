@@ -157,7 +157,9 @@ impl Frame {
     /// one (`\pgfplotspointdescriptionxy`).
     pub fn desc(&self, x: f64, y: f64) -> Point {
         if !self.three_d && !self.polar && !self.smith {
-            return self.rel([x, y, 0.0]);
+            // the box as seen: a reversed axis does not turn it over
+            let flip = |r: f64, a: usize| if self.reversed[a] { 1.0 - r } else { r };
+            return self.rel([flip(x, 0), flip(y, 1), 0.0]);
         }
         let (lo, hi) = self.bbox();
         Point::new(lo.x + x * (hi.x - lo.x), lo.y + y * (hi.y - lo.y))
