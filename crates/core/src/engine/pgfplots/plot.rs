@@ -773,7 +773,14 @@ fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
     })();
     e.tex.set_catcode('\n', saved.0);
     e.tex.set_catcode('\r', saved.1);
-    let (opts, data) = r?;
+    let (opts, mut data) = r?;
+    // a file name with macros (`plotdata/experiment\n.dat` in a \foreach) is expanded; a table
+    // kept by \pgfplotstableread (one macro) and inline data are not
+    let significant: Vec<&Token> = data.iter().filter(|t| !t.is_space()).collect();
+    let one_line = !data.iter().any(|t| matches!(t, Token::Char('\n' | '\r', _)) || t.is_cs("\\"));
+    if one_line && significant.len() > 1 && significant.iter().any(|t| matches!(t, Token::Cs(_))) {
+        data = super::toks(&e.tex.expand_to_string(data)?);
+    }
     let mut text = String::new();
     for t in &data {
         match t {
