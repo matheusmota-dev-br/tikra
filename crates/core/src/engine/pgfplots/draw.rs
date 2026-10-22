@@ -1447,17 +1447,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 }
             }
             Entry::Tikz(tokens) => {
-                // TikZ's unit vectors are those of pgfplots' internal coordinates (a radius of 1)
-                let units = (e.st.x, e.st.y, e.st.z);
-                if f.cs.get() == Cs::Plain && !f.polar && !f.smith && !f.ternary {
-                    let v: Vec<Point> = (0..3).map(|a| f.e[a].scale(1.0 / plain_scale(e, &f, a).0)).collect();
-                    (e.st.x, e.st.y) = (v[0], v[1]);
-                    if f.three_d {
-                        e.st.z = v[2];
-                    }
-                }
-                let r = e.run_tokens(tokens.clone());
-                (e.st.x, e.st.y, e.st.z) = units;
+                let r = in_plain_units(e, &f, |e| e.run_tokens(tokens.clone()));
                 if let Err(err) = r {
                     if super::super::is_limit(&err) {
                         return Err(err);
@@ -1465,6 +1455,16 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                     e.warn(format!("statement in axis: {err}"));
                 }
             }
+        }
+    }
+    // `before end axis/.code`: the end of the axis' body
+    if e.key_exists("/pgfplots/before end axis") {
+        let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/before end axis"), None));
+        if let Err(err) = r {
+            if super::super::is_limit(&err) {
+                return Err(err);
+            }
+            e.warn(format!("before end axis: {err}"));
         }
     }
     e.end_scope();
@@ -2152,12 +2152,38 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         e.end_group();
         r?;
     }
+    // `after end axis/.code`: plain coordinates again, nothing clipped
+    if e.key_exists("/pgfplots/after end axis") {
+        let cs = f.cs.get();
+        f.cs.set(if keys::compat(e) >= 111 { Cs::Axis } else { Cs::Plain });
+        e.begin_group();
+        let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/after end axis"), None));
+        e.end_group();
+        f.cs.set(cs);
+        r?;
+    }
     Ok(())
 }
 
 /// A filled or stroked path for a solid color (used by legend frames).
 pub fn solid(color: crate::color::Color, opacity: f64) -> Fill {
     Fill { paint: Paint::Solid(color), opacity, even_odd: false }
+}
+
+/// Runs `f` with TikZ's unit vectors those of pgfplots' internal coordinates (so that a radius of
+/// 1 is one of them), when plain coordinates are those.
+fn in_plain_units<T>(e: &mut Engine, f: &Frame, run: impl FnOnce(&mut Engine) -> Result<T, Error>) -> Result<T, Error> {
+    let units = (e.st.x, e.st.y, e.st.z);
+    if f.cs.get() == Cs::Plain && !f.polar && !f.smith && !f.ternary {
+        let v: Vec<Point> = (0..3).map(|a| f.e[a].scale(1.0 / plain_scale(e, f, a).0)).collect();
+        (e.st.x, e.st.y) = (v[0], v[1]);
+        if f.three_d {
+            e.st.z = v[2];
+        }
+    }
+    let r = run(e);
+    (e.st.x, e.st.y, e.st.z) = units;
+    r
 }
 
 /// pgfplots' internal coordinates on axis `a` (TikZ's plain ones in an axis): the data times a
