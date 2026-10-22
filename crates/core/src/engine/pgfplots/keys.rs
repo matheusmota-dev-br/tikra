@@ -1044,6 +1044,18 @@ keyfn!(k_colormap_color, |e, v| {
     e.process_keys(super::toks(&format!("/tikz/color={id}")), Some("/tikz"))
 });
 
+// `colormap/PuBu`, `colormap/RdPu-6`: the ColorBrewer colormaps (`\usepgfplotslibrary{colorbrewer}`),
+// equally spaced colors.
+keyfn!(k_colormap_unknown, |e, _v| {
+    let name = e.tex.expand_to_string(vec![Token::cs("pgfkeyscurrentname")])?;
+    let Some(colors) = crate::color::brewer::colormap(&name) else {
+        e.warn(format!("option '{name}' not supported: ignored"));
+        return Ok(());
+    };
+    let spec: Vec<String> = colors.iter().map(|c| format!("rgb=({},{},{})", c.r, c.g, c.b)).collect();
+    run(e, &format!("/pgfplots/colormap={{{name}}}{{{}}}", spec.join(" ")))
+});
+
 // `contour prepared={…}`: the contour handler, its keys in /pgfplots/contour.
 keyfn!(k_contour_prepared, |e, v| {
     set(e, "/tikz/@plot handler", "contour prepared");
@@ -1260,6 +1272,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/contour filled", k_contour_filled),
     ("/pgfplots/boxplot", k_boxplot),
     ("/pgfplots/boxplot prepared", k_boxplot),
+    ("/pgfplots/colormap/.unknown", k_colormap_unknown),
     ("/pgfplots/color of colormap", k_colormap_color),
     ("/pgfplots/const color of colormap", k_colormap_color),
     ("/pgfplots/index of colormap", k_colormap_color),
