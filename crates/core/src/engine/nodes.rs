@@ -237,6 +237,15 @@ pub enum OnPath {
     Segment(Point, Option<(Point, Point)>, Point),
     /// `-|` and `|-`: two legs through a corner (pos 0.5 is the corner)
     Corner(Point, Point, Point),
+    /// an arc: its center, the ends of its axes at 0° and 90°, and its angles (pos goes along the
+    /// angle, as `\pgftransformarcaxesattime`)
+    Arc {
+        center: Point,
+        x: Point,
+        y: Point,
+        from: f64,
+        to: f64,
+    },
 }
 
 impl OnPath {
@@ -248,6 +257,13 @@ impl OnPath {
                 let u = 1.0 - t;
                 let p = a.scale(u * u * u).plus(c1.scale(3.0 * u * u * t)).plus(c2.scale(3.0 * u * t * t)).plus(b.scale(t * t * t));
                 let d = c1.minus(a).scale(3.0 * u * u).plus(c2.minus(c1).scale(6.0 * u * t)).plus(b.minus(c2).scale(3.0 * t * t));
+                (p, d)
+            }
+            OnPath::Arc { center, x, y, from, to } => {
+                let angle = (from + t * (to - from)).to_radians();
+                let (s, c) = angle.sin_cos();
+                let p = center.plus(x.scale(c)).plus(y.scale(s));
+                let d = y.scale(c).minus(x.scale(s)).scale(if to < from { -1.0 } else { 1.0 });
                 (p, d)
             }
             OnPath::Corner(a, c, b) => {
@@ -334,6 +350,27 @@ impl Engine {
             (self.last_node, self.last_node_name) = last;
         }
         Ok(items)
+    }
+
+    /// `node also [options] (name)`, `late options={name=…, …}`: the labels and pins of the
+    /// options, for a node that exists.
+    pub fn late_options(&mut self, name: &str, options: Vec<Token>) -> Result<Vec<Item>, Error> {
+        let Some(info) = self.lookup_node(name) else {
+            self.warn(format!("late options: no node named '{name}'"));
+            return Ok(Vec::new());
+        };
+        self.begin_group();
+        self.st.node = NodeSetup::default();
+        let r = (|| {
+            self.process_keys(options, Some("/tikz"))?;
+            let mut items = Vec::new();
+            for (spec, pin) in std::mem::take(&mut self.st.node.labels) {
+                items.extend(self.label(&info, spec, pin)?);
+            }
+            Ok(items)
+        })();
+        self.end_group();
+        r
     }
 
     /// The node's drawing, and what its labels need: the node, their specifications, and the last

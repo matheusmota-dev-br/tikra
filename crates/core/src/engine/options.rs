@@ -1024,7 +1024,12 @@ keyfn!(k_font, |e, v| {
     Ok(())
 });
 
-keyfn!(k_node_font, |e, v| k_font(e, v));
+// `node font`: also the font of the node's dimensions (`minimum height=3em`)
+keyfn!(k_node_font, |e, v| {
+    k_font(e, v)?;
+    e.st.ambient_size = e.st.font_size;
+    Ok(())
+});
 
 keyfn!(k_anchor, |e, v| {
     let s = text(e, &v)?;
@@ -1264,6 +1269,30 @@ keyfn!(k_at, |e, v| {
     let inner = s.trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
     e.st_node().at = Some(p);
+    Ok(())
+});
+keyfn!(k_late_options, |e, v| {
+    // `late options={name=a, label=above:world}`: the other options for the node `a`
+    let mut name = String::new();
+    let mut rest = Vec::new();
+    for item in crate::keys::split_list(&v.unwrap_or_default()) {
+        if item.key == "name" {
+            name = tex::tokens_to_string(&item.value.unwrap_or_default()).trim().to_string();
+            continue;
+        }
+        if !rest.is_empty() {
+            rest.push(Token::other(','));
+        }
+        rest.extend(tikra_tokens(&item.key));
+        if let Some(value) = item.value {
+            rest.push(Token::other('='));
+            rest.push(Token::Char('{', Cat::Begin));
+            rest.extend(value);
+            rest.push(Token::Char('}', Cat::End));
+        }
+    }
+    let items = e.late_options(&name, rest)?;
+    e.canvas.items.extend(items);
     Ok(())
 });
 keyfn!(k_label, |e, v| {
@@ -2131,6 +2160,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/execute at end picture", k_at_end_picture),
     ("/tikz/fit", k_fit),
     ("/tikz/name path", k_name_path),
+    ("/tikz/late options", k_late_options),
     ("/tikz/name path global", k_name_path),
     ("/tikz/name intersections", k_name_intersections),
     ("/tikz/swap", k_swap),

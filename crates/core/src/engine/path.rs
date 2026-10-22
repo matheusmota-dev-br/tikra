@@ -296,7 +296,7 @@ fn target(e: &mut Engine, b: &mut Builder, depth: Option<usize>, what: &str) -> 
         Some(Token::Char('c', Cat::Letter)) => {
             let w = word(e, 'c');
             if w != "cycle" {
-                e.tex.push_tokens(tex::string_tokens(&w));
+                e.tex.push_tokens(word_tokens(&w));
                 return Err(Error::Figure(format!("{what} without a point")));
             }
             b.close_after = true;
@@ -439,6 +439,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         None => break,
                     }
                 }
+                // nodes before the end point go on the curve
+                let mids = read_mid_nodes(e, depth)?;
+                b.mid_nodes.extend(mids);
                 let r = target(e, b, depth, "controls")?;
                 if let Some(o) = c2_offset {
                     c2 = r.p.plus(o);
@@ -485,7 +488,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 let _ = next(e, depth)?;
                                 let w = word(e, 'n');
                                 if w != "node" {
-                                    e.tex.push_tokens(tex::string_tokens(&w));
+                                    e.tex.push_tokens(word_tokens(&w));
                                     break;
                                 }
                                 let (options, _, _, text) = read_node(e, depth, false)?;
@@ -509,6 +512,12 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         }
                     }
                     "node" | "coordinate" | "pic" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
+                    // `node also [label=…] (a)`: more options for a node that exists
+                    "node" if peek_words(e, depth, &["also"])? => {
+                        let (options, name, _, _) = read_node(e, depth, true)?;
+                        let items = e.late_options(name.as_deref().unwrap_or_default(), options)?;
+                        b.node_items.extend(items);
+                    }
                     "node" | "coordinate" => {
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate)?;
@@ -641,6 +650,11 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
 }
 
 /// Whether the next words are `words` (read if so, left if not).
+/// A word read too far, as the letters it was read as.
+fn word_tokens(w: &str) -> Vec<Token> {
+    w.chars().map(|c| Token::Char(c, Cat::Letter)).collect()
+}
+
 fn peek_words(e: &mut Engine, depth: Option<usize>, words: &[&str]) -> Result<bool, Error> {
     let mut read: Vec<Token> = Vec::new();
     for w in words {
@@ -659,7 +673,9 @@ fn peek_words(e: &mut Engine, depth: Option<usize>, words: &[&str]) -> Result<bo
         }
         let Token::Char(c, _) = first else { unreachable!() };
         let got = word(e, c);
-        read.extend(tex::string_tokens(&format!("{got} ")));
+        // given back as they were read: letters (a word that is not the one may be `at`)
+        read.extend(word_tokens(&got));
+        read.push(Token::Char(' ', Cat::Space));
         if got != *w {
             e.tex.push_tokens(read);
             return Ok(false);
@@ -742,11 +758,19 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
         Some("-|") | Some("|-") => {
             let a = b.point();
             let corner = if op.as_deref() == Some("-|") { Point::new(r.p.x, a.y) } else { Point::new(a.x, r.p.y) };
-            let start = a;
             line_to(e, b, Coord { p: corner, node: None });
+            // the legs from and to the nodes' borders
+            let start = match b.last {
+                Some(OnPath::Segment(p, _, _)) => p,
+                _ => a,
+            };
             line_to(e, b, r.clone());
+            let end = match b.last {
+                Some(OnPath::Segment(_, _, p)) => p,
+                _ => b.point(),
+            };
             // pos runs along both legs: 0.5, the default, is the corner
-            b.last = Some(OnPath::Corner(start, corner, b.point()));
+            b.last = Some(OnPath::Corner(start, corner, end));
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("to") => to(e, b, to_opts, r)?,
@@ -1065,7 +1089,7 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
         let Some(Token::Char(c, _)) = next(e, depth)? else { break };
         let w = word(e, c);
         if w != "node" && w != "coordinate" {
-            e.tex.push_tokens(tex::string_tokens(&w));
+            e.tex.push_tokens(word_tokens(&w));
             break;
         }
         let coordinate = w == "coordinate";
@@ -1543,8 +1567,8 @@ fn arc(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Erro
     let segs = arc_segments(center, rx, ry, a0, a1, &t);
     let (s1, c1) = a1.to_radians().sin_cos();
     let end = center.plus(t.linear(Point::new(rx * c1, ry * s1)));
-    if let Some(Segment::CurveTo(c1p, c2p, _)) = segs.first() {
-        b.last = Some(OnPath::Segment(p, Some((*c1p, *c2p)), end));
+    if !segs.is_empty() {
+        b.last = Some(OnPath::Arc { center, x: t.linear(Point::new(rx, 0.0)), y: t.linear(Point::new(0.0, ry)), from: a0, to: a1 });
     }
     b.segs.extend(segs);
     b.current = Some(Coord { p: end, node: None });
