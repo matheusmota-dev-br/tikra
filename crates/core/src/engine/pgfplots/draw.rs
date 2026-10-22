@@ -2041,15 +2041,28 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
             other => other.strip_prefix("base 10:").and_then(|n| n.trim().parse().ok()),
         };
         let binop = keys::value_tokens(e, "/pgfplots/tick scale binop").map_or_else(|| "\\cdot".to_string(), |t| tex::tokens_to_string(&t));
+        // `xtick scale label code/.code={…}`: the label, given the exponent (or the factor)
+        let code = pk::macro_name(&format!("/pgfplots/{c}tick scale label code/.@cmd"));
+        let custom = matches!(e.tex.meaning_of(&code), tex::Meaning::Macro(_));
+        let label_of = |e: &mut Engine, arg: String, default: String| -> String {
+            if !custom {
+                return default;
+            }
+            let mut call = vec![Token::cs(&code), Token::Char('{', tex::Cat::Begin)];
+            call.extend(toks(&arg));
+            call.push(Token::Char('}', tex::Cat::End));
+            e.tex.expand_fully(call).map(|t| tex::tokens_to_string(&t)).unwrap_or(default)
+        };
         if let Some(x) = exponent.filter(|x| *x != 0) {
             factor = 10f64.powi(x);
-            scale_label = Some(format!("${binop} 10^{{{}}}$", -x));
+            scale_label = Some(label_of(e, (-x).to_string(), format!("${binop} 10^{{{}}}$", -x)));
         }
         if let Some(r) = v.strip_prefix("real:") {
             if let Ok(d) = e.number(r) {
                 if d != 0.0 {
                     factor = 1.0 / d;
-                    scale_label = Some(format!("${binop} {}$", e.st.number_format.print(d)));
+                    let default = format!("${binop} {}$", e.st.number_format.print(d));
+                    scale_label = Some(label_of(e, super::super::pgf_number(d), default));
                 }
             }
         }
