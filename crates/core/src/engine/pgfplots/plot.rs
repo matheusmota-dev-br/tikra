@@ -548,6 +548,22 @@ fn sample_points(e: &mut Engine, domain_key: &str, samples_key: &str, log: bool)
     Ok(v)
 }
 
+/// Where the points of one patch of a type lie in the unit interval or square (`sample in unit
+/// cube` of the patch classes), in their order; None for a type without them.
+fn patch_unit_points(kind: &str) -> Option<Vec<(f64, f64)>> {
+    let (t1, t2) = (1.0 / 3.0, 2.0 / 3.0);
+    Some(match kind.trim() {
+        "line" => vec![(0.0, 0.0), (1.0, 0.0)],
+        "quadratic spline" => vec![(0.0, 0.0), (1.0, 0.0), (0.5, 0.0)],
+        "cubic spline" => vec![(0.0, 0.0), (1.0, 0.0), (t1, 0.0), (t2, 0.0)],
+        "rectangle" | "bilinear" => vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        "triangle quadr" => vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0), (0.5, 0.5), (1.0, 0.5), (0.5, 1.0)],
+        "biquadratic" => vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.5, 0.0), (1.0, 0.5), (0.5, 1.0), (0.0, 0.5), (0.5, 0.5)],
+        "bicubic" => (0..16).map(|k| ([0.0, t1, t2, 1.0][k % 4], [0.0, t1, t2, 1.0][k / 4])).collect(),
+        _ => return None,
+    })
+}
+
 /// Samples `(x(var), y(var)[, z(var, y)])`.
 fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<Coord>, Error> {
     let var = e.st.variable.clone();
@@ -563,6 +579,28 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
     let mut vars = e.vars();
     let mut out = Vec::new();
     let eval = |text: &str, vars: &crate::expr::Variables| crate::expr::eval(text, vars).unwrap_or(f64::NAN);
+    // `patch type sampling`: each interval (or cell) gives the points of one patch, at the places
+    // of the patch type's points in the unit interval (square)
+    let unit = if keys::flag(e, "/pgfplots/patch type sampling") { patch_unit_points(&keys::value(e, "/pgfplots/patch type")) } else { None };
+    if let Some(unit) = unit {
+        let at = |v: &[f64], i: usize, t: f64| v[i] + t * (v[i + 1] - v[i]);
+        let two = plot.three_d && texts.len() >= 3 && unit.iter().any(|(_, v)| *v != 0.0);
+        let ys = if two { sample_points(e, "/pgfplots/y domain", "/pgfplots/samples y", false)? } else { vec![0.0, 0.0] };
+        for j in 0..ys.len().saturating_sub(1) {
+            for i in 0..xs.len().saturating_sub(1) {
+                for &(u, v) in &unit {
+                    let (x, y) = (at(&xs, i, u), at(&ys, j, v));
+                    vars.insert(var.clone(), x);
+                    vars.insert(var_y.clone(), y);
+                    let mut c = Coord::new(eval(&texts[0], &vars), texts.get(1).map_or(f64::NAN, |t| eval(t, &vars)), texts.get(2).map_or(0.0, |t| eval(t, &vars)));
+                    c.param = [x, y];
+                    out.push(c);
+                }
+            }
+        }
+        plot.patch = plot.mesh.is_some();
+        return Ok(out);
+    }
     if plot.three_d && texts.len() >= 3 {
         let ys = sample_points(e, "/pgfplots/y domain", "/pgfplots/samples y", false)?;
         let line = ys.len() < 2;
@@ -905,13 +943,19 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let seym = pick(e, "y error minus", None);
     let mut out = Vec::with_capacity(t.rows.len());
     for r in 0..t.rows.len() {
+        // an expression may use the coordinates read so far: `z expr=x^2-y^2`
+        let known: std::cell::RefCell<Vec<(&str, f64)>> = Default::default();
         let get = |e: &mut Engine, s: &Src| -> f64 {
             match s {
                 Src::Col(Some(c)) => t.cell(r, *c).and_then(table::parse_number).unwrap_or(f64::NAN),
                 Src::Col(None) | Src::None => f64::NAN,
                 Src::Expr(tokens) => {
                     let replaced = replace_thisrow(tokens, t, r);
-                    e.math_string(replaced).and_then(|s| crate::expr::eval(&s, &e.vars())).unwrap_or(f64::NAN)
+                    let mut vars = e.vars();
+                    for (n, v) in known.borrow().iter() {
+                        vars.insert((*n).into(), *v);
+                    }
+                    e.math_string(replaced).and_then(|s| crate::expr::eval(&s, &vars)).unwrap_or(f64::NAN)
                 }
             }
         };
@@ -922,8 +966,10 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         };
         let x = get(e, &sx);
         let x = sym(e, &sx, 'x', x);
+        known.borrow_mut().push(("x", x));
         let y = get(e, &sy);
         let y = sym(e, &sy, 'y', y);
+        known.borrow_mut().push(("y", y));
         let z = if matches!(sz, Src::None) { 0.0 } else { get(e, &sz) };
         let mut c = Coord::new(x, y, z);
         c.meta = get(e, &smeta);
