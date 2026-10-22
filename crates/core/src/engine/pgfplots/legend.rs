@@ -334,7 +334,8 @@ fn split(list: &[Token]) -> Vec<LegendEntry> {
     out.push(cur);
     out.into_iter()
         .map(|v| {
-            let (options, text) = super::split_options(crate::keys::trim(&v).to_vec());
+            // `{[text width=25pt]Neg. Sign:}`: the braces of the list item go first
+            let (options, text) = super::split_options(tex::strip_outer_braces(crate::keys::trim(&v).to_vec()));
             LegendEntry { options, text: tex::strip_outer_braces(text) }
         })
         .collect()
