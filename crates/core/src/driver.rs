@@ -179,15 +179,33 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
     let t = 3.0 * 72.0 / 72.27;
     let w = 0.4 * 72.0 / 72.27;
     let line = |x1: f64, y1: f64, x2: f64, y2: f64| format!(r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{c}" stroke-width="{}"/>"#, n(x1), n(y1), n(x2), n(y2), n(w));
+    let half = 0.5 * 72.0 / 72.27;
+    let dot = |x: f64, y: f64| format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/>"#, n(x), n(y), n(half));
     let (size, body) = match name {
         "north east lines" => (t, line(-t * 0.1, t * 1.1, t * 1.1, -t * 0.1)),
         "north west lines" => (t, line(-t * 0.1, -t * 0.1, t * 1.1, t * 1.1)),
+        // (pgf's y up is y down here, a tile further: pgf's y is the tile's size less y; what pgf
+        // draws on a tile's edge is drawn on both edges)
         "horizontal lines" => (t, line(0.0, t / 2.0, t, t / 2.0)),
         "vertical lines" => (t, line(t / 2.0, 0.0, t / 2.0, t)),
         "grid" => (t, line(0.0, t / 2.0, t, t / 2.0) + &line(t / 2.0, 0.0, t / 2.0, t)),
         "crosshatch" => (t, line(0.0, t, t, 0.0) + &line(0.0, 0.0, t, t)),
-        "dots" => (t, format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/>"#, n(t / 2.0), n(t / 2.0), n(0.5 * 72.0 / 72.27))),
-        "crosshatch dots" => (t, format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/><circle cx="0" cy="0" r="{}" fill="{c}"/>"#, n(t / 2.0), n(t / 2.0), n(0.5), n(0.5))),
+        "dots" => (t, [(0.0, 0.0), (t, 0.0), (0.0, t), (t, t)].iter().map(|&(x, y)| dot(x, y)).collect()),
+        "crosshatch dots" => (t, [(0.0, 0.0), (t, 0.0), (0.0, t), (t, t), (t / 2.0, t / 2.0)].iter().map(|&(x, y)| dot(x, y)).collect()),
+        // 3 mm tiles, a star of 1 mm around (1 mm, 1 mm)
+        "fivepointed stars" | "sixpointed stars" => {
+            let mm = 72.0 / 25.4;
+            let at = |a: f64| {
+                let (s, co) = a.to_radians().sin_cos();
+                format!("{},{}", n((1.0 + co) * mm), n((3.0 - 1.0 - s) * mm))
+            };
+            let d = if name == "fivepointed stars" {
+                format!("M{} L{} L{} L{} L{} Z", at(18.0), at(162.0), at(306.0), at(90.0), at(234.0))
+            } else {
+                format!("M{} L{} L{} Z M{} L{} L{} Z", at(30.0), at(150.0), at(270.0), at(-30.0), at(-270.0), at(-150.0))
+            };
+            (3.0 * mm, format!(r#"<path d="{d}" fill="{c}"/>"#))
+        }
         // 4 mm tiles (pgf's y up is y down here, a tile further: pgf's y is the tile's size less y)
         "bricks" => {
             let mm = 72.0 / 25.4;
