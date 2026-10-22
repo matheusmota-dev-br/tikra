@@ -1200,6 +1200,7 @@ keyfn!(k_nf, |e, v| {
     let f = nf(e);
     match name.as_str() {
         "fixed" => f.style = Style::Fixed,
+        "frac" => f.style = Style::Frac,
         "sci" => f.style = Style::Sci,
         "std" => {
             f.style = match value.split_once(':') {
@@ -1297,6 +1298,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
 ];
 
 const NUMBER_FORMAT: &[&str] = &[
+    "frac",
     "fixed",
     "sci",
     "std",
