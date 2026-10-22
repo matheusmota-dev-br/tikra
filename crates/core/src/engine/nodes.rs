@@ -399,6 +399,13 @@ impl Engine {
                 None
             } else {
                 let mut warnings = Vec::new();
+                // `every lower node part/.style={font=…}`: the part's own font and color
+                self.begin_group();
+                let r = self.process_keys(tikra_tokens(&format!("every {part} node part/.try")), Some("/tikz"));
+                let (font, color) =
+                    if self.st.font != font || self.st.text_paint_color() != color { (self.st.font.clone(), self.st.text_paint_color()) } else { (font.clone(), color) };
+                self.end_group();
+                r?;
                 // a text that is all `\textcolor{color}{…}` is in that color
                 let (t, color) = match whole_textcolor(t).and_then(|(c, inner)| self.color(&c).map(|c| (inner, c))) {
                     Some((inner, c)) => (inner, c),

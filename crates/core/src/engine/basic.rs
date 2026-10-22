@@ -83,6 +83,7 @@ enum B {
     /// `\pgfplothandlerlineto`… (the handler's name in [`PLOT_HANDLERS`])
     PlotHandler,
     PlotHandlerMark,
+    PlotHandlerMarkListed,
     StreamStart,
     StreamPoint,
     StreamEnd,
@@ -163,6 +164,7 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfsetyvec", B::YVec),
     ("pgfsetzvec", B::ZVec),
     ("pgfplothandlermark", B::PlotHandlerMark),
+    ("pgfplothandlermarklisted", B::PlotHandlerMarkListed),
     ("pgfplotstreamstart", B::StreamStart),
     ("pgfplotstreampoint", B::StreamPoint),
     ("pgfplotstreamend", B::StreamEnd),
@@ -929,6 +931,12 @@ impl Engine {
                 let code = self.argument()?;
                 self.st.basic_plot = ("mark".into(), code);
             }
+            B::PlotHandlerMarkListed => {
+                // `{code}{1,3}`: a mark on the listed points only (counted from 1)
+                let code = self.argument()?;
+                let list = self.argument_string()?;
+                self.st.basic_plot = (format!("mark listed:{list}"), code);
+            }
             B::PlotTension => {
                 let v = self.argument()?;
                 self.st.tension = self.number_of(v)?;
@@ -1020,9 +1028,13 @@ impl Engine {
                     self.tex.set_meaning(m, super::macro_tokens(v), true);
                 }
             }
-            "mark" => {
+            h if h == "mark" || h.starts_with("mark listed:") => {
+                let listed: Option<Vec<usize>> = h.strip_prefix("mark listed:").map(|l| l.split(',').filter_map(|i| i.trim().parse().ok()).collect());
                 let t = self.st.transform;
-                for p in points {
+                for (i, p) in points.into_iter().enumerate() {
+                    if listed.as_ref().is_some_and(|l| !l.contains(&(i + 1))) {
+                        continue;
+                    }
                     self.begin_group();
                     self.begin_scope();
                     self.st.transform = Transform::translation(p.x, p.y).compose(&Transform { e: 0.0, f: 0.0, ..t });
