@@ -176,9 +176,19 @@ impl Engine {
         }
         self.st.transform = self.grow(k, n)?;
         // the child's node, named parent-k unless it names itself, then its own children
-        let body = keys_trimmed(&child.body);
+        let mut body = keys_trimmed(&child.body);
+        // `child {[level distance=5mm] child …}`: options of the rest of the child's path
+        let mut path_options = Vec::new();
+        if body.first().is_some_and(|t| t.is_char('[')) {
+            if let Some(end) = body.iter().position(|t| t.is_char(']')) {
+                path_options = body[..=end].to_vec();
+                body = keys_trimmed(&body[end + 1..]);
+            }
+        }
         let (kind, rest) = split_first_word(&body);
-        let mut statement = tikra_tokens(&format!("\\path {} [name={parent}-{k},every child node/.try]", if kind == "node" { "node" } else { "coordinate" }));
+        let mut statement = tikra_tokens("\\path");
+        statement.extend(path_options);
+        statement.extend(tikra_tokens(&format!(" {} [name={parent}-{k},every child node/.try]", if kind == "node" { "node" } else { "coordinate" })));
         if kind == "node" || kind == "coordinate" {
             statement.extend(rest);
         } else {

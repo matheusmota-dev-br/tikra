@@ -508,7 +508,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             pending_op = Some("to".into());
                         }
                     }
-                    "node" | "coordinate" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
+                    "node" | "coordinate" | "pic" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
                     "node" | "coordinate" => {
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate)?;
@@ -1097,6 +1097,10 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                     options.push(Token::other(','));
                 }
                 options.extend(e.tex.read_until_char(']', false)?);
+                // with its contents in the options, the node ends there
+                if crate::keys::split_list(&options).iter().any(|i| i.key == "node contents" || i.key == "pic type") {
+                    break;
+                }
             }
             // a second point after the name is the path's next (`coordinate (a) (1,0)`)
             Some(t) if t.is_char('(') && name.is_some() => {
@@ -1162,8 +1166,8 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
             None => break,
         }
     }
-    // `node contents=…` stands for the text, which is then not given
-    if let Some(v) = crate::keys::split_list(&options).into_iter().find(|i| i.key == "node contents").and_then(|i| i.value) {
+    // `node contents=…` (`pic type=…` for a pic) stands for the text, which is then not given
+    if let Some(v) = crate::keys::split_list(&options).into_iter().find(|i| i.key == "node contents" || i.key == "pic type").and_then(|i| i.value) {
         return Ok((options, name, at, tex::strip_outer_braces(v)));
     }
     if !coordinate {
@@ -2039,7 +2043,7 @@ fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error
                 spec.extend(e.tex.read_group_body()?);
                 spec.push(Token::Char('}', Cat::End));
             }
-            Token::Char(_, Cat::Begin) if kind == "node" => {
+            Token::Char(_, Cat::Begin) if kind != "coordinate" => {
                 spec.push(t);
                 spec.extend(e.tex.read_group_body()?);
                 spec.push(Token::Char('}', Cat::End));

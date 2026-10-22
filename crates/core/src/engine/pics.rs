@@ -78,7 +78,11 @@ impl Engine {
                 "foreground code" => "every front pic/.try",
                 _ => "every pic/.try",
             };
-            let r = self.process_keys(tikra_tokens(every), Some("/tikz")).and_then(|_| self.run_tokens(code));
+            // a scope with that style: its transformations too
+            let r = self.process_keys(tikra_tokens(every), Some("/tikz")).and_then(|_| {
+                self.st.apply_pending();
+                self.run_tokens(code)
+            });
             self.end_scope();
             self.end_group();
             r?;
