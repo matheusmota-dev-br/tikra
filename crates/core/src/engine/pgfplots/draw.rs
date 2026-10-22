@@ -781,6 +781,8 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
         let auto = if three_d { a == 2 } else { a < 2 };
         let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
+        // TeX multiplies the range (a dimension) by the factor read as a dimension: 0.1 is 6554 sp
+        let rel = (rel * 65536.0).round() / 65536.0;
         let amount = abs.unwrap_or(rel * (max[a] - min[a]));
         if amount > 1e-9 * (max[a].abs() + 1.0) && !invalid {
             if lo {
