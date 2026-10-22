@@ -188,7 +188,14 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let explicit = keys::value(e, "/pgfplots/mesh/color input").starts_with("explicit");
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
-        let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
+        let raw: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).collect();
+        // an unbounded point meta leaves a hole: the patch is not drawn (with `flat corner`, when
+        // the corner that colors it is unbounded)
+        let holed = if shader == "flat corner" { raw.first().is_some_and(|m| m.is_nan()) } else { raw.iter().any(|m| m.is_nan()) };
+        if holed && !explicit && p.has_meta {
+            continue;
+        }
+        let metas: Vec<f64> = raw.into_iter().filter(|m| m.is_finite()).collect();
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
         // `mesh/color input=explicit`: each point has its color
         let vertex: Option<Vec<Color>> = explicit.then(|| src.iter().map(|&k| vertex_color(e, p, k)).collect());
