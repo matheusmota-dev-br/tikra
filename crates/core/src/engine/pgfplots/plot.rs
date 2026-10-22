@@ -731,6 +731,32 @@ fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
         let opts = e.optional()?;
         let data = match next(e) {
             Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+            // `table [options] from \macro`: a table read with \pgfplotstableread
+            Some(Token::Char('f', c)) => {
+                let mut taken = vec![Token::Char('f', c)];
+                for want in ['r', 'o', 'm'] {
+                    match e.tex.get_token() {
+                        Some(t @ Token::Char(x, _)) if x == want => taken.push(t),
+                        Some(t) => {
+                            taken.push(t);
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+                if taken.len() == 4 {
+                    match next(e) {
+                        Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+                        Some(t) => vec![t],
+                        None => Vec::new(),
+                    }
+                } else {
+                    for t in taken.into_iter().skip(1).rev() {
+                        e.tex.back(t);
+                    }
+                    vec![Token::Char('f', c)]
+                }
+            }
             Some(t) => vec![t],
             None => Vec::new(),
         };
