@@ -68,9 +68,8 @@ type PatchSource = (Vec<usize>, Vec<usize>);
 
 /// The colormap's color for meta value `m`.
 pub fn map(f: &Frame, m: f64) -> Color {
-    let t = (m - f.meta[0]) / (f.meta[1] - f.meta[0]);
     match &f.colormap {
-        Some(c) => c.at(t),
+        Some(c) => c.color_of(m, f.meta[0], f.meta[1]),
         None => Color::BLACK,
     }
 }
@@ -212,7 +211,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let closes = list.first().is_some_and(|(q, _)| q.len() > 2);
     // the plot's colormap (`colormap/blackwhite` among its options), and that of the patches
     // seen from behind (`mesh/interior colormap`)
-    let parse_map = |e: &mut Engine, name: &str| super::colormap::Colormap::parse(&keys::value(e, &format!("/pgfplots/@colormaps/{name}")), &e.colors);
+    let parse_map = super::draw::colormap_named;
     let name = keys::value(e, "/pgfplots/colormap name");
     let outer = parse_map(e, &name).or_else(|| f.colormap.clone());
     let inner_name = keys::value(e, "/pgfplots/mesh/interior colormap name");
@@ -237,7 +236,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             Some(c) if q.len() > 2 && inside() => Some(c),
             _ => outer.as_ref(),
         };
-        let map = |_: &Frame, m: f64| cmap.map_or(Color::BLACK, |c| c.at((m - range[0]) / (range[1] - range[0])));
+        let map = |_: &Frame, m: f64| cmap.map_or(Color::BLACK, |c| c.color_of(m, range[0], range[1]));
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
         // a patch whose color comes from a point meta of nan is not drawn (with `flat corner`, the
         // first corner's)
@@ -265,7 +264,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         // a parallelogram whose color changes along one side only is an axial shading (as the
         // colorbar's): exact, without pieces
         if closes && shader == "interp" && vertex.is_none() && corners.len() == 4 && metas.len() == 4 {
-            if let Some(cm) = cmap {
+            if let Some(cm) = cmap.filter(|c| c.access == super::colormap::Access::Map) {
                 let same = |a: f64, b: f64| (a - b).abs() <= 1e-12 * (a.abs() + b.abs() + 1.0);
                 let pick = if same(metas[0], metas[1]) && same(metas[3], metas[2]) {
                     Some((corners[0], corners[1], corners[3], corners[2], metas[0], metas[3]))
@@ -300,6 +299,40 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
                     }
                 }
             }
+        }
+        // `colormap access=piecewise constant`: the shading's colors are bands, cut exactly
+        if let Some(cm) = cmap.filter(|c| c.access == super::colormap::Access::Const && closes && shader == "interp" && vertex.is_none() && metas.len() == corners.len()) {
+            let tris: Vec<[usize; 3]> = if corners.len() == 4 {
+                match reversed {
+                    (false, false) | (true, true) => vec![[0, 1, 3], [1, 2, 3]],
+                    _ => vec![[0, 1, 2], [0, 2, 3]],
+                }
+            } else {
+                vec![[0, 1, 2]]
+            };
+            let n = cm.stops.len();
+            let width = (range[1] - range[0]) / n as f64;
+            for t in tris {
+                let tri: Vec<(Point, f64)> = t.iter().map(|&k| (corners[k], metas[k])).collect();
+                for (b, (_, c)) in cm.stops.iter().enumerate() {
+                    let lo = if b == 0 { f64::NEG_INFINITY } else { range[0] + b as f64 * width };
+                    let hi = if b + 1 == n { f64::INFINITY } else { range[0] + (b + 1) as f64 * width };
+                    let poly = super::contour::clip(&tri, lo, hi);
+                    if poly.len() < 3 {
+                        continue;
+                    }
+                    let c = fill.at(*c);
+                    let mut segs = vec![Segment::MoveTo(poly[0])];
+                    segs.extend(poly[1..].iter().map(|q| Segment::LineTo(*q)));
+                    segs.push(Segment::Close);
+                    if !e.canvas_frozen {
+                        e.canvas.include_path(&segs);
+                    }
+                    let stroke = Stroke { color: c, width: 0.3 * crate::PT, dash: None, cap: st.cap, join: st.join, miter_limit: st.miter_limit, opacity: opacity.0 };
+                    e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint: Paint::Solid(c), opacity: opacity.1, even_odd: false }), stroke: Some(stroke) });
+                }
+            }
+            continue;
         }
         if closes && shader == "interp" && interp_ok && (corners.len() == 4 || corners.len() == 3) {
             let size = (0..corners.len()).map(|i| corners[i].minus(corners[(i + 1) % corners.len()]).norm()).fold(0.0, f64::max);

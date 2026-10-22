@@ -175,7 +175,7 @@ fn bands(e: &mut Engine, f: &Frame) -> Vec<(f64, crate::color::Color)> {
 }
 
 /// The part of a triangle where its (linear) value is ≥ `lo` and ≤ `hi`.
-fn clip(tri: &[(Point, f64)], lo: f64, hi: f64) -> Vec<Point> {
+pub fn clip(tri: &[(Point, f64)], lo: f64, hi: f64) -> Vec<Point> {
     fn cut(poly: Vec<(Point, f64)>, keep: &dyn Fn(f64) -> bool, at: f64) -> Vec<(Point, f64)> {
         let mut out = Vec::new();
         for i in 0..poly.len() {

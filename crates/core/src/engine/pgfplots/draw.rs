@@ -1211,10 +1211,23 @@ fn meta_range(e: &mut Engine, axis: &Axis) -> [f64; 2] {
 /// The current colormap (`colormap name`).
 pub fn colormap(e: &mut Engine) -> Option<super::colormap::Colormap> {
     let name = keys::value(e, "/pgfplots/colormap name");
-    let spec = keys::value(e, &format!("/pgfplots/@colormaps/{name}"));
-    let m = super::colormap::Colormap::parse(&spec, &e.colors);
+    let m = colormap_named(e, &name);
     if m.is_none() {
         e.warn(format!("colormap '{name}' not defined"));
+    }
+    m
+}
+
+/// A colormap by name, with the current `colormap access`.
+pub fn colormap_named(e: &mut Engine, name: &str) -> Option<super::colormap::Colormap> {
+    let spec = keys::value(e, &format!("/pgfplots/@colormaps/{name}"));
+    let mut m = super::colormap::Colormap::parse(&spec, &e.colors);
+    if let Some(m) = m.as_mut() {
+        m.access = match keys::value(e, "/pgfplots/colormap access").trim() {
+            "piecewise constant" | "const" => super::colormap::Access::Const,
+            "direct" => super::colormap::Access::Direct,
+            _ => super::colormap::Access::Map,
+        };
     }
     m
 }

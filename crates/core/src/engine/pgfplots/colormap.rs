@@ -10,6 +10,18 @@ use crate::color::{self, Color};
 pub struct Colormap {
     /// Positions (increasing) and colors.
     pub stops: Vec<(f64, Color)>,
+    /// `colormap access`.
+    pub access: Access,
+}
+
+/// `colormap access`: `map` (linear interpolation), `piecewise constant` (the color of the
+/// interval) or `direct` (the point meta is the index of a color).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Access {
+    #[default]
+    Map,
+    Const,
+    Direct,
 }
 
 impl Colormap {
@@ -95,7 +107,7 @@ impl Colormap {
         if stops.is_empty() {
             return None;
         }
-        Some(Colormap { stops: uniform(stops, given_step) })
+        Some(Colormap { stops: uniform(stops, given_step), access: Access::Map })
     }
 
     /// The color at `t` from 0 to 1.
@@ -112,6 +124,18 @@ impl Colormap {
             }
         }
         last.1
+    }
+
+    /// The color of point meta `m` in the range [lo, hi], by the colormap's access.
+    pub fn color_of(&self, m: f64, lo: f64, hi: f64) -> Color {
+        match self.access {
+            Access::Direct => {
+                let k = if m.is_finite() { m.trunc().clamp(0.0, (self.stops.len() - 1) as f64) as usize } else { 0 };
+                self.stops[k].1
+            }
+            Access::Const => self.at_const((m - lo) / (hi - lo)),
+            Access::Map => self.at((m - lo) / (hi - lo)),
+        }
     }
 
     /// Piecewise constant access (`colormap access=const`): the color of the interval `t` is in.
