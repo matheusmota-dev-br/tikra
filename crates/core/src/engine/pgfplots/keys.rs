@@ -526,7 +526,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/trig format plots/.initial=default,
 	/pgfplots/set layers/.code=, /pgfplots/on layer/.initial=, /pgfplots/mark layer/.initial=,
 	/pgfplots/cell picture/.code=, /pgfplots/lua backend/.code=, /pgfplots/lua debug/.code=,
-	/pgfplots/disabledatascaling/.code=, /pgfplots/data cs/.initial=cart,
+	/pgfplots/disabledatascaling/.initial=false, /pgfplots/disabledatascaling/.default=true, /pgfplots/data cs/.initial=cart,
 	/pgfplots/colorbar/.initial=false, /pgfplots/colorbar/.default=true,
 	/pgfplots/colormap name/.initial=hot,
 	/pgfplots/legend image post style/.style={/pgfplots/every legend image post/.append style={#1}},

@@ -1447,7 +1447,17 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 }
             }
             Entry::Tikz(tokens) => {
+                // TikZ's unit vectors are those of pgfplots' internal coordinates (a radius of 1)
+                let units = (e.st.x, e.st.y, e.st.z);
+                if f.cs.get() == Cs::Plain && !f.polar && !f.smith && !f.ternary {
+                    let v: Vec<Point> = (0..3).map(|a| f.e[a].scale(1.0 / plain_scale(e, &f, a).0)).collect();
+                    (e.st.x, e.st.y) = (v[0], v[1]);
+                    if f.three_d {
+                        e.st.z = v[2];
+                    }
+                }
                 let r = e.run_tokens(tokens.clone());
+                (e.st.x, e.st.y, e.st.z) = units;
                 if let Err(err) = r {
                     if super::super::is_limit(&err) {
                         return Err(err);
@@ -2150,6 +2160,26 @@ pub fn solid(color: crate::color::Color, opacity: f64) -> Fill {
     Fill { paint: Paint::Solid(color), opacity, even_odd: false }
 }
 
+/// pgfplots' internal coordinates on axis `a` (TikZ's plain ones in an axis): the data times a
+/// power of ten, less that of the smallest data value (`\pgfplots@set@optimal@datatrafo@for@`);
+/// logarithms on a log axis. (factor, data value at 0).
+pub(super) fn plain_scale(e: &mut Engine, f: &Frame, a: usize) -> (f64, f64) {
+    if f.log[a] || keys::flag(e, "/pgfplots/disabledatascaling") {
+        return (1.0, 0.0);
+    }
+    let size = keys::length(e, if a == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if a == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+    let [dlo, dhi] = f.data_range[a];
+    if !(dlo.is_finite() && dhi.is_finite()) {
+        return (1.0, 0.0);
+    }
+    let scale = super::ticks::data_scale(dlo, dhi, size);
+    if scale.is_finite() && scale > 0.0 {
+        (scale, dlo)
+    } else {
+        (1.0, 0.0)
+    }
+}
+
 /// `axis cs`, `rel axis cs`, `axis description cs`, `ticklabel cs`: points of the axis being
 /// drawn, for TikZ statements inside it.
 impl Engine {
@@ -2275,6 +2305,21 @@ impl Engine {
                     let x = self.number(crate::keys::strip_braces(parts.first().map_or("0", |p| p.trim())))?;
                     let y = self.number(crate::keys::strip_braces(parts.get(1).map_or("0", |p| p.trim())))?;
                     Ok(super::ternary::cartesian(&f, x, y))
+                })();
+                Some(r)
+            }
+            // plain coordinates are pgfplots' internal ones: the data scaled by a power of ten
+            // and shifted so that the smallest data value is 0 (`\pgfplots@set@optimal@datatrafo@for@`),
+            // logarithms on a log axis
+            Cs::Plain if !f.polar && !f.smith => {
+                let r = (|| -> Result<Point, Error> {
+                    let mut l = f.min;
+                    for (a, slot) in l.iter_mut().enumerate().take(if f.three_d { 3 } else { 2 }) {
+                        let u = self.number(crate::keys::strip_braces(parts.get(a).map_or("0", |p| p.trim())))?;
+                        let (scale, shift) = plain_scale(self, &f, a);
+                        *slot = u / scale + shift;
+                    }
+                    Ok(f.at(l))
                 })();
                 Some(r)
             }
