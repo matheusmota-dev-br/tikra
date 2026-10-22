@@ -219,6 +219,8 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let inner = if inner_name.is_empty() || !f.three_d { None } else { parse_map(e, &inner_name) };
     let thresh = keys::number(e, "/pgfplots/mesh/interior colormap thresh").unwrap_or(0.0);
     let is_inside = interior_fn(e, f, thresh);
+    // `point meta rel=per plot`: the colormap spans this plot's point meta only
+    let range = if keys::value(e, "/pgfplots/point meta rel") == "per plot" { plot_meta_range(p).unwrap_or(f.meta) } else { f.meta };
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         // the normal at the corner the z buffer made first (`compute normal`), its sign kept
@@ -235,7 +237,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             Some(c) if q.len() > 2 && inside() => Some(c),
             _ => outer.as_ref(),
         };
-        let map = |_: &Frame, m: f64| cmap.map_or(Color::BLACK, |c| c.at((m - f.meta[0]) / (f.meta[1] - f.meta[0])));
+        let map = |_: &Frame, m: f64| cmap.map_or(Color::BLACK, |c| c.at((m - range[0]) / (range[1] - range[0])));
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
         // a patch whose color comes from a point meta of nan is not drawn (with `flat corner`, the
         // first corner's)
@@ -443,6 +445,12 @@ pub fn global_path(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Opt
         }
     }
     Some(segs)
+}
+
+/// The range of a plot's point meta (`point meta rel=per plot`).
+pub fn plot_meta_range(p: &Plot) -> Option<[f64; 2]> {
+    let (lo, hi) = p.coords.iter().map(|c| c.meta).filter(|m| m.is_finite()).fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), m| (lo.min(m), hi.max(m)));
+    (lo.is_finite() && hi > lo).then_some([lo, hi])
 }
 
 /// How a patch plot looks: its colors as functions of `mapped color`, its shader and stroke.
