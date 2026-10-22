@@ -149,6 +149,21 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     }
     let handler = keys::value(e, "/tikz/@plot handler");
     let cp = canvas_points(f, pts);
+    // an empty line in the input interrupts a 2d plot from compat 1.4 on (`empty line=auto`)
+    let empty_line = keys::value(e, "/pgfplots/empty line");
+    let jumps = !f.three_d && !p.scanlines.is_empty() && (empty_line == "jump" || (matches!(empty_line.as_str(), "" | "auto") && keys::compat(e) >= 104));
+    let line_cp: Vec<Option<Point>> = if jumps {
+        let mut out = Vec::with_capacity(cp.len() + p.scanlines.len());
+        for (i, c) in cp.iter().enumerate() {
+            if i > 0 && p.scanlines.contains(&i) {
+                out.push(None);
+            }
+            out.push(*c);
+        }
+        out
+    } else {
+        cp.clone()
+    };
     let mut segs: Vec<Segment> = Vec::new();
     let bar_width = keys::length(e, "/pgf/bar width").unwrap_or(10.0 * PT);
     define(e, "pgfplotbarwidth", &format!("{}pt", bar_width / PT));
@@ -287,7 +302,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             }
         }
         h if h.starts_with("const") || h.starts_with("jump") => {
-            for run in runs(&cp) {
+            for run in runs(&line_cp) {
                 segs.push(Segment::MoveTo(run[0]));
                 for w in run.windows(2) {
                     let (a, b) = (w[0], w[1]);
@@ -326,7 +341,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         }
         _ => {
             let tension = e.st.tension;
-            for run in runs(&cp) {
+            for run in runs(&line_cp) {
                 segs.push(Segment::MoveTo(run[0]));
                 if e.st.plot_handler == "smooth" {
                     smooth(&run, tension, &mut segs);
