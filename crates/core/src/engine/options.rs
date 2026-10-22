@@ -974,9 +974,27 @@ fn unit_vector(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<Po
     Ok(match axis {
         0 => Point::new(m, 0.0),
         1 => Point::new(0.0, m),
-        _ => Point::new(-std::f64::consts::FRAC_1_SQRT_2 * m, -std::f64::consts::FRAC_1_SQRT_2 * m),
+        // `z=1cm` is (1cm,1cm), as TikZ takes a length for the z vector
+        _ => Point::new(m, m),
     })
 }
+
+/// `rotate around x=θ` (and `y`, `z`): the other two unit vectors turned about that axis, in the
+/// xyz system.
+fn rotate_around(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<(), Error> {
+    let a = number(e, v)?.unwrap_or(0.0);
+    let (s, c) = a.to_radians().sin_cos();
+    let (x, y, z) = (e.st.x, e.st.y, e.st.z);
+    match axis {
+        0 => (e.st.y, e.st.z) = (y.scale(c).plus(z.scale(s)), z.scale(c).minus(y.scale(s))),
+        1 => (e.st.x, e.st.z) = (x.scale(c).minus(z.scale(s)), z.scale(c).plus(x.scale(s))),
+        _ => (e.st.x, e.st.y) = (x.scale(c).plus(y.scale(s)), y.scale(c).minus(x.scale(s))),
+    }
+    Ok(())
+}
+keyfn!(k_rotate_around_x, |e, v| rotate_around(e, &v, 0));
+keyfn!(k_rotate_around_y, |e, v| rotate_around(e, &v, 1));
+keyfn!(k_rotate_around_z, |e, v| rotate_around(e, &v, 2));
 
 keyfn!(k_x, |e, v| {
     e.st.x = unit_vector(e, &v, 0)?;
@@ -2029,6 +2047,9 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/x", k_x),
     ("/tikz/y", k_y),
     ("/tikz/z", k_z),
+    ("/tikz/rotate around x", k_rotate_around_x),
+    ("/tikz/rotate around y", k_rotate_around_y),
+    ("/tikz/rotate around z", k_rotate_around_z),
     ("/pgf/inner sep", k_inner_sep),
     ("/pgf/outer sep", k_outer_sep),
     ("/pgf/minimum size", k_minimum_size),
