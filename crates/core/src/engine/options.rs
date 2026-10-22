@@ -336,6 +336,23 @@ impl Engine {
             ".code" | ".ecode" => {
                 let v = if h == ".ecode" { self.tex.expand_fully(v)? } else { v };
                 self.define_code(base, 1, v);
+                // a pgfplots coordinate filter given as code drops its expressions
+                if base.ends_with(" filter") {
+                    self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/@expressions"))), macro_tokens(Vec::new()), false);
+                }
+            }
+            // pgfplots' `x filter/.expression={…}`: the filter's value is the expression's (after
+            // the filter's code, `.append expression` after the expressions before)
+            ".expression" | ".append expression" => {
+                let path = format!("{base}/@expressions");
+                let mut list = if h == ".expression" {
+                    self.define_code(base, 1, Vec::new());
+                    Vec::new()
+                } else {
+                    keys::value(&self.tex, &path).unwrap_or_default()
+                };
+                list.extend(group(v));
+                self.tex.set_meaning(&Token::cs(&macro_name(&path)), macro_tokens(list), false);
             }
             ".append code" | ".prefix code" => {
                 let (n, old) = self.code_tokens(base).unwrap_or((1, Vec::new()));

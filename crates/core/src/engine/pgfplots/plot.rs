@@ -433,6 +433,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
     }
     point_meta(e, plot)?;
     lattice_from_scanlines(e, plot);
+    coordinate_filters(e, plot)?;
     filter(e, plot)?;
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at end plot") {
         e.run_tokens(code)?;
@@ -925,6 +926,7 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let seyp = pick(e, "y error plus", None);
     let seym = pick(e, "y error minus", None);
     let mut out = Vec::with_capacity(t.rows.len());
+    let mut rows = Vec::with_capacity(t.rows.len());
     for r in 0..t.rows.len() {
         let get = |e: &mut Engine, s: &Src| -> f64 {
             match s {
@@ -989,8 +991,13 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             b
         });
         out.push(c);
+        rows.push(r);
+        if other.is_some() {
+            rows.push(r);
+        }
         out.extend(other);
     }
+    FILTER_ROWS.with(|f| *f.borrow_mut() = Some((t.clone(), rows)));
     Ok(out)
 }
 
@@ -1046,11 +1053,151 @@ fn replace_thisrow(tokens: &[Token], t: &Table, row: usize) -> Vec<Token> {
     out
 }
 
+thread_local! {
+    /// The table the plot's coordinates were read from, and each coordinate's row: `\thisrow`
+    /// in coordinate filters.
+    static FILTER_ROWS: std::cell::RefCell<Option<(Table, Vec<usize>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The code of a key (`x filter/.code`), if it has some: its macro.
+fn filter_code(e: &Engine, path: &str) -> Option<Token> {
+    let name = crate::keys::macro_name(&format!("{path}/.@cmd"));
+    match e.tex.meaning_of(&name) {
+        tex::Meaning::Macro(m) if !m.body.is_empty() => Some(Token::cs(&name)),
+        _ => None,
+    }
+}
+
+/// pgfplots' coordinate filters (`\pgfplots@coord@filter`): `x filter`, `y filter`, `z filter` as
+/// code (`\pgfmathresult` in and out, empty to drop the point) and as expressions (`x`, `y`,
+/// `rawx`…, `\coordindex`, `\thisrow`), then `restrict expr to domain`.
+fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    let rows = FILTER_ROWS.with(|f| f.borrow_mut().take()).filter(|(_, r)| r.len() == plot.coords.len());
+    let dims = if plot.three_d { 3 } else { 2 };
+    let mut codes: Vec<Option<Token>> = Vec::new();
+    let mut exprs: Vec<Vec<Vec<Token>>> = Vec::new();
+    for c in ['x', 'y', 'z'].iter().take(dims) {
+        let path = format!("/pgfplots/{c} filter");
+        codes.push(filter_code(e, &path));
+        let list = crate::keys::value(&e.tex, &format!("{path}/@expressions")).unwrap_or_default();
+        exprs.push(split_groups(&list));
+    }
+    let restrict = keys::value_tokens(e, "/pgfplots/@restrict expr").zip(Some(keys::value(e, "/pgfplots/@restrict expr domain")));
+    if codes.iter().all(Option::is_none) && exprs.iter().all(Vec::is_empty) && restrict.is_none() {
+        return Ok(());
+    }
+    let number = |v: f64| super::super::pgf_number(v);
+    let mut drop = vec![false; plot.coords.len()];
+    for k in 0..plot.coords.len() {
+        let raw = plot.coords[k];
+        let mut cur = [raw.x, raw.y, raw.z];
+        let row = rows.as_ref().map(|(t, r)| (t, r[k]));
+        let substitute = |tokens: &[Token], result: f64| -> Vec<Token> {
+            let tokens = match row {
+                Some((t, r)) => replace_thisrow(tokens, t, r),
+                None => tokens.to_vec(),
+            };
+            let mut out = Vec::with_capacity(tokens.len());
+            for t in tokens {
+                if t.is_cs("pgfmathresult") {
+                    out.extend(super::toks(&format!("({})", number(result))));
+                } else if t.is_cs("coordindex") {
+                    out.extend(super::toks(&k.to_string()));
+                } else {
+                    out.push(t);
+                }
+            }
+            out
+        };
+        let eval = |e: &mut Engine, tokens: Vec<Token>, cur: [f64; 3]| -> f64 {
+            let mut vars = e.vars();
+            for (i, n) in ["x", "y", "z"].iter().enumerate() {
+                vars.insert((*n).into(), cur[i]);
+                vars.insert(format!("raw{n}"), [raw.x, raw.y, raw.z][i]);
+            }
+            e.math_string(tokens).and_then(|s| crate::expr::eval(&s, &vars)).unwrap_or(f64::NAN)
+        };
+        for a in 0..dims {
+            if let Some(code) = &codes[a] {
+                e.tex.define_string("pgfmathresult", &number(cur[a]), false);
+                e.tex.define_string("coordindex", &k.to_string(), false);
+                // the code's argument is the value too
+                let mut call = vec![code.clone(), Token::Char('{', Cat::Begin)];
+                call.extend(super::toks(&number(cur[a])));
+                call.push(Token::Char('}', Cat::End));
+                e.run_tokens(call)?;
+                let out = e.tex.expand_to_string(vec![Token::cs("pgfmathresult")])?;
+                let out = out.trim();
+                if out.is_empty() {
+                    drop[k] = true;
+                    break;
+                }
+                cur[a] = e.number(out).unwrap_or(f64::NAN);
+            }
+            for x in exprs[a].clone() {
+                let tokens = substitute(&x, cur[a]);
+                cur[a] = eval(e, tokens, cur);
+            }
+        }
+        if let Some((expr, domain)) = &restrict {
+            if let Some((lo, hi)) = domain.split_once(':') {
+                let (lo, hi) = (e.number(lo)?, e.number(hi)?);
+                let v = eval(e, substitute(expr, cur[0]), cur);
+                if !(lo..=hi).contains(&v) {
+                    cur[0] = f64::INFINITY;
+                }
+            }
+        }
+        let c = &mut plot.coords[k];
+        (c.x, c.y, c.z) = (cur[0], cur[1], cur[2]);
+    }
+    if drop.iter().any(|d| *d) {
+        let mut k = 0;
+        plot.coords.retain(|_| {
+            k += 1;
+            !drop[k - 1]
+        });
+    }
+    Ok(())
+}
+
+/// The brace groups of a list (`{a}{b}`).
+fn split_groups(list: &[Token]) -> Vec<Vec<Token>> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut cur = Vec::new();
+    for t in list {
+        match t {
+            Token::Char(_, Cat::Begin) => {
+                depth += 1;
+                if depth == 1 {
+                    continue;
+                }
+            }
+            Token::Char(_, Cat::End) => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    out.push(std::mem::take(&mut cur));
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            cur.push(t.clone());
+        }
+    }
+    out
+}
+
 /// `restrict x to domain`, `restrict y to domain`, `unbounded coords`.
 fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    // a restriction makes the coordinates outside unbounded, and unbounded coordinates jump
+    let mut restricted = false;
     for (axis, key) in [('x', "/pgfplots/restrict x to domain"), ('y', "/pgfplots/restrict y to domain")] {
         let d = keys::value(e, key);
         if let Some((a, b)) = d.split_once(':') {
+            restricted = true;
             let (a, b) = (e.number(a)?, e.number(b)?);
             for c in &mut plot.coords {
                 let v = if axis == 'x' { &mut c.x } else { &mut c.y };
@@ -1060,7 +1207,7 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
             }
         }
     }
-    let jump = keys::value(e, "/pgfplots/unbounded coords") == "jump";
+    let jump = restricted || keys::value(e, "/pgfplots/unbounded coords") == "jump";
     let log = (keys::value(e, "/pgfplots/xmode") == "log", keys::value(e, "/pgfplots/ymode") == "log");
     for c in &mut plot.coords {
         if (log.0 && c.x <= 0.0) || (log.1 && c.y <= 0.0) {
