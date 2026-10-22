@@ -52,7 +52,11 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         e.st.node = Default::default();
         // `legend style={legend pos=…}`: pgfplots applies the legend keys of the style directly,
         // and what they add to the legend style takes effect at once
-        e.process_keys(toks("/tikz/legend pos/.code={\\pgfkeysalso{/pgfplots/legend pos={#1}}},/pgfplots/legend style/.code={\\pgfkeysalso{#1}}"), None)?;
+        let mut direct = String::from("/pgfplots/legend style/.code={\\pgfkeysalso{#1}}");
+        for key in ["legend pos", "area legend", "legend cell align", "legend plot pos", "transpose legend", "reverse legend", "legend image code", "legend image post style"] {
+            direct.push_str(&format!(",/tikz/{key}/.code={{\\pgfkeysalso{{/pgfplots/{key}={{#1}}}}}}"));
+        }
+        e.process_keys(toks(&direct), None)?;
         e.process_keys(toks("/pgfplots/every axis legend"), Some("/tikz"))?;
         // `legend style={legend columns=-1}` is set by the style
         let columns = keys::number(e, "/pgfplots/legend columns").unwrap_or(1.0) as i64;
