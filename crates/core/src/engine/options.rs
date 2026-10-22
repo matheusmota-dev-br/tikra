@@ -1816,6 +1816,24 @@ keyfn!(k_shading, |e, v| {
     e.st.mode.shade = true;
     Ok(())
 });
+/// The shadings library's `upper left=red`…: the corner's color of the bilinear interpolation, which
+/// becomes the shading.
+fn corner_color(e: &mut Engine, corner: &str, v: Option<Vec<Token>>) -> Result<(), Error> {
+    let s = text(e, &v)?;
+    match e.color(&s) {
+        Some(c) => {
+            e.colors.insert(corner.to_string(), c);
+        }
+        None => e.warn(format!("{corner}: unknown color '{s}'")),
+    }
+    e.st.shading = "bilinear interpolation".into();
+    e.st.mode.shade = true;
+    Ok(())
+}
+keyfn!(k_upper_left, |e, v| corner_color(e, "upper left", v));
+keyfn!(k_upper_right, |e, v| corner_color(e, "upper right", v));
+keyfn!(k_lower_left, |e, v| corner_color(e, "lower left", v));
+keyfn!(k_lower_right, |e, v| corner_color(e, "lower right", v));
 keyfn!(k_shading_angle, |e, v| {
     e.st.shade_angle = number(e, &v)?.unwrap_or(0.0);
     e.st.mode.shade = true;
@@ -2142,6 +2160,10 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
     ("/tikz/blend mode", k_blend_mode),
+    ("/tikz/upper left", k_upper_left),
+    ("/tikz/upper right", k_upper_right),
+    ("/tikz/lower left", k_lower_left),
+    ("/tikz/lower right", k_lower_right),
     ("/tikz/blend group", k_blend_group),
     ("/tikz/shading", k_shading),
     ("/tikz/shading angle", k_shading_angle),

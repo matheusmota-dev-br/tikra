@@ -116,7 +116,7 @@ impl Engine {
             let t = self.st.transform;
             return self.draw_shading(name.trim(), &t);
         }
-        let Some((w, h)) = self.basic_shadings.get(name.trim()).map(BasicShading::half_size) else {
+        let Some((w, h)) = self.shading_half_size(name.trim()) else {
             self.warn(format!("shading '{}' not declared: ignored", name.trim()));
             return Ok(());
         };
@@ -147,6 +147,21 @@ impl Engine {
     /// The shading `name` drawn in its box, centered at the origin of `t`.
     pub fn draw_shading(&mut self, name: &str, t: &Transform) -> Result<(), Error> {
         let Some(sh) = self.shading_named(name) else {
+            if let Some(f) = self.functional_shading(name) {
+                // its box centered at the origin
+                let c = f.center();
+                let place = t.compose(&Transform::scaling(BP, BP)).compose(&Transform::translation(-c.x, -c.y));
+                let cells = f.cells(&place);
+                if self.counts_for_size() {
+                    for item in &cells {
+                        if let Item::Path { segments, .. } = item {
+                            self.canvas.include_path(segments);
+                        }
+                    }
+                }
+                self.canvas.items.extend(cells);
+                return Ok(());
+            }
             if matches!(name, "axis" | "radial" | "ball") {
                 // TikZ's own shadings, in the colors set last (`top color=…`), at their 100 bp size
                 let saved = std::mem::replace(&mut self.st.shading, name.to_string());
@@ -188,7 +203,11 @@ impl Engine {
 
     /// The half sizes of a declared shading's box.
     pub fn shading_half_size(&self, name: &str) -> Option<(f64, f64)> {
-        self.basic_shadings.get(name).map(BasicShading::half_size)
+        self.basic_shadings.get(name).map(BasicShading::half_size).or_else(|| {
+            let f = self.functional_shadings.get(name)?;
+            let (lo, hi) = f.corners();
+            Some(((hi.x - lo.x) * BP / 2.0, (hi.y - lo.y) * BP / 2.0))
+        })
     }
 
     /// `\pgfshadepath{name}{angle}`: the path being built filled with the shading, fitted to it.

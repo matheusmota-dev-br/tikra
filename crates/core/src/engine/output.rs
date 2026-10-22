@@ -66,6 +66,9 @@ impl Engine {
             }
         }
         let drawn = segs.iter().any(|s| !matches!(s, Segment::MoveTo(_)));
+        // a functional shading: cells clipped to the path, under its stroke
+        let functional = if mode.shade && drawn && !mode.pattern { self.functional_cells(&segs) } else { None };
+        let mode = super::state::Mode { shade: mode.shade && functional.is_none(), ..mode };
         let fill = if mode.fill || mode.pattern || mode.shade {
             let paint = if mode.pattern {
                 let name = self.st.pattern_name.clone().unwrap_or_else(|| "north east lines".into());
@@ -105,6 +108,11 @@ impl Engine {
         let tips_only = stroke.is_none() && fill.is_none() && !mode.clip && matches!(self.st.tips_mode, TipsMode::True | TipsMode::Proper);
         // a clipping path has no tips and is not shortened; a lone point still gets them
         let tips = if !segs.is_empty() && !mode.clip && (stroke.is_some() || tips_only) { self.arrow_ends(&mut segs) } else { Tips::default() };
+        if let Some(cells) = functional {
+            self.canvas.push(Item::Clip { segments: segs.clone(), even_odd: self.st.even_odd });
+            self.canvas.items.extend(cells);
+            self.canvas.push(Item::End);
+        }
         if drawn && (fill.is_some() || stroke.is_some()) {
             if let Some(under) = solid_under {
                 self.canvas.push(Item::Path { segments: segs.clone(), fill: Some(under), stroke: None });
@@ -167,6 +175,19 @@ impl Engine {
     pub fn set_blend_mode(&mut self, mode: &str) {
         let mode = mode.trim().replace(' ', "-");
         self.st.blend = (mode != "normal" && !mode.is_empty()).then_some(mode);
+    }
+
+    /// The cells of the current shading if it is a functional one, fitted to the path's box.
+    fn functional_cells(&mut self, segs: &[Segment]) -> Option<Vec<Item>> {
+        if self.basic_shadings.contains_key(&self.st.shading) {
+            return None;
+        }
+        let name = self.st.shading.clone();
+        let f = self.functional_shading(&name)?;
+        let mut c = crate::canvas::Canvas::default();
+        c.include_path(segs);
+        let (lo, hi) = (c.min?, c.max?);
+        Some(f.cells(&f.fit(lo, hi, self.st.shade_angle)))
     }
 
     pub fn shading_of(&self, segs: &[Segment]) -> crate::canvas::Shading {

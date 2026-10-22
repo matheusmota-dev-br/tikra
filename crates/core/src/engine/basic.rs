@@ -112,6 +112,8 @@ enum B {
     QCircle,
     ArcTo,
     ArcToPrecomputed,
+    DeclareFunctional,
+    ShadeColorToRgb,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -230,6 +232,8 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfpathqcircle", B::QCircle),
     ("pgfpatharcto", B::ArcTo),
     ("pgfpatharctoprecomputed", B::ArcToPrecomputed),
+    ("pgfdeclarefunctionalshading", B::DeclareFunctional),
+    ("pgfshadecolortorgb", B::ShadeColorToRgb),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -1157,6 +1161,8 @@ impl Engine {
                 }
                 self.pgf_path.last = Some(t.apply(to));
             }
+            B::DeclareFunctional => self.declare_functional_shading()?,
+            B::ShadeColorToRgb => self.shade_color_to_rgb()?,
             B::ArcToPrecomputed => {
                 // {center}{start angle}{end angle}{end point}{x radius}{y radius}{the radii's ratios}: the
                 // arc of the axis-parallel ellipse

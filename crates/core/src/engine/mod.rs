@@ -13,6 +13,7 @@ pub mod datavis;
 pub mod decorations;
 pub mod fadings;
 pub mod folding;
+pub mod functional;
 pub mod graphs;
 pub mod intersections;
 pub mod libraries;
@@ -365,6 +366,8 @@ pub struct Engine {
     pub picture_fadings: HashMap<String, fadings::PictureFading>,
     /// the basic layer's declared shadings
     pub basic_shadings: HashMap<String, shadings::BasicShading>,
+    /// the declared functional shadings
+    pub functional_shadings: HashMap<String, functional::Functional>,
     /// marks declared by `\pgfdeclareplotmark`: their code
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
     /// paths kept by `save path`
@@ -474,6 +477,7 @@ impl Clone for Engine {
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
             basic_shadings: self.basic_shadings.clone(),
+            functional_shadings: self.functional_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
             saved_paths: self.saved_paths.clone(),
             user_patterns: self.user_patterns.clone(),
@@ -545,6 +549,7 @@ impl Engine {
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
             basic_shadings: HashMap::new(),
+            functional_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
             saved_paths: HashMap::new(),
             user_patterns: HashMap::new(),
