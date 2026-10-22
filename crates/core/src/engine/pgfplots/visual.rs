@@ -151,9 +151,9 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     }
     let handler = keys::value(e, "/tikz/@plot handler");
     let cp = canvas_points(f, pts);
-    // an empty line in the input interrupts a 2d plot from compat 1.4 on (`empty line=auto`)
+    // an empty line in the input interrupts a 2d plot, but before compat 1.4 (`empty line=auto`)
     let empty_line = keys::value(e, "/pgfplots/empty line");
-    let jumps = !f.three_d && !p.scanlines.is_empty() && (empty_line == "jump" || (matches!(empty_line.as_str(), "" | "auto") && keys::compat(e) >= 104));
+    let jumps = !f.three_d && !p.scanlines.is_empty() && (empty_line == "jump" || (matches!(empty_line.as_str(), "" | "auto") && !(1..104).contains(&keys::compat(e))));
     let line_cp: Vec<Option<Point>> = if jumps {
         let mut out = Vec::with_capacity(cp.len() + p.scanlines.len());
         for (i, c) in cp.iter().enumerate() {
