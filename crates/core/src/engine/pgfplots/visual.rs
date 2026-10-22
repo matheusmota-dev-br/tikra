@@ -801,8 +801,9 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         let local = e.st.pending;
         let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * PT);
         let cube = f.three_d && (name == "cube" || name == "cube*");
-        let repeat = keys::number(e, "/tikz/mark repeat").unwrap_or(1.0).max(1.0) as usize;
-        let phase = keys::number(e, "/tikz/mark phase").unwrap_or(1.0).max(1.0) as usize;
+        // the native keys keep these in the state
+        let repeat = e.st.mark_repeat.max(1);
+        let phase = e.st.mark_phase.max(1);
         let indices: Vec<usize> = match keys::value_tokens(e, "/tikz/mark indices") {
             Some(v) => {
                 let list = e.tex.expand_fully(v)?;
