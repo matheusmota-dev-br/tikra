@@ -123,6 +123,7 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
+    Hskip,
     FontSize,
     FontSeries,
     Unsupported,
@@ -230,6 +231,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
+    ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
     ("pgfsetlayers", Cmd::SetLayers),
@@ -1288,6 +1290,22 @@ impl Engine {
                 let arg = self.argument()?;
                 if self.picture_depth == 0 {
                     let w = self.length_of(arg)?;
+                    self.layout.push(Layout::Skip(w));
+                }
+                Ok(())
+            }
+            Cmd::Hskip => {
+                // `\hskip 10pt plus 1fil`: the natural width
+                let w = self.tex.scan_dimen()? as f64 / 65536.0 * crate::PT;
+                for k in ["plus", "minus"] {
+                    if self.tex.scan_keyword(k)? {
+                        let _ = self.tex.scan_dimen();
+                        for _ in 0..3 {
+                            let _ = self.tex.scan_keyword("l");
+                        }
+                    }
+                }
+                if self.picture_depth == 0 {
                     self.layout.push(Layout::Skip(w));
                 }
                 Ok(())
