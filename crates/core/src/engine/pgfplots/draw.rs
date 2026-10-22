@@ -782,6 +782,8 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
         // TeX multiplies the range (a dimension) by the factor read as a dimension: 0.1 is 6554 sp
         let rel = (rel * 65536.0).round() / 65536.0;
+        // an absolute amount is a coordinate: logarithmic on a log axis
+        let abs = abs.map(|v| if log[a] { v.ln() } else { v });
         let amount = abs.unwrap_or(rel * (max[a] - min[a]));
         if amount > 1e-9 * (max[a].abs() + 1.0) && !invalid {
             if lo {
