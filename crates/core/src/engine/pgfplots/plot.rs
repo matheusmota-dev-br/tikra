@@ -176,6 +176,15 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
     let r = survey(e, &style, three_d);
     e.end_group();
     let mut plot = r?;
+    // a forgotten plot has `every forget plot` instead of the styles of the plot's number
+    let style = if plot.forget {
+        let mut forget = super::toks("/pgfplots/every axis plot,/pgfplots/every forget plot,");
+        forget.extend(spec.clone());
+        forget.extend(super::toks(",/pgfplots/.cd,/pgfplots/every forget plot,/pgfplots/every axis plot post"));
+        forget
+    } else {
+        style
+    };
     plot.style = style;
     plot.index = index;
     if !plot.forget {
