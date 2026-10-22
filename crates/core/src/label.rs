@@ -625,6 +625,68 @@ fn widen(mut b: MathBox, f: f32) -> MathBox {
     b
 }
 
+/// A text that is a `tabular` (`\begin{tabular}{lc} a & b \\ c & d \end{tabular}`): its rows,
+/// the columns as wide as their widest cell, aligned as the preamble says, `\tabcolsep` (6pt)
+/// on both sides of each, and each row a strut high (its baselines a `\baselineskip` apart).
+fn tabular(text: &str, size: f64, stretch: f64, cell: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox, warnings: &mut Vec<String>) -> Option<Vec<MathBox>> {
+    let body = text.trim().strip_prefix("\\begin{tabular}")?.strip_suffix("\\end{tabular}")?;
+    let body = body.trim_start().strip_prefix('{')?;
+    let close = body.find('}')?;
+    let columns: Vec<char> = body[..close].chars().filter(|c| matches!(c, 'l' | 'c' | 'r')).collect();
+    let body = &body[close + 1..];
+    // rows at the top-level `\\`, cells at the top-level `&`
+    let mut rows: Vec<Vec<String>> = vec![vec![String::new()]];
+    let mut level = 0;
+    let c: Vec<char> = body.chars().collect();
+    let mut i = 0;
+    while i < c.len() {
+        match c[i] {
+            '{' => level += 1,
+            '}' => level -= 1,
+            '&' if level == 0 => {
+                rows.last_mut().unwrap().push(String::new());
+                i += 1;
+                continue;
+            }
+            '\\' if level == 0 && c.get(i + 1) == Some(&'\\') => {
+                rows.push(vec![String::new()]);
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        rows.last_mut().unwrap().last_mut().unwrap().push(c[i]);
+        i += 1;
+    }
+    let rows: Vec<Vec<String>> =
+        rows.into_iter().map(|r| r.into_iter().map(|s| s.replace("\\hline", "").trim().to_string()).collect::<Vec<_>>()).filter(|r| r.iter().any(|s| !s.is_empty())).collect();
+    let boxes: Vec<Vec<MathBox>> = rows.iter().map(|r| r.iter().map(|s| if s.is_empty() { MathBox::empty() } else { cell(s, warnings) }).collect()).collect();
+    let n = boxes.iter().map(Vec::len).max().unwrap_or(0).max(columns.len());
+    let widths: Vec<f32> = (0..n).map(|k| boxes.iter().filter_map(|r| r.get(k)).map(|b| b.width).fold(0.0, f32::max)).collect();
+    // font units of the label (an em is 1000), the label widening its boxes afterwards
+    let units = |pt: f64| (pt / (10.0 * size) * 1000.0 / stretch) as f32;
+    let sep = units(6.0);
+    let strut = cell(&format!("$\\rule[{:.4}em]{{0em}}{{{:.4}em}}$", -0.36, 1.2), warnings);
+    let mut out = Vec::new();
+    for row in boxes {
+        let mut line = strut.clone();
+        for (k, w) in widths.iter().enumerate() {
+            let b = row.get(k).cloned().unwrap_or_else(MathBox::empty);
+            let room = w - b.width;
+            let left = match columns.get(k) {
+                Some('r') => room,
+                Some('c') | None => room / 2.0,
+                _ => 0.0,
+            };
+            line.append(&MathBox::space(sep + left));
+            line.append(&b);
+            line.append(&MathBox::space(room - left + sep));
+        }
+        out.push(line);
+    }
+    Some(out)
+}
+
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
     let size = font_size(&format!("{font} {text}"));
@@ -642,6 +704,10 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
+    if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, w), warnings) {
+        let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
+        return Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
+    }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
     for (line, after) in manual_lines(&text, size) {
