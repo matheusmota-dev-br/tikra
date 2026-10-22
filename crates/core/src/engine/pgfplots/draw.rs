@@ -2106,8 +2106,12 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         e.canvas.items.extend(items);
     }
     super::legend::legend(e, axis, &f)?;
-    if let Some(code) = keys::value_tokens(&*e, "/pgfplots/extra description/.@cmd") {
-        let _ = code;
+    // `extra description/.code`, in description coordinates too
+    if e.key_exists("/pgfplots/extra description") {
+        e.begin_group();
+        let r = e.process_keys(toks("/pgfplots/extra description"), None);
+        e.end_group();
+        r?;
     }
     Ok(())
 }
