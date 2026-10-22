@@ -1519,7 +1519,20 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     register_axis_node(e, "current axis", lo, hi, blo, bhi, &f);
     // descriptions, in description coordinates
     f.cs.set(Cs::Description);
-    descriptions(e, axis, s)?;
+    // the descriptions see the limits as computed (`\pgfkeysvalueof{/pgfplots/xmin}` in a title)
+    e.begin_group();
+    for a in 0..if f.three_d { 3 } else { 2 } {
+        let c = axis_char(a);
+        for (k, v) in [("min", f.min[a]), ("max", f.max[a])] {
+            let v = if f.log[a] { v.exp() } else { v };
+            if v.is_finite() && !f.polar && !f.ternary && !f.smith {
+                keys::set(e, &format!("/pgfplots/{c}{k}"), &super::super::pgf_number(v));
+            }
+        }
+    }
+    let r = descriptions(e, axis, s);
+    e.end_group();
+    r?;
     f.cs.set(Cs::Plain);
     if f.smith && keys::flag(e, "/pgfplots/show origin") {
         super::smith::show_origin(e, &f)?;
