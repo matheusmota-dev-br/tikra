@@ -189,8 +189,11 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         let metas: Vec<f64> = src.iter().map(|&k| p.coords.get(k).map_or(f64::NAN, |c| c.meta)).filter(|m| m.is_finite()).collect();
-        // a point meta of nan makes the point unbounded: its patches are not drawn
-        if p.has_meta && !explicit && metas.len() < src.len() {
+        // a patch whose color comes from a point meta of nan is not drawn (with `flat corner`, the
+        // first corner's)
+        let meta_of = |k: usize| p.coords.get(k).map_or(f64::NAN, |c| c.meta);
+        let unbounded = if shader == "flat corner" { src.first().is_some_and(|&k| !meta_of(k).is_finite()) } else { metas.len() < src.len() };
+        if p.has_meta && !explicit && unbounded {
             continue;
         }
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
