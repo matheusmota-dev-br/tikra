@@ -670,6 +670,29 @@ impl Engine {
             }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
+            // `$=\implies$` in the text around the pictures: a formula, set as a word
+            Meaning::Char(_, Cat::Math) if self.picture_depth == 0 => {
+                let mut formula = Vec::new();
+                while let Some(n) = self.tex.get_token() {
+                    if matches!(self.tex.meaning(&n), Meaning::Char(_, Cat::Math)) {
+                        break;
+                    }
+                    formula.push(n);
+                }
+                if formula.iter().any(|x| x.is_cs("tikz") || x.is_cs("begin")) {
+                    // a picture inside: read as it comes
+                    self.tex.push_tokens(formula);
+                    return Ok(());
+                }
+                let text = format!("${}$", tex::tokens_to_string(&formula));
+                match self.layout.last() {
+                    Some(Layout::Word(i)) => self.words[*i].1.push_str(&text),
+                    _ => {
+                        self.layout.push(Layout::Word(self.words.len()));
+                        self.words.push((self.st.font.clone(), text));
+                    }
+                }
+            }
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
                 if !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
                     self.layout.push(Layout::Par);
