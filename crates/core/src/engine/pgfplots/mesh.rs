@@ -387,7 +387,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
                 // pgfplots shades each patch; flat patches with a hairline of their color have
                 // no seams between them either
                 "interp" => (Some(fill.at(mapped)), Some(fill.at(mapped))),
-                "flat" | "flat mean" | "flat corner" => (Some(fill.at(mapped)), Some(fill.at(mapped))),
+                "flat" | "flat mean" | "flat corner" => (Some(fill.at(mapped)), Some(draw.at(mapped))),
                 _ => (Some(fill.at(mapped)), Some(faceted.at(mapped))),
             }
         } else {
@@ -601,7 +601,13 @@ fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &st
             }
             continue;
         }
-        let edge = if look.shader.starts_with("flat") || interp { look.fill.at(mapped) } else { look.faceted.at(mapped) };
+        let edge = if look.shader.starts_with("flat") {
+            look.draw.at(mapped)
+        } else if interp {
+            look.fill.at(mapped)
+        } else {
+            look.faceted.at(mapped)
+        };
         e.canvas.push(Item::Path {
             segments: outline,
             fill: Some(Fill { paint: Paint::Solid(look.fill.at(mapped)), opacity: st.fill_opacity, even_odd: false }),
