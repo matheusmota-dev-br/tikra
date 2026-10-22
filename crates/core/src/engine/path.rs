@@ -1561,6 +1561,8 @@ fn arc(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Erro
     }
     b.segs.extend(segs);
     b.current = Some(Coord { p: end, node: None });
+    // a `+(…)` after it is from the arc's end
+    b.relative_base = None;
     Ok(())
 }
 
