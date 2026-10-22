@@ -257,7 +257,7 @@ impl Engine {
         } else {
             // `quotes mean pin`: pins instead of labels
             let pin = matches!(self.tex.meaning_of("tikra@quotes@pin"), Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
-            let spec = format!("[every {} quotes/.try,{options}]{text}", if pin { "pin" } else { "label" });
+            let spec = format!("[direction shorthands,every {} quotes/.try,{options}]{text}", if pin { "pin" } else { "label" });
             self.st.node.labels.push((tikra_tokens(&spec), pin));
         }
         Ok(())
@@ -2189,7 +2189,6 @@ const DEFINITIONS: &str = r"
   circle/.style={shape=circle}, rectangle/.style={shape=rectangle}, ellipse/.style={shape=ellipse},
   diamond/.style={shape=diamond},
   behind path/.style={}, in front of path/.style={},
-  execute at begin node/.code={}, execute at end node/.code={},
   execute at begin to/.code={\expandafter\def\expandafter\tikz@atbegin@to\expandafter{\tikz@atbegin@to#1}},
   execute at end to/.code={\expandafter\def\expandafter\tikz@atend@to\expandafter{\tikz@atend@to#1}},
   style/.code={\pgfkeysalso{#1}},
@@ -2202,6 +2201,7 @@ const DEFINITIONS: &str = r"
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
+  absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true,
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}

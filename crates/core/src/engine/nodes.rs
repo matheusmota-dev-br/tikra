@@ -702,8 +702,11 @@ impl Engine {
             None => (String::new(), v.clone()),
         };
         let _ = s;
-        // a direction among the label's options (`"text" above` with quotes) is its position
-        let directions = ["above", "below", "left", "right", "above left", "above right", "below left", "below right"];
+        // with `direction shorthands` (the quotes library's labels, `"text" above`), a direction
+        // among the label's options is its position; otherwise it places the label's anchor
+        let shorthands = keys::split_list(&opts).iter().any(|i| i.key == "direction shorthands");
+        let directions: &[&str] =
+            if shorthands { &["above", "below", "left", "right", "above left", "above right", "below left", "below right", "centered", "direction shorthands"] } else { &[] };
         let mut given = None;
         // `label position` among the label's options is its default position (`\tikz@label@angle`
         // expands it after them)
@@ -725,7 +728,9 @@ impl Engine {
                     edge_options.push(Token::other(','));
                     edge_options.extend(i.value.unwrap_or_default());
                 } else if i.value.is_none() && directions.contains(&i.key.as_str()) {
-                    given = Some(i.key.clone());
+                    if i.key != "direction shorthands" {
+                        given = Some(i.key.clone());
+                    }
                 } else {
                     if !rest.is_empty() {
                         rest.push(Token::other(','));
@@ -757,14 +762,20 @@ impl Engine {
             "above right" | "north east" => 45.0,
             "below left" | "south west" => 225.0,
             "below right" | "south east" => 315.0,
-            "center" => f64::NAN,
+            "center" | "centered" => f64::NAN,
             other => self.number(other).unwrap_or(90.0),
         };
         let distance = if pin { self.key_length("/tikz/pin distance", 3.0 * 0.1515) } else { self.key_length("/tikz/label distance", 0.0) };
         // as `tikz@label@post`: at the node's anchor of that (whole) angle, moved away from the
         // center by the distance, with the anchor on the side away from the node
+        let absolute = matches!(self.tex.meaning_of("tikra@absolute"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "true");
         let (at, anchor) = if angle.is_nan() {
             (info.center(), "center".to_string())
+        } else if absolute {
+            // `absolute`: the angle on the page, whatever the node's transformation
+            let u = Point::new(angle.to_radians().cos(), angle.to_radians().sin());
+            let border = info.border_toward(info.center().plus(u.scale(PT)));
+            (border.plus(u.scale(distance)), direction_anchor(angle).to_string())
         } else {
             let border = info.anchor(&format!("{}", angle.trunc())).unwrap_or(info.center());
             let d = border.minus(info.center());
