@@ -15,6 +15,8 @@ pub struct Variables {
     pub font_scale: Option<f64>,
     /// `trig format=rad`: the trigonometric functions take and give radians.
     pub trig_rad: bool,
+    /// lengths count in pt (as pgfmath counts them: `100/2cm` is 100/56.9), not in cm
+    pub in_pt: bool,
 }
 
 impl Variables {
@@ -47,7 +49,8 @@ pub fn unit_cm(u: &str) -> Option<f64> {
 /// Centimeters per unit, `em` and `ex` in the font of `vars`.
 fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
     let f = unit_cm(u)?;
-    Some(if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f })
+    let f = if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f };
+    Some(if vars.in_pt { f / (2.54 / 72.27) } else { f })
 }
 
 /// Nesting cap (parentheses, signs, calls): `f(x) = f(x)` does not overflow the stack.
@@ -368,13 +371,14 @@ impl Parser<'_> {
                         "rnd" => Ok(pseudo_random()),
                         "true" => Ok(1.0),
                         "false" => Ok(0.0),
-                        // the fpu's special numbers
+                        // the fpu's special numbers (pgfplots' `nan` point meta, `unbounded coords`)
                         "nan" | "NaN" => Ok(f64::NAN),
-                        "inf" | "infty" | "INF" => Ok(f64::INFINITY),
+                        "inf" | "Inf" => Ok(f64::INFINITY),
                         _ => Err(Error::Expression(format!("function without parentheses: {name}"))),
                     };
                 }
                 self.pos += 1;
+                let units_before = self.units;
                 let mut args = vec![self.ternary()?];
                 self.skip_spaces();
                 while self.peek() == Some(',') {
@@ -454,6 +458,11 @@ impl Parser<'_> {
                     "int" => a.trunc(),
                     "frac" => a - a.trunc(),
                     "real" => a,
+                    // its value without the units its argument declared (a ratio of lengths)
+                    "scalar" => {
+                        self.units = units_before;
+                        a
+                    }
                     "neg" => -a,
                     "sign" => {
                         if a > 0.0 {

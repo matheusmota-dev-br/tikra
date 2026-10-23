@@ -244,7 +244,9 @@ fn geometry(e: &mut Engine, s: &BoxStats, index: usize) -> Geometry {
 /// The logical points a box plot covers (for the axis limits), the outliers placed at its position.
 pub fn extent(e: &mut Engine, p: &Plot, index: usize, v: &mut [[f64; 3]]) -> Vec<[f64; 2]> {
     let Some(stats) = &p.boxplot else { return Vec::new() };
-    let g = geometry(e, stats, index);
+    // the limits see the box as wide as without `variable width`
+    let mut g = geometry(e, stats, index);
+    (g.box_extend, g.whisker_extend) = (stats.box_extend, stats.whisker_extend);
     for c in v.iter_mut() {
         let [a, b] = place(g.vertical, c[0], g.position);
         c[0] = a;

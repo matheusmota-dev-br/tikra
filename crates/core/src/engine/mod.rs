@@ -13,6 +13,7 @@ pub mod datavis;
 pub mod decorations;
 pub mod fadings;
 pub mod folding;
+pub mod functional;
 pub mod graphs;
 pub mod intersections;
 pub mod libraries;
@@ -84,6 +85,7 @@ pub enum Cmd {
     ApproximateNonlinearTranslation,
     SetCurvilinear,
     PointCurvilinear,
+    PointCurvilinearPolar,
     ToNumber,
     MathSinCos,
     SetFadingForPath,
@@ -111,6 +113,7 @@ pub enum Cmd {
     Textcolor,
     Pgfmathsetmacro,
     Pgfmathparse,
+    PgfmathFunction,
     Pgfmathtruncatemacro,
     Pgfmathsetlengthmacro,
     Pgfmathsetcount,
@@ -123,7 +126,6 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
-    PgfmathFunction,
     Hskip,
     FontSize,
     FontSeries,
@@ -188,6 +190,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfapproximatenonlineartranslation", Cmd::ApproximateNonlinearTranslation),
     ("pgfsetcurvilinearbeziercurve", Cmd::SetCurvilinear),
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
+    ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
     ("pgf@sys@tonumber", Cmd::ToNumber),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
@@ -220,23 +223,27 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmathsubtract", Cmd::PgfmathFunction),
     ("pgfmathmultiply", Cmd::PgfmathFunction),
     ("pgfmathdivide", Cmd::PgfmathFunction),
-    ("pgfmathpow", Cmd::PgfmathFunction),
-    ("pgfmathmod", Cmd::PgfmathFunction),
     ("pgfmathmax", Cmd::PgfmathFunction),
     ("pgfmathmin", Cmd::PgfmathFunction),
+    ("pgfmathmod", Cmd::PgfmathFunction),
+    ("pgfmathpow", Cmd::PgfmathFunction),
     ("pgfmathveclen", Cmd::PgfmathFunction),
+    ("pgfmathatan2", Cmd::PgfmathFunction),
     ("pgfmathabs", Cmd::PgfmathFunction),
     ("pgfmathneg", Cmd::PgfmathFunction),
     ("pgfmathsqrt", Cmd::PgfmathFunction),
-    ("pgfmathexp", Cmd::PgfmathFunction),
-    ("pgfmathln", Cmd::PgfmathFunction),
     ("pgfmathsin", Cmd::PgfmathFunction),
     ("pgfmathcos", Cmd::PgfmathFunction),
     ("pgfmathtan", Cmd::PgfmathFunction),
+    ("pgfmathexp", Cmd::PgfmathFunction),
+    ("pgfmathln", Cmd::PgfmathFunction),
     ("pgfmathround", Cmd::PgfmathFunction),
     ("pgfmathfloor", Cmd::PgfmathFunction),
     ("pgfmathceil", Cmd::PgfmathFunction),
     ("pgfmathint", Cmd::PgfmathFunction),
+    ("pgfmathdeg", Cmd::PgfmathFunction),
+    ("pgfmathrad", Cmd::PgfmathFunction),
+    ("pgfmathsign", Cmd::PgfmathFunction),
     ("pgfmathtruncatemacro", Cmd::Pgfmathtruncatemacro),
     ("pgfmathsetlengthmacro", Cmd::Pgfmathsetlengthmacro),
     ("pgfmathsetcount", Cmd::Pgfmathsetcount),
@@ -321,6 +328,8 @@ fn path_command(cmd: Cmd) -> Option<&'static str> {
 #[derive(Debug, Clone, Default)]
 struct PgfScope {
     ends: usize,
+    /// the item opened last in it is a fading: a new fading takes its place
+    fading_last: bool,
     /// a path clipped it: what it draws after does not make the picture larger
     pub clipped: bool,
 }
@@ -365,6 +374,8 @@ pub struct Engine {
     on_layer: Vec<(String, Vec<Item>)>,
     /// the last node made (a tree's parent), its name, and how many tree parents were named
     pub last_node: Option<nodes::NodeInfo>,
+    /// the shifts a node's animations move it by (canvas), which its picture's size makes room for
+    pub anim_shifts: Vec<Point>,
     pub last_node_name: Option<String>,
     tree_count: usize,
     /// the chains of the chains library (global, as TikZ keeps their counts)
@@ -385,10 +396,17 @@ pub struct Engine {
     pub picture_fadings: HashMap<String, fadings::PictureFading>,
     /// the basic layer's declared shadings
     pub basic_shadings: HashMap<String, shadings::BasicShading>,
+    /// the declared functional shadings
+    pub functional_shadings: HashMap<String, functional::Functional>,
     /// marks declared by `\pgfdeclareplotmark`: their code
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
+    /// plot handlers declared by `\pgfdeclareplothandler`: the code for each point (`##1` the
+    /// point, `#1`… the handler's arguments)
+    pub plot_handlers: HashMap<String, String>,
     /// paths kept by `save path`
     pub saved_paths: HashMap<String, Vec<crate::scene::Segment>>,
+    /// the points `\pgfintersectionofpaths` found (canvas)
+    pub pgf_solutions: Vec<Point>,
     /// patterns declared by the basic layer
     pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -494,8 +512,12 @@ impl Clone for Engine {
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
             basic_shadings: self.basic_shadings.clone(),
+            functional_shadings: self.functional_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
+            plot_handlers: self.plot_handlers.clone(),
             saved_paths: self.saved_paths.clone(),
+            pgf_solutions: self.pgf_solutions.clone(),
+            anim_shifts: Vec::new(),
             user_patterns: self.user_patterns.clone(),
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
@@ -565,8 +587,12 @@ impl Engine {
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
             basic_shadings: HashMap::new(),
+            functional_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
+            plot_handlers: HashMap::new(),
             saved_paths: HashMap::new(),
+            pgf_solutions: Vec::new(),
+            anim_shifts: Vec::new(),
             user_patterns: HashMap::new(),
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
@@ -679,6 +705,29 @@ impl Engine {
             }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
+            // `$=\implies$` in the text around the pictures: a formula, set as a word
+            Meaning::Char(_, Cat::Math) if self.picture_depth == 0 => {
+                let mut formula = Vec::new();
+                while let Some(n) = self.tex.get_token() {
+                    if matches!(self.tex.meaning(&n), Meaning::Char(_, Cat::Math)) {
+                        break;
+                    }
+                    formula.push(n);
+                }
+                if formula.iter().any(|x| x.is_cs("tikz") || x.is_cs("begin")) {
+                    // a picture inside: read as it comes
+                    self.tex.push_tokens(formula);
+                    return Ok(());
+                }
+                let text = format!("${}$", tex::tokens_to_string(&formula));
+                match self.layout.last() {
+                    Some(Layout::Word(i)) => self.words[*i].1.push_str(&text),
+                    _ => {
+                        self.layout.push(Layout::Word(self.words.len()));
+                        self.words.push((self.st.font.clone(), text));
+                    }
+                }
+            }
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
                 if !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
                     self.layout.push(Layout::Par);
@@ -830,9 +879,20 @@ impl Engine {
 
     /// Opens a canvas item that the current pgf scope closes (a clip, a transparency group).
     pub fn open_in_scope(&mut self, item: Item) {
+        let fading = matches!(item, Item::Fade { .. } | Item::FadePicture { .. });
+        // a fading replaces the scope's fading, as pgf's graphic state holds one
+        if fading && self.scopes.last().is_some_and(|s| s.fading_last && s.ends > 0) {
+            self.canvas.push(Item::End);
+            if let Some(s) = self.scopes.last_mut() {
+                s.ends -= 1;
+            }
+        }
         self.canvas.push(item);
         match self.scopes.last_mut() {
-            Some(s) => s.ends += 1,
+            Some(s) => {
+                s.ends += 1;
+                s.fading_last = fading;
+            }
             None => self.canvas.push(Item::End),
         }
     }
@@ -900,14 +960,22 @@ impl Engine {
     }
 
     pub fn vars(&self) -> crate::expr::Variables {
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), trig_rad: self.st.trig_rad }
+        crate::expr::Variables {
+            values: HashMap::new(),
+            functions: (*self.st.functions).clone(),
+            font_scale: Some(self.st.ambient_size / 10.0),
+            in_pt: false,
+            trig_rad: self.st.trig_rad,
+        }
     }
 
-    /// A pgfmath number from text.
+    /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).
     pub fn number(&mut self, text: &str) -> Result<f64, Error> {
         let t = tex::string_tokens(text);
         let s = self.math_string(t)?;
-        crate::expr::eval(&s, &self.vars())
+        let mut vars = self.vars();
+        vars.in_pt = true;
+        crate::expr::eval(&s, &vars)
     }
 
     /// A pgfmath length in cm (a number without a unit is in pt, as pgf reads lengths).
@@ -1012,6 +1080,7 @@ impl Engine {
             Cmd::ApproximateNonlinearTranslation => self.approximate_nonlinear(false),
             Cmd::SetCurvilinear => self.set_curvilinear(),
             Cmd::PointCurvilinear => self.point_curvilinear(),
+            Cmd::PointCurvilinearPolar => self.point_curvilinear_polar(),
             Cmd::ToNumber => self.to_number(),
             Cmd::MathSinCos => self.math_sincos(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
@@ -1081,7 +1150,12 @@ impl Engine {
             }
             Cmd::Tikzset => {
                 let a = self.argument()?;
-                self.keys_command(a, Some("/tikz"), true)
+                self.keys_command(a, Some("/tikz"), true)?;
+                // `\tikzset{xshift=1cm}` in a picture transforms what follows in the group
+                if self.picture_depth > 0 {
+                    self.st.apply_pending();
+                }
+                Ok(())
             }
             Cmd::Pgfset => {
                 let a = self.argument()?;
@@ -1184,8 +1258,10 @@ impl Engine {
                 let expr = self.argument()?;
                 let Some(name) = name.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
                 let text = self.math_string(expr)?;
-                // a result with units is in pt, as pgfmath gives it
-                let v = crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v });
+                // lengths in pt, as pgfmath counts them
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                let v = crate::expr::eval_length(&text, &vars).map(|(v, _)| v);
                 match v {
                     Ok(v) if v.is_finite() => {
                         let s = match cmd {
@@ -1201,38 +1277,40 @@ impl Engine {
                 }
                 Ok(())
             }
-            // `\pgfmathadd{a}{b}` and friends: the function of the arguments, in \pgfmathresult
+            Cmd::Pgfmathparse => {
+                let expr = self.argument()?;
+                let text = self.math_string(expr)?;
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                match crate::expr::eval_length(&text, &vars).map(|(v, _)| v) {
+                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
+                    Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
+                }
+                Ok(())
+            }
+            // `\pgfmathadd{a}{b}` and the other functions as commands: `\pgfmathresult` is their value
             Cmd::PgfmathFunction => {
-                let name = match &t {
+                let name = match t {
                     Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
-                    _ => String::new(),
+                    _ => return Ok(()),
                 };
-                let (op, n) = match name.as_str() {
-                    "add" => ("+", 2),
-                    "subtract" => ("-", 2),
-                    "multiply" => ("*", 2),
-                    "divide" => ("/", 2),
-                    "pow" | "mod" | "max" | "min" | "veclen" => ("", 2),
-                    _ => ("", 1),
-                };
+                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
                 let mut args = Vec::new();
                 for _ in 0..n {
                     let a = self.argument()?;
                     args.push(format!("({})", self.math_string(a)?));
                 }
-                let text = if op.is_empty() { format!("{name}({})", args.join(",")) } else { args.join(op) };
+                let text = match name.as_str() {
+                    "add" => format!("{}+{}", args[0], args[1]),
+                    "subtract" => format!("{}-{}", args[0], args[1]),
+                    "multiply" => format!("{}*{}", args[0], args[1]),
+                    "divide" => format!("{}/{}", args[0], args[1]),
+                    "neg" => format!("-{}", args[0]),
+                    other => format!("{other}({})", args.join(",")),
+                };
                 match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
                     Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
                     Err(e) => self.warn(format!("\\pgfmath{name}: {e}")),
-                }
-                Ok(())
-            }
-            Cmd::Pgfmathparse => {
-                let expr = self.argument()?;
-                let text = self.math_string(expr)?;
-                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
-                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
-                    Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }
                 Ok(())
             }
@@ -1342,19 +1420,17 @@ impl Engine {
                 }
                 Ok(())
             }
+            // `\hskip 1cm plus 1fil`: glue of its natural width between pictures
             Cmd::Hskip => {
-                // `\hskip 10pt plus 1fil`: the natural width
-                let w = self.tex.scan_dimen()? as f64 / 65536.0 * crate::PT;
+                let w = self.tex.scan_dimen()?;
                 for k in ["plus", "minus"] {
                     if self.tex.scan_keyword(k)? {
                         let _ = self.tex.scan_dimen();
-                        for _ in 0..3 {
-                            let _ = self.tex.scan_keyword("l");
-                        }
+                        let _ = self.tex.scan_keyword("fill")? || self.tex.scan_keyword("fil")?;
                     }
                 }
                 if self.picture_depth == 0 {
-                    self.layout.push(Layout::Skip(w));
+                    self.layout.push(Layout::Skip(w as f64 / 65536.0 * crate::PT));
                 }
                 Ok(())
             }
@@ -1563,6 +1639,7 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
+        self.open_transparency_group();
         // a picture is a scope too: `execute at begin scope` first, its end last
         let mut begin = std::mem::take(&mut self.st.at_begin_scope);
         begin.append(&mut self.st.at_begin_picture);
@@ -1570,6 +1647,18 @@ impl Engine {
         end.append(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
         self.run_tokens(begin)
+    }
+
+    /// `transparency group` given to a scope or a picture: what it draws is a group of its own.
+    fn open_transparency_group(&mut self) {
+        if std::mem::take(&mut self.st.transparency_group) {
+            // the scope's opacity is the group's; inside, everything is opaque
+            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
+            self.open_in_scope(Item::Group { opacity });
+            self.st.draw_opacity = 1.0;
+            self.st.fill_opacity = 1.0;
+            self.st.text_opacity = 1.0;
+        }
     }
 
     /// `\begin{scope}[options]` and `\scoped`: a group, a pgf scope, the options, `execute at begin scope`.
@@ -1586,14 +1675,7 @@ impl Engine {
             }
         }
         self.st.apply_pending();
-        if std::mem::take(&mut self.st.transparency_group) {
-            // the scope's opacity is the group's; inside, everything is opaque
-            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
-            self.open_in_scope(Item::Group { opacity });
-            self.st.draw_opacity = 1.0;
-            self.st.fill_opacity = 1.0;
-            self.st.text_opacity = 1.0;
-        }
+        self.open_transparency_group();
         let begin = std::mem::take(&mut self.st.at_begin_scope);
         let end = std::mem::take(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
@@ -1664,6 +1746,10 @@ impl Engine {
     /// `\tikra@frame`: the picture's box, and with the frame seps around it, as macros in pt
     /// (`\tikra@xa`… inner, `\tikra@oxa`… outer) for the backgrounds library.
     fn frame_macros(&mut self) -> Result<(), Error> {
+        // once per picture: the frame is around what the picture drew, not around another frame
+        if matches!(self.tex.meaning_of("tikra@xa"), Meaning::Macro(_)) {
+            return Ok(());
+        }
         let (Some(lo), Some(hi)) = (self.canvas.min, self.canvas.max) else { return Ok(()) };
         let sep = |e: &mut Engine, name: &str| -> f64 {
             let v = match e.tex.meaning_of(name) {
@@ -1766,6 +1852,11 @@ impl Engine {
         }
         if let Some(inner) = s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
             return self.coordinate(inner).map(|c| c.p.y).unwrap_or(lower);
+        }
+        // \pgfsetbaselinepointlater{point}: the point's height once the picture is drawn
+        if let Some(point) = s.strip_prefix("tikra@point:") {
+            let t = self.st.transform;
+            return self.point_of(tikra_tokens(point)).map(|p| t.apply(p).y).unwrap_or(lower);
         }
         self.length(s).unwrap_or(lower)
     }
@@ -1960,10 +2051,21 @@ impl Engine {
                         remember.push((cs[0].clone(), cs[1].clone(), initially));
                     }
                 }
+                // `evaluate={\c=\x*10;}`: assignments, each a variable and its expression
+                "evaluate" if !tex::tokens_to_string(&v).contains(" as ") && tex::tokens_to_string(&v).contains('=') => {
+                    let s = tex::tokens_to_string(&v);
+                    for statement in s.split(';') {
+                        if let Some((name, expr)) = statement.split_once('=') {
+                            if let Some(var) = tikra_tokens(name.trim()).into_iter().find(|t| matches!(t, Token::Cs(_))) {
+                                evaluate.push((var.clone(), Some(var), Some(tikra_tokens(expr.trim()))));
+                            }
+                        }
+                    }
+                }
                 "evaluate" => {
                     let s = tex::tokens_to_string(&v);
                     let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-                    let using = s.split("using").nth(1).map(|x| tex::string_tokens(x.trim()));
+                    let using = s.split("using").nth(1).map(|x| tikra_tokens(x.trim()));
                     let target = if s.contains(" as ") { cs.get(1).cloned() } else { None };
                     if let Some(var) = cs.first() {
                         evaluate.push((var.clone(), target, using));
@@ -2012,6 +2114,11 @@ impl Engine {
             }
             self.end_group();
             r?;
+            // `\breakforeach`: this was the last iteration
+            if matches!(self.tex.meaning_of("tikra@foreach@break"), Meaning::Macro(m) if !m.body.is_empty()) {
+                self.tex.set_meaning(&Token::cs("tikra@foreach@break"), macro_tokens(Vec::new()), true);
+                break;
+            }
         }
         self.depth -= 1;
         Ok(())
@@ -2099,13 +2206,17 @@ fn split_slash(item: &[Token]) -> Vec<Vec<Token>> {
 /// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
 pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
     let mut raw: Vec<Vec<Token>> = Vec::new();
-    let mut current = Vec::new();
+    let mut current: Vec<Token> = Vec::new();
     let mut depth = 0usize;
+    // an item that starts with `(` runs to its `)` (`(0,0), (1,1)`), as pgffor reads it
+    let mut parens = 0usize;
     for t in list {
         match t {
             Token::Char(_, Cat::Begin) => depth += 1,
             Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
-            Token::Char(',', _) if depth == 0 => {
+            Token::Char('(', _) if depth == 0 && (parens > 0 || current.iter().all(Token::is_space)) => parens += 1,
+            Token::Char(')', _) if depth == 0 && parens > 0 => parens -= 1,
+            Token::Char(',', _) if depth == 0 && parens == 0 => {
                 raw.push(std::mem::take(&mut current));
                 continue;
             }
@@ -2208,7 +2319,8 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         for l in line {
             match l {
                 Layout::Space if started => x += SPACE,
-                Layout::Skip(w) if started => x += w,
+                // glue at the start of a paragraph stays (`\hskip 1cm` before a picture)
+                Layout::Skip(w) => x += w,
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));

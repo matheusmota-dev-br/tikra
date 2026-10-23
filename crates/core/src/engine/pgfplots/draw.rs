@@ -824,15 +824,22 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             std::mem::swap(&mut min[a], &mut max[a]);
         }
     }
-    // enlargelimits (none on a polar axis)
+    // enlargelimits (a polar axis enlarges only the largest radius, `\pgfplots@enlarge@limit@for@polar`)
     // `abs=1cm`: an amount on paper, applied once the axis is scaled
     let mut abs_dim: [Option<(f64, bool, bool)>; 3] = [None; 3];
-    for a in 0..if polar || ternary || smith { 0 } else { dims } {
+    for a in if ternary || smith {
+        0..0
+    } else if polar {
+        1..2
+    } else {
+        0..dims
+    } {
         let c = axis_char(a);
         let v = e.pv(&format!("enlarge {c} limits"));
         // 'auto' enlarges only limits that were computed: x and y of a 2d axis, z of a 3d one
         let auto = if three_d { a == 2 } else { a < 2 };
         let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
+        let lo = lo && !polar;
         let dim = v.trim_matches(|c| c == '{' || c == '}').split(',').find_map(|p| {
             let (k, val) = p.split_once('=')?;
             (matches!(k.trim(), "abs" | "abs value") && has_unit(val)).then(|| val.trim().to_string())
@@ -949,9 +956,10 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             pw = (pw - 45.0 * PT).max(0.0);
             ph = (ph - 45.0 * PT).max(0.0);
         }
-        let (bw, bh) = super::polar::unit_size(min[0], max[0], min[1], max[1]);
-        ev[0] = Point::new(if bw > 1e-12 { pw / bw } else { 1.0 }, 0.0);
-        ev[1] = Point::new(0.0, if bh > 1e-12 { ph / bh } else { 1.0 });
+        // the whole circle's diameter, also for a sector (`…get@unit@scales@for@limits@polar`)
+        let d = 2.0 * max[1].abs();
+        ev[0] = Point::new(if d > 1e-12 { pw / d } else { 1.0 }, 0.0);
+        ev[1] = Point::new(0.0, if d > 1e-12 { ph / d } else { 1.0 });
     } else if three_d && units.iter().all(Option::is_none) {
         let (az, el) = view_angles(e);
         let (saz, caz) = az.to_radians().sin_cos();
@@ -974,7 +982,18 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         for k in 0..3 {
             let range = (max[k] - min[k]).abs().max(1e-12);
             let s = if dir[k] { -1.0 } else { 1.0 };
-            ev[k] = Point::new(base[k].x * sx * s / range, base[k].y * sy * s / range);
+            // 1/range as pgfplots multiplies it (compat before 1.3's pgfbasic scaling): a TeX
+            // dimension, in sp, of the range in the data scale transformation's units
+            let [lo, hi] = data_range[k];
+            let f = if log[k] || keys::flag(e, "/pgfplots/@disabledatascaling") || !(lo.is_finite() && hi.is_finite()) {
+                1.0
+            } else {
+                let size = keys::length(e, if k == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if k == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+                ticks::data_scale(lo, hi, size)
+            };
+            let inverse = ((65536.0 / (range * f)).round() / 65536.0 * f).max(1e-300);
+            let inverse = if inverse.is_finite() && inverse > 0.0 { inverse } else { 1.0 / range };
+            ev[k] = Point::new(base[k].x * sx * s * inverse, base[k].y * sy * s * inverse);
         }
     } else {
         for a in 0..dims {
@@ -1288,10 +1307,23 @@ fn meta_range(e: &mut Engine, axis: &Axis) -> [f64; 2] {
 /// The current colormap (`colormap name`).
 pub fn colormap(e: &mut Engine) -> Option<super::colormap::Colormap> {
     let name = keys::value(e, "/pgfplots/colormap name");
-    let spec = keys::value(e, &format!("/pgfplots/@colormaps/{name}"));
-    let m = super::colormap::Colormap::parse(&spec, &e.colors);
+    let m = colormap_named(e, &name);
     if m.is_none() {
         e.warn(format!("colormap '{name}' not defined"));
+    }
+    m
+}
+
+/// A colormap by name, with the current `colormap access`.
+pub fn colormap_named(e: &mut Engine, name: &str) -> Option<super::colormap::Colormap> {
+    let spec = keys::value(e, &format!("/pgfplots/@colormaps/{name}"));
+    let mut m = super::colormap::Colormap::parse(&spec, &e.colors);
+    if let Some(m) = m.as_mut() {
+        m.access = match keys::value(e, "/pgfplots/colormap access").trim() {
+            "piecewise constant" | "const" => super::colormap::Access::Const,
+            "direct" => super::colormap::Access::Direct,
+            _ => super::colormap::Access::Map,
+        };
     }
     m
 }
@@ -1497,6 +1529,18 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let pre_main = e.canvas.items.len();
     let compat = keys::compat(e);
     f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
+    // before compat 1.11 TikZ's unit vectors are those of the data scale transformation: a radius
+    // or a relative coordinate is in its units
+    let units = (e.st.x, e.st.y, e.st.z);
+    if compat < 111 && !f.polar && !f.smith && !f.ternary {
+        let inverse = e.st.transform.inverse();
+        let unit = |e: &mut Engine, a: usize| inverse.linear(f.e[a].scale(1.0 / data_scale_trafo(e, &f, a).0));
+        e.st.x = unit(e, 0);
+        e.st.y = unit(e, 1);
+        if f.three_d {
+            e.st.z = unit(e, 2);
+        }
+    }
     let mut marks = Vec::new();
     let plots: Vec<&Plot> = axis.entries.iter().filter_map(|en| if let Entry::Plot(p) = en { Some(&**p) } else { None }).collect();
     let mut k = 0usize;
@@ -1522,7 +1566,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 }
             }
             Entry::Tikz(tokens) => {
-                let r = in_plain_units(e, &f, |e| e.run_tokens(tokens.clone()));
+                let r = e.run_tokens(tokens.clone());
                 if let Err(err) = r {
                     if super::super::is_limit(&err) {
                         return Err(err);
@@ -1543,6 +1587,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
     }
     e.end_scope();
+    (e.st.x, e.st.y, e.st.z) = units;
     if clip {
         (e.canvas.min, e.canvas.max) = saved_bbox;
     }
@@ -1571,6 +1616,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
             m.points.retain(|(p, _)| inside(p));
             m.styled.retain(|(p, _, _)| inside(p));
             m.nodes.retain(|n| inside(&n.point));
+        } else if clip && f.polar {
+            m.points.retain(|(p, _)| super::polar::contains(&f, *p));
+            m.nodes.retain(|n| super::polar::contains(&f, n.point));
         }
         super::visual::draw_marks(e, &m, &f)?;
         super::visual::draw_near_nodes(e, &m)?;
@@ -1851,6 +1899,18 @@ fn obscured(s: &Setup, a: usize, t: f64) -> bool {
         "high" => near(hi),
         _ => false,
     }
+}
+
+/// The data scale transformation of axis `a` (`\pgfplots@set@optimal@datatrafo@for@`): `10^E` and
+/// the smallest data value, which goes to 0; (1, 0) for a logarithmic axis or `disabledatascaling`.
+/// Before compat 1.11, plain coordinates in an axis are in its units.
+pub(super) fn data_scale_trafo(e: &mut Engine, f: &Frame, a: usize) -> (f64, f64) {
+    let [lo, hi] = f.data_range[a];
+    if f.log[a] || keys::flag(e, "/pgfplots/@disabledatascaling") || !(lo.is_finite() && hi.is_finite()) {
+        return (1.0, 0.0);
+    }
+    let size = keys::length(e, if a == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if a == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
+    (ticks::data_scale(lo, hi, size), lo)
 }
 
 /// The axis lines: a closed box, or separate lines (with arrows) for `axis lines=…`.
@@ -2306,7 +2366,7 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
         let mut td = f.tick_dim.borrow_mut();
         td[a] = td[a].max(dim.max(off));
     }
-    if let Some(label) = scale_label.filter(|_| !vis.is_empty()) {
+    if let Some(label) = scale_label.filter(|_| !vis.is_empty() && !keys::flag(e, &format!("/pgfplots/@{c} scale label off"))) {
         let text = tex::string_tokens(&label);
         let options = toks(&format!("/pgfplots/every tick label,/pgfplots/every {c} tick label,/pgfplots/every {c} tick scale label"));
         f.cs.set(Cs::Description);
@@ -2324,9 +2384,16 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let labels: &[(usize, &str)] = if f.three_d { &[(0, "x"), (1, "y"), (2, "z")] } else { &[(0, "x"), (1, "y")] };
     for &(a, c) in labels {
         // an empty label is still a node in TeX's drawing: it takes room at its place
-        let text = keys::value_tokens(&*e, &format!("/pgfplots/{c}label")).unwrap_or_default();
+        let mut text = keys::value_tokens(&*e, &format!("/pgfplots/{c}label")).unwrap_or_default();
         if s.hide[a] {
             continue;
+        }
+        // the units library: ` [km]` after the label (`x unit=m`, `x unit prefix=k`)
+        let unit = keys::value(e, &format!("/pgfplots/{c} unit"));
+        if !unit.trim().is_empty() && keys::flag(e, "/pgfplots/use units") {
+            let prefix = keys::value(e, &format!("/pgfplots/{c} unit prefix"));
+            text.extend(tex::string_tokens(" "));
+            text.extend(toks(&format!("$\\left[\\mathrm{{{prefix}{unit}}}\\right]$")));
         }
         f.label_axis.set(a);
         let p = f.desc(0.0, 0.0);
@@ -2373,12 +2440,13 @@ pub fn solid(color: crate::color::Color, opacity: f64) -> Fill {
     Fill { paint: Paint::Solid(color), opacity, even_odd: false }
 }
 
-/// Runs `f` with TikZ's unit vectors those of pgfplots' internal coordinates (so that a radius of
-/// 1 is one of them), when plain coordinates are those.
+/// Runs `f` with TikZ's unit vectors those of the data scale transformation (so that a radius of
+/// 1 is one of its units), when plain coordinates are its coordinates.
 fn in_plain_units<T>(e: &mut Engine, f: &Frame, run: impl FnOnce(&mut Engine) -> Result<T, Error>) -> Result<T, Error> {
     let units = (e.st.x, e.st.y, e.st.z);
     if f.cs.get() == Cs::Plain && !f.polar && !f.smith && !f.ternary {
-        let v: Vec<Point> = (0..3).map(|a| f.e[a].scale(1.0 / plain_scale(e, f, a).0)).collect();
+        let inverse = e.st.transform.inverse();
+        let v: Vec<Point> = (0..3).map(|a| inverse.linear(f.e[a].scale(1.0 / data_scale_trafo(e, f, a).0))).collect();
         (e.st.x, e.st.y) = (v[0], v[1]);
         if f.three_d {
             e.st.z = v[2];
@@ -2387,26 +2455,6 @@ fn in_plain_units<T>(e: &mut Engine, f: &Frame, run: impl FnOnce(&mut Engine) ->
     let r = run(e);
     (e.st.x, e.st.y, e.st.z) = units;
     r
-}
-
-/// pgfplots' internal coordinates on axis `a` (TikZ's plain ones in an axis): the data times a
-/// power of ten, less that of the smallest data value (`\pgfplots@set@optimal@datatrafo@for@`);
-/// logarithms on a log axis. (factor, data value at 0).
-pub(super) fn plain_scale(e: &mut Engine, f: &Frame, a: usize) -> (f64, f64) {
-    if f.log[a] || keys::flag(e, "/pgfplots/disabledatascaling") {
-        return (1.0, 0.0);
-    }
-    let size = keys::length(e, if a == 0 { "/pgfplots/width" } else { "/pgfplots/height" }).unwrap_or(if a == 0 { 240.0 * PT } else { 207.0 * PT }) / PT;
-    let [dlo, dhi] = f.data_range[a];
-    if !(dlo.is_finite() && dhi.is_finite()) {
-        return (1.0, 0.0);
-    }
-    let scale = super::ticks::data_scale(dlo, dhi, size);
-    if scale.is_finite() && scale > 0.0 {
-        (scale, dlo)
-    } else {
-        (1.0, 0.0)
-    }
 }
 
 /// `axis cs`, `rel axis cs`, `axis description cs`, `ticklabel cs`: points of the axis being
@@ -2537,18 +2585,21 @@ impl Engine {
                 })();
                 Some(r)
             }
-            // plain coordinates are pgfplots' internal ones: the data scaled by a power of ten
-            // and shifted so that the smallest data value is 0 (`\pgfplots@set@optimal@datatrafo@for@`),
-            // logarithms on a log axis
             // a coordinate with units (`(1cm,0pt)`) stays TikZ's
             Cs::Plain if parts.iter().any(|p| has_unit(p)) => None,
+            // before compat 1.11, the coordinates of the data scale transformation: 10^E times the
+            // data, less the smallest data value (`\pgfplots@set@optimal@datatrafo@for@`)
             Cs::Plain if !f.polar && !f.smith => {
                 let r = (|| -> Result<Point, Error> {
-                    let mut l = f.min;
-                    for (a, slot) in l.iter_mut().enumerate().take(if f.three_d { 3 } else { 2 }) {
-                        let u = self.number(crate::keys::strip_braces(parts.get(a).map_or("0", |p| p.trim())))?;
-                        let (scale, shift) = plain_scale(self, &f, a);
-                        *slot = u / scale + shift;
+                    let mut l = [f.min[0], f.min[1], f.min[2]];
+                    for (a, la) in l.iter_mut().enumerate().take(if f.three_d { 3 } else { 2 }) {
+                        // an empty coordinate (`\pgfkeysvalueof{/pgfplots/xmin}` unset) is 0, as TeX recovers
+                        let v = match crate::keys::strip_braces(parts.get(a).map_or("0", |p| p.trim())) {
+                            "" => 0.0,
+                            p => self.number(p)?,
+                        };
+                        let (factor, shift) = data_scale_trafo(self, &f, a);
+                        *la = shift + v / factor;
                     }
                     Ok(f.at(l))
                 })();

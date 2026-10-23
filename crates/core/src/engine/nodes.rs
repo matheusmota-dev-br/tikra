@@ -34,6 +34,8 @@ pub struct NodeSetup {
     pub labels: Vec<(Vec<Token>, bool)>,
     /// `fit`: the width and height of the fitted area, which become the text box
     pub fit: Option<(f64, f64)>,
+    /// `rotate fit`: the fitted area is turned by this angle (and so is the node)
+    pub fit_rotate: f64,
     /// `circle through`: the point on the circle (canvas)
     pub through: Option<Point>,
 }
@@ -313,9 +315,22 @@ impl Engine {
         self.st.decorate = false;
         self.st.preactions = Default::default();
         self.st.postactions = Default::default();
+        let shifts_before = self.anim_shifts.len();
         let r = self.node_in_group(spec, &outer);
         self.end_group();
         let (mut items, labels) = r?;
+        // animated shifts of the node: the picture makes room for it at each
+        let shifts: Vec<Point> = self.anim_shifts.drain(shifts_before..).collect();
+        if let (false, Some(info)) = (shifts.is_empty(), self.last_node.clone()) {
+            let ends: Vec<Point> = ["north", "south", "east", "west"].iter().filter_map(|a| info.anchor(a)).collect();
+            if self.counts_for_size() {
+                for d in shifts {
+                    for p in &ends {
+                        self.canvas.include(p.plus(d));
+                    }
+                }
+            }
+        }
         // labels and pins: made after the node, out of its options (TikZ's `append after command`)
         if let Some((info, labels, last, kept)) = labels {
             // the label distances and position that the node's options set still hold

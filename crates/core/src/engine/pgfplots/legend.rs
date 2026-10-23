@@ -315,8 +315,11 @@ fn text_cell(e: &mut Engine, entry: &LegendEntry) -> Result<Cell, Error> {
     })
 }
 
-/// `legend entries={a,b,{c,d}}`.
+/// `legend entries={a,b,{c,d}}`; `{0,...,20}` as `\foreach` reads it.
 fn split(list: &[Token]) -> Vec<LegendEntry> {
+    if tex::tokens_to_string(list).contains("...") {
+        return super::super::foreach_items(list).into_iter().map(|v| LegendEntry { options: Vec::new(), text: tex::strip_outer_braces(v) }).collect();
+    }
     let mut out = Vec::new();
     let mut cur = Vec::new();
     let mut depth = 0usize;

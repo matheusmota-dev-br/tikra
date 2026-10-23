@@ -245,11 +245,22 @@ pub fn cycle_entry(e: &mut Engine, k: usize) -> Result<Vec<Token>, Error> {
         let mut out = Vec::new();
         let mut rest = k;
         let mut chosen = Vec::new();
-        for l in lists.iter().rev() {
-            chosen.push(l[rest % l.len()].clone());
-            rest /= l.len();
+        if name.starts_with("@multiindex") {
+            // `cycle multiindex list`: the same index into every list, the shorter ones padded
+            // with nothing (restarted with `cycle multiindex* list`)
+            let longest = lists.iter().map(Vec::len).max().unwrap_or(1);
+            for l in &lists {
+                let i = if name == "@multiindex*@" { k % l.len() } else { k % longest };
+                chosen.push(l.get(i).cloned().unwrap_or_default());
+            }
+            chosen.reverse();
+        } else {
+            for l in lists.iter().rev() {
+                chosen.push(l[rest % l.len()].clone());
+                rest /= l.len();
+            }
         }
-        for entry in chosen.into_iter().rev() {
+        for entry in chosen.into_iter().rev().filter(|c| !c.is_empty()) {
             if !out.is_empty() {
                 out.push(Token::other(','));
             }
@@ -466,6 +477,9 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         _ => {}
     }
     point_meta(e, plot)?;
+    if plot.patch {
+        patch_table(e, plot);
+    }
     lattice_from_scanlines(e, plot);
     coordinate_filters(e, plot)?;
     filter(e, plot)?;
@@ -473,6 +487,59 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         e.run_tokens(code)?;
     }
     Ok(())
+}
+
+/// `patch table={0 1 2\\ 1 2 3\\}` (or a file name): the patches are rows of indices into the
+/// points read; `patch table with point meta` adds a color to each row, `… with individual point
+/// meta` one to each of its corners. The points become the patches' corners, one after another,
+/// each with its color.
+fn patch_table(e: &mut Engine, plot: &mut Plot) {
+    let mut found = None;
+    for (key, kind) in [("patch table", 0), ("patch table with point meta", 1), ("patch table with individual point meta", 2)] {
+        let v = keys::value(e, &format!("/pgfplots/{key}"));
+        if !v.trim().is_empty() {
+            found = Some((v, kind));
+        }
+    }
+    let Some((text, kind)) = found else { return };
+    let text = text.replace("\\\\", "\n");
+    let trimmed = text.trim();
+    let text = if !trimmed.contains('\n') && !trimmed.contains(' ') && trimmed.chars().any(|c| c.is_alphabetic()) {
+        match table::read_file(trimmed, &search_path(e)) {
+            Ok(t) => t,
+            Err(m) => {
+                e.warn(format!("patch table: {m}"));
+                return;
+            }
+        }
+    } else {
+        text
+    };
+    let t = Table::parse(&text, table::ColSep::Space, "false", 0, "");
+    let mut coords = Vec::new();
+    for row in &t.rows {
+        let v: Vec<f64> = row.iter().filter_map(|c| table::parse_number(c)).collect();
+        let n = match kind {
+            0 => v.len(),
+            1 => v.len().saturating_sub(1),
+            _ => v.len() / 2,
+        };
+        for (i, idx) in v[..n].iter().enumerate() {
+            let Some(c) = plot.coords.get(*idx as usize) else { continue };
+            let mut c = *c;
+            match kind {
+                1 => c.meta = v[n],
+                2 => c.meta = v.get(n + i).copied().unwrap_or(f64::NAN),
+                _ => {}
+            }
+            coords.push(c);
+        }
+    }
+    plot.coords = coords;
+    plot.scanlines.clear();
+    if kind > 0 {
+        plot.has_meta = true;
+    }
 }
 
 fn word_after_space(e: &mut Engine) -> String {
@@ -571,6 +638,22 @@ fn tex_samples(a: f64, b: f64, n: usize) -> Option<Vec<f64>> {
     Some(v)
 }
 
+/// Where the points of one patch of a type lie in the unit interval or square (`sample in unit
+/// cube` of the patch classes), in their order; None for a type without them.
+fn patch_unit_points(kind: &str) -> Option<Vec<(f64, f64)>> {
+    let (t1, t2) = (1.0 / 3.0, 2.0 / 3.0);
+    Some(match kind.trim() {
+        "line" => vec![(0.0, 0.0), (1.0, 0.0)],
+        "quadratic spline" => vec![(0.0, 0.0), (1.0, 0.0), (0.5, 0.0)],
+        "cubic spline" => vec![(0.0, 0.0), (1.0, 0.0), (t1, 0.0), (t2, 0.0)],
+        "rectangle" | "bilinear" => vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        "triangle quadr" => vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0), (0.5, 0.5), (1.0, 0.5), (0.5, 1.0)],
+        "biquadratic" => vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.5, 0.0), (1.0, 0.5), (0.5, 1.0), (0.0, 0.5), (0.5, 0.5)],
+        "bicubic" => (0..16).map(|k| ([0.0, t1, t2, 1.0][k % 4], [0.0, t1, t2, 1.0][k / 4])).collect(),
+        _ => return None,
+    })
+}
+
 /// Samples `(x(var), y(var)[, z(var, y)])`.
 fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<Coord>, Error> {
     let var = e.st.variable.clone();
@@ -586,6 +669,28 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
     let mut vars = e.vars();
     let mut out = Vec::new();
     let eval = |text: &str, vars: &crate::expr::Variables| crate::expr::eval(text, vars).unwrap_or(f64::NAN);
+    // `patch type sampling`: each interval (or cell) gives the points of one patch, at the places
+    // of the patch type's points in the unit interval (square)
+    let unit = if keys::flag(e, "/pgfplots/patch type sampling") { patch_unit_points(&keys::value(e, "/pgfplots/patch type")) } else { None };
+    if let Some(unit) = unit {
+        let at = |v: &[f64], i: usize, t: f64| v[i] + t * (v[i + 1] - v[i]);
+        let two = plot.three_d && texts.len() >= 3 && unit.iter().any(|(_, v)| *v != 0.0);
+        let ys = if two { sample_points(e, "/pgfplots/y domain", "/pgfplots/samples y", false)? } else { vec![0.0, 0.0] };
+        for j in 0..ys.len().saturating_sub(1) {
+            for i in 0..xs.len().saturating_sub(1) {
+                for &(u, v) in &unit {
+                    let (x, y) = (at(&xs, i, u), at(&ys, j, v));
+                    vars.insert(var.clone(), x);
+                    vars.insert(var_y.clone(), y);
+                    let mut c = Coord::new(eval(&texts[0], &vars), texts.get(1).map_or(f64::NAN, |t| eval(t, &vars)), texts.get(2).map_or(0.0, |t| eval(t, &vars)));
+                    c.param = [x, y];
+                    out.push(c);
+                }
+            }
+        }
+        plot.patch = plot.mesh.is_some();
+        return Ok(out);
+    }
     if plot.three_d && texts.len() >= 3 {
         let ys = sample_points(e, "/pgfplots/y domain", "/pgfplots/samples y", false)?;
         let line = ys.len() < 2;
@@ -892,7 +997,12 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     let comment = keys::value(e, "/pgfplots/table/comment chars");
     let trimmed = text.trim();
     let is_file = !trimmed.contains('\n') && !trimmed.contains(' ') && !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphabetic());
-    let table = if is_file {
+    // a file the document wrote (`\pgfplotscolormaptodatafile`)
+    let written = format!("tikra@file@{trimmed}");
+    let table = if is_file && e.tex.is_defined(&written) {
+        let content = e.tex.expand_to_string(vec![Token::cs(&written)])?;
+        Table::parse(&content, sep, &header, skip, &comment)
+    } else if is_file {
         match table::read_file(trimmed, &search_path(e)) {
             Ok(content) => Table::parse(&content, sep, &header, skip, &comment),
             Err(m) => {
@@ -999,9 +1109,15 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let seym = pick(e, "y error minus", None);
     let sexp = pick(e, "x error plus", None);
     let sexm = pick(e, "x error minus", None);
+    let box_filter = match e.tex.meaning_of(&crate::keys::macro_name("/pgfplots/boxplot/data filter/.@cmd")) {
+        tex::Meaning::Macro(m) if !m.body.is_empty() && !keys::value(e, "/pgfplots/@boxplot").is_empty() => Some(m.body.clone()),
+        _ => None,
+    };
     let mut out = Vec::with_capacity(t.rows.len());
     let mut rows = Vec::with_capacity(t.rows.len());
     for r in 0..t.rows.len() {
+        // an expression may use the coordinates read so far: `z expr=x^2-y^2`
+        let known: std::cell::RefCell<Vec<(&str, f64)>> = Default::default();
         let get = |e: &mut Engine, s: &Src| -> f64 {
             match s {
                 Src::Col(Some(c)) => t.cell(r, *c).and_then(table::parse_number).unwrap_or(f64::NAN),
@@ -1009,7 +1125,11 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
                 Src::Col(None) | Src::None => f64::NAN,
                 Src::Expr(tokens) => {
                     let replaced = replace_thisrow(tokens, t, r);
-                    e.math_string(replaced).and_then(|s| crate::expr::eval(&s, &e.vars())).unwrap_or(f64::NAN)
+                    let mut vars = e.vars();
+                    for (n, v) in known.borrow().iter() {
+                        vars.insert((*n).into(), *v);
+                    }
+                    e.math_string(replaced).and_then(|s| crate::expr::eval(&s, &vars)).unwrap_or(f64::NAN)
                 }
             }
         };
@@ -1020,8 +1140,10 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         };
         let x = get(e, &sx);
         let x = sym(e, &sx, 'x', x);
+        known.borrow_mut().push(("x", x));
         let y = get(e, &sy);
         let y = sym(e, &sy, 'y', y);
+        known.borrow_mut().push(("y", y));
         let z = if matches!(sz, Src::None) { 0.0 } else { get(e, &sz) };
         let mut c = Coord::new(x, y, z);
         c.meta = get(e, &smeta);
@@ -1072,6 +1194,25 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             b.z = get(e, &ends[2]);
             b
         });
+        // `boxplot/data filter/.code`: the row's value in `\pgfmathresult` (empty: left out), with
+        // `\thisrow` the row's cells
+        if let Some(body) = &box_filter {
+            let data = keys::value(e, "/pgfplots/boxplot/data");
+            let v = match data.as_str() {
+                "x" => &mut c.x,
+                "z" => &mut c.z,
+                _ => &mut c.y,
+            };
+            if v.is_finite() {
+                let text = super::super::pgf_number(*v);
+                let code = replace_thisrow_as(&tex::substitute(body, &[tex::string_tokens(&text)]), t, r, true);
+                e.begin_group();
+                e.tex.define_string("pgfmathresult", &text, false);
+                let res = e.run_tokens(code).and_then(|_| e.tex.expand_to_string(vec![Token::cs("pgfmathresult")]));
+                e.end_group();
+                *v = table::parse_number(&res?).unwrap_or(f64::NAN);
+            }
+        }
         out.push(c);
         rows.push(r);
         if other.is_some() {
@@ -1175,6 +1316,11 @@ fn linear_regression(e: &mut Engine, t: &Table, options: &str) -> Vec<f64> {
 
 /// `\thisrow{name}`, `\thisrowno{i}`, `\coordindex`, `\lineno` replaced by the row's values.
 fn replace_thisrow(tokens: &[Token], t: &Table, row: usize) -> Vec<Token> {
+    replace_thisrow_as(tokens, t, row, false)
+}
+
+/// The same, the cells as their text (`raw`) or as numbers in parentheses.
+fn replace_thisrow_as(tokens: &[Token], t: &Table, row: usize, raw: bool) -> Vec<Token> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -1209,6 +1355,12 @@ fn replace_thisrow(tokens: &[Token], t: &Table, row: usize) -> Vec<Token> {
                 (tokens.get(j).map(|t| tex::tokens_to_string(std::slice::from_ref(t))).unwrap_or_default(), j + 1)
             };
             let col = if is_no { arg.trim().parse().ok() } else { t.column(arg.trim()) };
+            if raw {
+                let cell = col.and_then(|c| t.cell(row, c)).unwrap_or("");
+                out.extend(cell.chars().map(|c| Token::Char(c, if c.is_alphabetic() { Cat::Letter } else { Cat::Other })));
+                i = end;
+                continue;
+            }
             let v = col.and_then(|c| t.cell(row, c)).and_then(table::parse_number).unwrap_or(f64::NAN);
             out.extend(tex::string_tokens(&format!("({})", if v.is_nan() { "nan".to_string() } else { format!("{v}") })));
             i = end;

@@ -1001,9 +1001,27 @@ fn unit_vector(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<Po
     Ok(match axis {
         0 => Point::new(m, 0.0),
         1 => Point::new(0.0, m),
-        _ => Point::new(-std::f64::consts::FRAC_1_SQRT_2 * m, -std::f64::consts::FRAC_1_SQRT_2 * m),
+        // `z=1cm` is (1cm,1cm), as TikZ takes a length for the z vector
+        _ => Point::new(m, m),
     })
 }
+
+/// `rotate around x=θ` (and `y`, `z`): the other two unit vectors turned about that axis, in the
+/// xyz system.
+fn rotate_around(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<(), Error> {
+    let a = number(e, v)?.unwrap_or(0.0);
+    let (s, c) = a.to_radians().sin_cos();
+    let (x, y, z) = (e.st.x, e.st.y, e.st.z);
+    match axis {
+        0 => (e.st.y, e.st.z) = (y.scale(c).plus(z.scale(s)), z.scale(c).minus(y.scale(s))),
+        1 => (e.st.x, e.st.z) = (x.scale(c).minus(z.scale(s)), z.scale(c).plus(x.scale(s))),
+        _ => (e.st.x, e.st.y) = (x.scale(c).plus(y.scale(s)), y.scale(c).minus(x.scale(s))),
+    }
+    Ok(())
+}
+keyfn!(k_rotate_around_x, |e, v| rotate_around(e, &v, 0));
+keyfn!(k_rotate_around_y, |e, v| rotate_around(e, &v, 1));
+keyfn!(k_rotate_around_z, |e, v| rotate_around(e, &v, 2));
 
 keyfn!(k_x, |e, v| {
     e.st.x = unit_vector(e, &v, 0)?;
@@ -1456,6 +1474,21 @@ keyfn!(k_snapshot, |e, v| {
     e.set_snapshot(&s);
     Ok(())
 });
+// `make snapshot after`: a hair after the time, when animations that end then are over
+keyfn!(k_snapshot_after, |e, v| {
+    let s = text(e, &v)?;
+    e.set_snapshot(&s);
+    e.st.snapshot = e.st.snapshot.map(|t| t + 1e-6);
+    Ok(())
+});
+keyfn!(k_trig_format, |e, v| {
+    e.st.trig_rad = text(e, &v)?.trim() == "rad";
+    Ok(())
+});
+keyfn!(k_current_point_local, |e, v| {
+    e.st.current_point_local = text(e, &v)?.trim() != "false";
+    Ok(())
+});
 keyfn!(k_animate, |e, v| e.animate_key(v.unwrap_or_default()));
 // the math library's `evaluate={…}`: \tikzmath statements
 keyfn!(k_evaluate, |e, v| e.math_statements(&v.unwrap_or_default()));
@@ -1548,16 +1581,11 @@ keyfn!(k_loop, |e, _v| {
     e.process_keys(tikra_tokens("every loop/.try"), Some("/tikz"))
 });
 
-/// A grid step in the units of the xy system: a number counts in x and y units, a length in cm.
+/// A grid step (cm): a length as it is, a number in the x or y unit.
 fn grid_step(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<f64, Error> {
     let s = text(e, v)?;
     let (d, unit) = crate::expr::eval_length(&e.math_string(tikra_tokens(&s))?, &e.vars())?;
-    Ok(if unit {
-        let n = if axis == 0 { e.st.x.norm() } else { e.st.y.norm() };
-        d / n.max(1e-12)
-    } else {
-        d
-    })
+    Ok(if unit { d } else { d * if axis == 0 { e.st.x.norm() } else { e.st.y.norm() } })
 }
 
 keyfn!(k_step, |e, v| {
@@ -1663,10 +1691,6 @@ keyfn!(k_declare_function, |e, v| {
 keyfn!(k_tikz_unknown, |e, v| e.tikz_unknown(v));
 
 keyfn!(k_ignore, |_e, _v| Ok(()));
-keyfn!(k_trig_format, |e, v| {
-    e.st.trig_rad = v.is_some_and(|v| tex::tokens_to_string(&v).trim() == "rad");
-    Ok(())
-});
 keyfn!(k_overlay, |e, v| {
     e.st.overlay = v.is_none_or(|v| tex::tokens_to_string(&v).trim() != "false");
     e.canvas.overlay = e.st.overlay;
@@ -1681,6 +1705,9 @@ keyfn!(k_fit, |e, v| {
         lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
         hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
     };
+    // with `rotate fit`, the box is the points' in a coordinate system turned that much
+    let turn = Transform::rotation(e.st.node.fit_rotate);
+    let back = turn.inverse();
     let mut rest = s.as_str();
     while let Some(i) = rest.find('(') {
         let Some(j) = rest[i..].find(')') else { break };
@@ -1690,17 +1717,17 @@ keyfn!(k_fit, |e, v| {
             Some(n) => {
                 for a in ["west", "east", "north", "south"] {
                     if let Some(p) = n.anchor(a) {
-                        grow(p);
+                        grow(back.apply(p));
                     }
                 }
             }
-            None => grow(e.coordinate(&inner)?.p),
+            None => grow(back.apply(e.coordinate(&inner)?.p)),
         }
     }
     if lo.x > hi.x {
         return Ok(());
     }
-    let center = lo.lerp(hi, 0.5);
+    let center = turn.apply(lo.lerp(hi, 0.5));
     e.st_node().at = Some(center);
     e.st_node().fit = Some((hi.x - lo.x, hi.y - lo.y));
     set_value(e, "/tikz/anchor", "center");
@@ -1709,6 +1736,12 @@ keyfn!(k_fit, |e, v| {
     Ok(())
 });
 
+// `rotate fit=30`: the fitted box is turned, and the node with it
+keyfn!(k_rotate_fit, |e, v| {
+    let a = number(e, &v)?.unwrap_or(0.0);
+    e.st_node().fit_rotate = a;
+    e.process_keys(tikra_tokens(&format!("rotate={a}")), Some("/tikz"))
+});
 keyfn!(k_name_path, |e, v| {
     let s = text(e, &v)?;
     e.st.name_path = Some(s);
@@ -1841,6 +1874,24 @@ keyfn!(k_shading, |e, v| {
     e.st.mode.shade = true;
     Ok(())
 });
+/// The shadings library's `upper left=red`…: the corner's color of the bilinear interpolation, which
+/// becomes the shading.
+fn corner_color(e: &mut Engine, corner: &str, v: Option<Vec<Token>>) -> Result<(), Error> {
+    let s = text(e, &v)?;
+    match e.color(&s) {
+        Some(c) => {
+            e.colors.insert(corner.to_string(), c);
+        }
+        None => e.warn(format!("{corner}: unknown color '{s}'")),
+    }
+    e.st.shading = "bilinear interpolation".into();
+    e.st.mode.shade = true;
+    Ok(())
+}
+keyfn!(k_upper_left, |e, v| corner_color(e, "upper left", v));
+keyfn!(k_upper_right, |e, v| corner_color(e, "upper right", v));
+keyfn!(k_lower_left, |e, v| corner_color(e, "lower left", v));
+keyfn!(k_lower_right, |e, v| corner_color(e, "lower right", v));
 keyfn!(k_shading_angle, |e, v| {
     e.st.shade_angle = number(e, &v)?.unwrap_or(0.0);
     e.st.mode.shade = true;
@@ -1889,15 +1940,31 @@ keyfn!(k_outer_color, |e, v| {
     Ok(())
 });
 
+// `path fading=name` names the fading and fades this path (not the paths of a scope it is given
+// to); `path fading` alone fades it with the fading named last
 keyfn!(k_path_fading, |e, v| {
     let s = text(e, &v)?;
-    e.st.path_fading = if s.is_empty() || s == "none" { None } else { Some(s) };
+    if s == "none" {
+        e.st.mode.fade = false;
+    } else {
+        if !s.is_empty() {
+            e.st.path_fading = Some(s);
+        }
+        e.st.mode.fade = true;
+    }
     Ok(())
 });
 keyfn!(k_fading_angle, |e, v| {
     let s = text(e, &v)?;
-    e.st.fading_angle = e.number(&s)?;
+    e.st.fading_transform = Transform::rotation(e.number(&s)?);
     Ok(())
+});
+// `fading transform={rotate=90}`: the transformations of the options, for the path fading
+keyfn!(k_fading_transform, |e, v| {
+    let saved = std::mem::take(&mut e.st.pending);
+    let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    e.st.fading_transform = std::mem::replace(&mut e.st.pending, saved);
+    r
 });
 keyfn!(k_local_bounding_box, |e, v| {
     let s = text(e, &v)?;
@@ -1933,6 +2000,19 @@ keyfn!(k_scope_fading, |e, v| {
 });
 keyfn!(k_transparency_group, |e, _v| {
     e.st.transparency_group = true;
+    Ok(())
+});
+// `blend mode=screen`: the paths drawn from here on blend with what is under them
+keyfn!(k_blend_mode, |e, v| {
+    let s = text(e, &v)?;
+    e.set_blend_mode(&s);
+    Ok(())
+});
+// `blend group=screen`: a transparency group whose paths blend so
+keyfn!(k_blend_group, |e, v| {
+    let s = text(e, &v)?;
+    e.st.transparency_group = true;
+    e.set_blend_mode(&s);
     Ok(())
 });
 
@@ -2012,6 +2092,9 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/x", k_x),
     ("/tikz/y", k_y),
     ("/tikz/z", k_z),
+    ("/tikz/rotate around x", k_rotate_around_x),
+    ("/tikz/rotate around y", k_rotate_around_y),
+    ("/tikz/rotate around z", k_rotate_around_z),
     ("/pgf/inner sep", k_inner_sep),
     ("/pgf/outer sep", k_outer_sep),
     ("/pgf/minimum size", k_minimum_size),
@@ -2082,8 +2165,11 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/trim left", k_trim_left),
     ("/tikz/evaluate", k_evaluate),
     ("/tikz/make snapshot of", k_snapshot),
-    ("/tikz/make snapshot after", k_snapshot),
+    ("/tikz/make snapshot after", k_snapshot_after),
     ("/tikz/make snapshot if necessary", k_ignore),
+    ("/tikz/current point is local", k_current_point_local),
+    ("/tikz/trig format", k_trig_format),
+    ("/pgf/trig format", k_trig_format),
     ("/tikz/animate", k_animate),
     ("/tikz/transform canvas", k_transform_canvas),
     ("/tikz/trim right", k_trim_right),
@@ -2122,7 +2208,6 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
     ("/tikz/overlay", k_overlay),
-    ("/pgf/trig format", k_trig_format),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),
@@ -2134,8 +2219,15 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/slice", k_slice),
     ("/tikz/local bounding box", k_local_bounding_box),
     ("/tikz/fading angle", k_fading_angle),
+    ("/tikz/fading transform", k_fading_transform),
     ("/tikz/scope fading", k_scope_fading),
     ("/tikz/transparency group", k_transparency_group),
+    ("/tikz/blend mode", k_blend_mode),
+    ("/tikz/upper left", k_upper_left),
+    ("/tikz/upper right", k_upper_right),
+    ("/tikz/lower left", k_lower_left),
+    ("/tikz/lower right", k_lower_right),
+    ("/tikz/blend group", k_blend_group),
     ("/tikz/shading", k_shading),
     ("/tikz/shading angle", k_shading_angle),
     ("/tikz/top color", k_top_color),
@@ -2167,6 +2259,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/execute at begin picture", k_at_begin_picture),
     ("/tikz/execute at end picture", k_at_end_picture),
     ("/tikz/fit", k_fit),
+    ("/tikz/rotate fit", k_rotate_fit),
     ("/tikz/name path", k_name_path),
     ("/tikz/name path global", k_name_path),
     ("/tikz/name intersections", k_name_intersections),
@@ -2233,7 +2326,6 @@ const DEFINITIONS: &str = r"
   every shadow/.style={}, cap/.style={line cap=#1},
   /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
-  /tikz/relative/.code={},
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
@@ -2249,7 +2341,7 @@ const DEFINITIONS: &str = r"
 \def\pgfmatrixnextcell{\tikra@nextcell}
 \def\pgfmatrixendrow{\tikra@endrow}
 \tikzset{
-  on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try}},
+  on background layer/.style={execute at begin scope={\pgfonlayer{background}\tikzset{every on background layer/.try,#1}},
     execute at end scope={\endpgfonlayer}},
   background rectangle/.style={draw}, background top/.style={draw}, background bottom/.style={draw},
   background left/.style={draw}, background right/.style={draw}, background grid/.style={help lines,draw},
@@ -2290,6 +2382,7 @@ pub fn define_keys(e: &mut Engine) {
     // the definitions run as TeX, with @ a letter
     let mut lexer = crate::tex::Tex::new_lexer();
     lexer.push_text(DEFINITIONS);
+    lexer.push_text(super::basic::DEFINITIONS);
     lexer.push_text(super::decorations::DEFINITIONS);
     lexer.push_text(super::decorations::DECLARATIONS);
     lexer.push_text(super::decorations::textfx::DEFINITIONS);

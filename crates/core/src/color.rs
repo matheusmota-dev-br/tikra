@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+pub mod brewer;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: f64,
@@ -74,7 +76,7 @@ pub fn parse(expr: &str, defined: &HashMap<String, Color>) -> Option<Color> {
 
 fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
     let parts: Vec<&str> = e.split('!').map(str::trim).collect();
-    let lookup = |n: &str| defined.get(n).copied().or_else(|| named(n));
+    let lookup = |n: &str| defined.get(n).copied().or_else(|| named(n)).or_else(|| brewer::color(n));
     let mut color = lookup(parts[0])?;
     let mut i = 1;
     while i < parts.len() {

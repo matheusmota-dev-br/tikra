@@ -485,7 +485,7 @@ impl<'a> Run<'a> {
         self.install_points(t);
         let out = &mut self.w.out;
         let scale = Transform::scaling(PT, PT);
-        let mut path = super::super::basic::PgfPath { segments: Vec::new(), last: Some(out.last.scale(PT)), start: Some(out.start.scale(PT)) };
+        let mut path = super::super::basic::PgfPath { segments: Vec::new(), last: Some(out.last.scale(PT)), start: Some(out.start.scale(PT)), quick: false };
         let had = !out.segs.is_empty();
         if full {
             path.segments = crate::canvas::transform_segments(&std::mem::take(&mut out.segs), &scale);

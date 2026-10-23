@@ -33,11 +33,12 @@ impl PictureFading {
         Item::FadePicture { items }
     }
 
-    /// The transformation that fits the picture's box onto the box `lo`–`hi` (`fit fading`).
+    /// The transformation that fits the fading onto the box `lo`–`hi` (`fit fading`): as pgf does,
+    /// 50 bp of it around its center become the box.
     fn fit(&self, lo: Point, hi: Point) -> Transform {
-        let (w, h) = ((self.max.x - self.min.x).max(1e-9), (self.max.y - self.min.y).max(1e-9));
+        let side = 50.0 * 2.54 / 72.0;
         let c = lo.lerp(hi, 0.5);
-        Transform::translation(c.x, c.y).compose(&Transform::scaling((hi.x - lo.x) / w, (hi.y - lo.y) / h))
+        Transform::translation(c.x, c.y).compose(&Transform::scaling((hi.x - lo.x).max(1e-9) / side, (hi.y - lo.y).max(1e-9) / side))
     }
 }
 
@@ -54,9 +55,11 @@ impl Engine {
     fn fading_from(&mut self, name: String, code: Vec<Token>) -> Result<(), Error> {
         // a bare shading or text is a picture's content
         let first = code.iter().find(|t| !t.is_space()).cloned();
+        // a shading after settings (`\tikzset{top color=…}\pgfuseshading{axis}`) is a picture's too
+        let shading = code.iter().any(|t| t.is_cs("pgfuseshading"));
         let code = match first {
             Some(Token::Cs(n)) if &*n == "tikz" || &*n == "begin" => code,
-            Some(Token::Cs(n)) if &*n == "pgfuseshading" || &*n == "pgftext" => {
+            Some(Token::Cs(n)) if &*n == "pgfuseshading" || &*n == "pgftext" || shading => {
                 let mut v = tikra_tokens("\\begin{pgfpicture}");
                 v.extend(code);
                 v.extend(tikra_tokens("\\end{pgfpicture}"));
@@ -218,7 +221,7 @@ impl Engine {
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let t = if fit { f.fit(lo, hi) } else { self.st.transform };
-        let t = t.compose(&Transform::rotation(self.st.fading_angle));
+        let t = t.compose(&self.st.fading_transform);
         Some(f.mask(&t))
     }
 }
