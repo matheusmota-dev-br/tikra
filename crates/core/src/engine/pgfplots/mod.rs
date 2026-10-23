@@ -112,6 +112,7 @@ const COMMANDS: &[(&str, C)] = &[
     ("tikzfillbetween", C::Tikzfillbetween),
     ("pgfplotstabletypeset", C::Pgfplotstabletypeset),
     ("tikzgetnamedpath", C::Softpath),
+    ("pgfplotspathaxisoutline", C::Softpath),
     ("pgfcomputeintersectionsegments", C::Softpath),
     ("pgfgetintersectionsegmentpath", C::Softpath),
     ("pgfsetpathandBB", C::Softpath),

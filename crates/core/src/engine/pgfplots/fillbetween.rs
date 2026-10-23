@@ -431,7 +431,8 @@ fn macro_arg(e: &mut Engine) -> Result<Token, Error> {
 /// The low-level commands of the fillbetween library on soft paths: `\tikzgetnamedpath{name}`,
 /// `\pgfcomputeintersectionsegments{1}` (the paths of the last `\pgfintersectionofpaths` cut where
 /// they cross), `\pgfgetintersectionsegmentpath{1}{0}`, `\pgfsetpathandBB\A`,
-/// `\pgfpathreplacefirstmoveto\A` and `\pgfaddpathandBB\A`.
+/// `\pgfpathreplacefirstmoveto\A` and `\pgfaddpathandBB\A`; and pgfplots'
+/// `\pgfplotspathaxisoutline`.
 pub fn soft_command(e: &mut Engine, name: &str) -> Result<(), Error> {
     let retval = Token::cs("pgfretval");
     match name {
@@ -472,6 +473,17 @@ pub fn soft_command(e: &mut Engine, name: &str) -> Result<(), Error> {
             for s in segs {
                 e.pgf_add(s);
             }
+        }
+        // the outline of the axis being drawn, added to the path being built
+        "pgfplotspathaxisoutline" => {
+            let Some(f) = e.frame.clone() else { return Ok(()) };
+            let (lo, hi) = (f.min, f.max);
+            let corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(|[x, y]| f.at([x, y, lo[2]]));
+            e.pgf_add(Segment::MoveTo(corners[0]));
+            for c in &corners[1..] {
+                e.pgf_add(Segment::LineTo(*c));
+            }
+            e.pgf_add(Segment::Close);
         }
         "pgfpathreplacefirstmoveto" => {
             let t = macro_arg(e)?;
