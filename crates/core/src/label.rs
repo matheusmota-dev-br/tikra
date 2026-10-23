@@ -1,6 +1,9 @@
 //! Node text, typeset by mathra: `{Exit}`, `{$\vec{v}$}`, `{Check every value twice}`.
 //! Lines by `\\`, automatic wrapping at `text width`, sizes `\small`, `\Large`.
 
+mod hyphen;
+mod paragraph;
+
 use mathra::layout::MathBox;
 
 use crate::color::Color;
@@ -512,6 +515,166 @@ fn words(line: &str) -> Vec<(String, bool)> {
     out
 }
 
+/// Characters of a height and a depth (em).
+type Class = (f32, f32, &'static str);
+
+/// The heights and depths (em) that TeX's fonts give the characters, by the first character of
+/// each alphabet the label font draws them from (roman, math italic, typewriter, bold, sans serif)
+/// and its characters of that height and depth: from the fonts' metrics (`cmr10`, `cmmi10`,
+/// `cmtt10`, `cmbx10`, `cmss10`). TeX sizes a box by these, not by the ink of the letters, which
+/// overshoots them (round letters dip below the baseline and rise above the x-height).
+const TEX_METRICS: &[(char, &[Class])] = &[
+    (
+        'A',
+        &[
+            (0.1056, 0.0, "."),
+            (0.1056, 0.1944, ","),
+            (0.3669, 0.0, "="),
+            (0.4306, 0.0, "-:acemnorsuvwxz"),
+            (0.4306, 0.1944, ";gpqy"),
+            (0.5833, 0.0833, "+"),
+            (0.6151, 0.0, "t"),
+            (0.6444, 0.0, "0123456789"),
+            (0.6679, 0.0, "i"),
+            (0.6679, 0.1944, "j"),
+            (0.6833, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZ"),
+            (0.6833, 0.1944, "Q"),
+            (0.6944, 0.0, "!&'?@bdfhkl"),
+            (0.6944, 0.1944, "#"),
+            (0.75, 0.0, "*"),
+            (0.75, 0.0556, "$%"),
+            (0.75, 0.25, "()/[]"),
+        ],
+    ),
+    (
+        '\u{1D434}',
+        &[
+            (0.4306, 0.0, "acemnorsuvwxz"),
+            (0.4306, 0.1944, "gpqy"),
+            (0.6151, 0.0, "t"),
+            (0.6595, 0.0, "i"),
+            (0.6595, 0.1944, "j"),
+            (0.6833, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZ"),
+            (0.6833, 0.1944, "Q"),
+            (0.6944, 0.0, "bdhkl"),
+            (0.6944, 0.1944, "f"),
+        ],
+    ),
+    (
+        '\u{1D670}',
+        &[
+            (0.4306, 0.0, "acemnorsuvwxz"),
+            (0.4306, 0.2222, "gpqy"),
+            (0.5536, 0.0, "t"),
+            (0.6111, 0.0, "0123456789ABCDEFGHIJKLMNOPRSTUVWXYZbdfhikl"),
+            (0.6111, 0.1389, "Q"),
+            (0.6111, 0.2222, "j"),
+        ],
+    ),
+    (
+        '\u{1D400}',
+        &[
+            (0.4444, 0.0, "acemnorsuvwxz"),
+            (0.4444, 0.1944, "gpqy"),
+            (0.6349, 0.0, "t"),
+            (0.6444, 0.0, "0123456789"),
+            (0.6861, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZ"),
+            (0.6861, 0.1944, "Q"),
+            (0.6944, 0.0, "bdfhikl"),
+            (0.6944, 0.1944, "j"),
+        ],
+    ),
+    (
+        '\u{1D5A0}',
+        &[
+            (0.4444, 0.0, "acemnorsuvwxz"),
+            (0.4444, 0.1944, "gpqy"),
+            (0.5714, 0.0, "t"),
+            (0.6556, 0.0, "0123456789"),
+            (0.6794, 0.0, "i"),
+            (0.6794, 0.1944, "j"),
+            (0.6944, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZbdfhkl"),
+            (0.6944, 0.125, "Q"),
+        ],
+    ),
+];
+
+/// The character of the alphabet that starts at `first` (a mathematical alphanumeric one, or the
+/// ASCII roman for `A`) standing for `c`, as the label font has it.
+fn in_alphabet(first: char, c: char) -> Option<char> {
+    if first == 'A' {
+        return Some(c);
+    }
+    let offset = match c {
+        'A'..='Z' => c as u32 - 'A' as u32,
+        'a'..='z' => c as u32 - 'a' as u32 + 26,
+        '0'..='9' => {
+            // the digits of each alphabet, where Unicode has them
+            let zero = match first {
+                '\u{1D670}' => 0x1D7F6,
+                '\u{1D400}' => 0x1D7CE,
+                '\u{1D5A0}' => 0x1D7E2,
+                _ => return None,
+            };
+            return char::from_u32(zero + (c as u32 - '0' as u32));
+        }
+        _ => return None,
+    };
+    // the italic h is Planck's constant, out of the block
+    if first == '\u{1D434}' && c == 'h' {
+        return Some('\u{210E}');
+    }
+    char::from_u32(first as u32 + offset)
+}
+
+/// TeX's height and depth of the label font's glyphs that stand for Computer Modern characters, in
+/// font units.
+fn tex_metrics() -> &'static std::collections::HashMap<u16, (f32, f32)> {
+    static METRICS: std::sync::OnceLock<std::collections::HashMap<u16, (f32, f32)>> = std::sync::OnceLock::new();
+    METRICS.get_or_init(|| {
+        let font = FONT.get();
+        let em = font.units_per_em();
+        let mut m = std::collections::HashMap::new();
+        for (first, classes) in TEX_METRICS {
+            for (h, d, chars) in *classes {
+                for c in chars.chars() {
+                    if let Some(g) = in_alphabet(*first, c).and_then(|c| font.glyph(c)) {
+                        m.insert(g.0, (h * em, d * em));
+                    }
+                }
+            }
+        }
+        m
+    })
+}
+
+/// The box as tall and deep as TeX makes it: where its height (or depth) is that of a glyph's ink,
+/// that of the glyphs' metrics in TeX's font instead. A height set by a rule, a strut or `\smash`
+/// stays.
+fn tex_extents(mut b: MathBox) -> MathBox {
+    let font = FONT.get();
+    let metrics = tex_metrics();
+    let (mut ink_top, mut ink_bottom, mut top, mut bottom) = (f32::MIN, f32::MIN, f32::MIN, f32::MIN);
+    for item in &b.items {
+        if let mathra::layout::Item::Glyph { id, y, scale, .. } = item {
+            let (_, y0, _, y1) = font.limits(*id);
+            let (h, d) = metrics.get(&id.0).copied().unwrap_or((y1.max(0.0), (-y0).max(0.0)));
+            ink_top = ink_top.max(y + y1.max(0.0) * scale);
+            ink_bottom = ink_bottom.max(-y + (-y0).max(0.0) * scale);
+            top = top.max(y + h * scale);
+            bottom = bottom.max(-y + d * scale);
+        }
+    }
+    // (font units: a thousandth of an em)
+    if top > f32::MIN && (b.height - ink_top).abs() < 0.5 {
+        b.height = top.max(0.0);
+    }
+    if bottom > f32::MIN && (b.depth - ink_bottom).abs() < 0.5 {
+        b.depth = bottom.max(0.0);
+    }
+    b
+}
+
 /// `sc`: in small capitals (the node font's `\scshape`).
 fn typeset(text: &str, bold: bool, sc: bool, warnings: &mut Vec<String>) -> MathBox {
     let options = mathra::Options { display: false, ..Default::default() };
@@ -520,7 +683,7 @@ fn typeset(text: &str, bold: bool, sc: bool, warnings: &mut Vec<String>) -> Math
     match mathra::typeset_in_font(&tex, &options, FONT) {
         Ok((c, applied)) => {
             warnings.extend(applied.into_iter().map(|a| format!("{} {}", a.rule, a.description)));
-            c
+            tex_extents(c)
         }
         // even in tolerant mode mathra refuses some input (nesting past its limit)
         Err(e) => {
@@ -694,8 +857,213 @@ fn tabular(text: &str, size: f64, stretch: f64, cell: &mut dyn FnMut(&str, &mut 
     Some(out)
 }
 
+/// TeX's space factor after `word`, from `sf` before it: 3000 after the end of a sentence (`.`, `?`,
+/// `!`, but not after a capital), 2000 after a colon, 1500 after a semicolon, 1250 after a comma;
+/// closing parentheses and quotes keep it.
+fn space_factor(word: &str, mut sf: f32) -> f32 {
+    for c in word.chars() {
+        let code = match c {
+            'A'..='Z' => 999.0,
+            '.' | '?' | '!' => 3000.0,
+            ':' => 2000.0,
+            ';' => 1500.0,
+            ',' => 1250.0,
+            ')' | ']' | '\'' | '"' => continue,
+            _ => 1000.0,
+        };
+        sf = if code > 1000.0 && sf < 1000.0 { 1000.0 } else { code };
+    }
+    sf
+}
+
+/// A line of text broken into lines `width` wide (label font units, a thousand to the em) as TeX
+/// breaks the paragraph of a node with a `text width`, by `align`, TikZ's alignment: `l` (left,
+/// and no alignment), `r`, `c`, their flush variants `L`, `R`, `C`, and `j` (justify). The ragged
+/// ones (`text ragged` and the like) have spaces of a third of an em (half after a sentence) and
+/// lines that may fall 2 em short; the flush ones and justified text the font's spaces, which
+/// stretch and shrink, with lines that may fall short by any amount, or none. Words after a space
+/// may be hyphenated, as in English, and the first one when `after_glue`.
+fn paragraph_lines(line: &str, width: f32, align: char, after_glue: bool, typeset: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox, warnings: &mut Vec<String>) -> Vec<MathBox> {
+    use paragraph::{Item, Skip};
+    let pieces = words(line);
+    if pieces.is_empty() {
+        return vec![MathBox::empty()];
+    }
+    let em = 1000.0;
+    let two = Skip { width: 0.0, stretch: 2.0 * em, fil: 0.0 };
+    let fill = Skip { width: 0.0, stretch: 0.0, fil: 1.0 };
+    // the skips at both sides, and whether the last line may end short (`\parfillskip`)
+    let (left, right, short_last) = match align {
+        'l' => (Skip::default(), two, true),
+        'L' => (Skip::default(), fill, true),
+        'r' => (two, Skip::default(), false),
+        'R' => (fill, Skip::default(), false),
+        'c' => (two, two, false),
+        'C' => (fill, fill, false),
+        _ => (Skip::default(), Skip::default(), true),
+    };
+    let ragged = matches!(align, 'l' | 'r' | 'c');
+    let hyphen_width = typeset("-", &mut Vec::new()).width;
+    let mut items = Vec::new();
+    // the text of each box item
+    let mut texts: Vec<String> = Vec::new();
+    let mut sf = 1000.0;
+    for (k, (w, spaced)) in pieces.iter().enumerate() {
+        if k > 0 {
+            items.push(if *spaced {
+                let (mut width, mut stretch, mut shrink) = if ragged { (em / 3.0, 0.0, 0.0) } else { (em / 3.0, em / 6.0, em / 9.0) };
+                if ragged && sf >= 2000.0 {
+                    width = em / 2.0;
+                } else if !ragged {
+                    if sf >= 2000.0 {
+                        width += em / 9.0;
+                    }
+                    stretch *= sf / 1000.0;
+                    shrink *= 1000.0 / sf;
+                }
+                Item::Glue { width, stretch, fil: 0.0, shrink }
+            } else {
+                // after an explicit hyphen (`Fixed-Parameter`)
+                Item::Penalty { width: 0.0, penalty: 50.0, flagged: true, hyphen: false }
+            });
+            texts.push(String::new());
+        }
+        // a word after a space, of letters and maybe punctuation after them, may be hyphenated
+        let end = w.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(w.len());
+        let breaks = if (*spaced || (k == 0 && after_glue)) && w[end..].chars().all(|c| ".,;:!?)'-".contains(c)) { hyphen::hyphenate(&w[..end], 2, 3) } else { Vec::new() };
+        let mut from = 0;
+        for b in breaks {
+            items.push(Item::Box(typeset(&w[from..b], &mut Vec::new()).width));
+            texts.push(w[from..b].to_string());
+            items.push(Item::Penalty { width: hyphen_width, penalty: 50.0, flagged: true, hyphen: true });
+            texts.push(String::new());
+            from = b;
+        }
+        items.push(Item::Box(typeset(&w[from..], &mut Vec::new()).width));
+        texts.push(w[from..].to_string());
+        sf = space_factor(w, sf);
+    }
+    items.push(Item::Penalty { width: 0.0, penalty: 10000.0, flagged: false, hyphen: false });
+    items.push(Item::Glue { width: 0.0, stretch: 0.0, fil: if short_last { 1.0 } else { 0.0 }, shrink: 0.0 });
+    items.push(Item::Penalty { width: 0.0, penalty: -10000.0, flagged: false, hyphen: false });
+    let mut lines = paragraph::break_lines(&items, width, left, right, 3.0 * em);
+    if lines.is_empty() {
+        lines.push(paragraph::Line { start: 0, end: items.len() - 1, ratio: 0.0, hyphen: false });
+    }
+    let mut out = Vec::new();
+    for l in lines {
+        let mut b = MathBox::empty();
+        let mut word = String::new();
+        let mut flush = |word: &mut String, b: &mut MathBox, warnings: &mut Vec<String>| {
+            if !word.is_empty() {
+                b.append(&typeset(word, warnings));
+                word.clear();
+            }
+        };
+        for k in l.start..l.end.min(items.len()) {
+            match items[k] {
+                Item::Box(_) => word.push_str(&texts[k]),
+                Item::Glue { width, stretch, shrink, .. } => {
+                    flush(&mut word, &mut b, warnings);
+                    let w = if l.ratio > 0.0 { width + l.ratio * stretch } else { width + l.ratio * shrink };
+                    if w > 0.0 {
+                        b.append(&MathBox::space(w));
+                    }
+                }
+                Item::Penalty { .. } => {}
+            }
+        }
+        if l.hyphen {
+            word.push('-');
+        }
+        flush(&mut word, &mut b, warnings);
+        out.push(b);
+    }
+    out
+}
+
+/// A paragraph broken into lines as `paragraph_lines` does, with the lists in it (`itemize`,
+/// `enumerate`) set as LaTeX sets them in a minipage: each item's lines 2.5 em (25 pt) in, its
+/// label ending half an em (5 pt) before them, `\topsep` around the list and `\itemsep` and
+/// `\parsep` between items, as the font size has them. Each line with the space (pt) after it
+/// besides the baselines'. `units` turns pt into the lines' units.
+#[allow(clippy::too_many_arguments)]
+fn list_lines(
+    text: &str,
+    width: f32,
+    align: char,
+    after_glue: bool,
+    size: f64,
+    units: &dyn Fn(f64) -> f32,
+    typeset: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox,
+    warnings: &mut Vec<String>,
+) -> Vec<(MathBox, f64)> {
+    let start = ["itemize", "enumerate"].iter().filter_map(|env| text.find(&format!("\\begin{{{env}}}")).map(|i| (i, *env))).min();
+    let Some((at, env)) = start else {
+        return paragraph_lines(text, width, align, after_glue, typeset, warnings).into_iter().map(|b| (b, 0.0)).collect();
+    };
+    let open = format!("\\begin{{{env}}}");
+    let close = format!("\\end{{{env}}}");
+    let body_start = at + open.len();
+    let body_end = text[body_start..].find(&close).map_or(text.len(), |e| body_start + e);
+    let (before, body, after) = (&text[..at], &text[body_start..body_end], text.get(body_end + close.len()..).unwrap_or(""));
+    // LaTeX's \@listi of the size: \topsep, \parsep (and \itemsep, the same)
+    let (topsep, parsep) = if size >= 1.0 {
+        (8.0, 4.0)
+    } else if size >= 0.9 {
+        (4.0, 2.0)
+    } else {
+        (3.0, 2.0)
+    };
+    let mut out: Vec<(MathBox, f64)> = Vec::new();
+    if !before.trim().is_empty() {
+        out.extend(paragraph_lines(before.trim(), width, align, after_glue, typeset, warnings).into_iter().map(|b| (b, 0.0)));
+    }
+    let (margin, label_end) = (units(25.0), units(20.0));
+    for (n, item) in body.split("\\item").skip(1).enumerate() {
+        // the gap before the item: \topsep and \parsep before the first, \itemsep and \parsep
+        if let Some(last) = out.last_mut() {
+            last.1 += if n == 0 { topsep + parsep } else { 2.0 * parsep };
+        }
+        let mut item = item.trim();
+        let label = match item.strip_prefix('[').and_then(|r| r.split_once(']')) {
+            Some((l, rest)) => {
+                item = rest.trim();
+                l.to_string()
+            }
+            None if env == "enumerate" => format!("{}.", n + 1),
+            None => "$\\bullet$".to_string(),
+        };
+        let label = typeset(&label, warnings);
+        // (a list sets `\rightskip` to LaTeX's `\@rightskip`: ragged right text is flush there)
+        let item_align = if align == 'l' { 'L' } else { align };
+        for (k, line) in paragraph_lines(item, width - margin, item_align, false, typeset, warnings).into_iter().enumerate() {
+            let mut b = MathBox::empty();
+            if k == 0 {
+                let left = (label_end - label.width).max(0.0);
+                b.append(&MathBox::space(left));
+                b.append(&label);
+                b.append(&MathBox::space(margin - left - label.width));
+            } else {
+                b.append(&MathBox::space(margin));
+            }
+            b.append(&line);
+            out.push((b, 0.0));
+        }
+    }
+    if let Some(last) = out.last_mut() {
+        last.1 += topsep;
+    }
+    if !after.trim().is_empty() {
+        out.extend(list_lines(after.trim(), width, align, false, size, units, typeset, warnings));
+    }
+    out
+}
+
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
+    // the lines of a paragraph sit as the alignment says, a justified one to the left
+    let drawn = if align == 'j' { 'l' } else { align.to_ascii_lowercase() };
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
@@ -707,18 +1075,32 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         // lowercase letters of English text, weighted by how often they come
         stretch *= 0.943;
     }
-    let space = 333.0f32;
     let mut boxes = Vec::new();
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
+    let text_raw = text;
+    // the text after glue (`\hskip0pt`, as mindmap concepts begin): its first word may be hyphenated
+    let lead_glue = text.trim_start().starts_with("\\hskip");
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
-        return Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
+        return Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
-    for (line, after) in manual_lines(&text, size) {
+    let manual = manual_lines(&text, size);
+    // lines aligned without a text width are the cells of an `\halign`, each a group: a size
+    // command in one is that line's alone, and the baselines are the node font's apart
+    // (from the text before its size commands go)
+    let raw = manual_lines(text_raw, size);
+    let sizes: Vec<f64> = if raw.len() == manual.len() { raw.iter().map(|(l, _)| font_size(&format!("{font} {l}"))).collect() } else { vec![size; manual.len()] };
+    let per_line = text_width.is_none() && sizes.windows(2).any(|w| w[0] != w[1]);
+    let fam = family(text_raw, font, bold);
+    let (size, scale, line_height) = if per_line { (sizes[0], EM_CM * sizes[0] / 1000.0, 1.2 * EM_CM * font_size(font)) } else { (size, scale, 1.2 * EM_CM * size) };
+    if per_line {
+        stretch *= design_width(10.0 * size, fam) / design_width(10.0 * font_size(&format!("{font} {text_raw}")), fam);
+    }
+    for (k, (line, after)) in manual.into_iter().enumerate() {
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
@@ -729,38 +1111,78 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             families(&line, all)
         };
         match text_width {
-            None => boxes.push(typeset(&line, bold, sc, warnings)),
+            None => {
+                // (a line in another size is in that size's design width too)
+                let b = scaled(typeset(&line, bold, sc, warnings), (sizes[k] / size) as f32);
+                boxes.push(widen(b, (design_width(10.0 * sizes[k], fam) / design_width(10.0 * size, fam)) as f32));
+            }
             Some(max) => {
-                let max = (max / scale / stretch) as f32;
-                let mut current: Option<MathBox> = None;
-                for (w, spaced) in words(&line) {
-                    let c = typeset(&w, bold, sc, warnings);
-                    let gap = if spaced { space } else { 0.0 };
-                    current = Some(match current {
-                        None => c,
-                        Some(mut a) if a.width + gap + c.width <= max => {
-                            if spaced {
-                                a.append(&MathBox::space(space));
-                            }
-                            a.append(&c);
-                            a
-                        }
-                        Some(a) => {
-                            boxes.push(a);
-                            c
-                        }
-                    });
+                let units = |pt: f64| (pt / (10.0 * size) * 1000.0 / stretch) as f32;
+                let lines = list_lines(
+                    &line,
+                    (max / scale / stretch) as f32,
+                    align,
+                    k == 0 && lead_glue,
+                    size,
+                    &units,
+                    &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings),
+                    warnings,
+                );
+                for (b, skip) in lines {
+                    boxes.push(b);
+                    skips.resize(boxes.len(), 0.0);
+                    *skips.last_mut().unwrap() = skip * 2.54 / 72.27;
                 }
-                boxes.push(current.unwrap_or_else(MathBox::empty));
             }
         }
         skips.resize(boxes.len(), 0.0);
         if let Some(s) = skips.last_mut() {
-            *s = after * 2.54 / 72.27;
+            *s += after * 2.54 / 72.27;
         }
     }
     let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
-    Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips }
+    Label { lines, scale, color, align: drawn, line_height, stretch, skips }
+}
+
+/// The box `f` times as large, its items too.
+fn scaled(mut b: MathBox, f: f32) -> MathBox {
+    use mathra::layout::Item;
+    if f == 1.0 {
+        return b;
+    }
+    for item in &mut b.items {
+        match item {
+            Item::Glyph { x, y, scale, .. } => {
+                *x *= f;
+                *y *= f;
+                *scale *= f;
+            }
+            Item::Rule { x, y, width, height, .. } => {
+                *x *= f;
+                *y *= f;
+                *width *= f;
+                *height *= f;
+            }
+            Item::Line { x1, y1, x2, y2, thickness, .. } => {
+                *x1 *= f;
+                *y1 *= f;
+                *x2 *= f;
+                *y2 *= f;
+                *thickness *= f;
+            }
+            Item::Ellipse { cx, cy, rx, ry, thickness, .. } => {
+                *cx *= f;
+                *cy *= f;
+                *rx *= f;
+                *ry *= f;
+                *thickness *= f;
+            }
+        }
+    }
+    b.width *= f;
+    b.height *= f;
+    b.depth *= f;
+    b
 }
 
 #[cfg(test)]
@@ -787,5 +1209,16 @@ mod tests {
         assert!((font_size("\\large x") - 1.2).abs() < 1e-9);
         let r = compose_label("$m_1$ \\\\ second", "", None, 'c', Color::BLACK, &mut w);
         assert_eq!(r.lines.len(), 2);
+    }
+
+    #[test]
+    fn lists() {
+        let mut w = Vec::new();
+        let r = compose_label("Steps: \\begin{enumerate} \\item one \\item two \\end{enumerate}", "", Some(4.0), 'l', Color::BLACK, &mut w);
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(r.lines.len(), 3);
+        // the items 2.5 em in, and space around them
+        assert!(r.lines[1].width > r.lines[0].width, "{} {}", r.lines[1].width, r.lines[0].width);
+        assert!(r.skips[0] > 0.0 && r.skips[1] > 0.0);
     }
 }

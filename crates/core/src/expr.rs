@@ -297,9 +297,71 @@ impl Parser<'_> {
         }
     }
 
+    /// At a `{` that an index `[…]` follows (pgfmath's arrays, `{1, {2, 3}}[1][0]`): where its
+    /// group ends.
+    fn array_end(&self) -> Option<usize> {
+        let mut depth = 0;
+        for (k, &c) in self.c.iter().enumerate().skip(self.pos) {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let next = self.c[k + 1..].iter().position(|c| !c.is_whitespace()).map(|d| k + 1 + d)?;
+                        return (self.c[next] == '[').then_some(k + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// The array from here to `end` indexed by the `[…]` after it (from 0), one array in another
+    /// for each index: the value of the element.
+    fn index_array(&mut self, end: usize) -> Result<f64, Error> {
+        let mut element: String = self.c[self.pos..end].iter().collect();
+        self.pos = end;
+        loop {
+            self.skip_spaces();
+            if self.peek() != Some('[') {
+                break;
+            }
+            self.pos += 1;
+            let i = self.ternary()?;
+            self.skip_spaces();
+            if self.peek() != Some(']') {
+                return Err(Error::Expression("missing ']'".into()));
+            }
+            self.pos += 1;
+            let inner = element.trim().strip_prefix('{').and_then(|s| s.strip_suffix('}')).ok_or_else(|| Error::Expression(format!("'{element}' is not an array")))?.to_string();
+            // its elements, at the commas outside braces
+            let mut items = vec![String::new()];
+            let mut depth = 0;
+            for c in inner.chars() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    ',' if depth == 0 => {
+                        items.push(String::new());
+                        continue;
+                    }
+                    _ => {}
+                }
+                items.last_mut().unwrap().push(c);
+            }
+            element = items.get(i.max(0.0) as usize).ok_or_else(|| Error::Expression(format!("index {i} out of the array '{inner}'")))?.trim().to_string();
+        }
+        eval_at(&element, self.vars, self.depth + 1)
+    }
+
     fn atom(&mut self) -> Result<f64, Error> {
         self.skip_spaces();
         match self.peek() {
+            Some('{') if self.array_end().is_some() => {
+                let end = self.array_end().unwrap_or(self.pos);
+                self.index_array(end)
+            }
             Some('(') | Some('{') => {
                 let close = if self.peek() == Some('(') { ')' } else { '}' };
                 self.pos += 1;

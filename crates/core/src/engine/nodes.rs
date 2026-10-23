@@ -29,6 +29,9 @@ pub struct NodeSetup {
     pub pos: Option<f64>,
     pub sloped: bool,
     pub transform_shape: bool,
+    /// `transform shape nonlinear`: the node turned and scaled as the nonlinear transformation
+    /// bends the picture where it is
+    pub transform_shape_nonlinear: bool,
     pub name: Option<String>,
     /// `label=` and `pin=` values, in order; true for a pin
     pub labels: Vec<(Vec<Token>, bool)>,
@@ -395,6 +398,67 @@ impl Engine {
 
     /// The node's drawing, and what its labels need: the node, their specifications, and the last
     /// node to leave after them.
+    /// A picture inside a node's text, drawn on a canvas of its own, its coordinates from its
+    /// origin: what it draws and its box's corners (none when it draws nothing).
+    fn inner_picture(&mut self, code: Vec<Token>) -> Result<Option<(Vec<Item>, Point, Point)>, Error> {
+        let saved_canvas = std::mem::take(&mut self.canvas);
+        let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
+        self.begin_group();
+        self.begin_scope();
+        self.st.transform = Transform::default();
+        self.st.pending = Transform::default();
+        let r = self.run_tokens(code);
+        self.end_scope();
+        self.end_group();
+        let crate::canvas::Canvas { items, min, max, .. } = std::mem::replace(&mut self.canvas, saved_canvas);
+        self.canvas_frozen = saved_frozen;
+        r?;
+        Ok(min.zip(max).map(|(lo, hi)| (items, lo, hi)))
+    }
+
+    /// `\pgfpositionnodenow{point}`: the node `\pgfpositionnodelater` kept, moved from the origin
+    /// it was made at to the point, drawn and known by its name.
+    pub fn position_node_now(&mut self) -> Result<(), Error> {
+        let p = self.point_arg()?;
+        let d = self.st.transform.apply(p);
+        let Some((items, mut info, name)) = self.later_node.take() else {
+            self.warn("\\pgfpositionnodenow: no node kept by \\pgfpositionnodelater".to_string());
+            return Ok(());
+        };
+        info.transform = Transform::translation(d.x, d.y).compose(&info.transform);
+        for mut item in items {
+            item.translate(d);
+            if let (Item::Path { segments, .. }, true) = (&item, self.counts_for_size()) {
+                self.canvas.include_path(segments);
+            }
+            self.canvas.items.push(item);
+        }
+        if let Some(n) = name {
+            self.nodes.insert(n, info);
+        }
+        Ok(())
+    }
+
+    /// A node's text expanded, the pgfmath commands in it run where they are, as TeX runs them
+    /// while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4.
+    fn expand_text(&mut self, tokens: Vec<Token>) -> Result<Vec<Token>, Error> {
+        const RUN: &[&str] = &["pgfmathparse", "pgfmathsetmacro", "pgfmathtruncatemacro", "pgfmathsetlengthmacro"];
+        let depth = self.tex.expand_start(tokens);
+        let mut out = Vec::new();
+        loop {
+            let (more, stop) = self.tex.expand_more(depth, RUN)?;
+            out.extend(more);
+            let Some(t) = stop else { return Ok(out) };
+            if let tex::Meaning::Native(id) = self.tex.meaning(&t) {
+                let r = self.command(id, &t);
+                if let Err(e) = r {
+                    self.tex.drain_to(depth);
+                    return Err(e);
+                }
+            }
+        }
+    }
+
     fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<(Vec<Item>, Option<NodeLabels>), Error> {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
@@ -408,7 +472,10 @@ impl Engine {
         after.extend(joins);
         self.after_node_path.extend(after);
         let shape_name = self.key_text("/tikz/shape").split_whitespace().collect::<Vec<_>>().join(" ");
-        let shape = if shapes::is_shape(&shape_name) {
+        let user_shape = self.user_shapes.get(shape_name.trim()).cloned();
+        let shape = if let Some(u) = &user_shape {
+            u.base.clone()
+        } else if shapes::is_shape(&shape_name) {
             shape_name.clone()
         } else {
             self.warn(format!("shape '{shape_name}' not supported: drawn as a rectangle"));
@@ -428,7 +495,7 @@ impl Engine {
         let mut text_tokens = body(self, "tikz@atbegin@node");
         text_tokens.extend(spec.text.clone());
         text_tokens.extend(body(self, "tikz@atend@node"));
-        let expanded = self.tex.expand_fully(text_tokens)?;
+        let expanded = self.expand_text(text_tokens)?;
         for (part, tokens) in split_parts(&expanded) {
             texts.push((part, tex::tokens_to_text(&tokens).trim().to_string()));
         }
@@ -442,9 +509,15 @@ impl Engine {
             }
         };
         let align = match self.key_text("/tikz/align").trim() {
-            "right" | "flush right" => 'r',
-            "center" | "flush center" => 'c',
-            "left" | "flush left" | "justify" => 'l',
+            // (the flush ones in capitals: they break lines otherwise)
+            "right" => 'r',
+            "flush right" => 'R',
+            "center" => 'c',
+            "flush center" => 'C',
+            "left" => 'l',
+            "flush left" => 'L',
+            "justify" => 'j',
+            "none" if text_width.is_some() => 'j',
             _ if text_width.is_some() => 'l',
             _ => 'c',
         };
@@ -452,6 +525,24 @@ impl Engine {
         let font = self.st.font.clone();
         let mut labels: Vec<(String, Option<Label>)> = Vec::new();
         let mut boxes: Vec<(String, BoxSize)> = Vec::new();
+        // a text that is a shading (`\pgfuseshading{name}`): its box, drawn where the text goes
+        self.text_shading = None;
+        if let Some(name) = texts.first().and_then(|(_, t)| t.strip_prefix("\\pgfuseshading")).map(|n| n.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string()) {
+            if let Some((w, h)) = self.shading_half_size(&name) {
+                self.text_shading = Some((name, w, h));
+                texts[0].1.clear();
+            }
+        }
+        // a text that is a picture: its box (its baseline at its bottom), drawn where the text goes
+        self.text_picture = None;
+        let whole = texts.first().map(|(_, t)| t.trim().to_string()).unwrap_or_default();
+        let tikz = whole.strip_prefix("\\tikz").is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphabetic()));
+        if texts.len() == 1 && (tikz || (whole.starts_with("\\begin{tikzpicture}") && whole.ends_with("\\end{tikzpicture}"))) {
+            if let Some(p) = self.inner_picture(spec.text.clone())? {
+                self.text_picture = Some(p);
+                texts[0].1.clear();
+            }
+        }
         for (k, (part, t)) in texts.iter().enumerate() {
             let lbl = if shape == "coordinate" || t.is_empty() {
                 None
@@ -490,6 +581,12 @@ impl Engine {
                 }
             }
             if k == 0 {
+                if let Some((_, w, h)) = &self.text_shading {
+                    (wd, ht, dp) = (2.0 * w, 2.0 * h, 0.0);
+                }
+                if let Some((_, lo, hi)) = &self.text_picture {
+                    (wd, ht, dp) = (hi.x - lo.x, hi.y - lo.y, 0.0);
+                }
                 if let Some(b) = self.forced_box.take() {
                     (wd, ht, dp) = b;
                 }
@@ -536,7 +633,10 @@ impl Engine {
             };
             shapes::compute(&shape, &mut input).expect("a known shape")
         };
-        let geometry = compute(self, None);
+        let mut geometry = compute(self, None);
+        if let Some(u) = &user_shape {
+            geometry = self.user_shape_geometry(u, geometry)?;
+        }
         let mut info = NodeInfo { shape: shape.clone(), geometry: Rc::new(geometry), transform: Transform::default() };
 
         // where: `at`, positioning, the path's point or a point along its last segment
@@ -563,6 +663,19 @@ impl Engine {
         let mut linear = Transform::default();
         if self.st.node.transform_shape {
             linear = Transform { e: 0.0, f: 0.0, ..self.st.transform };
+        }
+        // under a nonlinear transformation the node goes where its point goes; with `transform
+        // shape nonlinear` it is also turned and scaled as the transformation bends the picture there
+        let mut target = target;
+        if !self.st.nonlinear.is_empty() {
+            let moved = self.nonlinear_point(target)?;
+            if self.st.node.transform_shape_nonlinear {
+                let h = 0.01;
+                let dx = self.nonlinear_point(target.plus(Point::new(h, 0.0)))?.minus(moved).scale(1.0 / h);
+                let dy = self.nonlinear_point(target.plus(Point::new(0.0, h)))?.minus(moved).scale(1.0 / h);
+                linear = Transform { a: dx.x, b: dx.y, c: dy.x, d: dy.y, e: 0.0, f: 0.0 }.compose(&linear);
+            }
+            target = moved;
         }
         if self.st.node.sloped {
             let angle = direction.y.atan2(direction.x).to_degrees();
@@ -592,7 +705,14 @@ impl Engine {
                 g.paths.iter().filter(|p| p.layer == Layer::Background && matches!(p.usage, Usage::Node)).flat_map(|p| transform_segments(&p.segments, &info.transform)).collect();
             self.named_paths.insert(n, border);
         }
+        let size = (self.canvas.min, self.canvas.max);
         let items = self.draw_shape(&info, labels, text_width, scope)?;
+        if self.st.position_later {
+            // kept for `\pgfpositionnodenow`: not in the picture, nor its size, nor known by name yet
+            (self.canvas.min, self.canvas.max) = size;
+            self.later_node = Some((items, info, name.map(|n| format!("{}{n}", self.st.name_prefix))));
+            return Ok((Vec::new(), None));
+        }
         if let Some(n) = &name {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
@@ -687,6 +807,22 @@ impl Engine {
             Ok(())
         };
         layer_items(self, &[Layer::BehindBackground, Layer::Background, Layer::BeforeBackground], &mut items)?;
+        if let Some((drawn, lo, _)) = self.text_picture.take() {
+            if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
+                let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y));
+                items.push(Item::Transform { transform: place });
+                items.extend(drawn);
+                items.push(Item::End);
+            }
+        }
+        if let Some((name, w, h)) = self.text_shading.take() {
+            if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
+                let saved = std::mem::take(&mut self.canvas.items);
+                let r = self.draw_shading(&name, &t.compose(&Transform::translation(origin.x + w, origin.y + h)));
+                items.extend(std::mem::replace(&mut self.canvas.items, saved));
+                r?;
+            }
+        }
         for (part, lbl) in labels {
             let (Some(l), Some(origin)) = (lbl, g.parts.iter().find(|(n, _)| *n == part).map(|(_, p)| *p)) else { continue };
             let offset = match (text_width, l.align) {

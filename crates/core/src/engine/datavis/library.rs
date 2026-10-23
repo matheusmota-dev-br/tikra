@@ -78,12 +78,13 @@ const BASE: &str = r"
   label in legend options/.style={/tikz/data visualization/visualizers/\tikra@dv@visualizer/label in legend options/.append style={,#1}},
   attribute 1/.style={/data point/\tikra@dv@visualizer/attribute 1={#1}},
   attribute 2/.style={/data point/\tikra@dv@visualizer/attribute 2={#1}},
+  pin in data/.style={label in data={tikra pin=true,#1}},
 }
 \tikzdatavisualizationset{visualizer label options/.cd,
-  text/.initial=, text'/.style={text={#1},node style=swap},
+  text/.initial=, text'/.style={text={#1},node style=swap,tikra pin sign=-},
   node style/.style={/tikz/data visualization/node style={#1}},
   text colored/.style=/tikz/data visualization/text colored,
-  pin angle/.code=, pin length/.style={node style={pin distance={#1}}},
+  pin angle/.initial=, pin length/.initial=3ex, tikra pin/.initial=, tikra pin sign/.initial=,
 }
 \tikzdatavisualizationset{legend entry options/.cd,
   text/.initial=, legend/.initial=main legend, setup/.initial=,
