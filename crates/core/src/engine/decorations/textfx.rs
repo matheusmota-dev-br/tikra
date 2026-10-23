@@ -318,7 +318,7 @@ impl Run<'_> {
         let blank = is_space(&c.tokens);
         if blank {
             // a space: an empty box as wide as the font's interword space
-            text = Vec::new();
+            text = super::super::tikra_tokens("$\\hspace{0.33333em}$");
         }
         if let Some((_, code)) = te.replacements.iter().find(|(s, _)| s.trim() == c.text.trim()) {
             // `replace characters`: the code in a scope with the character's options; its width
@@ -379,8 +379,7 @@ impl Run<'_> {
         } else {
             self.e.canvas.items.extend(items);
         }
-        let space = if blank { 3.33333 * self.te.factor.max(1e-6) } else { 0.0 };
-        Ok(width.unwrap_or(0.0) / PT + space)
+        Ok(width.unwrap_or(0.0) / PT)
     }
 }
 
