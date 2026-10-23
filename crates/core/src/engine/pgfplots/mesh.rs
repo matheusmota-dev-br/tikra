@@ -74,6 +74,50 @@ pub fn map(f: &Frame, m: f64) -> Color {
     }
 }
 
+/// The limits `mesh input=image` asks for, as pgfplots' heuristic finds them while it reads the
+/// points: half a step before the first point of each scanline and after its last (along the
+/// scanlines, axis `a`), and half a step beyond the first point of each scanline but the first, on
+/// both sides (across them). `pts` are the centers, scanline by scanline.
+pub fn image_limits(pts: &[[f64; 3]], rows: usize, cols: usize, a: usize) -> Vec<[f64; 3]> {
+    let b = 1 - a;
+    let mut out = Vec::new();
+    let point = |va: f64, vb: f64| {
+        let mut p = [0.0; 3];
+        p[a] = va;
+        p[b] = vb;
+        p
+    };
+    let mut last_b: Option<f64> = None;
+    let mut b_next = false;
+    for s in 0..rows {
+        let (mut last_a, mut lastlast_a): (Option<f64>, Option<f64>) = (None, None);
+        let mut a_next = true;
+        let mut cur_b = f64::NAN;
+        for k in 0..cols {
+            let Some(c) = pts.get(s * cols + k) else { break };
+            let (ca, cb) = (c[a], c[b]);
+            cur_b = cb;
+            if let (true, Some(la)) = (a_next, last_a) {
+                out.push(point(la - 0.5 * (ca - la), cb));
+                a_next = false;
+            }
+            if let (true, Some(lb)) = (b_next, last_b) {
+                out.push(point(ca, lb - 0.5 * (cb - lb)));
+                out.push(point(ca, cb + 0.5 * (cb - lb)));
+                b_next = false;
+            }
+            lastlast_a = last_a;
+            last_a = Some(ca);
+            last_b = Some(cb);
+        }
+        if let (Some(la), Some(lla)) = (last_a, lastlast_a) {
+            out.push(point(la + 0.5 * (la - lla), cur_b));
+        }
+        b_next = true;
+    }
+    out
+}
+
 /// `mesh input=image`: the corners of the cells around a lattice of centers, (rows+1) × (cols+1),
 /// halfway between neighbours and as far out at the borders.
 pub fn image_corners(pts: &[[f64; 3]], rows: usize, cols: usize) -> Vec<[f64; 3]> {

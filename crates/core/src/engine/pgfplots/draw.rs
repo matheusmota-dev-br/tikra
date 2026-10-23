@@ -777,9 +777,10 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             }
         }
-        // a matrix plot's cells reach halfway to the next point
+        // a matrix plot's cells reach halfway to the next point: in view as pgfplots' heuristic
+        // finds them
         if let Some((rows, cols)) = p.lattice.filter(|_| p.image) {
-            for c in super::mesh::image_corners(&v, rows, cols) {
+            for c in super::mesh::image_limits(&v, rows, cols, 0) {
                 for i in 0..2 {
                     if c[i].is_finite() {
                         dmin[i] = dmin[i].min(c[i]);
