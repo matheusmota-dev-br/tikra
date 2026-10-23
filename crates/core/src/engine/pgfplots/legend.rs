@@ -27,6 +27,10 @@ impl Cell {
 }
 
 pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
+    // `legend to name`: kept for a `\ref` (that a single run of LaTeX leaves as ??), not drawn
+    if !keys::value(e, "/pgfplots/legend to name").is_empty() {
+        return Ok(());
+    }
     let mut entries: Vec<LegendEntry> = axis.legend.clone();
     if entries.is_empty() {
         if let Some(list) = keys::value_tokens(&*e, "/pgfplots/legend entries") {
