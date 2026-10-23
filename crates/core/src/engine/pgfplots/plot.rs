@@ -970,7 +970,14 @@ pub fn table_read(e: &mut Engine) -> Result<(), Error> {
 
 /// `table[options]{file or data}`.
 fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>), Error> {
-    let (opts, mut text) = table_source(e)?;
+    let (opts, text) = table_source(e)?;
+    let Some(table) = load_table(e, opts, text, "\\addplot table")? else { return Ok((Vec::new(), Vec::new())) };
+    Ok((table_coords(e, &table, three_d)?, table.scanlines.clone()))
+}
+
+/// The table of a file, of inline data or of a `\pgfplotstableread` macro, read with the options
+/// (under `/pgfplots/table`); none (with a warning) if it cannot be read.
+fn load_table(e: &mut Engine, opts: Option<Vec<Token>>, mut text: String, what: &str) -> Result<Option<Table>, Error> {
     // a table `\pgfplotstableread` kept: its options, then the plot's
     let kept = text.trim().strip_prefix('\\').map(|n| n.trim().to_string()).and_then(|n| READ_TABLES.with(|t| t.borrow().get(&n).cloned()));
     let mut all_opts = Vec::new();
@@ -1006,17 +1013,68 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
         match table::read_file(trimmed, &search_path(e)) {
             Ok(content) => Table::parse(&content, sep, &header, skip, &comment),
             Err(m) => {
-                e.warn(format!("\\addplot table: {m}"));
-                return Ok((Vec::new(), Vec::new()));
+                e.warn(format!("{what}: {m}"));
+                return Ok(None);
             }
         }
     } else if trimmed.starts_with('\\') {
-        e.warn(format!("\\addplot table {trimmed}: tables read with \\pgfplotstableread are not supported"));
-        return Ok((Vec::new(), Vec::new()));
+        e.warn(format!("{what} {trimmed}: tables read with \\pgfplotstableread are not supported"));
+        return Ok(None);
     } else {
         Table::parse(&text, sep, &header, skip, &comment)
     };
-    Ok((table_coords(e, &table, three_d)?, table.scanlines.clone()))
+    Ok(Some(table))
+}
+
+/// `\pgfplotstabletypeset[options]{table}`: the table as text, a `tabular` of its columns
+/// (`columns={a,b}`, else all) under their names, the numbers printed as `\pgfmathprintnumber`
+/// prints them, each column centered.
+pub fn table_typeset(e: &mut Engine) -> Result<(), Error> {
+    let (opts, text) = table_source(e)?;
+    // `columns` is pgfplotstable's own; the rest is for reading the table
+    let mut columns: Option<Vec<String>> = None;
+    let mut rest = Vec::new();
+    for item in crate::keys::split_list(&opts.unwrap_or_default()) {
+        if item.key.trim() == "columns" {
+            let v = item.value.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+            columns = Some(crate::keys::split_top_level(&v).iter().map(|c| crate::keys::strip_braces(c.trim()).trim().to_string()).collect());
+            continue;
+        }
+        rest.extend(super::toks(&item.key));
+        if let Some(v) = item.value {
+            rest.extend(super::toks("={"));
+            rest.extend(v);
+            rest.extend(super::toks("}"));
+        }
+        rest.extend(super::toks(","));
+    }
+    e.begin_group();
+    let table = load_table(e, Some(rest), text, "\\pgfplotstabletypeset");
+    e.end_group();
+    let Some(table) = table? else { return Ok(()) };
+    let picked: Vec<usize> = match &columns {
+        Some(names) => names.iter().filter_map(|n| table.names.iter().position(|m| m == n)).collect(),
+        None => (0..table.names.len()).collect(),
+    };
+    let mut body = format!("\\begin{{tabular}}{{{}}}", "c".repeat(picked.len()));
+    body.push_str(&picked.iter().map(|&k| table.names[k].clone()).collect::<Vec<_>>().join(" & "));
+    for row in &table.rows {
+        body.push_str("\\\\");
+        let cells: Vec<String> = picked
+            .iter()
+            .map(|&k| {
+                let cell = row.get(k).map_or("", |c| c.trim());
+                match table::parse_number(cell) {
+                    Some(v) => format!("${}$", e.st.number_format.print(v)),
+                    None => cell.to_string(),
+                }
+            })
+            .collect();
+        body.push_str(&cells.join(" & "));
+    }
+    body.push_str("\\end{tabular}");
+    e.typeset_word(body);
+    Ok(())
 }
 
 /// The coordinates of a table: the `x`, `y`, `z` columns (by name, index or expression).

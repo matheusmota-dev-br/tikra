@@ -795,6 +795,12 @@ impl Engine {
         Ok(())
     }
 
+    /// A box of text in the paragraph, a word of its own (a `tabular`).
+    pub fn typeset_word(&mut self, text: String) {
+        self.layout.push(Layout::Word(self.words.len()));
+        self.words.push((self.st.font.clone(), text));
+    }
+
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
         if self.picture_depth == 0 && c.is_whitespace() {

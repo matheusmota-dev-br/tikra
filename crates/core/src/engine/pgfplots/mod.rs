@@ -93,6 +93,7 @@ enum C {
     Tikzfillbetween,
     /// the fillbetween library's commands on soft paths
     Softpath,
+    Pgfplotstabletypeset,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -109,6 +110,7 @@ const COMMANDS: &[(&str, C)] = &[
     ("pgfplotscolormaptodatafile", C::Colormaptodatafile),
     ("pgfplotscolormaptoshadingspec", C::Colormaptoshadingspec),
     ("tikzfillbetween", C::Tikzfillbetween),
+    ("pgfplotstabletypeset", C::Pgfplotstabletypeset),
     ("tikzgetnamedpath", C::Softpath),
     ("pgfcomputeintersectionsegments", C::Softpath),
     ("pgfgetintersectionsegmentpath", C::Softpath),
@@ -258,6 +260,7 @@ impl Engine {
                     | C::Colormaptoshadingspec
                     | C::Tikzfillbetween
                     | C::Softpath
+                    | C::Pgfplotstabletypeset
             )
         {
             let rest = self.skip_statement()?;
@@ -314,6 +317,7 @@ impl Engine {
             C::Nextgroupplot => self.next_group_plot(),
             C::Closedcycle => Ok(()),
             C::Pgfplotstableread => plot::table_read(self),
+            C::Pgfplotstabletypeset => plot::table_typeset(self),
             C::Colormaptodatafile => colormap::to_data_file(self),
             C::Colormaptoshadingspec => colormap::to_shading_spec(self),
             // `\tikzfillbetween[of=A and B, …]{style}`: the area between two named paths
