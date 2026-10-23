@@ -16,7 +16,14 @@ pub fn index(e: &mut Engine, c: char, text: &str) -> Option<f64> {
     if super::dateplot::is_date(e, c) {
         return super::dateplot::value(e, text);
     }
-    position(&names(e, c), text)
+    let names = names(e, c);
+    // `[normalized]1.5`: the number itself (`symbolic coords/magic prefix`)
+    if !names.is_empty() {
+        if let Some(n) = crate::keys::strip_braces(text.trim()).trim().strip_prefix("[normalized]") {
+            return super::table::parse_number(n.trim());
+        }
+    }
+    position(&names, text)
 }
 
 /// The number a name stands for as a histogram's data (`hist/symbolic coords`).

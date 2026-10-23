@@ -2509,6 +2509,8 @@ impl Engine {
         let value = |e: &mut Engine, i: usize, k: &str| -> Result<Option<f64>, Error> {
             let t = if positional { parts.get(i).cloned() } else { named(k) };
             match t {
+                // a name of a symbolic axis, or a date
+                Some(t) if !t.trim().is_empty() && i < 3 && super::symbolic::index(e, axis_char(i), &t).is_some() => Ok(super::symbolic::index(e, axis_char(i), &t)),
                 Some(t) if !t.trim().is_empty() => Ok(Some(e.number(crate::keys::strip_braces(t.trim()))?)),
                 _ => Ok(None),
             }
