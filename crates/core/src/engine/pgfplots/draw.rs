@@ -89,6 +89,22 @@ impl Frame {
         }
     }
 
+    /// The data coordinates of a canvas point of a 2d axis (`\pgfplotspointgetcoordinates`).
+    pub fn data_at(&self, p: Point) -> Option<[f64; 2]> {
+        if self.three_d || self.polar || self.ternary || self.smith {
+            return None;
+        }
+        let (a, b) = (self.e[0], self.e[1]);
+        let det = a.x * b.y - a.y * b.x;
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let d = p.minus(self.origin);
+        let (u, v) = ((d.x * b.y - d.y * b.x) / det, (a.x * d.y - a.y * d.x) / det);
+        let l = [u + self.min[0], v + self.min[1]];
+        Some([0, 1].map(|k| if self.log[k] { l[k].exp() } else { l[k] }))
+    }
+
     /// The canvas point of logical coordinates.
     pub fn at(&self, l: [f64; 3]) -> Point {
         if self.ternary {
@@ -550,12 +566,16 @@ fn named_anchor(name: &str, lo: Point, hi: Point, blo: Point, bhi: Point, f: &Fr
         return Some(p);
     }
     let origin = f.at([f.zero[0], f.zero[1], f.zero[2]]);
+    // where the line through the origin along an axis meets an edge of the box (a 3d axis'
+    // lines are slanted)
+    let at_y = |dir: Point, y: f64| if dir.y.abs() > 1e-12 { origin.plus(dir.scale((y - origin.y) / dir.y)) } else { Point::new(origin.x, y) };
+    let at_x = |dir: Point, x: f64| if dir.x.abs() > 1e-12 { origin.plus(dir.scale((x - origin.x) / dir.x)) } else { Point::new(x, origin.y) };
     Some(match n {
         "origin" => origin,
-        "left of origin" => Point::new(lo.x, origin.y),
-        "right of origin" => Point::new(hi.x, origin.y),
-        "above origin" => Point::new(origin.x, hi.y),
-        "below origin" => Point::new(origin.x, lo.y),
+        "left of origin" => at_x(f.e[0], lo.x),
+        "right of origin" => at_x(f.e[0], hi.x),
+        "above origin" => at_y(f.e[1], hi.y),
+        "below origin" => at_y(f.e[1], lo.y),
         "right of north east" => Point::new(bhi.x, hi.y),
         "right of north west" => Point::new(blo.x.max(lo.x), hi.y),
         "right of south east" => Point::new(bhi.x, lo.y),
@@ -668,6 +688,9 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     // the coordinates, stacked
     let mut points: Vec<PlotPoints> = Vec::new();
     let mut stack_base: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    // `stack negative=separate`: the negative values stack on their own, from zero down
+    let separate = e.pv("stack negative") == "separate";
+    let mut stack_base_neg: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let mut dmin = [f64::INFINITY; 3];
     let mut dmax = [f64::NEG_INFINITY; 3];
     let mut boxplots = 0usize;
@@ -720,11 +743,16 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
         if let Some(dir) = p.stack {
             let a = if dir == 'x' { 0 } else { 1 };
-            let b = &mut stack_base[a];
             for (i, c) in v.iter_mut().enumerate() {
+                let val = if p.stack_minus { -c[a] } else { c[a] };
+                for list in [&mut stack_base[a], &mut stack_base_neg[a]] {
+                    if list.len() <= i {
+                        list.resize(i + 1, 0.0);
+                    }
+                }
+                let b = if separate && val < 0.0 { &mut stack_base_neg[a] } else { &mut stack_base[a] };
                 let prev = b.get(i).copied().unwrap_or(0.0);
                 base[i] = prev;
-                let val = if p.stack_minus { -c[a] } else { c[a] };
                 c[a] = prev + if val.is_finite() { val } else { 0.0 };
                 if i < b.len() {
                     b[i] = c[a];
@@ -749,9 +777,10 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             }
         }
-        // a matrix plot's cells reach halfway to the next point
+        // a matrix plot's cells reach halfway to the next point: in view as pgfplots' heuristic
+        // finds them
         if let Some((rows, cols)) = p.lattice.filter(|_| p.image) {
-            for c in super::mesh::image_corners(&v, rows, cols) {
+            for c in super::mesh::image_limits(&v, rows, cols, 0) {
                 for i in 0..2 {
                     if c[i].is_finite() {
                         dmin[i] = dmin[i].min(c[i]);
@@ -979,7 +1008,27 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
         let (bw, bh) = bbox_size(&corners);
         let (sx, sy) = (if bw > 1e-9 { width / bw } else { 1.0 }, if bh > 1e-9 { height / bh } else { 1.0 });
-        for k in 0..3 {
+        let ratio = e.pv("unit vector ratio");
+        let mode = e.pv("scale mode");
+        // `unit vector ratio` asks for one scale for all unit vectors
+        let uniform = mode == "scale uniformly" || (mode == "auto" && !ratio.trim().is_empty());
+        if uniform {
+            let inp = super::scaling::Input {
+                e: [0, 1, 2].map(|k| base[k].scale(if dir[k] { -1.0 } else { 1.0 })),
+                width,
+                height,
+                unit_box: true,
+                three_d: true,
+                strategy: super::scaling::Strategy::parse(&e.pv("scale uniformly strategy")),
+                ratio: &ratio,
+                ratio_axis: &e.pv("unit vector ratio axis"),
+                keep: super::scaling::KeepSize::parse(&e.pv("unit rescale keep size")),
+                auto_min,
+                auto_max,
+            };
+            ev = super::scaling::uniform(&inp, &mut min, &mut max);
+        }
+        for k in (0..3).filter(|_| !uniform) {
             let range = (max[k] - min[k]).abs().max(1e-12);
             let s = if dir[k] { -1.0 } else { 1.0 };
             // 1/range as pgfplots multiplies it (compat before 1.3's pgfbasic scaling): a TeX
@@ -1010,8 +1059,26 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             };
         }
-        // unit vector ratio (axis equal): one scale for both, the limits enlarged to keep the size
+        // a 3d axis with given unit vectors, scaled uniformly to width × height
         let ratio = e.pv("unit vector ratio");
+        let mode = e.pv("scale mode");
+        if three_d && units.iter().all(Option::is_some) && (mode == "scale uniformly" || (mode == "auto" && !ratio.trim().is_empty())) {
+            let inp = super::scaling::Input {
+                e: ev,
+                width,
+                height,
+                unit_box: false,
+                three_d: true,
+                strategy: super::scaling::Strategy::parse(&e.pv("scale uniformly strategy")),
+                ratio: &ratio,
+                ratio_axis: &e.pv("unit vector ratio axis"),
+                keep: super::scaling::KeepSize::parse(&e.pv("unit rescale keep size")),
+                auto_min,
+                auto_max,
+            };
+            ev = super::scaling::uniform(&inp, &mut min, &mut max);
+        }
+        // unit vector ratio (axis equal): one scale for both, the limits enlarged to keep the size
         if !ratio.is_empty() && !three_d && units[0].is_none() && units[1].is_none() {
             let r: Vec<f64> = ratio.split_whitespace().filter_map(|x| x.parse().ok()).collect();
             let (rx, ry) = (r.first().copied().unwrap_or(1.0), r.get(1).copied().unwrap_or(1.0));
@@ -1204,6 +1271,11 @@ const DESCRIPTION_KEYS: &[&str] = &[
     "ylabel near ticks",
     "xlabel absolute",
     "ylabel absolute",
+    // their label styles
+    "axis lines",
+    "axis x line",
+    "axis y line",
+    "axis z line",
 ];
 
 /// `\pgfplots@BEGIN@prepare@description@styles`: once an axis is known to be 3d it gets
@@ -1527,6 +1599,8 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let saved_bbox = (e.canvas.min, e.canvas.max);
     // the layer `pre main`: fill between regions go below the other plots
     let pre_main = e.canvas.items.len();
+    // where the next fill between region goes: after those before it
+    let mut pre_main_end = pre_main;
     let compat = keys::compat(e);
     f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
     // before compat 1.11 TikZ's unit vectors are those of the data scale transformation: a radius
@@ -1553,9 +1627,10 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 k += 1;
                 let before = e.canvas.items.len();
                 let r = super::visual::draw_plot(e, p, &pts, &base, &f, of_type, index_of_type);
-                if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main <= before {
+                if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main_end <= before {
                     let drawn: Vec<Item> = e.canvas.items.drain(before..).collect();
-                    let at = pre_main.min(e.canvas.items.len());
+                    let at = pre_main_end.min(e.canvas.items.len());
+                    pre_main_end = at + drawn.len();
                     e.canvas.items.splice(at..at, drawn);
                 }
                 match r {
@@ -1607,9 +1682,15 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
     }
     // marks are not clipped (`clip marker paths=false`)
-    let (a, b) = (f.at(f.min), f.at(f.max));
-    let tol = 0.05 * PT;
-    let inside = |p: &Point| p.x >= a.x.min(b.x) - tol && p.x <= a.x.max(b.x) + tol && p.y >= a.y.min(b.y) - tol && p.y <= a.y.max(b.y) + tol;
+    // inside the box: by the point's axis coordinates (the box is a parallelogram with unit
+    // vectors of any direction)
+    let inside = |p: &Point| match f.data_at(*p) {
+        Some(v) => (0..2).all(|k| {
+            let (l, tol) = (f.logical(k, v[k]), 0.05 * PT / f.e[k].norm().max(f64::MIN_POSITIVE));
+            l >= f.min[k].min(f.max[k]) - tol && l <= f.min[k].max(f.max[k]) + tol
+        }),
+        None => true,
+    };
     for mut m in marks {
         // marks outside the axis are not drawn, those on its border are drawn whole
         if clip && !f.three_d && !f.polar && !f.smith {
@@ -1852,7 +1933,7 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
         }
     }
     if keys::flag(e, &format!("/pgfplots/{c}majorticks")) {
-        let m: Vec<f64> = visible(f, a, list).into_iter().map(|(_, t)| t).filter(|t| !obscured(s, a, *t)).collect();
+        let m: Vec<f64> = visible(f, a, list).into_iter().map(|(_, t)| t).filter(|t| !obscured(e, s, a, *t)).collect();
         let len = keys::length(e, "/pgfplots/major tick length").unwrap_or(0.15);
         kinds.push(("major", m, len));
     }
@@ -1883,10 +1964,10 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
 }
 
 /// Ticks of a centered axis line that would cross the other axis line are hidden
-/// (`hide obscured x ticks`).
-fn obscured(s: &Setup, a: usize, t: f64) -> bool {
+/// (`hide obscured x ticks`); none when that line is shifted.
+fn obscured(e: &mut Engine, s: &Setup, a: usize, t: f64) -> bool {
     let f = &s.frame;
-    if s.line[a] != "center" || f.three_d {
+    if s.line[a] != "center" || f.three_d || line_shift(e, f, 1 - a) != 0.0 {
         return false;
     }
     let tol = 0.05 * PT / f.e[a].norm().max(f64::MIN_POSITIVE);
@@ -2007,6 +2088,23 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
             i = super::attime::run(e, tokens, i)?;
             continue;
         }
+        // `\pgfplotspointgetcoordinates{(point)}`: the point's axis coordinates as `/data point/x`…
+        if tokens[i].is_cs("pgfplotspointgetcoordinates") {
+            let mut j = i + 1;
+            while j < tokens.len() && tokens[j].is_space() {
+                j += 1;
+            }
+            let (arg, end) = group_at(tokens, j);
+            i = end;
+            let text = e.tex.expand_to_string(arg)?;
+            let inner = text.trim().strip_prefix('(').and_then(|r| r.strip_suffix(')')).unwrap_or(text.trim()).to_string();
+            let (Some(f), Ok(c)) = (e.frame.clone(), e.coordinate(&inner)) else { continue };
+            if let Some([x, y]) = f.data_at(c.p) {
+                super::keys::set(e, "/data point/x", &super::super::pgf_number(x));
+                super::keys::set(e, "/data point/y", &super::super::pgf_number(y));
+            }
+            continue;
+        }
         if tokens[i].is_cs("pgfmathprintnumber") {
             let mut j = i + 1;
             let mut opts = Vec::new();
@@ -2106,6 +2204,9 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
         let tick = super::super::pgf_number(value);
         e.tex.set_meaning(&Token::cs("tick"), super::super::macro_from(&tick), false);
         e.tex.set_meaning(&Token::cs("ticknum"), super::super::macro_from(&k.to_string()), false);
+        if super::dateplot::is_date(e, c) {
+            super::dateplot::define_tick(e, value);
+        }
         if let Some(n) = next {
             e.tex.set_meaning(&Token::cs("nexttick"), super::super::macro_from(&super::super::pgf_number(shown(n))), false);
         }
@@ -2321,7 +2422,7 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
         }
     } else {
         for (k, t) in &vis {
-            if obscured(s, a, *t) {
+            if obscured(e, s, a, *t) {
                 continue;
             }
             let next = list.get(k + 1).copied();
@@ -2386,6 +2487,10 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         // an empty label is still a node in TeX's drawing: it takes room at its place
         let mut text = keys::value_tokens(&*e, &format!("/pgfplots/{c}label")).unwrap_or_default();
         if s.hide[a] {
+            continue;
+        }
+        // (but not in a colorbar, which TeX's drawing shows without them)
+        if pk::trim(&text).is_empty() && keys::flag(e, "/pgfplots/@colorbar axis") {
             continue;
         }
         // the units library: ` [km]` after the label (`x unit=m`, `x unit prefix=k`)
@@ -2468,6 +2573,8 @@ impl Engine {
         let value = |e: &mut Engine, i: usize, k: &str| -> Result<Option<f64>, Error> {
             let t = if positional { parts.get(i).cloned() } else { named(k) };
             match t {
+                // a name of a symbolic axis, or a date
+                Some(t) if !t.trim().is_empty() && i < 3 && super::symbolic::index(e, axis_char(i), &t).is_some() => Ok(super::symbolic::index(e, axis_char(i), &t)),
                 Some(t) if !t.trim().is_empty() => Ok(Some(e.number(crate::keys::strip_braces(t.trim()))?)),
                 _ => Ok(None),
             }

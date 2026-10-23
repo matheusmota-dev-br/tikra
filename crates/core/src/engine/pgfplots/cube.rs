@@ -12,7 +12,7 @@
 use crate::scene::{Point, Segment};
 use crate::Error;
 
-use super::draw::{axis_char, minor_ticks, number_list, tick_labels_at, tick_offset, unit, visible, Frame, Setup};
+use super::draw::{axis_char, line_shift, minor_ticks, number_list, tick_labels_at, tick_offset, unit, visible, Frame, Setup};
 use super::keys;
 use super::Engine;
 
@@ -370,6 +370,7 @@ impl Ctx<'_> {
             let m: Vec<f64> = visible(f, a, list).into_iter().map(|(_, t)| t).collect();
             kinds.push(("major", m, keys::length(e, "/pgfplots/major tick length").unwrap_or(0.15)));
         }
+        let (sh0, sh1) = if self.nums[a] == 2 { (Point::default(), Point::default()) } else { (self.line_shift(e, surf, b'0'), self.line_shift(e, surf, b'1')) };
         for (kind, ticks, len) in kinds {
             let off = match align.as_str() {
                 "outside" => len,
@@ -379,12 +380,12 @@ impl Ctx<'_> {
             let mut segs = Vec::new();
             for t in ticks {
                 if lower {
-                    let p = surf.at(f, t, lower_b);
+                    let p = surf.at(f, t, lower_b).plus(sh0);
                     segs.push(Segment::MoveTo(p.plus(ub.scale(-off))));
                     segs.push(Segment::LineTo(p.plus(ub.scale(len - off))));
                 }
                 if upper {
-                    let p = surf.at(f, t, f.max[b]);
+                    let p = surf.at(f, t, f.max[b]).plus(sh1);
                     segs.push(Segment::MoveTo(p.plus(ub.scale(off))));
                     segs.push(Segment::LineTo(p.plus(ub.scale(off - len))));
                 }
@@ -394,6 +395,17 @@ impl Ctx<'_> {
             }
         }
         Ok(())
+    }
+
+    /// `axis x line shift=10pt`: where the line of the surface with `b` at `bval` moves, with its
+    /// ticks and labels, along its outer normal (`\pgfplots@transformshift@along@outer@normal…`).
+    fn line_shift(&self, e: &mut Engine, surf: &Surf, bval: u8) -> Point {
+        let f = self.f();
+        let d = line_shift(e, f, surf.a);
+        if d == 0.0 {
+            return Point::default();
+        }
+        outer_normal(&f.e, surf.line(bval), f.box_line[surf.a]).scale(d)
     }
 
     /// The outer lines (`\pgfplots@drawaxis@outerlines@separate@onorientedsurf`) or the line
@@ -410,7 +422,8 @@ impl Ctx<'_> {
         }
         for (bval, bv) in [(b'0', f.min[b]), (b'1', f.max[b])] {
             if self.drawn(surf, bval) {
-                let segs = vec![Segment::MoveTo(surf.at(f, f.min[a], bv)), Segment::LineTo(surf.at(f, f.max[a], bv))];
+                let sh = self.line_shift(e, surf, bval);
+                let segs = vec![Segment::MoveTo(surf.at(f, f.min[a], bv).plus(sh)), Segment::LineTo(surf.at(f, f.max[a], bv).plus(sh))];
                 e.draw_with(&format!("/pgfplots/every outer {c} axis line"), segs)?;
             }
         }
@@ -438,9 +451,10 @@ impl Ctx<'_> {
                 _ => (f.zero[b], off),
             }
         };
+        let moved = if self.nums[a] == 2 || !matches!(side, b'0' | b'1') { Point::default() } else { self.line_shift(e, surf, side) };
         let shift = unit(f.e[b]).scale(offset);
         let s = *surf;
-        tick_labels_at(e, self.s, a, list, extra, &|t| s.at(&f, t, origin), shift, off)
+        tick_labels_at(e, self.s, a, list, extra, &|t| s.at(&f, t, origin).plus(moved), shift, off)
     }
 
     /// `extra x ticks` on the surface, with their labels or without.

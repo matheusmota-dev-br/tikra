@@ -134,6 +134,7 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
+    Fbox,
     Hskip,
     FontSize,
     FontSeries,
@@ -275,6 +276,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
+    ("fbox", Cmd::Fbox),
     ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
@@ -494,6 +496,17 @@ enum Layout {
     /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
     Skip(f64),
     Par,
+    /// `\\`: the line ends there
+    Break,
+    /// `center` begins (true) or ends: its lines are centered in the line's width
+    Center(bool),
+    /// a `tabular` begins: its columns' alignments, two bits each (`l` 0, `c` 1, `r` 2), with
+    /// their count in the low byte
+    TabStart(u32),
+    /// `&`, `\\` and the end of a `tabular`
+    Cell,
+    Row,
+    TabEnd,
     /// the width of the line (cm), in a `\vbox` of that `\hsize`
     Width(f64),
 }
@@ -809,6 +822,9 @@ impl Engine {
             Meaning::Undefined => {
                 if let Token::Cs(name) = &t {
                     self.unknown_command(name)?;
+                } else if matches!(t, Token::Char('~', Cat::Active)) && self.picture_depth == 0 {
+                    // `~`: an interword space where the line cannot break
+                    self.layout.push(Layout::Skip(SPACE));
                 }
             }
             _ => {
@@ -822,8 +838,24 @@ impl Engine {
         Ok(())
     }
 
+    /// A box of text in the paragraph, a word of its own (a `tabular`).
+    pub fn typeset_word(&mut self, text: String) {
+        self.layout.push(Layout::Word(self.words.len()));
+        self.words.push((self.st.font.clone(), text));
+    }
+
+    /// Whether a `tabular` around the pictures is open.
+    fn in_table(&self) -> bool {
+        let opened = self.layout.iter().filter(|l| matches!(l, Layout::TabStart(_))).count();
+        opened > self.layout.iter().filter(|l| matches!(l, Layout::TabEnd)).count()
+    }
+
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
+        if self.picture_depth == 0 && c == '&' && self.in_table() {
+            self.layout.push(Layout::Cell);
+            return;
+        }
         if self.picture_depth == 0 && c.is_whitespace() {
             // a space after a picture or a word is TeX's interword space; spaces with commands
             // between them (`\tikzset{…}` on its own line) are glue each, so is one after `\hspace{…}`
@@ -854,8 +886,8 @@ impl Engine {
 
     /// An undefined command: in a picture, the statement it starts is skipped to its `;`.
     fn unknown_command(&mut self, name: &str) -> Result<(), Error> {
-        // `\\` between pictures (in a minipage): a new line
-        if name == "\\" && self.picture_depth == 0 {
+        if self.picture_depth == 0 && name == "\\" {
+            // `\\[2pt]`: the space it asks for is not kept
             if let Some(t) = self.tex.next_nonspace() {
                 if t.is_char('[') {
                     let _ = self.tex.read_until_char(']', false)?;
@@ -863,9 +895,7 @@ impl Engine {
                     self.tex.back(t);
                 }
             }
-            if !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
-                self.layout.push(Layout::Par);
-            }
+            self.layout.push(if self.in_table() { Layout::Row } else { Layout::Break });
             return Ok(());
         }
         if self.picture_depth > 0 {
@@ -1512,6 +1542,39 @@ impl Engine {
                 Ok(())
             }
             // `\hspace{1cm}` (or `\hspace*`) between pictures: the space TeX leaves there
+            // `\fbox{…}`: a frame of `\fboxrule` around the pictures, `\fboxsep` away
+            Cmd::Fbox => {
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    let sep = self.tex.dimens.get(&247).copied().unwrap_or(0) as f64 / 65536.0 * crate::PT;
+                    let rule = self.tex.dimens.get(&246).copied().unwrap_or(0) as f64 / 65536.0 * crate::PT;
+                    for b in &mut self.boxes[start..] {
+                        let (Some(lo), Some(hi)) = (b.canvas.min, b.canvas.max) else { continue };
+                        let d = sep + rule / 2.0;
+                        let (lo, hi) = (Point::new(lo.x - d, lo.y - d), Point::new(hi.x + d, hi.y + d));
+                        use crate::scene::Segment as S;
+                        let segments = vec![S::MoveTo(lo), S::LineTo(Point::new(hi.x, lo.y)), S::LineTo(hi), S::LineTo(Point::new(lo.x, hi.y)), S::Close];
+                        let stroke = crate::canvas::Stroke {
+                            color: crate::color::Color::BLACK,
+                            width: rule,
+                            dash: None,
+                            cap: crate::canvas::Cap::Butt,
+                            join: crate::canvas::Join::Miter,
+                            miter_limit: 10.0,
+                            opacity: 1.0,
+                        };
+                        b.canvas.items.push(Item::Path { segments, fill: None, stroke: Some(stroke) });
+                        b.canvas.include(Point::new(lo.x - rule / 2.0, lo.y - rule / 2.0));
+                        b.canvas.include(Point::new(hi.x + rule / 2.0, hi.y + rule / 2.0));
+                    }
+                }
+                Ok(())
+            }
             Cmd::Hspace => {
                 match self.tex.next_nonspace() {
                     Some(t) if t.is_char('*') => {}
@@ -2039,7 +2102,29 @@ impl Engine {
                 self.tex.env_stack.pop();
                 self.fading_from_picture()
             }
+            "tabular" if self.picture_depth == 0 => {
+                // `\begin{tabular}[pos]{rl}`: the pictures in the cells, set as TeX sets an \halign
+                let _ = self.optional()?;
+                let spec = self.argument_string()?;
+                let cols: Vec<u32> = spec
+                    .chars()
+                    .filter_map(|c| match c {
+                        'l' => Some(0),
+                        'c' => Some(1),
+                        'r' => Some(2),
+                        _ => None,
+                    })
+                    .take(12)
+                    .collect();
+                let code = cols.iter().enumerate().fold(cols.len() as u32, |acc, (k, a)| acc | (a << (8 + 2 * k)));
+                self.layout.push(Layout::TabStart(code));
+                self.begin_group();
+                Ok(())
+            }
             "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
+                if name == "center" && self.picture_depth == 0 {
+                    self.layout.extend([Layout::Par, Layout::Center(true)]);
+                }
                 if name == "minipage" {
                     let _ = self.optional()?;
                     let width = self.argument()?;
@@ -2108,6 +2193,12 @@ impl Engine {
                     self.run_tokens(end)?;
                 }
                 self.end_group();
+                if name == "center" && self.picture_depth == 0 {
+                    self.layout.extend([Layout::Par, Layout::Center(false)]);
+                }
+                if name == "tabular" && self.picture_depth == 0 {
+                    self.layout.push(Layout::TabEnd);
+                }
             }
         }
         Ok(())
@@ -2485,22 +2576,106 @@ const LINE_SKIP: f64 = 1.0 * crate::PT;
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
 fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
-    let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
-    for l in layout {
-        match l {
-            Layout::Par => lines.push(Vec::new()),
-            other => lines.last_mut().expect("a line").push(*other),
-        }
-    }
     // the words as TeX sets them, in the text font
     let mut warnings = Vec::new();
     let labels: Vec<crate::scene::Label> = words.iter().map(|(font, w)| crate::label::compose_label(w, font, None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
+    // each `tabular` becomes a box of its own
+    let (table_boxes, layout) = tables(boxes, layout, &labels);
+    let boxes = &table_boxes[..];
+    let layout = &layout[..];
+    let width_of = |l: &Layout| match l {
+        Layout::Picture(i) => boxes[*i].canvas.min.zip(boxes[*i].canvas.max).map_or(0.0, |(a, b)| b.x - a.x),
+        Layout::Word(i) => labels[*i].width(),
+        Layout::Skip(w) => *w,
+        Layout::Space => SPACE,
+        _ => 0.0,
+    };
+    // the lines: a paragraph ends one, so does `\\` (and `\\` then a paragraph's end leaves an
+    // empty line); in `center` they are centered
+    struct Line {
+        items: Vec<Layout>,
+        center: bool,
+        empty_kept: bool,
+    }
+    let line = |center| Line { items: Vec::new(), center, empty_kept: false };
+    let mut lines = vec![line(false)];
+    let mut center = false;
+    let mut hsize: Option<f64> = None;
+    let mut after_break = false;
+    for l in layout {
+        match l {
+            Layout::Par => {
+                if after_break {
+                    lines.last_mut().expect("a line").empty_kept = true;
+                }
+                lines.push(line(center));
+            }
+            Layout::Break => lines.push(line(center)),
+            Layout::Center(c) => {
+                center = *c;
+                lines.last_mut().expect("a line").center = center;
+            }
+            other => {
+                if let Layout::Width(w) = other {
+                    hsize = Some(*w);
+                }
+                lines.last_mut().expect("a line").items.push(*other);
+            }
+        }
+        after_break = matches!(l, Layout::Break) || (after_break && matches!(l, Layout::Center(_)));
+    }
+    // a line longer than the line's width (when known) is broken at its spaces
+    if let Some(w) = hsize {
+        let mut broken = Vec::new();
+        for l in lines {
+            let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept };
+            let (mut x, mut pending) = (0.0, 0.0);
+            let mut started = false;
+            let mut chunk: Vec<Layout> = Vec::new();
+            let mut chunk_w = 0.0;
+            let flush = |cur: &mut Line, broken: &mut Vec<Line>, chunk: &mut Vec<Layout>, chunk_w: &mut f64, x: &mut f64, pending: &mut f64, started: &mut bool| {
+                if chunk.is_empty() {
+                    return;
+                }
+                let content = chunk.iter().any(|c| matches!(c, Layout::Picture(_) | Layout::Word(_)));
+                if *started && content && *x + *pending + *chunk_w > w + 1e-9 {
+                    let next = Line { items: Vec::new(), center: cur.center, empty_kept: false };
+                    broken.push(std::mem::replace(cur, next));
+                    *x = 0.0;
+                    *pending = 0.0;
+                } else if *started {
+                    cur.items.push(Layout::Space);
+                    *x += *pending;
+                }
+                *pending = 0.0;
+                cur.items.append(chunk);
+                *x += *chunk_w;
+                *chunk_w = 0.0;
+                *started |= content;
+            };
+            for item in l.items {
+                if matches!(item, Layout::Space) {
+                    flush(&mut cur, &mut broken, &mut chunk, &mut chunk_w, &mut x, &mut pending, &mut started);
+                    if started {
+                        pending = SPACE;
+                    }
+                } else {
+                    chunk_w += width_of(&item);
+                    chunk.push(item);
+                }
+            }
+            flush(&mut cur, &mut broken, &mut chunk, &mut chunk_w, &mut x, &mut pending, &mut started);
+            broken.push(cur);
+        }
+        lines = broken;
+    }
     let mut baseline_y = 0.0;
     let mut previous_depth: Option<f64> = None;
     let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
-    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && l.iter().any(|x| matches!(x, Layout::Word(_))))) {
+    let shown = |l: &Line| l.items.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && (l.empty_kept || l.items.iter().any(|x| matches!(x, Layout::Word(_)))));
+    for line in lines.iter().filter(|l| shown(l)) {
         let (mut height, mut depth) = (0.0f64, 0.0f64);
-        for l in line {
+        for l in &line.items {
             match l {
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
@@ -2519,9 +2694,15 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
             let gap = BASELINE_SKIP - d - height;
             baseline_y -= if gap >= 0.0 { BASELINE_SKIP } else { d + LINE_SKIP + height };
         }
+        // centered: what the line holds (from its first box) in the middle of its width
         let mut x = 0.0;
+        if let (true, Some(w)) = (line.center, hsize) {
+            let first = line.items.iter().position(|l| matches!(l, Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_))).unwrap_or(line.items.len());
+            let natural: f64 = line.items[first..].iter().map(&width_of).sum();
+            x = ((w - natural) / 2.0).max(0.0);
+        }
         let mut started = false;
-        for l in line {
+        for l in &line.items {
             match l {
                 Layout::Space if started => x += SPACE,
                 // glue at the start of a paragraph stays (`\hskip 1cm` before a picture)
@@ -2565,7 +2746,129 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         }
         previous_depth = Some(depth);
     }
+    // a `\vbox` of a known `\hsize` is that wide: what sticks out of it is cut off with the page
+    if let (Some(w), Some(lo), Some(hi)) = (hsize, out.min.as_mut(), out.max.as_mut()) {
+        lo.x = 0.0;
+        hi.x = w;
+    }
     out
+}
+
+/// `\tabcolsep`, and the strut of a row (`\arraystretch` 1: 0.7 and 0.3 `\baselineskip`), in cm.
+const TABCOLSEP: f64 = 6.0 * crate::PT;
+const STRUT: (f64, f64) = (8.4 * crate::PT, 3.6 * crate::PT);
+/// The math axis of Computer Modern at 10 pt, which a `tabular` is centered on.
+const MATH_AXIS: f64 = 2.5 * crate::PT;
+
+/// The pictures and words of each `tabular` set in its cells, as one box: its rows one under the
+/// other (struts making them tall enough), its columns as wide as their widest cell with
+/// `\tabcolsep` on both sides, the whole centered on the math axis. Returns the boxes (the
+/// pictures', then the tables') and the layout with each table as one of them.
+fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label]) -> (Vec<PictureBox>, Vec<Layout>) {
+    let mut all: Vec<PictureBox> = boxes.to_vec();
+    if !layout.iter().any(|l| matches!(l, Layout::TabStart(_))) {
+        return (all, layout.to_vec());
+    }
+    // what a cell's item is: its width, and its height and depth around the baseline
+    let measure = |all: &[PictureBox], l: &Layout| -> Option<(f64, f64, f64)> {
+        match l {
+            Layout::Picture(i) => {
+                let b = &all[*i];
+                let (lo, hi) = b.canvas.min.zip(b.canvas.max)?;
+                Some((hi.x - lo.x, hi.y - b.baseline, b.baseline - lo.y))
+            }
+            Layout::Word(i) => Some((labels[*i].width(), labels[*i].height(), labels[*i].depth())),
+            Layout::Skip(w) => Some((*w, 0.0, 0.0)),
+            _ => None,
+        }
+    };
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < layout.len() {
+        let Layout::TabStart(code) = layout[i] else {
+            out.push(layout[i]);
+            i += 1;
+            continue;
+        };
+        let ncols = (code & 0xff) as usize;
+        let align = |k: usize| if k < ncols { (code >> (8 + 2 * k)) & 3 } else { 0 };
+        // the rows and their cells, up to the table's end
+        let mut rows: Vec<Vec<Vec<Layout>>> = vec![vec![Vec::new()]];
+        i += 1;
+        while i < layout.len() && !matches!(layout[i], Layout::TabEnd) {
+            match layout[i] {
+                Layout::Cell => rows.last_mut().expect("a row").push(Vec::new()),
+                Layout::Row => rows.push(vec![Vec::new()]),
+                Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
+                // the line's width stays known
+                Layout::Width(w) if !out.contains(&Layout::Width(w)) => out.push(Layout::Width(w)),
+                _ => {}
+            }
+            i += 1;
+        }
+        i += 1;
+        // `\\` before `\end{tabular}` ends the last row: nothing after it
+        if rows.len() > 1 && rows.last().is_some_and(|r| r.iter().all(Vec::is_empty)) {
+            rows.pop();
+        }
+        let size = |cell: &[Layout]| cell.iter().filter_map(|l| measure(&all, l)).fold((0.0f64, 0.0f64, 0.0f64), |(w, h, d), (a, b, c)| (w + a, h.max(b), d.max(c)));
+        let n = rows.iter().map(Vec::len).max().unwrap_or(0);
+        let widths: Vec<f64> = (0..n).map(|k| rows.iter().filter_map(|r| r.get(k)).map(|c| size(c).0).fold(0.0, f64::max)).collect();
+        let mut canvas = Canvas::default();
+        let mut y = 0.0;
+        for row in &rows {
+            let (h, d) = row.iter().map(|c| size(c)).fold(STRUT, |(h, d), (_, a, b)| (h.max(a), d.max(b)));
+            let base = y - h;
+            let mut x = 0.0;
+            for (k, w) in widths.iter().enumerate() {
+                let cell = row.get(k).map_or(&[][..], Vec::as_slice);
+                let room = w - size(cell).0;
+                let mut cx = x
+                    + TABCOLSEP
+                    + match align(k) {
+                        2 => room,
+                        1 => room / 2.0,
+                        _ => 0.0,
+                    };
+                for l in cell {
+                    match l {
+                        Layout::Picture(p) => {
+                            let b = &all[*p];
+                            let Some((lo, hi)) = b.canvas.min.zip(b.canvas.max) else { continue };
+                            let shift = Point::new(cx - lo.x, base - b.baseline);
+                            for item in &b.canvas.items {
+                                let mut it = item.clone();
+                                it.translate(shift);
+                                canvas.items.push(it);
+                            }
+                            canvas.include(lo.plus(shift));
+                            canvas.include(hi.plus(shift));
+                            cx += hi.x - lo.x;
+                        }
+                        Layout::Word(wd) => {
+                            let label = &labels[*wd];
+                            canvas.items.push(Item::Text { label: label.clone(), place: crate::scene::Transform::translation(cx, base), opacity: 1.0 });
+                            canvas.include(Point::new(cx, base - label.depth()));
+                            canvas.include(Point::new(cx + label.width(), base + label.height()));
+                            cx += label.width();
+                        }
+                        Layout::Skip(s) => cx += s,
+                        _ => {}
+                    }
+                }
+                x += w + 2.0 * TABCOLSEP;
+            }
+            // the table's box: its columns' room and its rows' struts
+            canvas.include(Point::new(0.0, y));
+            canvas.include(Point::new(x, base - d));
+            y = base - d;
+        }
+        // centered on the math axis
+        let baseline = y / 2.0 - MATH_AXIS;
+        out.push(Layout::Picture(all.len()));
+        all.push(PictureBox { canvas, baseline });
+    }
+    (all, out)
 }
 
 /// Runs a whole document (or figure) and returns the canvas and the warnings.
