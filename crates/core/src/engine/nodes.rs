@@ -634,6 +634,18 @@ impl Engine {
             shapes::compute(&shape, &mut input).expect("a known shape")
         };
         let mut geometry = compute(self, None);
+        // a logic gate's anchors with the other `logic gate anchors use bounding box`, which
+        // pgf reads when an anchor is asked for: under `@gatebox=true name` or `@gatebox=false name`
+        if shape.contains(" gate ") {
+            let flag = Token::cs("iftikra@gatebox");
+            let saved = self.tex.meaning(&flag);
+            let on = saved == self.tex.meaning_of("iftrue");
+            let other = self.tex.meaning_of(if on { "iffalse" } else { "iftrue" });
+            self.tex.set_meaning(&flag, other, false);
+            let g = compute(self, None);
+            self.tex.set_meaning(&flag, saved, false);
+            geometry.anchors.extend(g.anchors.into_iter().map(|(n, p)| (format!("@gatebox={} {n}", !on), p)));
+        }
         if let Some(u) = &user_shape {
             geometry = self.user_shape_geometry(u, geometry)?;
         }

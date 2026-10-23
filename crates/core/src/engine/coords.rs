@@ -176,7 +176,12 @@ impl Engine {
             }
             if let Some(node) = self.lookup_node(name).as_ref() {
                 return Ok(match anchor {
-                    Some(a) => Coord { p: node.anchor(a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None },
+                    Some(a) => {
+                        // a logic gate's anchors as `logic gate anchors use bounding box` is now
+                        let gatebox = format!("@gatebox={} {a}", self.tex.meaning_of("iftikra@gatebox") == self.tex.meaning_of("iftrue"));
+                        let p = node.anchor(&gatebox).or_else(|| node.anchor(a));
+                        Coord { p: p.ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None }
+                    }
                     None => Coord { p: node.center(), node: Some(name.to_string()) },
                 });
             }
