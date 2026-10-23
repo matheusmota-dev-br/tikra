@@ -1,6 +1,9 @@
 //! Node text, typeset by mathra: `{Exit}`, `{$\vec{v}$}`, `{Check every value twice}`.
 //! Lines by `\\`, automatic wrapping at `text width`, sizes `\small`, `\Large`.
 
+mod hyphen;
+mod paragraph;
+
 use mathra::layout::MathBox;
 
 use crate::color::Color;
@@ -854,8 +857,135 @@ fn tabular(text: &str, size: f64, stretch: f64, cell: &mut dyn FnMut(&str, &mut 
     Some(out)
 }
 
+/// TeX's space factor after `word`, from `sf` before it: 3000 after the end of a sentence (`.`, `?`,
+/// `!`, but not after a capital), 2000 after a colon, 1500 after a semicolon, 1250 after a comma;
+/// closing parentheses and quotes keep it.
+fn space_factor(word: &str, mut sf: f32) -> f32 {
+    for c in word.chars() {
+        let code = match c {
+            'A'..='Z' => 999.0,
+            '.' | '?' | '!' => 3000.0,
+            ':' => 2000.0,
+            ';' => 1500.0,
+            ',' => 1250.0,
+            ')' | ']' | '\'' | '"' => continue,
+            _ => 1000.0,
+        };
+        sf = if code > 1000.0 && sf < 1000.0 { 1000.0 } else { code };
+    }
+    sf
+}
+
+/// A line of text broken into lines `width` wide (label font units, a thousand to the em) as TeX
+/// breaks the paragraph of a node with a `text width`, by `align`, TikZ's alignment: `l` (left,
+/// and no alignment), `r`, `c`, their flush variants `L`, `R`, `C`, and `j` (justify). The ragged
+/// ones (`text ragged` and the like) have spaces of a third of an em (half after a sentence) and
+/// lines that may fall 2 em short; the flush ones and justified text the font's spaces, which
+/// stretch and shrink, with lines that may fall short by any amount, or none. Words after a space
+/// may be hyphenated, as in English.
+fn paragraph_lines(line: &str, width: f32, align: char, typeset: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox, warnings: &mut Vec<String>) -> Vec<MathBox> {
+    use paragraph::{Item, Skip};
+    let pieces = words(line);
+    if pieces.is_empty() {
+        return vec![MathBox::empty()];
+    }
+    let em = 1000.0;
+    let two = Skip { width: 0.0, stretch: 2.0 * em, fil: 0.0 };
+    let fill = Skip { width: 0.0, stretch: 0.0, fil: 1.0 };
+    // the skips at both sides, and whether the last line may end short (`\parfillskip`)
+    let (left, right, short_last) = match align {
+        'l' => (Skip::default(), two, true),
+        'L' => (Skip::default(), fill, true),
+        'r' => (two, Skip::default(), false),
+        'R' => (fill, Skip::default(), false),
+        'c' => (two, two, false),
+        'C' => (fill, fill, false),
+        _ => (Skip::default(), Skip::default(), true),
+    };
+    let ragged = matches!(align, 'l' | 'r' | 'c');
+    let hyphen_width = typeset("-", &mut Vec::new()).width;
+    let mut items = Vec::new();
+    // the text of each box item
+    let mut texts: Vec<String> = Vec::new();
+    let mut sf = 1000.0;
+    for (k, (w, spaced)) in pieces.iter().enumerate() {
+        if k > 0 {
+            items.push(if *spaced {
+                let (mut width, mut stretch, mut shrink) = if ragged { (em / 3.0, 0.0, 0.0) } else { (em / 3.0, em / 6.0, em / 9.0) };
+                if ragged && sf >= 2000.0 {
+                    width = em / 2.0;
+                } else if !ragged {
+                    if sf >= 2000.0 {
+                        width += em / 9.0;
+                    }
+                    stretch *= sf / 1000.0;
+                    shrink *= 1000.0 / sf;
+                }
+                Item::Glue { width, stretch, fil: 0.0, shrink }
+            } else {
+                // after an explicit hyphen (`Fixed-Parameter`)
+                Item::Penalty { width: 0.0, penalty: 50.0, flagged: true, hyphen: false }
+            });
+            texts.push(String::new());
+        }
+        // a word after a space, of letters and maybe punctuation after them, may be hyphenated
+        let end = w.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(w.len());
+        let breaks = if *spaced && w[end..].chars().all(|c| ".,;:!?)'-".contains(c)) { hyphen::hyphenate(&w[..end], 2, 3) } else { Vec::new() };
+        let mut from = 0;
+        for b in breaks {
+            items.push(Item::Box(typeset(&w[from..b], &mut Vec::new()).width));
+            texts.push(w[from..b].to_string());
+            items.push(Item::Penalty { width: hyphen_width, penalty: 50.0, flagged: true, hyphen: true });
+            texts.push(String::new());
+            from = b;
+        }
+        items.push(Item::Box(typeset(&w[from..], &mut Vec::new()).width));
+        texts.push(w[from..].to_string());
+        sf = space_factor(w, sf);
+    }
+    items.push(Item::Penalty { width: 0.0, penalty: 10000.0, flagged: false, hyphen: false });
+    items.push(Item::Glue { width: 0.0, stretch: 0.0, fil: if short_last { 1.0 } else { 0.0 }, shrink: 0.0 });
+    items.push(Item::Penalty { width: 0.0, penalty: -10000.0, flagged: false, hyphen: false });
+    let mut lines = paragraph::break_lines(&items, width, left, right, 3.0 * em);
+    if lines.is_empty() {
+        lines.push(paragraph::Line { start: 0, end: items.len() - 1, ratio: 0.0, hyphen: false });
+    }
+    let mut out = Vec::new();
+    for l in lines {
+        let mut b = MathBox::empty();
+        let mut word = String::new();
+        let mut flush = |word: &mut String, b: &mut MathBox, warnings: &mut Vec<String>| {
+            if !word.is_empty() {
+                b.append(&typeset(word, warnings));
+                word.clear();
+            }
+        };
+        for k in l.start..l.end.min(items.len()) {
+            match items[k] {
+                Item::Box(_) => word.push_str(&texts[k]),
+                Item::Glue { width, stretch, shrink, .. } => {
+                    flush(&mut word, &mut b, warnings);
+                    let w = if l.ratio > 0.0 { width + l.ratio * stretch } else { width + l.ratio * shrink };
+                    if w > 0.0 {
+                        b.append(&MathBox::space(w));
+                    }
+                }
+                Item::Penalty { .. } => {}
+            }
+        }
+        if l.hyphen {
+            word.push('-');
+        }
+        flush(&mut word, &mut b, warnings);
+        out.push(b);
+    }
+    out
+}
+
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
+    // the lines of a paragraph sit as the alignment says, a justified one to the left
+    let drawn = if align == 'j' { 'l' } else { align.to_ascii_lowercase() };
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
@@ -867,14 +997,13 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         // lowercase letters of English text, weighted by how often they come
         stretch *= 0.943;
     }
-    let space = 333.0f32;
     let mut boxes = Vec::new();
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
-        return Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
+        return Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
@@ -891,27 +1020,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         match text_width {
             None => boxes.push(typeset(&line, bold, sc, warnings)),
             Some(max) => {
-                let max = (max / scale / stretch) as f32;
-                let mut current: Option<MathBox> = None;
-                for (w, spaced) in words(&line) {
-                    let c = typeset(&w, bold, sc, warnings);
-                    let gap = if spaced { space } else { 0.0 };
-                    current = Some(match current {
-                        None => c,
-                        Some(mut a) if a.width + gap + c.width <= max => {
-                            if spaced {
-                                a.append(&MathBox::space(space));
-                            }
-                            a.append(&c);
-                            a
-                        }
-                        Some(a) => {
-                            boxes.push(a);
-                            c
-                        }
-                    });
-                }
-                boxes.push(current.unwrap_or_else(MathBox::empty));
+                boxes.extend(paragraph_lines(&line, (max / scale / stretch) as f32, align, &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings), warnings))
             }
         }
         skips.resize(boxes.len(), 0.0);
@@ -920,7 +1029,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         }
     }
     let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
-    Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips }
+    Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips }
 }
 
 #[cfg(test)]

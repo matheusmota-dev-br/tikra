@@ -442,9 +442,15 @@ impl Engine {
             }
         };
         let align = match self.key_text("/tikz/align").trim() {
-            "right" | "flush right" => 'r',
-            "center" | "flush center" => 'c',
-            "left" | "flush left" | "justify" => 'l',
+            // (the flush ones in capitals: they break lines otherwise)
+            "right" => 'r',
+            "flush right" => 'R',
+            "center" => 'c',
+            "flush center" => 'C',
+            "left" => 'l',
+            "flush left" => 'L',
+            "justify" => 'j',
+            "none" if text_width.is_some() => 'j',
             _ if text_width.is_some() => 'l',
             _ => 'c',
         };
