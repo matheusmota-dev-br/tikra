@@ -609,6 +609,43 @@ fn family(text: &str, font: &str, bold: bool) -> char {
 }
 
 /// The box `f` times as wide, its items moved with it (the glyphs are widened when drawn).
+/// A box scaled by `k`, and by `kx` across.
+fn resize(b: &mut MathBox, k: f32, kx: f32) {
+    use mathra::layout::Item;
+    for item in &mut b.items {
+        match item {
+            Item::Glyph { x, y, scale, .. } => {
+                *x *= kx;
+                *y *= k;
+                *scale *= k;
+            }
+            Item::Rule { x, y, width, height, .. } => {
+                *x *= kx;
+                *y *= k;
+                *width *= kx;
+                *height *= k;
+            }
+            Item::Line { x1, y1, x2, y2, thickness, .. } => {
+                *x1 *= kx;
+                *x2 *= kx;
+                *y1 *= k;
+                *y2 *= k;
+                *thickness *= k;
+            }
+            Item::Ellipse { cx, cy, rx, ry, thickness, .. } => {
+                *cx *= kx;
+                *rx *= kx;
+                *cy *= k;
+                *ry *= k;
+                *thickness *= k;
+            }
+        }
+    }
+    b.width *= kx;
+    b.height *= k;
+    b.depth *= k;
+}
+
 fn widen(mut b: MathBox, f: f32) -> MathBox {
     use mathra::layout::Item;
     for item in &mut b.items {
@@ -711,6 +748,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let mut boxes = Vec::new();
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
+    // the text as written, for the size commands `clean` takes out
+    let raw_lines: Vec<&str> = text.split("\\\\").collect();
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
@@ -718,7 +757,13 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
-    for (line, after) in manual_lines(&text, size) {
+    // the size each line is set in: the last size command up to its end (`\\ \tiny second`)
+    let mut line_sizes: Vec<f64> = Vec::new();
+    let mut so_far = font.to_string();
+    for (n, (line, after)) in manual_lines(&text, size).into_iter().enumerate() {
+        so_far.push(' ');
+        so_far.push_str(raw_lines.get(n).copied().unwrap_or(""));
+        let line_size = font_size(&so_far);
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
@@ -755,12 +800,28 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             }
         }
         skips.resize(boxes.len(), 0.0);
+        line_sizes.resize(boxes.len(), line_size);
         if let Some(s) = skips.last_mut() {
             *s = after * 2.54 / 72.27;
         }
     }
-    let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
-    Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips }
+    let mut lines: Vec<MathBox> = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
+    let line_height = 1.2 * EM_CM * size;
+    // lines of other sizes than the label's: their boxes resized, and kept apart as TeX keeps
+    // lines whose baselines are too close (`\lineskip`)
+    if raw_lines.len() == lines.len() && line_sizes.iter().any(|s| (s - size).abs() > 1e-9) {
+        for (b, s) in lines.iter_mut().zip(&line_sizes) {
+            let own = design_width(10.0 * s, family(&text, font, bold)) / stretch;
+            resize(b, (s / size) as f32, (own * s / size) as f32);
+        }
+        for k in 0..lines.len().saturating_sub(1) {
+            let need = (lines[k].depth + lines[k + 1].height) as f64 * scale + 1.0 * 2.54 / 72.27;
+            if need > line_height + skips[k] {
+                skips[k] = need - line_height;
+            }
+        }
+    }
+    Label { lines, scale, color, align, line_height, stretch, skips }
 }
 
 #[cfg(test)]
