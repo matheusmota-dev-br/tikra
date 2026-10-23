@@ -378,6 +378,10 @@ const POINTS: &[&str] = &[
     "pgfpointtransformed",
     "pgfpointarcaxesattime",
     "pgfpointintersectionsolution",
+    "pgfplotspointaxisxy",
+    "pgfplotspointaxisxyz",
+    "pgfplotspointaxisdirectionxy",
+    "pgfplotspointaxisdirectionxyz",
 ];
 
 pub fn define(e: &mut Engine) {
@@ -477,6 +481,24 @@ impl Engine {
                 let z = arg(self)?;
                 let (x, y, z) = (self.number_of(x)?, self.number_of(y)?, self.number_of(z)?);
                 self.st.x.scale(x).plus(self.st.y.scale(y)).plus(self.st.z.scale(z))
+            }
+            // pgfplots: a point of the axis being drawn (`axis cs`), or a direction in it
+            "pgfplotspointaxisxy" | "pgfplotspointaxisxyz" | "pgfplotspointaxisdirectionxy" | "pgfplotspointaxisdirectionxyz" => {
+                let n = if name.ends_with("xyz") { 3 } else { 2 };
+                let mut v = [0.0; 3];
+                for x in v.iter_mut().take(n) {
+                    let a = arg(self)?;
+                    *x = self.number_of(a)?;
+                }
+                let Some(f) = self.frame.clone() else { return Err(Error::Figure(format!("\\{name} outside an axis"))) };
+                let inverse = self.st.transform.inverse();
+                if name.contains("direction") {
+                    let d = (0..n).fold(Point::default(), |p, a| p.plus(f.e[a].scale(v[a])));
+                    inverse.apply(d).minus(inverse.apply(Point::default()))
+                } else {
+                    let l = [f.logical(0, v[0]), f.logical(1, v[1]), if n == 3 { f.logical(2, v[2]) } else { f.min[2] }];
+                    inverse.apply(f.at(l))
+                }
             }
             "pgfpointpolarxy" => {
                 let a = arg(self)?;
