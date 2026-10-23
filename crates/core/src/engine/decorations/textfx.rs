@@ -353,22 +353,27 @@ impl Run<'_> {
         }
         let name = "tikra@te@character".to_string();
         let r = e.node(NodeSpec { options, name: Some(name.clone()), at: None, text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None });
+        // the size of what the node draws, as pgf measures the picture it makes: its outline (no
+        // outer sep), with half the line width around it if it is drawn
         let width = e.nodes.get(&name).map(|info| {
-            // half the size between the outer anchors (outer sep included)
-            let half = |a: &str, b: &str| match (info.anchor(a), info.anchor(b)) {
-                (Some(p), Some(q)) => p.minus(q).norm() / 2.0,
-                _ => 0.0,
-            };
-            let (w, h) = (half("east", "west"), half("north", "south"));
-            if te.segment_from_width {
-                2.0 * w
-            } else {
-                2.0 * h
+            let mut b = crate::canvas::Canvas::default();
+            for p in info.geometry.paths.iter().filter(|p| p.layer == crate::engine::shapes::Layer::Background && matches!(p.usage, crate::engine::shapes::Usage::Node)) {
+                b.include_path(&crate::canvas::transform_segments(&p.segments, &info.transform));
+            }
+            match (b.min, b.max) {
+                (Some(lo), Some(hi)) if te.segment_from_width => (hi.x - lo.x, info.transform),
+                (Some(lo), Some(hi)) => (hi.y - lo.y, info.transform),
+                _ => (0.0, info.transform),
             }
         });
         e.nodes.remove(&name);
         e.end_group();
         let items = r?;
+        let line = items.iter().find_map(|i| match i {
+            crate::canvas::Item::Path { stroke: Some(s), .. } => Some(s.width),
+            _ => None,
+        });
+        let width = width.map(|(w, _)| w + line.unwrap_or(0.0));
         if t.is_none() {
             (self.e.canvas.min, self.e.canvas.max) = saved;
         } else {
