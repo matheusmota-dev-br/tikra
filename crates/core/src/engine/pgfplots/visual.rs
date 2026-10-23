@@ -960,12 +960,16 @@ fn error_bars(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Result<(
 pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
     e.begin_group();
     let r = (|| -> Result<(), Error> {
+        // the mark size is the plot's: a `mark size` in `every mark` comes too late for pgfplots'
+        // marks (as the size styles' `every mark/.append style={mark size=8}` shows)
+        let plot_size = std::cell::Cell::new(2.0 * PT);
         let setup = |e: &mut Engine| -> Result<(), Error> {
             e.st.mode = Default::default();
             e.st.pending = Transform::default();
             e.process_keys(m.style.clone(), Some("/pgfplots"))?;
             e.st.apply_pending();
             e.st.pending = Transform::default();
+            plot_size.set(e.st.mark_size);
             e.process_keys(toks("every mark"), Some("/tikz"))?;
             if m.scatter {
                 if let Some(v) = keys::value_tokens(e, "/pgfplots/scatter/use mapped color") {
@@ -978,15 +982,15 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         setup(e)?;
         let Some(name) = e.st.plot_mark.clone() else { return Ok(()) };
         let local = e.st.pending;
-        let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * PT);
-        let repeat = keys::number(e, "/tikz/mark repeat").unwrap_or(1.0).max(1.0) as usize;
-        let phase = keys::number(e, "/tikz/mark phase").unwrap_or(1.0).max(1.0) as usize;
+        let size = plot_size.get();
+        let repeat = keys::number(e, "/tikz/mark repeat").map_or(e.st.mark_repeat, |r| r as usize).max(1);
+        let phase = keys::number(e, "/tikz/mark phase").map_or(e.st.mark_phase, |r| r as usize).max(1);
         let indices: Vec<usize> = match keys::value_tokens(e, "/tikz/mark indices") {
             Some(v) => {
                 let list = e.tex.expand_fully(v)?;
                 super::super::foreach_items(&list).into_iter().filter_map(|i| tex::tokens_to_string(&i).trim().parse().ok()).collect()
             }
-            None => Vec::new(),
+            None => e.st.mark_indices.clone().unwrap_or_default(),
         };
         let chosen = m.points.iter().copied().enumerate().filter(|(i, _)| {
             let k = i + 1;

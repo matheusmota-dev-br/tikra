@@ -318,7 +318,7 @@ pub fn draw(e: &mut Engine, p: &Plot, f: &Frame, index: usize) -> Result<(), Err
             e.st.key_path = "/tikz".into();
             e.process_keys(super::toks("/pgfplots/boxplot/every average/.try"), Some("/tikz"))?;
             if let Some(name) = e.st.plot_mark.clone() {
-                let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * crate::PT);
+                let size = e.st.mark_size;
                 super::visual::draw_mark_set(e, &name, size, &crate::scene::Transform::default(), std::iter::once(at))?;
             }
             Ok(())

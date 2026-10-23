@@ -273,11 +273,12 @@ fn image(e: &mut Engine, spec: &[Token]) -> Result<(), Error> {
                 e.use_path(segs, "legend")?;
             }
             if let Some(mark) = e.st.plot_mark.clone() {
+                // the plot's mark size, not one of `every mark` (as for the plot's marks)
+                let size = e.st.mark_size;
                 e.st.mode = Default::default();
                 e.st.pending = Transform::default();
                 e.process_keys(toks("every mark"), Some("/tikz"))?;
                 let local = e.st.pending;
-                let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * PT);
                 visual::draw_mark_set(e, &mark, size, &local, std::iter::once(pts[1]))?;
             }
         }
