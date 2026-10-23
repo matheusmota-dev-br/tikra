@@ -1199,6 +1199,11 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
     let mut at = None;
     loop {
         match next(e, depth)? {
+            // options after a coordinate's name are the path's (`\coordinate (root) [grow cyclic] child …`)
+            Some(t) if t.is_char('[') && coordinate && name.is_some() => {
+                e.tex.back(t);
+                break;
+            }
             Some(t) if t.is_char('[') => {
                 if !options.is_empty() {
                     options.push(Token::other(','));
