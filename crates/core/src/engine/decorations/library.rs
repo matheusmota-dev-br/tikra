@@ -1481,10 +1481,11 @@ impl<'a> Run<'a> {
                 let mut keys = crate::engine::nodes::EngineKeys(self.e);
                 let mut input = crate::engine::shapes::Input {
                     parts: &boxes,
-                    inner_xsep: 0.0,
-                    inner_ysep: 0.0,
-                    minimum_width: 2.0 * w * PT,
-                    minimum_height: 2.0 * h * PT,
+                    // pgf's shape of an arbitrary size, then stretched to the decoration's
+                    inner_xsep: 50.0 * PT,
+                    inner_ysep: 50.0 * PT,
+                    minimum_width: PT,
+                    minimum_height: PT,
                     outer_xsep: 0.0,
                     outer_ysep: 0.0,
                     aspect: 1.0,
@@ -1498,9 +1499,24 @@ impl<'a> Run<'a> {
                     self.rectangle(&t, w, h);
                     return;
                 };
-                let at = g.anchor(&anchor).unwrap_or(g.center);
+                // the path stretched to be as wide and high as the shape's size, as pgf scales the
+                // background it measured
+                let mut bounds = crate::canvas::Canvas::default();
+                for path in g.paths.iter().filter(|p| matches!(p.layer, crate::engine::shapes::Layer::Background) && matches!(p.usage, crate::engine::shapes::Usage::Node)) {
+                    bounds.include_path(&path.segments);
+                }
+                let stretch = match (bounds.min, bounds.max) {
+                    (Some(lo), Some(hi)) if hi.x - lo.x > 1e-9 && hi.y - lo.y > 1e-9 => {
+                        let c = g.center;
+                        Transform::translation(c.x, c.y)
+                            .compose(&Transform::scaling(2.0 * w * PT / (hi.x - lo.x), 2.0 * h * PT / (hi.y - lo.y)))
+                            .compose(&Transform::translation(-c.x, -c.y))
+                    }
+                    _ => Transform::default(),
+                };
+                let at = stretch.apply(g.anchor(&anchor).unwrap_or(g.center));
                 // node coordinates are cm, the decoration's pt
-                let m = base.compose(&Transform::scaling(1.0 / PT, 1.0 / PT)).compose(&Transform::translation(-at.x, -at.y));
+                let m = base.compose(&Transform::scaling(1.0 / PT, 1.0 / PT)).compose(&Transform::translation(-at.x, -at.y)).compose(&stretch);
                 for path in g.paths.iter().filter(|p| matches!(p.layer, crate::engine::shapes::Layer::Background) && matches!(p.usage, crate::engine::shapes::Usage::Node)) {
                     for seg in &path.segments {
                         match *seg {
