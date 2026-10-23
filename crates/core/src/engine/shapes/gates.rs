@@ -547,13 +547,19 @@ pub fn gate_iec(input: &mut Input, kind: &str) -> Geometry {
     let symbol = symbol_of(input, kind);
     let b = input.keys.text_box(&symbol);
     let align = input.keys.text("/pgf/logic gate IEC symbol align");
-    let mid = -(b.ht - b.dp) / 2.0;
-    let at = match align.trim() {
-        "bottom" => p(-b.wd / 2.0, -ihh + b.dp),
-        "left" => p(-ihw, mid),
-        "right" => p(ihw - b.wd, mid),
-        _ => p(-b.wd / 2.0, ihh - b.ht),
-    };
+    // each word moves the point to that side and puts that side of the text there, as
+    // `\pgftext[bottom,right]` (`top` and `bottom` the text's top and bottom, not its baseline)
+    let (mut x, mut y) = (-b.wd / 2.0, -(b.ht - b.dp) / 2.0);
+    for word in align.split(',').map(str::trim) {
+        match word {
+            "top" => y = ihh - b.ht,
+            "bottom" => y = -ihh + b.dp,
+            "left" => x = -ihw,
+            "right" => x = ihw - b.wd,
+            _ => {}
+        }
+    }
+    let at = p(x, y);
     let color = input.keys.text("/pgf/logic gate IEC symbol color");
     g.texts.push(ShapeText { tex: symbol, at, color: Some(color).filter(|c| !c.trim().is_empty()) });
     g
