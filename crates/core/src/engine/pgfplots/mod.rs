@@ -91,6 +91,8 @@ enum C {
     Colormaptodatafile,
     Colormaptoshadingspec,
     Tikzfillbetween,
+    /// the fillbetween library's commands on soft paths
+    Softpath,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -107,6 +109,12 @@ const COMMANDS: &[(&str, C)] = &[
     ("pgfplotscolormaptodatafile", C::Colormaptodatafile),
     ("pgfplotscolormaptoshadingspec", C::Colormaptoshadingspec),
     ("tikzfillbetween", C::Tikzfillbetween),
+    ("tikzgetnamedpath", C::Softpath),
+    ("pgfcomputeintersectionsegments", C::Softpath),
+    ("pgfgetintersectionsegmentpath", C::Softpath),
+    ("pgfsetpathandBB", C::Softpath),
+    ("pgfaddpathandBB", C::Softpath),
+    ("pgfpathreplacefirstmoveto", C::Softpath),
 ];
 
 /// The environments that are axes.
@@ -242,7 +250,14 @@ impl Engine {
         if self.axis.is_none()
             && !matches!(
                 cmd,
-                C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread | C::Colormaptodatafile | C::Colormaptoshadingspec | C::Tikzfillbetween
+                C::Pgfplotsinvokeforeach
+                    | C::Closedcycle
+                    | C::Nextgroupplot
+                    | C::Pgfplotstableread
+                    | C::Colormaptodatafile
+                    | C::Colormaptoshadingspec
+                    | C::Tikzfillbetween
+                    | C::Softpath
             )
         {
             let rest = self.skip_statement()?;
@@ -311,6 +326,7 @@ impl Engine {
                 self.end_group();
                 r
             }
+            C::Softpath => fillbetween::soft_command(self, COMMANDS[(id - BASE) as usize].0),
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}
                 let list = self.argument()?;

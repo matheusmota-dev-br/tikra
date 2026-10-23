@@ -382,3 +382,82 @@ pub fn intersection_segments(e: &mut Engine, v: Option<Vec<Token>>) -> Result<()
     e.tex.set_meaning(&Token::cs("tikra@insertpath"), super::super::macro_tokens(body), false);
     Ok(())
 }
+
+/// A soft path in a macro (`\pgfretval`): the macro holds a key into the engine's saved paths.
+pub fn softpath(e: &mut Engine, segs: Vec<Segment>) -> tex::Meaning {
+    let key = format!("@softpath{}", e.saved_paths.len());
+    e.saved_paths.insert(key.clone(), segs);
+    super::super::macro_from(&key)
+}
+
+/// The soft path a macro holds, if it holds one.
+pub fn softpath_of(e: &Engine, macro_name: &Token) -> Option<Vec<Segment>> {
+    let tex::Meaning::Macro(m) = e.tex.meaning(macro_name) else { return None };
+    let text: String = m.body.iter().filter_map(|b| if let tex::Body::Tok(t) = b { Some(tex::tokens_to_string(std::slice::from_ref(t))) } else { None }).collect();
+    text.starts_with("@softpath").then(|| e.saved_paths.get(&text).cloned()).flatten()
+}
+
+/// The first control sequence of an argument (`\pgfsetpath\A`, `{\A}`).
+fn macro_arg(e: &mut Engine) -> Result<Token, Error> {
+    let arg = e.argument()?;
+    Ok(arg.into_iter().find(|t| matches!(t, Token::Cs(_))).unwrap_or_else(|| Token::cs("relax")))
+}
+
+/// The low-level commands of the fillbetween library on soft paths: `\tikzgetnamedpath{name}`,
+/// `\pgfcomputeintersectionsegments{1}` (the paths of the last `\pgfintersectionofpaths` cut where
+/// they cross), `\pgfgetintersectionsegmentpath{1}{0}`, `\pgfsetpathandBB\A`,
+/// `\pgfpathreplacefirstmoveto\A` and `\pgfaddpathandBB\A`.
+pub fn soft_command(e: &mut Engine, name: &str) -> Result<(), Error> {
+    let retval = Token::cs("pgfretval");
+    match name {
+        "tikzgetnamedpath" => {
+            let arg = e.argument()?;
+            let n = e.tex.expand_to_string(arg)?;
+            let Some(segs) = e.named_paths.get(n.trim()).cloned() else {
+                e.warn(format!("\\tikzgetnamedpath: no path named '{}'", n.trim()));
+                return Ok(());
+            };
+            let m = softpath(e, segs);
+            e.tex.set_meaning(&retval, m, false);
+        }
+        "pgfcomputeintersectionsegments" => {
+            let arg = e.argument()?;
+            let k = e.tex.expand_to_string(arg)?;
+            let k = k.trim().to_string();
+            let path = e.saved_paths.get(&format!("@intersection path {k}")).cloned().unwrap_or_default();
+            let line = polyline(&path);
+            let pieces = if line.is_empty() { Vec::new() } else { cut(&line, &e.pgf_solutions.clone()) };
+            for (j, piece) in pieces.iter().enumerate() {
+                e.saved_paths.insert(format!("@intersection segment {k} {j}"), path_of(piece));
+            }
+        }
+        "pgfgetintersectionsegmentpath" => {
+            let (a, b) = (e.argument()?, e.argument()?);
+            let (k, j) = (e.tex.expand_to_string(a)?, e.tex.expand_to_string(b)?);
+            let segs = e.saved_paths.get(&format!("@intersection segment {} {}", k.trim(), j.trim())).cloned().unwrap_or_default();
+            let m = softpath(e, segs);
+            e.tex.set_meaning(&retval, m, false);
+        }
+        "pgfsetpathandBB" | "pgfaddpathandBB" => {
+            let t = macro_arg(e)?;
+            let segs = softpath_of(e, &t).unwrap_or_default();
+            if name == "pgfsetpathandBB" {
+                e.pgf_path = super::super::basic::PgfPath::default();
+            }
+            for s in segs {
+                e.pgf_add(s);
+            }
+        }
+        "pgfpathreplacefirstmoveto" => {
+            let t = macro_arg(e)?;
+            let mut segs = softpath_of(e, &t).unwrap_or_default();
+            if let Some(Segment::MoveTo(p)) = segs.first().copied() {
+                segs[0] = Segment::LineTo(p);
+            }
+            let m = softpath(e, segs);
+            e.tex.set_meaning(&t, m, false);
+        }
+        _ => {}
+    }
+    Ok(())
+}

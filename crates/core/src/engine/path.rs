@@ -688,7 +688,14 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                     None => Vec::new(),
                 };
-                e.run_tokens(code)?;
+                // a path the code builds on the basic layer (`\pgfsetpathandBB`) becomes the path
+                let outer = std::mem::take(&mut e.pgf_path);
+                let r = e.run_tokens(code);
+                let built = std::mem::replace(&mut e.pgf_path, outer);
+                r?;
+                if !built.segments.is_empty() {
+                    b.segs = built.segments;
+                }
             }
             Token::Cs(name) if matches!(e.tex.meaning(&t), Meaning::Native(_)) && matches!(&**name, "node" | "coordinate") => {
                 // `\node` inside a path reads as `node`

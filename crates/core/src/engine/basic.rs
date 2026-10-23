@@ -1338,7 +1338,12 @@ impl Engine {
                 let name = m.iter().find_map(|t| if let Token::Cs(n) = t { Some(n.to_string()) } else { None }).unwrap_or_default();
                 if cmd == B::GetPath {
                     self.saved_paths.insert(format!("pgf@{name}"), self.pgf_path.segments.clone());
-                } else if let Some(segs) = self.saved_paths.get(&format!("pgf@{name}")).cloned() {
+                } else if let Some(segs) = m
+                    .iter()
+                    .find(|t| matches!(t, Token::Cs(_)))
+                    .and_then(|t| super::pgfplots::fillbetween::softpath_of(self, t))
+                    .or_else(|| self.saved_paths.get(&format!("pgf@{name}")).cloned())
+                {
                     self.pgf_path = PgfPath::default();
                     for s in segs {
                         self.pgf_add(s);
@@ -1361,6 +1366,10 @@ impl Engine {
                     r?;
                 }
                 self.pgf_solutions = super::intersections::intersections(&paths[0], &paths[1]);
+                // kept for `\pgfcomputeintersectionsegments`
+                for (k, p) in paths.iter().enumerate() {
+                    self.saved_paths.insert(format!("@intersection path {}", k + 1), p.clone());
+                }
                 let n = self.pgf_solutions.len();
                 self.tex.set_meaning(&Token::cs("pgfintersectionsolutions"), super::macro_tokens(tikra_tokens(&n.to_string())), false);
             }
