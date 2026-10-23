@@ -982,6 +982,84 @@ fn paragraph_lines(line: &str, width: f32, align: char, after_glue: bool, typese
     out
 }
 
+/// A paragraph broken into lines as `paragraph_lines` does, with the lists in it (`itemize`,
+/// `enumerate`) set as LaTeX sets them in a minipage: each item's lines 2.5 em (25 pt) in, its
+/// label ending half an em (5 pt) before them, `\topsep` around the list and `\itemsep` and
+/// `\parsep` between items, as the font size has them. Each line with the space (pt) after it
+/// besides the baselines'. `units` turns pt into the lines' units.
+#[allow(clippy::too_many_arguments)]
+fn list_lines(
+    text: &str,
+    width: f32,
+    align: char,
+    after_glue: bool,
+    size: f64,
+    units: &dyn Fn(f64) -> f32,
+    typeset: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox,
+    warnings: &mut Vec<String>,
+) -> Vec<(MathBox, f64)> {
+    let start = ["itemize", "enumerate"].iter().filter_map(|env| text.find(&format!("\\begin{{{env}}}")).map(|i| (i, *env))).min();
+    let Some((at, env)) = start else {
+        return paragraph_lines(text, width, align, after_glue, typeset, warnings).into_iter().map(|b| (b, 0.0)).collect();
+    };
+    let open = format!("\\begin{{{env}}}");
+    let close = format!("\\end{{{env}}}");
+    let body_start = at + open.len();
+    let body_end = text[body_start..].find(&close).map_or(text.len(), |e| body_start + e);
+    let (before, body, after) = (&text[..at], &text[body_start..body_end], text.get(body_end + close.len()..).unwrap_or(""));
+    // LaTeX's \@listi of the size: \topsep, \parsep (and \itemsep, the same)
+    let (topsep, parsep) = if size >= 1.0 {
+        (8.0, 4.0)
+    } else if size >= 0.9 {
+        (4.0, 2.0)
+    } else {
+        (3.0, 2.0)
+    };
+    let mut out: Vec<(MathBox, f64)> = Vec::new();
+    if !before.trim().is_empty() {
+        out.extend(paragraph_lines(before.trim(), width, align, after_glue, typeset, warnings).into_iter().map(|b| (b, 0.0)));
+    }
+    let (margin, label_end) = (units(25.0), units(20.0));
+    for (n, item) in body.split("\\item").skip(1).enumerate() {
+        // the gap before the item: \topsep and \parsep before the first, \itemsep and \parsep
+        if let Some(last) = out.last_mut() {
+            last.1 += if n == 0 { topsep + parsep } else { 2.0 * parsep };
+        }
+        let mut item = item.trim();
+        let label = match item.strip_prefix('[').and_then(|r| r.split_once(']')) {
+            Some((l, rest)) => {
+                item = rest.trim();
+                l.to_string()
+            }
+            None if env == "enumerate" => format!("{}.", n + 1),
+            None => "$\\bullet$".to_string(),
+        };
+        let label = typeset(&label, warnings);
+        // (a list sets `\rightskip` to LaTeX's `\@rightskip`: ragged right text is flush there)
+        let item_align = if align == 'l' { 'L' } else { align };
+        for (k, line) in paragraph_lines(item, width - margin, item_align, false, typeset, warnings).into_iter().enumerate() {
+            let mut b = MathBox::empty();
+            if k == 0 {
+                let left = (label_end - label.width).max(0.0);
+                b.append(&MathBox::space(left));
+                b.append(&label);
+                b.append(&MathBox::space(margin - left - label.width));
+            } else {
+                b.append(&MathBox::space(margin));
+            }
+            b.append(&line);
+            out.push((b, 0.0));
+        }
+    }
+    if let Some(last) = out.last_mut() {
+        last.1 += topsep;
+    }
+    if !after.trim().is_empty() {
+        out.extend(list_lines(after.trim(), width, align, false, size, units, typeset, warnings));
+    }
+    out
+}
+
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
     // the lines of a paragraph sit as the alignment says, a justified one to the left
@@ -1038,18 +1116,28 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
                 let b = scaled(typeset(&line, bold, sc, warnings), (sizes[k] / size) as f32);
                 boxes.push(widen(b, (design_width(10.0 * sizes[k], fam) / design_width(10.0 * size, fam)) as f32));
             }
-            Some(max) => boxes.extend(paragraph_lines(
-                &line,
-                (max / scale / stretch) as f32,
-                align,
-                k == 0 && lead_glue,
-                &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings),
-                warnings,
-            )),
+            Some(max) => {
+                let units = |pt: f64| (pt / (10.0 * size) * 1000.0 / stretch) as f32;
+                let lines = list_lines(
+                    &line,
+                    (max / scale / stretch) as f32,
+                    align,
+                    k == 0 && lead_glue,
+                    size,
+                    &units,
+                    &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings),
+                    warnings,
+                );
+                for (b, skip) in lines {
+                    boxes.push(b);
+                    skips.resize(boxes.len(), 0.0);
+                    *skips.last_mut().unwrap() = skip * 2.54 / 72.27;
+                }
+            }
         }
         skips.resize(boxes.len(), 0.0);
         if let Some(s) = skips.last_mut() {
-            *s = after * 2.54 / 72.27;
+            *s += after * 2.54 / 72.27;
         }
     }
     let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
@@ -1121,5 +1209,16 @@ mod tests {
         assert!((font_size("\\large x") - 1.2).abs() < 1e-9);
         let r = compose_label("$m_1$ \\\\ second", "", None, 'c', Color::BLACK, &mut w);
         assert_eq!(r.lines.len(), 2);
+    }
+
+    #[test]
+    fn lists() {
+        let mut w = Vec::new();
+        let r = compose_label("Steps: \\begin{enumerate} \\item one \\item two \\end{enumerate}", "", Some(4.0), 'l', Color::BLACK, &mut w);
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(r.lines.len(), 3);
+        // the items 2.5 em in, and space around them
+        assert!(r.lines[1].width > r.lines[0].width, "{} {}", r.lines[1].width, r.lines[0].width);
+        assert!(r.skips[0] > 0.0 && r.skips[1] > 0.0);
     }
 }
