@@ -688,6 +688,9 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     // the coordinates, stacked
     let mut points: Vec<PlotPoints> = Vec::new();
     let mut stack_base: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    // `stack negative=separate`: the negative values stack on their own, from zero down
+    let separate = e.pv("stack negative") == "separate";
+    let mut stack_base_neg: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let mut dmin = [f64::INFINITY; 3];
     let mut dmax = [f64::NEG_INFINITY; 3];
     let mut boxplots = 0usize;
@@ -740,11 +743,16 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
         if let Some(dir) = p.stack {
             let a = if dir == 'x' { 0 } else { 1 };
-            let b = &mut stack_base[a];
             for (i, c) in v.iter_mut().enumerate() {
+                let val = if p.stack_minus { -c[a] } else { c[a] };
+                for list in [&mut stack_base[a], &mut stack_base_neg[a]] {
+                    if list.len() <= i {
+                        list.resize(i + 1, 0.0);
+                    }
+                }
+                let b = if separate && val < 0.0 { &mut stack_base_neg[a] } else { &mut stack_base[a] };
                 let prev = b.get(i).copied().unwrap_or(0.0);
                 base[i] = prev;
-                let val = if p.stack_minus { -c[a] } else { c[a] };
                 c[a] = prev + if val.is_finite() { val } else { 0.0 };
                 if i < b.len() {
                     b[i] = c[a];
