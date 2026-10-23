@@ -127,6 +127,7 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
+    Fbox,
     Hskip,
     FontSize,
     FontSeries,
@@ -262,6 +263,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
+    ("fbox", Cmd::Fbox),
     ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
@@ -1467,6 +1469,39 @@ impl Engine {
                 Ok(())
             }
             // `\hspace{1cm}` (or `\hspace*`) between pictures: the space TeX leaves there
+            // `\fbox{…}`: a frame of `\fboxrule` around the pictures, `\fboxsep` away
+            Cmd::Fbox => {
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    let sep = self.tex.dimens.get(&247).copied().unwrap_or(0) as f64 / 65536.0 * crate::PT;
+                    let rule = self.tex.dimens.get(&246).copied().unwrap_or(0) as f64 / 65536.0 * crate::PT;
+                    for b in &mut self.boxes[start..] {
+                        let (Some(lo), Some(hi)) = (b.canvas.min, b.canvas.max) else { continue };
+                        let d = sep + rule / 2.0;
+                        let (lo, hi) = (Point::new(lo.x - d, lo.y - d), Point::new(hi.x + d, hi.y + d));
+                        use crate::scene::Segment as S;
+                        let segments = vec![S::MoveTo(lo), S::LineTo(Point::new(hi.x, lo.y)), S::LineTo(hi), S::LineTo(Point::new(lo.x, hi.y)), S::Close];
+                        let stroke = crate::canvas::Stroke {
+                            color: crate::color::Color::BLACK,
+                            width: rule,
+                            dash: None,
+                            cap: crate::canvas::Cap::Butt,
+                            join: crate::canvas::Join::Miter,
+                            miter_limit: 10.0,
+                            opacity: 1.0,
+                        };
+                        b.canvas.items.push(Item::Path { segments, fill: None, stroke: Some(stroke) });
+                        b.canvas.include(Point::new(lo.x - rule / 2.0, lo.y - rule / 2.0));
+                        b.canvas.include(Point::new(hi.x + rule / 2.0, hi.y + rule / 2.0));
+                    }
+                }
+                Ok(())
+            }
             Cmd::Hspace => {
                 match self.tex.next_nonspace() {
                     Some(t) if t.is_char('*') => {}
