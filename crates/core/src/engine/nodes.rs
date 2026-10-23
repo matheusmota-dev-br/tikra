@@ -29,6 +29,9 @@ pub struct NodeSetup {
     pub pos: Option<f64>,
     pub sloped: bool,
     pub transform_shape: bool,
+    /// `transform shape nonlinear`: the node turned and scaled as the nonlinear transformation
+    /// bends the picture where it is
+    pub transform_shape_nonlinear: bool,
     pub name: Option<String>,
     /// `label=` and `pin=` values, in order; true for a pin
     pub labels: Vec<(Vec<Token>, bool)>,
@@ -629,6 +632,19 @@ impl Engine {
         let mut linear = Transform::default();
         if self.st.node.transform_shape {
             linear = Transform { e: 0.0, f: 0.0, ..self.st.transform };
+        }
+        // under a nonlinear transformation the node goes where its point goes; with `transform
+        // shape nonlinear` it is also turned and scaled as the transformation bends the picture there
+        let mut target = target;
+        if !self.st.nonlinear.is_empty() {
+            let moved = self.nonlinear_point(target)?;
+            if self.st.node.transform_shape_nonlinear {
+                let h = 0.01;
+                let dx = self.nonlinear_point(target.plus(Point::new(h, 0.0)))?.minus(moved).scale(1.0 / h);
+                let dy = self.nonlinear_point(target.plus(Point::new(0.0, h)))?.minus(moved).scale(1.0 / h);
+                linear = Transform { a: dx.x, b: dx.y, c: dy.x, d: dy.y, e: 0.0, f: 0.0 }.compose(&linear);
+            }
+            target = moved;
         }
         if self.st.node.sloped {
             let angle = direction.y.atan2(direction.x).to_degrees();

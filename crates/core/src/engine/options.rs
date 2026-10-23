@@ -1324,6 +1324,10 @@ keyfn!(k_transform_shape, |e, _v| {
     e.st_node().transform_shape = true;
     Ok(())
 });
+keyfn!(k_transform_shape_nonlinear, |e, v| {
+    e.st_node().transform_shape_nonlinear = text(e, &v)?.trim() != "false";
+    Ok(())
+});
 keyfn!(k_name, |e, v| {
     let s = text(e, &v)?;
     e.st_node().name = Some(s);
@@ -2191,6 +2195,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/at end", k_at_end),
     ("/tikz/sloped", k_sloped),
     ("/tikz/transform shape", k_transform_shape),
+    ("/tikz/transform shape nonlinear", k_transform_shape_nonlinear),
     ("/tikz/name", k_name),
     ("/tikz/at", k_at),
     ("/tikz/label", k_label),
