@@ -529,11 +529,38 @@ impl Engine {
         open.extend(tikra_tokens("]\\tikzdatavisualizationset{every data set label/.try}"));
         self.run_tokens(open)?;
         let text = crate::keys::value(&self.tex, "/tikz/data visualization/visualizer label options/text").unwrap_or_default();
+        let option = |e: &mut Engine, key: &str| e.key_text(&format!("/tikz/data visualization/visualizer label options/{key}")).trim().to_string();
+        // `pin in data`: the label moved a pin's distance off the line, to its left (right with
+        // `text'`) or at `pin angle`, with a pin's edge to the place
+        let mut shift = String::new();
+        let mut pin_edge = String::new();
+        if !option(self, "tikra pin").is_empty() {
+            let length = option(self, "pin length");
+            let sign = if option(self, "tikra pin sign") == "-" { -1.0 } else { 1.0 };
+            let distance = self.length(&length)? * sign;
+            let at = self.lookup_node("label visualizer coordinate").map(|n| n.center());
+            let before = self.lookup_node("label visualizer coordinate'").map(|n| n.center());
+            let angle = option(self, "pin angle");
+            let d = if !angle.is_empty() {
+                let a = self.number(&angle)?.to_radians();
+                Some(Point::new(a.cos(), a.sin()))
+            } else if let (Some(a), Some(b)) = (at, before) {
+                let v = b.minus(a);
+                let n = v.norm();
+                (n > 1e-9).then(|| Point::new(v.y / n, -v.x / n))
+            } else {
+                None
+            };
+            if let Some(d) = d {
+                shift = format!(",shift={{({}cm,{}cm)}},name=tikra@dv@pin", d.x * distance, d.y * distance);
+                pin_edge = "\\path (tikra@dv@pin) edge[solid,every pin edge] (label visualizer coordinate);".into();
+            }
+        }
         let mut path = tikra_tokens(&format!(
-            "\\path[/data point/set={{{name}}},/utils/exec=\\tikra@dv@stylesignal,/tikz/data visualization/.cd,every label in data/.try] (label visualizer coordinate') -- (label visualizer coordinate) node[auto,at end,/tikz/data visualization/node styling]"
+            "\\path[/data point/set={{{name}}},/utils/exec=\\tikra@dv@stylesignal,/tikz/data visualization/.cd,every label in data/.try] (label visualizer coordinate') -- (label visualizer coordinate) node[auto,at end,/tikz/data visualization/node styling{shift}]"
         ));
         path.extend(group(text));
-        path.extend(tikra_tokens(";\\end{scope}"));
+        path.extend(tikra_tokens(&format!(";{pin_edge}\\end{{scope}}")));
         self.run_tokens(path)
     }
 }
