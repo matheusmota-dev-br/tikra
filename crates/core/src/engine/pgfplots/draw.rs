@@ -1906,7 +1906,7 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
         }
     }
     if keys::flag(e, &format!("/pgfplots/{c}majorticks")) {
-        let m: Vec<f64> = visible(f, a, list).into_iter().map(|(_, t)| t).filter(|t| !obscured(s, a, *t)).collect();
+        let m: Vec<f64> = visible(f, a, list).into_iter().map(|(_, t)| t).filter(|t| !obscured(e, s, a, *t)).collect();
         let len = keys::length(e, "/pgfplots/major tick length").unwrap_or(0.15);
         kinds.push(("major", m, len));
     }
@@ -1937,10 +1937,10 @@ fn tick_lines(e: &mut Engine, s: &Setup, a: usize, list: &[f64], extra: &str) ->
 }
 
 /// Ticks of a centered axis line that would cross the other axis line are hidden
-/// (`hide obscured x ticks`).
-fn obscured(s: &Setup, a: usize, t: f64) -> bool {
+/// (`hide obscured x ticks`); none when that line is shifted.
+fn obscured(e: &mut Engine, s: &Setup, a: usize, t: f64) -> bool {
     let f = &s.frame;
-    if s.line[a] != "center" || f.three_d {
+    if s.line[a] != "center" || f.three_d || line_shift(e, f, 1 - a) != 0.0 {
         return false;
     }
     let tol = 0.05 * PT / f.e[a].norm().max(f64::MIN_POSITIVE);
@@ -2395,7 +2395,7 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
         }
     } else {
         for (k, t) in &vis {
-            if obscured(s, a, *t) {
+            if obscured(e, s, a, *t) {
                 continue;
             }
             let next = list.get(k + 1).copied();
