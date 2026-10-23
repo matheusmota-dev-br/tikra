@@ -2471,6 +2471,15 @@ impl Tex {
                             self.named_boxes.retain(|(m, _)| *m != n);
                             self.named_boxes.push((n, body));
                         }
+                    } else if x.is_cs("box") || x.is_cs("copy") {
+                        // another box register's content: the register read (by name or number)
+                        match self.next_nonspace() {
+                            Some(Token::Cs(_)) | None => {}
+                            Some(other) => {
+                                self.back(other);
+                                let _ = self.scan_int()?;
+                            }
+                        }
                     } else {
                         self.back(x);
                     }

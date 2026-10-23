@@ -37,6 +37,7 @@ pub mod three_d;
 pub mod tikzmath;
 pub mod trees;
 pub mod turtle;
+pub mod user_shapes;
 pub mod views;
 
 use std::collections::HashMap;
@@ -75,6 +76,9 @@ pub enum Cmd {
     DeclarePatternColored,
     SetFillPattern,
     TikzDeclarePattern,
+    DeclareShape,
+    PositionNodeLater,
+    PositionNodeNow,
     DeclareShadingH,
     DeclareShadingV,
     DeclareShadingR,
@@ -182,6 +186,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfdeclarepatterninherentlycolored", Cmd::DeclarePatternColored),
     ("pgfsetfillpattern", Cmd::SetFillPattern),
     ("tikzdeclarepattern", Cmd::TikzDeclarePattern),
+    ("pgfdeclareshape", Cmd::DeclareShape),
+    ("pgfpositionnodelater", Cmd::PositionNodeLater),
+    ("pgfpositionnodenow", Cmd::PositionNodeNow),
     ("pgfdeclarehorizontalshading", Cmd::DeclareShadingH),
     ("pgfdeclareverticalshading", Cmd::DeclareShadingV),
     ("pgfdeclareradialshading", Cmd::DeclareShadingR),
@@ -423,6 +430,10 @@ pub struct Engine {
     pub pgf_solutions: Vec<Point>,
     /// patterns declared by the basic layer
     pub user_patterns: HashMap<String, patterns::UserPattern>,
+    /// shapes declared by `\pgfdeclareshape`
+    pub user_shapes: HashMap<String, user_shapes::UserShape>,
+    /// the node `\pgfpositionnodelater` kept: what it draws, where its anchors are, its name
+    pub later_node: Option<(Vec<Item>, nodes::NodeInfo, Option<String>)>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
     /// the shading a node's text is (`\pgfuseshading{name}`), with its half width and height (cm)
@@ -545,6 +556,8 @@ impl Clone for Engine {
             pgf_solutions: self.pgf_solutions.clone(),
             anim_shifts: Vec::new(),
             user_patterns: self.user_patterns.clone(),
+            user_shapes: self.user_shapes.clone(),
+            later_node: None,
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -626,6 +639,8 @@ impl Engine {
             pgf_solutions: Vec::new(),
             anim_shifts: Vec::new(),
             user_patterns: HashMap::new(),
+            user_shapes: HashMap::new(),
+            later_node: None,
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
@@ -1118,6 +1133,15 @@ impl Engine {
             Cmd::DeclarePatternColored => self.declare_pattern(true),
             Cmd::SetFillPattern => self.set_fill_pattern(),
             Cmd::TikzDeclarePattern => self.tikz_declare_pattern(),
+            Cmd::DeclareShape => self.declare_shape(),
+            // `\pgfpositionnodelater{macro}`: the nodes of the group kept, not drawn (the macro,
+            // which would save them, is not run: `\pgfpositionnodenow` places the last one)
+            Cmd::PositionNodeLater => {
+                let _ = self.argument()?;
+                self.st.position_later = true;
+                Ok(())
+            }
+            Cmd::PositionNodeNow => self.position_node_now(),
             Cmd::DeclareShadingH => self.declare_shading('h'),
             Cmd::DeclareShadingV => self.declare_shading('v'),
             Cmd::DeclareShadingR => self.declare_shading('r'),
@@ -2426,7 +2450,8 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                         it.translate(d);
                         out.items.push(it);
                     }
-                    out.include(min.plus(d));
+                    // (what glue moved left of the line's start, `\hskip-1cm`, is off the page)
+                    out.include(Point::new((min.x + d.x).max(0.0), min.y + d.y));
                     out.include(max.plus(d));
                     x += max.x - min.x;
                     started = true;

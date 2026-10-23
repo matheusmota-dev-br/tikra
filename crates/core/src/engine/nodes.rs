@@ -395,6 +395,29 @@ impl Engine {
 
     /// The node's drawing, and what its labels need: the node, their specifications, and the last
     /// node to leave after them.
+    /// `\pgfpositionnodenow{point}`: the node `\pgfpositionnodelater` kept, moved from the origin
+    /// it was made at to the point, drawn and known by its name.
+    pub fn position_node_now(&mut self) -> Result<(), Error> {
+        let p = self.point_arg()?;
+        let d = self.st.transform.apply(p);
+        let Some((items, mut info, name)) = self.later_node.take() else {
+            self.warn("\\pgfpositionnodenow: no node kept by \\pgfpositionnodelater".to_string());
+            return Ok(());
+        };
+        info.transform = Transform::translation(d.x, d.y).compose(&info.transform);
+        for mut item in items {
+            item.translate(d);
+            if let (Item::Path { segments, .. }, true) = (&item, self.counts_for_size()) {
+                self.canvas.include_path(segments);
+            }
+            self.canvas.items.push(item);
+        }
+        if let Some(n) = name {
+            self.nodes.insert(n, info);
+        }
+        Ok(())
+    }
+
     /// A node's text expanded, the pgfmath commands in it run where they are, as TeX runs them
     /// while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4.
     fn expand_text(&mut self, tokens: Vec<Token>) -> Result<Vec<Token>, Error> {
@@ -428,7 +451,10 @@ impl Engine {
         after.extend(joins);
         self.after_node_path.extend(after);
         let shape_name = self.key_text("/tikz/shape").split_whitespace().collect::<Vec<_>>().join(" ");
-        let shape = if shapes::is_shape(&shape_name) {
+        let user_shape = self.user_shapes.get(shape_name.trim()).cloned();
+        let shape = if let Some(u) = &user_shape {
+            u.base.clone()
+        } else if shapes::is_shape(&shape_name) {
             shape_name.clone()
         } else {
             self.warn(format!("shape '{shape_name}' not supported: drawn as a rectangle"));
@@ -573,7 +599,10 @@ impl Engine {
             };
             shapes::compute(&shape, &mut input).expect("a known shape")
         };
-        let geometry = compute(self, None);
+        let mut geometry = compute(self, None);
+        if let Some(u) = &user_shape {
+            geometry = self.user_shape_geometry(u, geometry)?;
+        }
         let mut info = NodeInfo { shape: shape.clone(), geometry: Rc::new(geometry), transform: Transform::default() };
 
         // where: `at`, positioning, the path's point or a point along its last segment
@@ -629,7 +658,14 @@ impl Engine {
                 g.paths.iter().filter(|p| p.layer == Layer::Background && matches!(p.usage, Usage::Node)).flat_map(|p| transform_segments(&p.segments, &info.transform)).collect();
             self.named_paths.insert(n, border);
         }
+        let size = (self.canvas.min, self.canvas.max);
         let items = self.draw_shape(&info, labels, text_width, scope)?;
+        if self.st.position_later {
+            // kept for `\pgfpositionnodenow`: not in the picture, nor its size, nor known by name yet
+            (self.canvas.min, self.canvas.max) = size;
+            self.later_node = Some((items, info, name.map(|n| format!("{}{n}", self.st.name_prefix))));
+            return Ok((Vec::new(), None));
+        }
         if let Some(n) = &name {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
