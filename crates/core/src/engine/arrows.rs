@@ -2056,6 +2056,31 @@ impl Curvilinear {
     }
 }
 
+/// A path of a tip: its segments, whether it is filled, and its stroke's caps and joins if stroked.
+pub type TipPath = (Vec<Segment>, bool, Option<(Cap, Join)>);
+
+/// The tip `spec` as `\pgfarrowdraw` draws it with lines `line_width` wide (cm), its end at the
+/// origin pointing right: its total length (cm) and its paths, each with whether it is filled and
+/// its stroke's caps and joins if it is stroked. None for an unknown tip.
+pub fn tip_shapes(spec: &str, line_width: f64) -> Option<(f64, Vec<TipPath>)> {
+    let mut warn = Vec::new();
+    let e = EndTips::new(&mut Plain, spec, false, &UserTips::default(), Widths { line: line_width / PT, inner: 0.0 }, 0.0, &mut warn);
+    if !warn.is_empty() || e.is_empty() {
+        return None;
+    }
+    let stroke = Stroke { color: Color::BLACK, width: line_width, dash: None, cap: Cap::Butt, join: Join::Miter, miter_limit: 10.0, opacity: 1.0 };
+    let mut items = Vec::new();
+    e.draw(Point::default(), Point::new(-1.0, 0.0), &stroke, 1.0, &mut items);
+    let paths = items
+        .into_iter()
+        .filter_map(|i| match i {
+            Item::Path { segments, fill, stroke } => Some((segments, fill.is_some(), stroke.map(|s| (s.cap, s.join)))),
+            _ => None,
+        })
+        .collect();
+    Some((e.total * PT, paths))
+}
+
 /// Draws the tip `spec` at `p`, pointing along `d`, for a caller without an engine (the pgfplots
 /// bridge). Returns how far to pull the line back, in cm.
 pub fn tip_items(spec: &str, p: Point, d: Point, stroke: &Stroke, items: &mut Vec<Item>) -> f64 {

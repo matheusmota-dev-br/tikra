@@ -792,6 +792,8 @@ impl Engine {
                         (Some(Fill { paint: Paint::Solid(color), opacity: e.st.fill_opacity, even_odd: false }), None)
                     }
                     Usage::Stroke => (None, Some(e.stroke())),
+                    Usage::TipStroke(cap, join) => (None, Some(crate::canvas::Stroke { cap: *cap, join: *join, ..e.stroke() })),
+                    Usage::LineFill => (Some(Fill { paint: Paint::Solid(e.st.stroke_color()), opacity: e.st.fill_opacity, even_odd: false }), None),
                 };
                 if e.counts_for_size() {
                     e.canvas.include_path(&segs);

@@ -60,6 +60,27 @@ fn line(a: (f64, f64), b: (f64, f64)) -> [Segment; 2] {
 /// `direction ee`: the arrow tip `/pgf/direction ee arrow` at the right end of a line, in a box as
 /// long as the tip and as high as the minimum height.
 pub fn direction_ee(input: &mut Input) -> Geometry {
+    // another tip (`direction ee arrow=angle 45`): as long as it is, and drawn as tips are
+    let spec = input.keys.text("/pgf/direction ee arrow");
+    let other = Some(spec.trim()).filter(|s| !s.is_empty() && *s != "direction ee").and_then(|s| crate::engine::arrows::tip_shapes(s, input.line_width));
+    if let Some((d, paths)) = other {
+        let ne = Point::new(0.0, 0.5 * input.minimum_height);
+        let sw = Point::new(-d, -0.5 * input.minimum_height);
+        let mut g = Geometry::new(sw.lerp(ne, 0.5), Border::Rectangle(ne.minus(sw).scale(0.5)));
+        box_anchors(&mut g, sw, ne, input.ex);
+        ends(&mut g, sw, ne);
+        g.parts.clear();
+        g.path(Layer::BehindBackground, line((sw.x, 0.0), (ne.x, 0.0)).to_vec(), Usage::Stroke);
+        for (segs, fill, stroke) in paths {
+            if fill {
+                g.path(Layer::BeforeBackground, segs.clone(), Usage::LineFill);
+            }
+            if let Some((cap, join)) = stroke {
+                g.path(Layer::BeforeBackground, segs, Usage::TipStroke(cap, join));
+            }
+        }
+        return g;
+    }
     let d = input.length("/pgf/arrow options/direction ee", 4.0 * PT);
     let ne = Point::new(0.0, 0.5 * input.minimum_height);
     let sw = Point::new(-d, -0.5 * input.minimum_height);
