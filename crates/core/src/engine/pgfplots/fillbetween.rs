@@ -279,7 +279,9 @@ pub fn draw(e: &mut Engine, p: &Plot, spec: &[Token]) -> Result<(), Error> {
             )));
             e.process_keys(style, Some("/pgfplots"))?;
             e.st.apply_pending();
-            e.use_path(segs, "fill between")
+            // with the segment's decoration, preactions and postactions
+            let outer = e.st.clone();
+            e.finish_path(segs, &outer, "fill between")
         })();
         e.end_group();
         r?;
