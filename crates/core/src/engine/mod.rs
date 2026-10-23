@@ -112,6 +112,7 @@ pub enum Cmd {
     Colorlet,
     Color,
     Textcolor,
+    Pgfqbox,
     Pgfmathsetmacro,
     Pgfmathparse,
     PgfmathFunction,
@@ -219,6 +220,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("colorlet", Cmd::Colorlet),
     ("color", Cmd::Color),
     ("textcolor", Cmd::Textcolor),
+    ("pgfqbox", Cmd::Pgfqbox),
     ("pgfmathsetmacro", Cmd::Pgfmathsetmacro),
     ("pgfmathparse", Cmd::Pgfmathparse),
     ("pgfmathadd", Cmd::PgfmathFunction),
@@ -1292,6 +1294,12 @@ impl Engine {
                     self.st.fill_color = None;
                     self.st.text_color = None;
                 }
+                Ok(())
+            }
+            Cmd::Pgfqbox => {
+                // `\pgfqbox{\box}`: a box put in the picture, outside its size
+                let b = self.argument()?;
+                self.warn(format!("\\pgfqbox{{{}}}: the box is not drawn", tex::tokens_to_string(&b).trim()));
                 Ok(())
             }
             Cmd::Textcolor => {

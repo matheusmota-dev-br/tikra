@@ -525,6 +525,8 @@ impl Tex {
             ("PackageWarning", Typeout),
             ("showtokens", Showtokens),
             ("newcount", Newcount),
+            // a box register: a number, as `\setbox` reads it
+            ("newbox", Newcount),
             ("newdimen", Newdimen),
             ("newskip", Newskip),
             ("newlength", Newlength),
