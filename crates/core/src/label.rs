@@ -93,6 +93,12 @@ fn clean(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < c.len() {
+        // `\\` is a line break: the letters after it are text, not a command (`Does\\it`)
+        if c[i] == '\\' && c.get(i + 1) == Some(&'\\') {
+            out.push_str("\\\\");
+            i += 2;
+            continue;
+        }
         if c[i] == '\\' {
             let name: String = c[i + 1..].iter().take_while(|x| x.is_ascii_alphabetic()).collect();
             // `\verb!…!` (any delimiter): the text as it is, in typewriter
@@ -212,7 +218,28 @@ fn families(text: &str, all: Option<&str>) -> String {
             }
             p.chars().map(|c| if c.is_ascii_digit() { char::from_u32(0x1D7E2 + (c as u32 - '0' as u32)).unwrap_or(c) } else { c }).collect()
         };
-        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(|p| format!("\\{family}{{{}}}", digits(p))).collect();
+        // letters and digits in the family; the rest (`-`, `,`, `.`) as text, or math would make a
+        // hyphen a minus sign with space around it
+        let word = |p: &str| -> String {
+            let mut out = String::new();
+            let mut run = String::new();
+            for c in p.chars() {
+                if c.is_alphanumeric() {
+                    run.push(c);
+                    continue;
+                }
+                if !run.is_empty() {
+                    out.push_str(&format!("\\{family}{{{}}}", digits(&run)));
+                    run.clear();
+                }
+                out.push_str(&format!("\\text{{{c}}}"));
+            }
+            if !run.is_empty() {
+                out.push_str(&format!("\\{family}{{{}}}", digits(&run)));
+            }
+            out
+        };
+        let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(word).collect();
         if parts.is_empty() {
             String::new()
         } else {
@@ -1213,6 +1240,13 @@ fn scaled(mut b: MathBox, f: f32) -> MathBox {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_line_break_before_letters_is_not_a_font_command() {
+        // `\\it` is a line break and "it", not `\it`
+        assert_eq!(clean("Does\\\\it do"), "Does\\\\it do");
+        assert_eq!(clean("\\it x"), "x");
+    }
+
     use super::*;
 
     #[test]

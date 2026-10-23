@@ -439,7 +439,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/bar shift auto/.default={2pt},
 	/pgfplots/ybar/.style={bar direction=y,bar cycle list,xtick align=outside,ybar legend,/pgfplots/bar shift auto={#1},/tikz/ybar},
 	/pgfplots/ybar/.default=2pt,
-	/pgfplots/xbar/.style={bar direction=x,bar cycle list,ytick align=outside,/pgfplots/xbar legend,/pgfplots/bar shift auto={#1},/tikz/xbar},
+	/pgfplots/xbar/.style={bar direction=x,bar cycle list,ytick align=outside,/pgfplots/xbar legend,/pgfplots/set point meta if empty=x,/pgfplots/bar shift auto={#1},/tikz/xbar},
 	/pgfplots/xbar/.default=2pt,
 	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
