@@ -1062,6 +1062,29 @@ fn list_lines(
     out
 }
 
+/// amsmath's `\implies`, `\impliedby` and `\iff`: long arrows with thick spaces around them.
+fn long_arrows(text: &str) -> String {
+    let mut out = text.to_string();
+    for (name, arrow) in [("implies", "Longrightarrow"), ("impliedby", "Longleftarrow"), ("iff", "Longleftrightarrow")] {
+        let cs = format!("\\{name}");
+        let mut done = String::new();
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(&cs) {
+            let after = &rest[i + cs.len()..];
+            done.push_str(&rest[..i]);
+            if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                done.push_str(&cs);
+            } else {
+                done.push_str(&format!("\\;\\{arrow}\\;"));
+            }
+            rest = after;
+        }
+        done.push_str(rest);
+        out = done;
+    }
+    out
+}
+
 /// Typesets a node's text. `text_width` (cm) turns on automatic wrapping.
 pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: char, color: Color, warnings: &mut Vec<String>) -> Label {
     // the lines of a paragraph sit as the alignment says, a justified one to the left
@@ -1084,6 +1107,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     // the text after glue (`\hskip0pt`, as mindmap concepts begin): its first word may be hyphenated
     let lead_glue = text.trim_start().starts_with("\\hskip");
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
+    let text = long_arrows(&text);
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
         return Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
