@@ -654,6 +654,9 @@ impl<'a> Run<'a> {
         }
         if let Some(code) = macro_body(self.e, &format!("pgf@metadecoration@@{name}@{state}@code")) {
             self.tex_code(code, &Transform::default(), false, true)?;
+            // what the code set (`\pgfset{/pgf/decoration/segment length=4pt}`) holds for the
+            // decorations from here on
+            self.s = self.e.st.decoration.clone();
         }
         let dname = macro_body(self.e, "pgf@decorate@tempname").map(|v| crate::tex::tokens_to_string(&v)).unwrap_or_default();
         let dname = if dname.trim().is_empty() { "moveto".to_string() } else { dname };
