@@ -395,6 +395,26 @@ impl Engine {
 
     /// The node's drawing, and what its labels need: the node, their specifications, and the last
     /// node to leave after them.
+    /// A node's text expanded, the pgfmath commands in it run where they are, as TeX runs them
+    /// while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4.
+    fn expand_text(&mut self, tokens: Vec<Token>) -> Result<Vec<Token>, Error> {
+        const RUN: &[&str] = &["pgfmathparse", "pgfmathsetmacro", "pgfmathtruncatemacro", "pgfmathsetlengthmacro"];
+        let depth = self.tex.expand_start(tokens);
+        let mut out = Vec::new();
+        loop {
+            let (more, stop) = self.tex.expand_more(depth, RUN)?;
+            out.extend(more);
+            let Some(t) = stop else { return Ok(out) };
+            if let tex::Meaning::Native(id) = self.tex.meaning(&t) {
+                let r = self.command(id, &t);
+                if let Err(e) = r {
+                    self.tex.drain_to(depth);
+                    return Err(e);
+                }
+            }
+        }
+    }
+
     fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<(Vec<Item>, Option<NodeLabels>), Error> {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
@@ -428,7 +448,7 @@ impl Engine {
         let mut text_tokens = body(self, "tikz@atbegin@node");
         text_tokens.extend(spec.text.clone());
         text_tokens.extend(body(self, "tikz@atend@node"));
-        let expanded = self.tex.expand_fully(text_tokens)?;
+        let expanded = self.expand_text(text_tokens)?;
         for (part, tokens) in split_parts(&expanded) {
             texts.push((part, tex::tokens_to_text(&tokens).trim().to_string()));
         }
