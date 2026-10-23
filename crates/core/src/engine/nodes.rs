@@ -478,6 +478,14 @@ impl Engine {
         let font = self.st.font.clone();
         let mut labels: Vec<(String, Option<Label>)> = Vec::new();
         let mut boxes: Vec<(String, BoxSize)> = Vec::new();
+        // a text that is a shading (`\pgfuseshading{name}`): its box, drawn where the text goes
+        self.text_shading = None;
+        if let Some(name) = texts.first().and_then(|(_, t)| t.strip_prefix("\\pgfuseshading")).map(|n| n.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string()) {
+            if let Some((w, h)) = self.shading_half_size(&name) {
+                self.text_shading = Some((name, w, h));
+                texts[0].1.clear();
+            }
+        }
         for (k, (part, t)) in texts.iter().enumerate() {
             let lbl = if shape == "coordinate" || t.is_empty() {
                 None
@@ -516,6 +524,9 @@ impl Engine {
                 }
             }
             if k == 0 {
+                if let Some((_, w, h)) = &self.text_shading {
+                    (wd, ht, dp) = (2.0 * w, 2.0 * h, 0.0);
+                }
                 if let Some(b) = self.forced_box.take() {
                     (wd, ht, dp) = b;
                 }
@@ -713,6 +724,14 @@ impl Engine {
             Ok(())
         };
         layer_items(self, &[Layer::BehindBackground, Layer::Background, Layer::BeforeBackground], &mut items)?;
+        if let Some((name, w, h)) = self.text_shading.take() {
+            if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
+                let saved = std::mem::take(&mut self.canvas.items);
+                let r = self.draw_shading(&name, &t.compose(&Transform::translation(origin.x + w, origin.y + h)));
+                items.extend(std::mem::replace(&mut self.canvas.items, saved));
+                r?;
+            }
+        }
         for (part, lbl) in labels {
             let (Some(l), Some(origin)) = (lbl, g.parts.iter().find(|(n, _)| *n == part).map(|(_, p)| *p)) else { continue };
             let offset = match (text_width, l.align) {

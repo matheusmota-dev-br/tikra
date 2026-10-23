@@ -423,6 +423,8 @@ pub struct Engine {
     pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
+    /// the shading a node's text is (`\pgfuseshading{name}`), with its half width and height (cm)
+    pub text_shading: Option<(String, f64, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
@@ -530,6 +532,7 @@ impl Clone for Engine {
             behind_path: Vec::new(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
+            text_shading: None,
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
             basic_shadings: self.basic_shadings.clone(),
@@ -610,6 +613,7 @@ impl Engine {
             behind_path: Vec::new(),
             tree_child_names: Vec::new(),
             forced_box: None,
+            text_shading: None,
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
             basic_shadings: HashMap::new(),
