@@ -403,6 +403,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
                     }
                     segs.push(Segment::LineTo(*b));
                 }
+            } else if p.three_d {
+                // down to the zero level of z, below the last point and the first
+                segs.push(Segment::LineTo(f.at([last[0], last[1], f.zero[2]])));
+                segs.push(Segment::LineTo(f.at([first[0], first[1], f.zero[2]])));
             } else {
                 segs.push(Segment::LineTo(at(last[0], f.zero[1])));
                 segs.push(Segment::LineTo(at(first[0], f.zero[1])));
