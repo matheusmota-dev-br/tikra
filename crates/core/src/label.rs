@@ -507,8 +507,10 @@ fn words(line: &str) -> Vec<(String, bool)> {
     out
 }
 
-fn typeset(text: &str, bold: bool, warnings: &mut Vec<String>) -> MathBox {
+/// `sc`: in small capitals (the node font's `\scshape`).
+fn typeset(text: &str, bold: bool, sc: bool, warnings: &mut Vec<String>) -> MathBox {
     let options = mathra::Options { display: false, ..Default::default() };
+    let text = if sc { format!("\\textsc{{{text}}}") } else { text.to_string() };
     let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
     match mathra::typeset_in_font(&tex, &options, FONT) {
         Ok((c, applied)) => {
@@ -692,6 +694,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let size = font_size(&format!("{font} {text}"));
     let bold = font.contains("\\bfseries") || font.contains("\\bf ") || font.trim_end().ends_with("\\bf") || text.contains("\\bfseries") || text.contains("\\bf ");
     let scale = EM_CM * size / 1000.0;
+    let sc = font.contains("\\scshape");
     let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
     let mut stretch = design_width(10.0 * size, family(text, font, bold));
     if all == Some("mathit") {
@@ -704,7 +707,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
-    if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, w), warnings) {
+    if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
         return Label { lines, scale, color, align, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
     }
@@ -714,19 +717,19 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
-            let bare = typeset(&families(&rules(&line, size, None), all), bold, &mut Vec::new());
+            let bare = typeset(&families(&rules(&line, size, None), all), bold, sc, &mut Vec::new());
             let pt = 10.0 * size / 1000.0;
             families(&rules(&line, size, Some((bare.height as f64 * pt, bare.depth as f64 * pt))), all)
         } else {
             families(&line, all)
         };
         match text_width {
-            None => boxes.push(typeset(&line, bold, warnings)),
+            None => boxes.push(typeset(&line, bold, sc, warnings)),
             Some(max) => {
                 let max = (max / scale / stretch) as f32;
                 let mut current: Option<MathBox> = None;
                 for (w, spaced) in words(&line) {
-                    let c = typeset(&w, bold, warnings);
+                    let c = typeset(&w, bold, sc, warnings);
                     let gap = if spaced { space } else { 0.0 };
                     current = Some(match current {
                         None => c,
