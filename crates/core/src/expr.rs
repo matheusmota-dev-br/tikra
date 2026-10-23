@@ -369,6 +369,9 @@ impl Parser<'_> {
                         "rnd" => Ok(pseudo_random()),
                         "true" => Ok(1.0),
                         "false" => Ok(0.0),
+                        // the fpu's special numbers (pgfplots' `nan` point meta, `unbounded coords`)
+                        "nan" | "NaN" => Ok(f64::NAN),
+                        "inf" | "Inf" => Ok(f64::INFINITY),
                         _ => Err(Error::Expression(format!("function without parentheses: {name}"))),
                     };
                 }

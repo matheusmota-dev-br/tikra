@@ -157,6 +157,7 @@ pub fn draw(e: &mut Engine, p: &Plot, spec: &[Token]) -> Result<(), Error> {
     let mut of = String::new();
     let mut split = false;
     let mut reverse: Option<bool> = None;
+    let mut soft_domain = false;
     let mut rest: Vec<Token> = Vec::new();
     for item in crate::keys::split_list(spec) {
         let value = item.value.clone().map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
@@ -170,7 +171,10 @@ pub fn draw(e: &mut Engine, p: &Plot, spec: &[Token]) -> Result<(), Error> {
                     _ => Some(true),
                 }
             }
-            k @ ("soft clip" | "soft clip first" | "soft clip second") => e.warn(format!("fill between: '{k}' not supported: the whole area is filled")),
+            k @ ("soft clip" | "soft clip first" | "soft clip second") => {
+                soft_domain |= value.trim_start().starts_with("domain");
+                e.warn(format!("fill between: '{k}' not supported: the whole area is filled"))
+            }
             _ => {
                 rest.extend(toks(&item.key));
                 if let Some(v) = item.value {
@@ -198,6 +202,21 @@ pub fn draw(e: &mut Engine, p: &Plot, spec: &[Token]) -> Result<(), Error> {
         r?;
     }
     let (pa, pb) = (connected(&pa), connected(&pb));
+    // a path of no length (a point, as `(\pgfkeysvalueof{/pgfplots/xmin},0)` makes with xmin unset)
+    // has no intersections to split at or to clip: pgfplots fills nothing then
+    let point = |s: &[Segment]| {
+        let pts: Vec<Point> = s
+            .iter()
+            .filter_map(|g| match g {
+                Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+                _ => None,
+            })
+            .collect();
+        pts.windows(2).all(|w| w[0].minus(w[1]).norm() < 1e-9)
+    };
+    if (split || soft_domain) && (point(&pa) || point(&pb)) {
+        return Ok(());
+    }
     let reverse = reverse.unwrap_or_else(|| direction(&pa) == direction(&pb));
     let mut pieces: Vec<Vec<Segment>> = Vec::new();
     if split {
