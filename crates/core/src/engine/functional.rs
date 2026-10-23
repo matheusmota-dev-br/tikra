@@ -47,6 +47,10 @@ enum Kind {
     },
     /// the library's bilinear interpolation of four corner colors over the middle 50 bp
     Bilinear([Color; 4]),
+    /// the library's Mandelbrot set, 8 units across the 100 bp box: black where z ← z² + c stays
+    /// within 2 for its ten steps (looked at after the fourth and the seventh), gray growing to white
+    /// with how far past 2 it got
+    Mandelbrot,
 }
 
 #[derive(Debug, Clone)]
@@ -294,6 +298,24 @@ impl Prepared {
                 };
                 Some(hsv(hue, s, v))
             }
+            Kind::Mandelbrot => {
+                let c = (p.x / 12.5, p.y / 12.5);
+                let mut z = c;
+                let step = |z: (f64, f64)| (z.0 * z.0 - z.1 * z.1 + c.0, 2.0 * z.0 * z.1 + c.1);
+                'steps: for (k, last) in [(4, false), (3, false), (3, true)] {
+                    for _ in 0..k {
+                        z = step(z);
+                    }
+                    // escaped by now: far away
+                    if !last && z.0 * z.0 + z.1 * z.1 >= 4.0 {
+                        z = (1000.0, 1000.0);
+                        break 'steps;
+                    }
+                }
+                let r = (z.0 * z.0 + z.1 * z.1).sqrt();
+                let v = if r > 2.0 { 1.0 - 2.0 / r } else { 0.0 };
+                Some(Color { r: v, g: v, b: v })
+            }
             Kind::Bilinear([ll, lr, ul, ur]) => {
                 let (u, v) = (((p.x - 25.0) / 50.0).clamp(0.0, 1.0), ((p.y - 25.0) / 50.0).clamp(0.0, 1.0));
                 let mix = |a: f64, b: f64, c: f64, d: f64| ((a * (1.0 - u) + b * u) * (1.0 - v) + (c * (1.0 - u) + d * u) * v).clamp(0.0, 1.0);
@@ -309,20 +331,50 @@ impl Prepared {
 
     /// The box as cells of its colors, placed on the canvas by `place` (from the box's bp).
     pub fn cells(&self, place: &Transform) -> Vec<Item> {
-        let (w, h) = ((self.ur.x - self.ll.x) / CELLS as f64, (self.ur.y - self.ll.y) / CELLS as f64);
-        let mut items = Vec::with_capacity(CELLS * CELLS);
-        for j in 0..CELLS {
-            for i in 0..CELLS {
-                let at = Point::new(self.ll.x + (i as f64 + 0.5) * w, self.ll.y + (j as f64 + 0.5) * h);
-                let Some(color) = self.color(at) else { continue };
-                // a little over the next cells, so that no seam shows between them
+        let rect = |x0: f64, y0: f64, x1: f64, y1: f64, color: Color| {
+            let corners = [Point::new(x0, y0), Point::new(x1, y0), Point::new(x1, y1), Point::new(x0, y1)].map(|p| place.apply(p));
+            let mut segments = vec![Segment::MoveTo(corners[0])];
+            segments.extend(corners[1..].iter().map(|p| Segment::LineTo(*p)));
+            segments.push(Segment::Close);
+            Item::Path { segments, fill: Some(Fill { paint: Paint::Solid(color), opacity: 1.0, even_odd: false }), stroke: None }
+        };
+        // the Mandelbrot set's details are finer: more cells, on white, only those not white
+        let fine = matches!(self.kind, Kind::Mandelbrot);
+        let n = if fine { 4 * CELLS } else { CELLS };
+        let (w, h) = ((self.ur.x - self.ll.x) / n as f64, (self.ur.y - self.ll.y) / n as f64);
+        let mut items = Vec::with_capacity(if fine { 1024 } else { n * n });
+        if fine {
+            items.push(rect(self.ll.x, self.ll.y, self.ur.x, self.ur.y, Color::WHITE));
+        }
+        // each row's cells reach over the next rows (the next one draws on them): no seam shows
+        let over = if fine { 3.0 } else { 0.3 };
+        // the rows since the last one that was not all white
+        let mut white_rows = usize::MAX;
+        for j in 0..n {
+            let at = |i: usize| Point::new(self.ll.x + (i as f64 + 0.5) * w, self.ll.y + (j as f64 + 0.5) * h);
+            let row: Vec<Option<Color>> = (0..n).map(|i| self.color(at(i))).collect();
+            let white = row.iter().all(|c| c.is_some_and(|c| c.r > 0.99 && c.g > 0.99 && c.b > 0.99));
+            white_rows = if white { white_rows.saturating_add(1) } else { 0 };
+            // on white, a white row matters only over the reach of the rows before it
+            if fine && white_rows as f64 > over {
+                continue;
+            }
+            // a row's cells of one color as one
+            let mut i = 0;
+            while i < n {
+                let Some(color) = row[i] else {
+                    i += 1;
+                    continue;
+                };
+                let mut end = i + 1;
+                while end < n && row[end] == Some(color) {
+                    end += 1;
+                }
                 let (x0, y0) = (self.ll.x + i as f64 * w, self.ll.y + j as f64 * h);
-                let (x1, y1) = (x0 + w * if i + 1 < CELLS { 1.3 } else { 1.0 }, y0 + h * if j + 1 < CELLS { 1.3 } else { 1.0 });
-                let corners = [Point::new(x0, y0), Point::new(x1, y0), Point::new(x1, y1), Point::new(x0, y1)].map(|p| place.apply(p));
-                let mut segments = vec![Segment::MoveTo(corners[0])];
-                segments.extend(corners[1..].iter().map(|p| Segment::LineTo(*p)));
-                segments.push(Segment::Close);
-                items.push(Item::Path { segments, fill: Some(Fill { paint: Paint::Solid(color), opacity: 1.0, even_odd: false }), stroke: None });
+                let x1 = self.ll.x + end as f64 * w + if end < n { 0.3 * w } else { 0.0 };
+                let y1 = (y0 + h * (1.0 + over)).min(self.ur.y);
+                items.push(rect(x0, y0, x1, y1, color));
+                i = end;
             }
         }
         items
@@ -392,6 +444,7 @@ impl Engine {
                     kind: Kind::Wheel { white_center: name.ends_with("white center"), black_center: name.ends_with("black center") },
                 })
             }
+            "Mandelbrot set" if !self.functional_shadings.contains_key(name) => return Some(Prepared { ll: square.0, ur: square.1, kind: Kind::Mandelbrot }),
             "bilinear interpolation" if !self.functional_shadings.contains_key(name) => {
                 let c = |e: &Engine, n: &str| e.color(n).unwrap_or(Color::WHITE);
                 let corners = [c(self, "lower left"), c(self, "lower right"), c(self, "upper left"), c(self, "upper right")];
