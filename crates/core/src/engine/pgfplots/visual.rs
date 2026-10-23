@@ -3,6 +3,7 @@
 //! `fill between`, error bars, and the marks drawn afterwards, as pgf's mark handler draws them.
 
 use crate::canvas::{Fill, Item, Paint};
+use crate::keys as pk;
 use crate::scene::{Point, Segment, Transform};
 use crate::tex::{self, Token};
 use crate::{Error, PT};
@@ -27,6 +28,8 @@ pub struct Marks {
     pub nodes: Vec<NearNode>,
     /// Points with a `coordinate style` of their own, drawn after the others.
     pub styled: Vec<(Point, f64, Vec<Token>)>,
+    /// The macros of `visualization depends on` at each of `points`.
+    pub deps: Vec<Vec<(String, String)>>,
 }
 
 /// A node of `nodes near coords`.
@@ -153,8 +156,8 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             return Ok(None);
         }
         let cp = canvas_points(f, pts);
-        let (points, styled) = mark_points(p, &cp);
-        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled }));
+        let (points, styled, deps) = mark_points(p, &cp);
+        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled, deps }));
     }
     if p.mesh.is_some() {
         super::mesh::draw(e, p, pts, f, &style)?;
@@ -164,8 +167,8 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             return Ok(None);
         }
         let cp = canvas_points(f, pts);
-        let (points, styled) = mark_points(p, &cp);
-        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled }));
+        let (points, styled, deps) = mark_points(p, &cp);
+        return Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled, deps }));
     }
     let handler = keys::value(e, "/tikz/@plot handler");
     let cp = canvas_points(f, pts);
@@ -488,15 +491,19 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     if mark.is_none() && nodes.is_empty() {
         return Ok(None);
     }
-    let (points, styled) = mark_points(p, &cp);
-    Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled }))
+    let (points, styled, deps) = mark_points(p, &cp);
+    Ok(Some(Marks { style, points, scatter: p.scatter, node_text, nodes, styled, deps }))
 }
 
 /// The marks' points with their point meta, and apart those with a `coordinate style`.
 #[allow(clippy::type_complexity)]
-fn mark_points(p: &Plot, cp: &[Option<Point>]) -> (Vec<(Point, f64)>, Vec<(Point, f64, Vec<Token>)>) {
+/// The marks of a plot: plain (with their `visualization depends on` macros), and with a style.
+type MarkPoints = (Vec<(Point, f64)>, Vec<(Point, f64, Vec<Token>)>, Vec<Vec<(String, String)>>);
+
+fn mark_points(p: &Plot, cp: &[Option<Point>]) -> MarkPoints {
     let mut points = Vec::new();
     let mut styled = Vec::new();
+    let mut deps = Vec::new();
     for (i, c) in cp.iter().enumerate() {
         let Some(c) = c else { continue };
         let co = p.coords.get(i);
@@ -504,10 +511,13 @@ fn mark_points(p: &Plot, cp: &[Option<Point>]) -> (Vec<(Point, f64)>, Vec<(Point
         // only the markers of a scatter plot are drawn one by one, with their style
         match co.and_then(|k| p.coord_styles.get(k.style as usize)).filter(|_| p.scatter) {
             Some(s) => styled.push((*c, meta, s.clone())),
-            None => points.push((*c, meta)),
+            None => {
+                points.push((*c, meta));
+                deps.push(co.and_then(|k| p.deps.get(k.deps as usize)).cloned().unwrap_or_default());
+            }
         }
     }
-    (points, styled)
+    (points, styled, deps)
 }
 
 /// The nodes after a plot (`\addplot … node[pos=0.3] {…};`): at the last point, or with `pos` at
@@ -1041,7 +1051,44 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
             k >= phase && (k - phase).is_multiple_of(repeat)
         });
         let styled = m.styled.clone();
+        // `scatter/@pre marker code` and `@post marker code` of the document: run around each mark,
+        // with `\pgfplotspointmetatransformed` (the default code sets the mapped color)
+        let code = |e: &Engine, k: &str| match e.tex.meaning_of(&pk::macro_name(&format!("/pgfplots/scatter/{k} marker code/.@cmd"))) {
+            tex::Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
+            _ => String::new(),
+        };
+        let (pre, post) = (code(e, "@pre"), code(e, "@post"));
+        let bare = |s: &str| s.replace([' ', '{', '}'], "").replace("\\pgfeov", "");
+        let custom = m.scatter && (bare(&pre) != bare("\\def\\tikra@scatter@usemapped{1}") || !bare(&post).is_empty());
         let drawn = match &colors {
+            Some((draw, fill, _)) if custom => {
+                for (i, (p, meta)) in chosen {
+                    e.begin_group();
+                    let r = (|| -> Result<(), Error> {
+                        let t = (meta - f.meta[0]) / (f.meta[1] - f.meta[0]) * 1000.0;
+                        define(e, "pgfplotspointmetatransformed", &super::super::pgf_number(if t.is_finite() { t } else { 0.0 }));
+                        define(e, "pgfplotspointmeta", &super::super::pgf_number(meta));
+                        define(e, "tikra@scatter@usemapped", "0");
+                        for (name, value) in m.deps.get(i).into_iter().flatten() {
+                            define(e, name, value);
+                        }
+                        e.process_keys(toks("/pgfplots/scatter/@pre marker code"), None)?;
+                        if e.tex.expand_to_string(vec![Token::cs("tikra@scatter@usemapped")])?.trim() == "1" {
+                            let mapped = super::mesh::map(f, meta);
+                            e.st.draw_color = Some(draw.at(mapped));
+                            e.st.fill_color = Some(fill.at(mapped));
+                        }
+                        let name = e.st.plot_mark.clone().unwrap_or_else(|| name.clone());
+                        let local = e.st.pending;
+                        e.st.pending = Transform::default();
+                        draw_mark_set(e, &name, e.st.mark_size, &local, std::iter::once(p))?;
+                        e.process_keys(toks("/pgfplots/scatter/@post marker code"), None)
+                    })();
+                    e.end_group();
+                    r?;
+                }
+                Ok(())
+            }
             Some((draw, fill, _)) => {
                 for (_, (p, meta)) in chosen {
                     let mapped = super::mesh::map(f, meta);
