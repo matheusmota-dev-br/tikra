@@ -172,6 +172,12 @@ fn fill_attributes(f: &Fill, defs: &mut Defs) -> String {
     a
 }
 
+/// `color!f` (as xcolor mixes it with white): its hex.
+fn tint(c: (f64, f64, f64), f: f64) -> String {
+    let m = |v: f64| ((v * f + (1.0 - f)) * 255.0).round().clamp(0.0, 255.0) as u8;
+    format!("#{:02x}{:02x}{:02x}", m(c.0), m(c.1), m(c.2))
+}
+
 /// pgf's patterns (the `patterns` library), at their size in TeX: 3 pt cells, 0.4 pt lines; tiled
 /// from the page's lower left corner `corner`.
 fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
@@ -218,6 +224,69 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
         "checkerboard" => {
             let s = 2.0 * 72.0 / 25.4;
             (s * 2.0, format!(r#"<rect y="{}" width="{}" height="{}" fill="{c}"/><rect x="{}" width="{}" height="{}" fill="{c}"/>"#, n(s), n(s), n(s), n(s), n(s), n(s)))
+        }
+        // the inherently colored ones, in their own colors
+        "checkerboard light gray" => {
+            let s = 2.0 * 72.0 / 25.4;
+            let gray = tint((0.0, 0.0, 0.0), 0.2);
+            (
+                s * 2.0,
+                format!(
+                    r##"<rect width="{}" height="{}" fill="#ffffff"/><rect y="{}" width="{}" height="{}" fill="{gray}"/><rect x="{}" width="{}" height="{}" fill="{gray}"/>"##,
+                    n(2.0 * s),
+                    n(2.0 * s),
+                    n(s),
+                    n(s),
+                    n(s),
+                    n(s),
+                    n(s),
+                    n(s)
+                ),
+            )
+        }
+        // 4 pt tiles: the first color below 2 pt, the second above
+        "horizontal lines light gray" | "horizontal lines gray" | "horizontal lines dark gray" | "horizontal lines light blue" | "horizontal lines dark blue" => {
+            let (base, a, b) = match name {
+                "horizontal lines light gray" => ((0.0, 0.0, 0.0), 0.1, 0.15),
+                "horizontal lines gray" => ((0.0, 0.0, 0.0), 0.3, 0.35),
+                "horizontal lines dark gray" => ((0.0, 0.0, 0.0), 0.9, 0.85),
+                "horizontal lines light blue" => ((0.0, 0.0, 1.0), 0.1, 0.15),
+                _ => ((0.0, 0.0, 1.0), 0.9, 0.85),
+            };
+            let pt = 72.0 / 72.27;
+            let s = 4.0 * pt;
+            (
+                s,
+                format!(
+                    r#"<rect y="{}" width="{}" height="{}" fill="{}"/><rect width="{}" height="{}" fill="{}"/>"#,
+                    n(2.0 * pt),
+                    n(s),
+                    n(2.0 * pt),
+                    tint(base, a),
+                    n(s),
+                    n(2.0 * pt),
+                    tint(base, b)
+                ),
+            )
+        }
+        // 8 pt tiles: a light dot just below a dark one, twice, on the background
+        "crosshatch dots gray" | "crosshatch dots light steel blue" => {
+            let (back, dark) = if name == "crosshatch dots gray" {
+                (tint((0.0, 0.0, 0.0), 0.2), (0.0, 0.0, 0.0))
+            } else {
+                let steel = (0.6875, 0.765625, 0.8671875);
+                (tint(steel, 1.0), (steel.0 / 2.0, steel.1 / 2.0, steel.2 / 2.0))
+            };
+            let pt = 72.0 / 72.27;
+            let s = 8.0 * pt;
+            let dot = |x: f64, y: f64, c: &str| format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/>"#, n(x * pt), n((8.0 - y) * pt), n(pt));
+            let (light, darker) = (tint(dark, 0.1), tint(dark, 0.7));
+            let body = format!(r#"<rect width="{}" height="{}" fill="{back}"/>"#, n(s), n(s))
+                + &dot(2.0, 1.75, &light)
+                + &dot(6.0, 5.75, &light)
+                + &dot(2.0, 2.25, &darker)
+                + &dot(6.0, 6.25, &darker);
+            (s, body)
         }
         _ => (t, line(0.0, t, t, 0.0)),
     };
