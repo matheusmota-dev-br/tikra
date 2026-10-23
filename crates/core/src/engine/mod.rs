@@ -415,6 +415,8 @@ pub struct Engine {
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
     pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
+    /// what the `behind path` nodes of the path being built draw, drawn before it
+    pub behind_path: Vec<Item>,
     /// open `\pgfdecoration`s
     pub decoration_envs: Vec<decorations::Env>,
     /// paths kept by `name path`
@@ -458,6 +460,8 @@ enum Layout {
     /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
     Skip(f64),
     Par,
+    /// the width of the line (cm), in a `\vbox` of that `\hsize`
+    Width(f64),
 }
 
 /// Cap on nested runs (a style calling itself).
@@ -507,6 +511,7 @@ impl Clone for Engine {
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
+            behind_path: Vec::new(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
             fadings: self.fadings.clone(),
@@ -582,6 +587,7 @@ impl Engine {
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: None,
+            behind_path: Vec::new(),
             tree_child_names: Vec::new(),
             forced_box: None,
             fadings: HashMap::new(),
@@ -959,7 +965,8 @@ impl Engine {
     }
 
     pub fn vars(&self) -> crate::expr::Variables {
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), in_pt: false }
+        let sans = self.st.font.contains("\\sffamily");
+        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), in_pt: false, sans }
     }
 
     /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).
@@ -1034,6 +1041,21 @@ impl Engine {
         }
         match cmd {
             Cmd::Node => {
+                // `\node[matrix]` is a `\matrix`
+                if let Some(o) = self.tex.next_nonspace() {
+                    let mut back = vec![o.clone()];
+                    let mut matrix = false;
+                    if o.is_char('[') {
+                        let options = self.tex.read_until_char(']', false)?;
+                        matrix = crate::keys::split_list(&options).iter().any(|i| i.key == "matrix" && i.value.is_none());
+                        back.extend(options);
+                        back.push(Token::other(']'));
+                    }
+                    self.tex.push_tokens(back);
+                    if matrix {
+                        return self.matrix();
+                    }
+                }
                 self.tex.push_tokens(tikra_tokens("node "));
                 let r = path::statement(self, "");
                 self.recover(r, t)
@@ -1810,6 +1832,11 @@ impl Engine {
         if outermost {
             let margin = self.canvas.margin;
             let canvas = std::mem::replace(&mut self.canvas, Canvas { margin, ..Canvas::default() });
+            // in a `\vbox` of another `\hsize`, the line is that wide
+            let hsize = self.tex.dimens.get(&255).copied().unwrap_or(0);
+            if hsize != 345 * 65536 && hsize > 0 {
+                self.layout.push(Layout::Width(hsize as f64 / 65536.0 * crate::PT));
+            }
             self.layout.push(Layout::Picture(self.boxes.len()));
             self.boxes.push(PictureBox { canvas, baseline });
         }
@@ -2314,6 +2341,10 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                 Layout::Space if started => x += SPACE,
                 // glue at the start of a paragraph stays (`\hskip 1cm` before a picture)
                 Layout::Skip(w) => x += w,
+                Layout::Width(w) => {
+                    out.include(Point::new(0.0, baseline_y));
+                    out.include(Point::new(*w, baseline_y));
+                }
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));

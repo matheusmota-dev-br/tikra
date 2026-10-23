@@ -145,7 +145,9 @@ impl Engine {
         if !always && previous.is_empty() {
             return Ok(());
         }
-        let keys = if d.contains('=') { d.clone() } else { format!("{d}=of {previous}") };
+        // `going {at=(\tikzchainprevious),shift=(30:1)}`: the options in braces
+        let d = crate::keys::strip_braces(d.trim());
+        let keys = if d.contains('=') { d.to_string() } else { format!("{d}=of {previous}") };
         self.process_keys(tikra_tokens(&keys), Some("/tikz"))
     }
 
@@ -181,7 +183,10 @@ impl Engine {
         if k == 1 {
             names.push(format!("{}-begin", on.chain));
         }
+        // TikZ's node has taken its transformations by then: a `shift` there counts once
+        let (transform, pending) = (self.st.transform, self.st.pending);
         self.place_on_chain(&direction, &previous)?;
+        (self.st.transform, self.st.pending) = (transform, pending);
         // every on chain can join too
         self.st.on_chain = Some(OnChain { joins: Vec::new(), ..on.clone() });
         self.process_keys(tikra_tokens("every on chain/.try"), Some("/tikz"))?;

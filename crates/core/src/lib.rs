@@ -158,15 +158,21 @@ pub fn png(svg: &str, dpi: f32, background: bool) -> Result<Vec<u8>, Error> {
     let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).map_err(png_error)?;
     // usvg converts the `pt` of the width attribute at 96 px per inch: the scale is relative to that
     let scale = dpi / 96.0;
-    let size = tree.size().to_int_size().scale_by(scale).ok_or(Error::Png("invalid size".into()))?;
-    if u64::from(size.width()) * u64::from(size.height()) > MAX_PIXELS {
-        return Err(Error::Png(format!("image too large: {} × {} px at {dpi} dpi (cap of {MAX_PIXELS} pixels)", size.width(), size.height())));
+    // whole pixels, rounded as a PDF rasterizer rounds the page, and the drawing on them from the
+    // bottom left corner, where PDF's origin is: lines fall on the pixels where TeX's do
+    let (w, h) = (f64::from(tree.size().width() * scale), f64::from(tree.size().height() * scale));
+    if w * h > MAX_PIXELS as f64 || !(w * h).is_finite() {
+        return Err(Error::Png(format!("image too large: {w:.0} × {h:.0} px at {dpi} dpi (cap of {MAX_PIXELS} pixels)")));
     }
-    let mut image = tiny_skia::Pixmap::new(size.width(), size.height()).ok_or(Error::Png("image too large".into()))?;
+    let (width, height) = (w.round() as u32, h.round() as u32);
+    if width == 0 || height == 0 {
+        return Err(Error::Png("invalid size".into()));
+    }
+    let mut image = tiny_skia::Pixmap::new(width, height).ok_or(Error::Png("image too large".into()))?;
     if background {
         image.fill(tiny_skia::Color::WHITE);
     }
-    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut image.as_mut());
+    resvg::render(&tree, tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, 0.0, (f64::from(height) - h) as f32), &mut image.as_mut());
     image.encode_png().map_err(png_error)
 }
 

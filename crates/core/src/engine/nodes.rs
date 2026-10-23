@@ -239,10 +239,19 @@ pub enum OnPath {
     Segment(Point, Option<(Point, Point)>, Point),
     /// `-|` and `|-`: two legs through a corner (pos 0.5 is the corner)
     Corner(Point, Point, Point),
+    /// an arc: its center, the ends of its axes at 0° and 90°, and its angles (pos goes along the
+    /// angle, as `\pgftransformarcaxesattime`)
+    Arc {
+        center: Point,
+        x: Point,
+        y: Point,
+        from: f64,
+        to: f64,
+    },
 }
 
 impl OnPath {
-    fn at(&self, t: f64) -> (Point, Point) {
+    pub fn at(&self, t: f64) -> (Point, Point) {
         match *self {
             OnPath::Point(p) => (p, Point::new(1.0, 0.0)),
             OnPath::Segment(a, None, b) => (a.lerp(b, t), b.minus(a)),
@@ -250,6 +259,13 @@ impl OnPath {
                 let u = 1.0 - t;
                 let p = a.scale(u * u * u).plus(c1.scale(3.0 * u * u * t)).plus(c2.scale(3.0 * u * t * t)).plus(b.scale(t * t * t));
                 let d = c1.minus(a).scale(3.0 * u * u).plus(c2.minus(c1).scale(6.0 * u * t)).plus(b.minus(c2).scale(3.0 * t * t));
+                (p, d)
+            }
+            OnPath::Arc { center, x, y, from, to } => {
+                let angle = (from + t * (to - from)).to_radians();
+                let (s, c) = angle.sin_cos();
+                let p = center.plus(x.scale(c)).plus(y.scale(s));
+                let d = y.scale(c).minus(x.scale(s)).scale(if to < from { -1.0 } else { 1.0 });
                 (p, d)
             }
             OnPath::Corner(a, c, b) => {
@@ -317,6 +333,8 @@ impl Engine {
         self.st.postactions = Default::default();
         let shifts_before = self.anim_shifts.len();
         let r = self.node_in_group(spec, &outer);
+        // `behind path`: drawn before the path the node is on
+        let behind = matches!(self.tex.meaning_of("tikra@behindpath"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
         self.end_group();
         let (mut items, labels) = r?;
         // animated shifts of the node: the picture makes room for it at each
@@ -330,6 +348,9 @@ impl Engine {
                     }
                 }
             }
+        }
+        if behind {
+            self.behind_path.append(&mut items);
         }
         // labels and pins: made after the node, out of its options (TikZ's `append after command`)
         if let Some((info, labels, last, kept)) = labels {
@@ -351,12 +372,34 @@ impl Engine {
         Ok(items)
     }
 
+    /// `node also [options] (name)`, `late options={name=…, …}`: the labels and pins of the
+    /// options, for a node that exists.
+    pub fn late_options(&mut self, name: &str, options: Vec<Token>) -> Result<Vec<Item>, Error> {
+        let Some(info) = self.lookup_node(name) else {
+            self.warn(format!("late options: no node named '{name}'"));
+            return Ok(Vec::new());
+        };
+        self.begin_group();
+        self.st.node = NodeSetup::default();
+        let r = (|| {
+            self.process_keys(options, Some("/tikz"))?;
+            let mut items = Vec::new();
+            for (spec, pin) in std::mem::take(&mut self.st.node.labels) {
+                items.extend(self.label(&info, spec, pin)?);
+            }
+            Ok(items)
+        })();
+        self.end_group();
+        r
+    }
+
     /// The node's drawing, and what its labels need: the node, their specifications, and the last
     /// node to leave after them.
     fn node_in_group(&mut self, spec: NodeSpec, scope: &super::GState) -> Result<(Vec<Item>, Option<NodeLabels>), Error> {
         if spec.coordinate {
             self.tex.define_string(&keys::macro_name("/tikz/shape"), "coordinate", false);
         }
+        let outer_name_path = self.st.name_path.clone();
         self.process_keys(tikra_tokens("every node/.try"), Some("/tikz"))?;
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
         // the node begin hook: a node on a chain takes its place and names there
@@ -435,6 +478,8 @@ impl Engine {
             };
             let (mut wd, mut ht, mut dp) = match &lbl {
                 Some(l) => (text_width.unwrap_or_else(|| l.width()), l.height(), l.depth()),
+                // an empty text is as wide as the text width all the same
+                None if shape != "coordinate" => (text_width.unwrap_or(0.0), 0.0, 0.0),
                 None => (0.0, 0.0, 0.0),
             };
             // text height and text depth replace the box's
@@ -539,6 +584,13 @@ impl Engine {
         if !fine(info.center()) || !info.geometry.anchors.iter().all(|(_, p)| fine(t.apply(*p))) {
             self.warn(format!("node '{text}': position or size is not finite or beyond ±{limit} cm: ignored"));
             return Ok((Vec::new(), None));
+        }
+        // `name path` among the node's own options names its border
+        if let Some(n) = self.st.name_path.clone().filter(|_| self.st.name_path != outer_name_path) {
+            let g = &info.geometry;
+            let border =
+                g.paths.iter().filter(|p| p.layer == Layer::Background && matches!(p.usage, Usage::Node)).flat_map(|p| transform_segments(&p.segments, &info.transform)).collect();
+            self.named_paths.insert(n, border);
         }
         let items = self.draw_shape(&info, labels, text_width, scope)?;
         if let Some(n) = &name {
@@ -717,8 +769,11 @@ impl Engine {
             None => (String::new(), v.clone()),
         };
         let _ = s;
-        // a direction among the label's options (`"text" above` with quotes) is its position
-        let directions = ["above", "below", "left", "right", "above left", "above right", "below left", "below right"];
+        // with `direction shorthands` (the quotes library's labels, `"text" above`), a direction
+        // among the label's options is its position; otherwise it places the label's anchor
+        let shorthands = keys::split_list(&opts).iter().any(|i| i.key == "direction shorthands");
+        let directions: &[&str] =
+            if shorthands { &["above", "below", "left", "right", "above left", "above right", "below left", "below right", "centered", "direction shorthands"] } else { &[] };
         let mut given = None;
         // `label position` among the label's options is its default position (`\tikz@label@angle`
         // expands it after them)
@@ -740,7 +795,9 @@ impl Engine {
                     edge_options.push(Token::other(','));
                     edge_options.extend(i.value.unwrap_or_default());
                 } else if i.value.is_none() && directions.contains(&i.key.as_str()) {
-                    given = Some(i.key.clone());
+                    if i.key != "direction shorthands" {
+                        given = Some(i.key.clone());
+                    }
                 } else {
                     if !rest.is_empty() {
                         rest.push(Token::other(','));
@@ -772,14 +829,20 @@ impl Engine {
             "above right" | "north east" => 45.0,
             "below left" | "south west" => 225.0,
             "below right" | "south east" => 315.0,
-            "center" => f64::NAN,
+            "center" | "centered" => f64::NAN,
             other => self.number(other).unwrap_or(90.0),
         };
         let distance = if pin { self.key_length("/tikz/pin distance", 3.0 * 0.1515) } else { self.key_length("/tikz/label distance", 0.0) };
         // as `tikz@label@post`: at the node's anchor of that (whole) angle, moved away from the
         // center by the distance, with the anchor on the side away from the node
+        let absolute = matches!(self.tex.meaning_of("tikra@absolute"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "true");
         let (at, anchor) = if angle.is_nan() {
             (info.center(), "center".to_string())
+        } else if absolute {
+            // `absolute`: the angle on the page, whatever the node's transformation
+            let u = Point::new(angle.to_radians().cos(), angle.to_radians().sin());
+            let border = info.border_toward(info.center().plus(u.scale(PT)));
+            (border.plus(u.scale(distance)), direction_anchor(angle).to_string())
         } else {
             let border = info.anchor(&format!("{}", angle.trunc())).unwrap_or(info.center());
             let d = border.minus(info.center());
@@ -795,22 +858,21 @@ impl Engine {
         options.extend(opts);
         let items = self.node(NodeSpec { options, name: None, at: Some(at), text: text_tokens, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         if pin {
-            // the pin edge: an edge from the node to the pin's label, between their borders
-            let label = self.last_node.clone();
-            let (from, to) = match &label {
-                Some(l) => (info.border_toward(l.center()), l.border_toward(info.center())),
-                None => (info.border_toward(at), at),
-            };
+            // the pin edge: an edge from the node to the pin's label (arrows, decorations…)
+            let Some(label) = self.last_node.clone() else { return Ok(items) };
+            let saved = (self.last_node.clone(), self.last_node_name.clone());
+            self.nodes.insert("tikra@pin@node".into(), info.clone());
+            self.nodes.insert("tikra@pin@label".into(), label);
             self.begin_group();
-            self.st.mode = Default::default();
-            let mut edge = tikra_tokens("every pin edge/.try,draw");
-            edge.extend(edge_options);
-            self.process_keys(edge, Some("/tikz"))?;
-            let stroke = self.stroke();
+            self.st.transform = Transform::default();
+            let mut path = tikra_tokens("\\path (tikra@pin@node) edge[every pin edge/.try");
+            path.extend(edge_options);
+            path.extend(tikra_tokens("] (tikra@pin@label);"));
+            let r = self.run_tokens(path);
             self.end_group();
-            let mut out = vec![Item::Path { segments: vec![Segment::MoveTo(from), Segment::LineTo(to)], fill: None, stroke: Some(stroke) }];
-            out.extend(items);
-            return Ok(out);
+            r?;
+            (self.last_node, self.last_node_name) = saved;
+            return Ok(items);
         }
         Ok(items)
     }
@@ -885,9 +947,8 @@ fn direction_anchor(angle: f64) -> &'static str {
     }
 }
 
-/// `\textcolor{color}{text}` as the whole text: (color, text).
+/// `\textcolor{color}{text}` as the whole text, or `\color{color}` before it: (color, text).
 fn whole_textcolor(t: &str) -> Option<(String, String)> {
-    let rest = t.trim().strip_prefix("\\textcolor")?.trim_start();
     let group = |s: &str| -> Option<(String, usize)> {
         let s2 = s.strip_prefix('{')?;
         let mut depth = 1;
@@ -905,6 +966,12 @@ fn whole_textcolor(t: &str) -> Option<(String, String)> {
         }
         None
     };
+    // `\color{…}` first: the rest of the text in that color
+    if let Some(rest) = t.trim().strip_prefix("\\color").map(str::trim_start) {
+        let (c, n) = group(rest)?;
+        return Some((c, rest[n..].trim().to_string()));
+    }
+    let rest = t.trim().strip_prefix("\\textcolor")?.trim_start();
     let (c, n) = group(rest)?;
     let rest = rest[n..].trim_start();
     let (inner, m) = group(rest)?;

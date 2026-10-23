@@ -15,6 +15,8 @@ pub struct Variables {
     pub font_scale: Option<f64>,
     /// lengths count in pt (as pgfmath counts them: `100/2cm` is 100/56.9), not in cm
     pub in_pt: bool,
+    /// The font is sans serif (its `em` and `ex` are cmss's).
+    pub sans: bool,
 }
 
 impl Variables {
@@ -44,10 +46,16 @@ pub fn unit_cm(u: &str) -> Option<f64> {
     })
 }
 
-/// Centimeters per unit, `em` and `ex` in the font of `vars`.
+/// Centimeters per unit, `em` and `ex` in the font of `vars` (an em is the font's quad, wider
+/// than its size in the small designs and narrower in the large ones).
 fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
     let f = unit_cm(u)?;
-    let f = if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f };
+    let scale = vars.font_scale.unwrap_or(1.0);
+    let f = match u {
+        "em" => f * scale * crate::label::quad(10.0 * scale, vars.sans),
+        "ex" => f * scale * crate::label::x_height(vars.sans) / crate::label::x_height(false),
+        _ => f,
+    };
     Some(if vars.in_pt { f / (2.54 / 72.27) } else { f })
 }
 

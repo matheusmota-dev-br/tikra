@@ -110,6 +110,12 @@ pub struct Label {
     pub align: char,
     /// Distance between baselines, in cm.
     pub line_height: f64,
+    /// Horizontal scale of the glyphs (the boxes' positions already carry it): TeX's fonts of
+    /// other design sizes are wider or narrower than the one font labels are drawn with.
+    pub stretch: f64,
+    /// Space added after each line besides the baselines' distance (`\\[2pt]`), in cm; may be
+    /// shorter than the lines.
+    pub skips: Vec<f64>,
 }
 
 impl Label {
@@ -124,6 +130,10 @@ impl Label {
         if n == 0 {
             return 0.0;
         }
-        self.lines[n - 1].depth as f64 * self.scale + (n - 1) as f64 * self.line_height
+        self.lines[n - 1].depth as f64 * self.scale - self.baseline(n - 1)
+    }
+    /// Where line `k`'s baseline is, from the first's (cm, y up: 0 or less).
+    pub fn baseline(&self, k: usize) -> f64 {
+        -(k as f64 * self.line_height + self.skips.iter().take(k).sum::<f64>())
     }
 }

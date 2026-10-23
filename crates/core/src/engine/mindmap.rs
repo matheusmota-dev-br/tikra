@@ -172,7 +172,7 @@ impl Engine {
             }
             _ => Paint::Solid(color(self, "tikra@conceptcolor")?.unwrap_or(crate::color::Color::BLACK)),
         };
-        if !self.canvas_frozen {
+        if self.counts_for_size() {
             self.canvas.include_path(&segments);
         }
         self.canvas.push(Item::Path { segments, fill: Some(Fill { paint, opacity: self.st.fill_opacity, even_odd: false }), stroke: None });

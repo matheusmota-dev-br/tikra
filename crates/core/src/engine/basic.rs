@@ -1033,7 +1033,8 @@ impl Engine {
                 let name = self.argument_string()?;
                 let usage = self.argument()?;
                 let usage = tex::tokens_to_string(&usage);
-                let mut opts = format!("shape={shape},anchor={anchor}");
+                // pgf's nodes are in the whole transformation, not only its shift
+                let mut opts = format!("shape={shape},anchor={anchor},transform shape");
                 if usage.contains("stroke") || usage.contains("draw") {
                     opts.push_str(",draw");
                 }

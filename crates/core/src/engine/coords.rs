@@ -68,6 +68,13 @@ impl Engine {
     /// The local (untransformed) vector of `(x,y)` or `(x,y,z)` with the current unit vectors.
     fn xyz(&mut self, parts: &[String]) -> Result<Point, Error> {
         let axes = [self.st.x, self.st.y, self.st.z];
+        // TikZ evaluates the components once to see whether they have units, then again: random
+        // numbers are drawn twice, and the second ones kept
+        if parts.iter().any(|s| s.contains("rand") || s.contains("rnd")) {
+            for s in parts.iter().take(3) {
+                crate::expr::eval_length(strip_braces(s), &self.vars())?;
+            }
+        }
         let mut p = Point::default();
         for (k, s) in parts.iter().enumerate().take(3) {
             let (v, unit) = crate::expr::eval_length(strip_braces(s), &self.vars())?;

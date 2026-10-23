@@ -257,7 +257,7 @@ impl Engine {
         } else {
             // `quotes mean pin`: pins instead of labels
             let pin = matches!(self.tex.meaning_of("tikra@quotes@pin"), Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
-            let spec = format!("[every {} quotes/.try,{options}]{text}", if pin { "pin" } else { "label" });
+            let spec = format!("[direction shorthands,every {} quotes/.try,{options}]{text}", if pin { "pin" } else { "label" });
             self.st.node.labels.push((tikra_tokens(&spec), pin));
         }
         Ok(())
@@ -1042,7 +1042,12 @@ keyfn!(k_font, |e, v| {
     Ok(())
 });
 
-keyfn!(k_node_font, |e, v| k_font(e, v));
+// `node font`: also the font of the node's dimensions (`minimum height=3em`)
+keyfn!(k_node_font, |e, v| {
+    k_font(e, v)?;
+    e.st.ambient_size = e.st.font_size;
+    Ok(())
+});
 
 keyfn!(k_anchor, |e, v| {
     let s = text(e, &v)?;
@@ -1282,6 +1287,30 @@ keyfn!(k_at, |e, v| {
     let inner = s.trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
     e.st_node().at = Some(p);
+    Ok(())
+});
+keyfn!(k_late_options, |e, v| {
+    // `late options={name=a, label=above:world}`: the other options for the node `a`
+    let mut name = String::new();
+    let mut rest = Vec::new();
+    for item in crate::keys::split_list(&v.unwrap_or_default()) {
+        if item.key == "name" {
+            name = tex::tokens_to_string(&item.value.unwrap_or_default()).trim().to_string();
+            continue;
+        }
+        if !rest.is_empty() {
+            rest.push(Token::other(','));
+        }
+        rest.extend(tikra_tokens(&item.key));
+        if let Some(value) = item.value {
+            rest.push(Token::other('='));
+            rest.push(Token::Char('{', Cat::Begin));
+            rest.extend(value);
+            rest.push(Token::Char('}', Cat::End));
+        }
+    }
+    let items = e.late_options(&name, rest)?;
+    e.canvas.items.extend(items);
     Ok(())
 });
 keyfn!(k_label, |e, v| {
@@ -2229,6 +2258,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/fit", k_fit),
     ("/tikz/rotate fit", k_rotate_fit),
     ("/tikz/name path", k_name_path),
+    ("/tikz/late options", k_late_options),
     ("/tikz/name path global", k_name_path),
     ("/tikz/name intersections", k_name_intersections),
     ("/tikz/swap", k_swap),
@@ -2286,8 +2316,7 @@ const DEFINITIONS: &str = r"
   coordinate/.style={shape=coordinate},
   circle/.style={shape=circle}, rectangle/.style={shape=rectangle}, ellipse/.style={shape=ellipse},
   diamond/.style={shape=diamond},
-  behind path/.style={}, in front of path/.style={},
-  execute at begin node/.code={}, execute at end node/.code={},
+  behind path/.code={\def\tikra@behindpath{1}}, in front of path/.code={\def\tikra@behindpath{0}},
   execute at begin to/.code={\expandafter\def\expandafter\tikz@atbegin@to\expandafter{\tikz@atbegin@to#1}},
   execute at end to/.code={\expandafter\def\expandafter\tikz@atend@to\expandafter{\tikz@atend@to#1}},
   style/.code={\pgfkeysalso{#1}},
@@ -2299,6 +2328,7 @@ const DEFINITIONS: &str = r"
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
+  absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true, pic type/.code={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}

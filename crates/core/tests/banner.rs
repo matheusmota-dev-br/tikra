@@ -12,11 +12,10 @@ fn docs() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs")
 }
 
-/// The dpi that makes the PNG exactly `PNG_WIDTH` wide: usvg rounds the base size (96 px per inch) up first.
+/// The dpi that makes the PNG exactly `PNG_WIDTH` wide (its size is rounded to whole pixels).
 fn dpi_for(svg: &str) -> f32 {
     let pt: f32 = svg.split("width=\"").nth(1).unwrap().split("pt\"").next().unwrap().parse().unwrap();
-    let base = (pt * 96.0 / 72.0).ceil();
-    PNG_WIDTH as f32 * 96.0 / base
+    PNG_WIDTH as f32 * 72.0 / pt
 }
 
 #[test]
