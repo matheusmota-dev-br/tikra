@@ -1678,9 +1678,15 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         }
     }
     // marks are not clipped (`clip marker paths=false`)
-    let (a, b) = (f.at(f.min), f.at(f.max));
-    let tol = 0.05 * PT;
-    let inside = |p: &Point| p.x >= a.x.min(b.x) - tol && p.x <= a.x.max(b.x) + tol && p.y >= a.y.min(b.y) - tol && p.y <= a.y.max(b.y) + tol;
+    // inside the box: by the point's axis coordinates (the box is a parallelogram with unit
+    // vectors of any direction)
+    let inside = |p: &Point| match f.data_at(*p) {
+        Some(v) => (0..2).all(|k| {
+            let (l, tol) = (f.logical(k, v[k]), 0.05 * PT / f.e[k].norm().max(f64::MIN_POSITIVE));
+            l >= f.min[k].min(f.max[k]) - tol && l <= f.min[k].max(f.max[k]) + tol
+        }),
+        None => true,
+    };
     for mut m in marks {
         // marks outside the axis are not drawn, those on its border are drawn whole
         if clip && !f.three_d && !f.polar && !f.smith {
