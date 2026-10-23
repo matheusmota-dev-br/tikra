@@ -882,8 +882,8 @@ fn space_factor(word: &str, mut sf: f32) -> f32 {
 /// ones (`text ragged` and the like) have spaces of a third of an em (half after a sentence) and
 /// lines that may fall 2 em short; the flush ones and justified text the font's spaces, which
 /// stretch and shrink, with lines that may fall short by any amount, or none. Words after a space
-/// may be hyphenated, as in English.
-fn paragraph_lines(line: &str, width: f32, align: char, typeset: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox, warnings: &mut Vec<String>) -> Vec<MathBox> {
+/// may be hyphenated, as in English, and the first one when `after_glue`.
+fn paragraph_lines(line: &str, width: f32, align: char, after_glue: bool, typeset: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox, warnings: &mut Vec<String>) -> Vec<MathBox> {
     use paragraph::{Item, Skip};
     let pieces = words(line);
     if pieces.is_empty() {
@@ -930,7 +930,7 @@ fn paragraph_lines(line: &str, width: f32, align: char, typeset: &mut dyn FnMut(
         }
         // a word after a space, of letters and maybe punctuation after them, may be hyphenated
         let end = w.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(w.len());
-        let breaks = if *spaced && w[end..].chars().all(|c| ".,;:!?)'-".contains(c)) { hyphen::hyphenate(&w[..end], 2, 3) } else { Vec::new() };
+        let breaks = if (*spaced || (k == 0 && after_glue)) && w[end..].chars().all(|c| ".,;:!?)'-".contains(c)) { hyphen::hyphenate(&w[..end], 2, 3) } else { Vec::new() };
         let mut from = 0;
         for b in breaks {
             items.push(Item::Box(typeset(&w[from..b], &mut Vec::new()).width));
@@ -1001,6 +1001,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
     let text_raw = text;
+    // the text after glue (`\hskip0pt`, as mindmap concepts begin): its first word may be hyphenated
+    let lead_glue = text.trim_start().starts_with("\\hskip");
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
@@ -1036,9 +1038,14 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
                 let b = scaled(typeset(&line, bold, sc, warnings), (sizes[k] / size) as f32);
                 boxes.push(widen(b, (design_width(10.0 * sizes[k], fam) / design_width(10.0 * size, fam)) as f32));
             }
-            Some(max) => {
-                boxes.extend(paragraph_lines(&line, (max / scale / stretch) as f32, align, &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings), warnings))
-            }
+            Some(max) => boxes.extend(paragraph_lines(
+                &line,
+                (max / scale / stretch) as f32,
+                align,
+                k == 0 && lead_glue,
+                &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings),
+                warnings,
+            )),
         }
         skips.resize(boxes.len(), 0.0);
         if let Some(s) = skips.last_mut() {
