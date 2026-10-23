@@ -857,7 +857,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             }
         }
         // an empty range is widened
-        if (max[a] - min[a]).abs() < 1e-4 * min[a].abs().max(1e-4) || (max[a] - min[a]).abs() < 1e-12 {
+        if (max[a] - min[a]).abs() <= 1e-9 * min[a].abs().max(1e-4) || (max[a] - min[a]).abs() < 1e-12 {
             if log[a] {
                 min[a] -= 1.0;
                 max[a] += 1.0;
@@ -1382,8 +1382,15 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
     if f.log[a] {
         let try_min = keys::number(e, "/pgfplots/try min ticks log").unwrap_or(3.0) as usize;
-        let (t, d, _) = ticks::logarithmic(lo, hi, TickSettings { length_pt, max_space, try_min, distance, scale: None });
-        Ok((t, d))
+        // `log basis y=2`: the ticks at powers of the basis (`log basis ticks`), found as powers of
+        // ten in logarithms scaled by ln 10 / ln b
+        let k = match keys::number(e, &format!("/pgfplots/log basis {c}")) {
+            Some(b) if b > 0.0 && b != 1.0 && b != 10.0 => std::f64::consts::LN_10 / b.ln(),
+            _ => 1.0,
+        };
+        let distance = distance.map(|d| d.powf(k));
+        let (t, d, _) = ticks::logarithmic(lo * k, hi * k, TickSettings { length_pt, max_space, try_min, distance, scale: None });
+        Ok((t.into_iter().map(|v| v / k).collect(), d / k))
     } else {
         let try_min = keys::number(e, "/pgfplots/try min ticks").unwrap_or(4.0) as usize;
         // the data scale transformation: the data range (with given limits) and `width`/`height`
@@ -2073,7 +2080,54 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
     if let Some(name) = super::symbolic::label(e, c, t) {
         return Ok(super::super::tikra_tokens(&name));
     }
+    // `scaled y ticks=manual:{label}{code}`: the code maps the tick (#1) to \pgfmathresult
+    if let Some((_, code)) = manual_scale(e, c) {
+        let body = tex::substitute(&tex::parse_body(code), &[toks(&super::super::pgf_number(t))]);
+        e.begin_group();
+        let r = e.run_tokens(body).and_then(|_| e.tex.expand_to_string(vec![Token::cs("pgfmathresult")]));
+        let v = r.ok().and_then(|s| e.number(s.trim()).ok());
+        e.end_group();
+        if let Some(v) = v {
+            return Ok(tex::string_tokens(&format!("${}$", e.st.number_format.print(v))));
+        }
+    }
     Ok(tex::string_tokens(&format!("${}$", e.st.number_format.print(shown(t)))))
+}
+
+/// `scaled x ticks=manual:{label}{code}`: the label and the code.
+fn manual_scale(e: &Engine, c: char) -> Option<(Vec<Token>, Vec<Token>)> {
+    let v = pk::value(&e.tex, &format!("/pgfplots/scaled {c} ticks"))?;
+    let text = tex::tokens_to_string(&v);
+    let at = text.find("manual:")?;
+    let _ = at;
+    // the two groups after `manual:`
+    let start = v.iter().position(|t| t.is_char(':'))? + 1;
+    let mut groups = Vec::new();
+    let mut depth = 0usize;
+    let mut cur = Vec::new();
+    for t in &v[start..] {
+        match t {
+            Token::Char(_, tex::Cat::Begin) => {
+                depth += 1;
+                if depth == 1 {
+                    continue;
+                }
+            }
+            Token::Char(_, tex::Cat::End) => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    groups.push(std::mem::take(&mut cur));
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            cur.push(t.clone());
+        }
+    }
+    let mut it = groups.into_iter();
+    Some((it.next()?, it.next()?))
 }
 
 fn split_labels(list: &[Token]) -> Vec<Vec<Token>> {
@@ -2175,6 +2229,9 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
             call.push(Token::Char('}', tex::Cat::End));
             e.tex.expand_fully(call).map(|t| tex::tokens_to_string(&t)).unwrap_or(default)
         };
+        if let Some((label, _)) = manual_scale(e, c) {
+            scale_label = Some(tex::tokens_to_string(&label));
+        }
         if let Some(x) = exponent.filter(|x| *x != 0) {
             factor = 10f64.powi(x);
             scale_label = Some(label_of(e, (-x).to_string(), format!("${binop} 10^{{{}}}$", -x)));
