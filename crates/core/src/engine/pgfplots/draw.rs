@@ -1599,6 +1599,8 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     let saved_bbox = (e.canvas.min, e.canvas.max);
     // the layer `pre main`: fill between regions go below the other plots
     let pre_main = e.canvas.items.len();
+    // where the next fill between region goes: after those before it
+    let mut pre_main_end = pre_main;
     let compat = keys::compat(e);
     f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
     // before compat 1.11 TikZ's unit vectors are those of the data scale transformation: a radius
@@ -1625,9 +1627,10 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 k += 1;
                 let before = e.canvas.items.len();
                 let r = super::visual::draw_plot(e, p, &pts, &base, &f, of_type, index_of_type);
-                if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main <= before {
+                if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main_end <= before {
                     let drawn: Vec<Item> = e.canvas.items.drain(before..).collect();
-                    let at = pre_main.min(e.canvas.items.len());
+                    let at = pre_main_end.min(e.canvas.items.len());
+                    pre_main_end = at + drawn.len();
                     e.canvas.items.splice(at..at, drawn);
                 }
                 match r {
