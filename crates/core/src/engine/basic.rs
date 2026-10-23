@@ -852,8 +852,12 @@ impl Engine {
                 match self.color(&c) {
                     Some(c) => match cmd {
                         B::StrokeColor => self.st.draw_color = Some(c),
-                        B::FillColor => self.st.fill_color = Some(c),
+                        B::FillColor => {
+                            self.st.fill_color = Some(c);
+                            self.st.fill_pattern = false;
+                        }
                         _ => {
+                            self.st.fill_pattern = false;
                             self.st.color = c;
                             self.st.draw_color = None;
                             self.st.fill_color = None;

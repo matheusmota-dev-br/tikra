@@ -68,7 +68,10 @@ impl Engine {
         let drawn = segs.iter().any(|s| !matches!(s, Segment::MoveTo(_)));
         // a functional shading: cells clipped to the path, under its stroke
         let functional = if mode.shade && drawn && !mode.pattern { self.functional_cells(&segs) } else { None };
-        let mode = super::state::Mode { shade: mode.shade && functional.is_none(), ..mode };
+        // a fill without a color of its own fills with the basic layer's fill pattern, if one is set
+        // (`\pgfsetfillpattern{stars}{red}` before `\filldraw`)
+        let pattern = mode.pattern || (mode.fill && self.st.fill_pattern && self.st.fill_color.is_none());
+        let mode = super::state::Mode { shade: mode.shade && functional.is_none(), pattern, ..mode };
         let fill = if mode.fill || mode.pattern || mode.shade {
             let paint = if mode.pattern {
                 let name = self.st.pattern_name.clone().unwrap_or_else(|| "north east lines".into());
