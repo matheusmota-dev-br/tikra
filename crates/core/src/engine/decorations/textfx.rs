@@ -308,7 +308,12 @@ impl Run<'_> {
         e.st.pending = Transform::default();
         let at = e.st.transform.apply(Point::default());
         let mut text = c.tokens.clone();
-        if let Some(cmd) = &te.character_command {
+        // the character's styles may set its command (`every word/.style={character command=…}`)
+        e.begin_group();
+        let styled = e.process_keys(options.clone(), Some("/tikz")).map(|_| e.st.decoration.te.character_command.clone());
+        e.end_group();
+        let command = styled.ok().flatten().or_else(|| te.character_command.clone());
+        if let Some(cmd) = &command {
             let mut v = cmd.clone();
             v.push(Token::Char('{', Cat::Begin));
             v.extend(text);
