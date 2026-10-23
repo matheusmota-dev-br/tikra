@@ -984,8 +984,8 @@ fn paragraph_lines(line: &str, width: f32, align: char, after_glue: bool, typese
 
 /// A paragraph broken into lines as `paragraph_lines` does, with the lists in it (`itemize`,
 /// `enumerate`) set as LaTeX sets them in a minipage: each item's lines 2.5 em (25 pt) in, its
-/// label ending half an em (5 pt) before them, `\topsep` around the list and `\itemsep` and
-/// `\parsep` between items, as the font size has them. Each line with the space (pt) after it
+/// label ending half an em (5 pt) before them, `\topsep` around the list (not at the text's end)
+/// and `\itemsep` and `\parsep` between items, as the font size has them. Each line with the space (pt) after it
 /// besides the baselines'. `units` turns pt into the lines' units.
 #[allow(clippy::too_many_arguments)]
 fn list_lines(
@@ -1007,13 +1007,14 @@ fn list_lines(
     let body_start = at + open.len();
     let body_end = text[body_start..].find(&close).map_or(text.len(), |e| body_start + e);
     let (before, body, after) = (&text[..at], &text[body_start..body_end], text.get(body_end + close.len()..).unwrap_or(""));
-    // LaTeX's \@listi of the size: \topsep, \parsep (and \itemsep, the same)
-    let (topsep, parsep) = if size >= 1.0 {
-        (8.0, 4.0)
-    } else if size >= 0.9 {
+    // LaTeX's \@listi of the size: \topsep, \parsep (and \itemsep, the same); only \small and
+    // \footnotesize set their own, the smaller sizes keep \normalsize's
+    let (topsep, parsep) = if (0.85..0.95).contains(&size) {
         (4.0, 2.0)
-    } else {
+    } else if (0.75..0.85).contains(&size) {
         (3.0, 2.0)
+    } else {
+        (8.0, 4.0)
     };
     let mut out: Vec<(MathBox, f64)> = Vec::new();
     if !before.trim().is_empty() {
@@ -1021,9 +1022,9 @@ fn list_lines(
     }
     let (margin, label_end) = (units(25.0), units(20.0));
     for (n, item) in body.split("\\item").skip(1).enumerate() {
-        // the gap before the item: \topsep and \parsep before the first, \itemsep and \parsep
+        // the gap before the item: \topsep before the first, \itemsep and \parsep between them
         if let Some(last) = out.last_mut() {
-            last.1 += if n == 0 { topsep + parsep } else { 2.0 * parsep };
+            last.1 += if n == 0 { topsep } else { 2.0 * parsep };
         }
         let mut item = item.trim();
         let label = match item.strip_prefix('[').and_then(|r| r.split_once(']')) {
@@ -1051,7 +1052,8 @@ fn list_lines(
             out.push((b, 0.0));
         }
     }
-    if let Some(last) = out.last_mut() {
+    // (at the end of the text the minipage takes the last space away)
+    if let Some(last) = out.last_mut().filter(|_| !after.trim().is_empty()) {
         last.1 += topsep;
     }
     if !after.trim().is_empty() {
