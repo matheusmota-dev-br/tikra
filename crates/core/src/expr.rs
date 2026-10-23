@@ -13,6 +13,8 @@ pub struct Variables {
     pub functions: HashMap<String, (Vec<String>, String)>,
     /// The font size over 10pt, for `em` and `ex` (none: 10pt).
     pub font_scale: Option<f64>,
+    /// `trig format=rad`: the trigonometric functions take and give radians.
+    pub trig_rad: bool,
     /// lengths count in pt (as pgfmath counts them: `100/2cm` is 100/56.9), not in cm
     pub in_pt: bool,
     /// The font is sans serif (its `em` and `ex` are cmss's).
@@ -403,8 +405,33 @@ impl Parser<'_> {
                     }
                     return eval_at(&body, &locals, self.depth + 1);
                 }
-                let g = |x: f64| x.to_radians();
+                let rad = self.vars.trig_rad;
+                // the argument of a trigonometric function, in degrees; an angle given back
+                let deg = |x: f64| if rad { x.to_degrees() } else { x };
+                let angle = |x: f64| if rad { x.to_radians() } else { x };
+                let g = |x: f64| deg(x).to_radians();
                 let a = args[0];
+                if rad {
+                    match name.as_str() {
+                        "sin" | "cos" | "sec" | "cosec" => {
+                            return Ok(match name.as_str() {
+                                "sin" => sin_degrees(deg(a)),
+                                "cos" => cos_degrees(deg(a)),
+                                "sec" => 1.0 / sin_degrees(deg(a) + 90.0),
+                                _ => 1.0 / sin_degrees(deg(a)),
+                            })
+                        }
+                        "asin" | "acos" | "atan" | "atan2" => {
+                            return Ok(angle(match name.as_str() {
+                                "asin" => a.asin().to_degrees(),
+                                "acos" => a.acos().to_degrees(),
+                                "atan" => a.atan().to_degrees(),
+                                _ => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
+                            }))
+                        }
+                        _ => {}
+                    }
+                }
                 Ok(match name.as_str() {
                     "sin" => sin_degrees(a),
                     "cos" => cos_degrees(a),

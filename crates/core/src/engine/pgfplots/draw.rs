@@ -157,7 +157,9 @@ impl Frame {
     /// one (`\pgfplotspointdescriptionxy`).
     pub fn desc(&self, x: f64, y: f64) -> Point {
         if !self.three_d && !self.polar && !self.smith {
-            return self.rel([x, y, 0.0]);
+            // the box as seen: a reversed axis does not turn it over
+            let flip = |r: f64, a: usize| if self.reversed[a] { 1.0 - r } else { r };
+            return self.rel([flip(x, 0), flip(y, 1), 0.0]);
         }
         let (lo, hi) = self.bbox();
         Point::new(lo.x + x * (hi.x - lo.x), lo.y + y * (hi.y - lo.y))
@@ -180,8 +182,7 @@ impl Frame {
         }
         let b = if a == 0 { 1 } else { 0 };
         let d = self.e[b];
-        let n = d.norm().max(1e-12);
-        let u = d.scale(1.0 / n);
+        let u = unit(d);
         let side = if self.label_side[a] > 0 { 1.0 } else { -1.0 };
         // e[b] points to growing b: the lower side is outward against it
         let sign = if self.max[b] >= self.min[b] { 1.0 } else { -1.0 };
@@ -368,30 +369,10 @@ impl Engine {
     }
 }
 
-/// Draws the axis collected by the survey.
-/// Draws the axis collected by the survey; returns its colorbar, drawn once its group is closed.
-pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
-    let setup = setup(e, axis)?;
-    let frame = setup.frame.clone();
-    e.frame = Some(frame.clone());
-    // the canvas items and bounding box of the axis alone, then moved by `at` and `anchor`
-    let nodes_before: std::collections::HashSet<String> = e.nodes.keys().cloned().collect();
-    let r = e.capture(|e| draw_all(e, axis, &setup));
-    let ((), items, bbox) = match r {
-        Ok(v) => v,
-        Err(err) => {
-            e.frame = None;
-            return Err(err);
-        }
-    };
-    // where the axis goes: `at` (in the picture), by `anchor`
-    let anchor = keys::value(e, "/pgfplots/anchor");
-    let (lo, hi) = frame.bbox();
-    let (blo, bhi) = bbox.unwrap_or((lo, hi));
-    let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).unwrap_or(lo);
-    e.frame = None;
-    // whether the axis' own `xshift` moves it: not when a colorbar is placed at plain description
-    // coordinates of its parent (as pgfplots' `colorbar top` customizations show)
+/// The axis' `at` (in the picture), and whether its own `xshift` moves it: not when a colorbar is
+/// placed at plain description coordinates of its parent (as pgfplots' `colorbar top`
+/// customizations show).
+fn axis_at(e: &mut Engine) -> Result<(Point, bool), Error> {
     let mut shifts = true;
     let at = match keys::value_tokens(e, "/pgfplots/at") {
         Some(v) => {
@@ -420,9 +401,64 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
         }
         None => e.st.transform.apply(Point::default()),
     };
-    // `xshift`, `yshift` and `shift` in the axis options move it (`colorbar shift`)
-    let p = e.st.pending;
-    let d = at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() });
+    Ok((at, shifts))
+}
+
+/// Draws the axis collected by the survey.
+/// Draws the axis collected by the survey; returns its colorbar, drawn once its group is closed.
+pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
+    let mut setup = setup(e, axis)?;
+    let anchor = keys::value(e, "/pgfplots/anchor");
+    // an anchor of the box alone (`origin`, `south west`…) places the axis before it is drawn, as
+    // pgfplots does: what it draws at named coordinates of the picture stays where they are
+    let early = {
+        let (lo, hi) = setup.frame.bbox();
+        let a = anchor.trim();
+        let box_only =
+            !a.starts_with("outer") && !["above", "below", "left of", "right of"].iter().any(|w| a.starts_with(w)) && named_anchor(&anchor, lo, hi, lo, hi, &setup.frame).is_some();
+        if box_only && super::colorbar::parent().is_none() {
+            let anchor_point = named_anchor(&anchor, lo, hi, lo, hi, &setup.frame).unwrap_or(lo);
+            let (at, shifts) = axis_at(e)?;
+            let p = e.st.pending;
+            Some(at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() }))
+        } else {
+            None
+        }
+    };
+    if let Some(d) = early {
+        setup.frame = Rc::new(Frame { origin: setup.frame.origin.plus(d), ..clone_frame(&setup.frame) });
+    }
+    let frame = setup.frame.clone();
+    e.frame = Some(frame.clone());
+    // the canvas items and bounding box of the axis alone, then moved by `at` and `anchor`
+    let nodes_before: std::collections::HashSet<String> = e.nodes.keys().cloned().collect();
+    let r = e.capture(|e| draw_all(e, axis, &setup));
+    let ((), items, bbox) = match r {
+        Ok(v) => v,
+        Err(err) => {
+            e.frame = None;
+            return Err(err);
+        }
+    };
+    // where the axis goes: `at` (in the picture), by `anchor`
+    let (lo, hi) = frame.bbox();
+    let (blo, bhi) = bbox.unwrap_or((lo, hi));
+    // `anchor=mynode.center`: a node drawn in the axis (`title style={name=…}`)
+    let node_anchor = || {
+        let (n, a) = anchor.trim().rsplit_once('.')?;
+        e.nodes.get(n.trim()).filter(|_| !nodes_before.contains(n.trim())).and_then(|info| info.anchor(a.trim()))
+    };
+    let anchor_point = named_anchor(&anchor, lo, hi, blo, bhi, &frame).or_else(node_anchor).unwrap_or(lo);
+    e.frame = None;
+    let d = match early {
+        Some(_) => Point::default(),
+        None => {
+            let (at, shifts) = axis_at(e)?;
+            // `xshift`, `yshift` and `shift` in the axis options move it (`colorbar shift`)
+            let p = e.st.pending;
+            at.minus(anchor_point).plus(if shifts { Point::new(p.e, p.f) } else { Point::default() })
+        }
+    };
     for mut it in items {
         it.translate(d);
         e.canvas.items.push(it);
@@ -655,6 +691,20 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             }
         }
+        // error bars: their ends are in view (`\pgfplots@PREPARE@errorbar@stream@it@`)
+        if !three_d && p.boxplot.is_none() {
+            for (k, ends) in super::visual::error_ends(e, p)?.into_iter().enumerate() {
+                let Some(c) = v.get(k).copied() else { break };
+                for (j, end) in ends.into_iter().enumerate() {
+                    let a = j / 2;
+                    let end = lg(a, end);
+                    if end.is_finite() && c[1 - a].is_finite() {
+                        dmin[a] = dmin[a].min(end);
+                        dmax[a] = dmax[a].max(end);
+                    }
+                }
+            }
+        }
         // a box plot: its outliers at its position, and its box and whiskers in view
         if p.boxplot.is_some() {
             let index = boxplots;
@@ -775,6 +825,8 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
     }
     // enlargelimits (a polar axis enlarges only the largest radius, `\pgfplots@enlarge@limit@for@polar`)
+    // `abs=1cm`: an amount on paper, applied once the axis is scaled
+    let mut abs_dim: [Option<(f64, bool, bool)>; 3] = [None; 3];
     for a in if ternary || smith {
         0..0
     } else if polar {
@@ -788,6 +840,20 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         let auto = if three_d { a == 2 } else { a < 2 };
         let (lo, hi, rel, abs) = enlarge_setting(&v, auto_min[a] && auto, auto_max[a] && auto);
         let lo = lo && !polar;
+        let dim = v.trim_matches(|c| c == '{' || c == '}').split(',').find_map(|p| {
+            let (k, val) = p.split_once('=')?;
+            (matches!(k.trim(), "abs" | "abs value") && has_unit(val)).then(|| val.trim().to_string())
+        });
+        if let Some(d) = dim {
+            if let Ok(len) = e.length(&d) {
+                abs_dim[a] = Some((len, lo, hi));
+            }
+            continue;
+        }
+        // TeX multiplies the range (a dimension) by the factor read as a dimension: 0.1 is 6554 sp
+        let rel = (rel * 65536.0).round() / 65536.0;
+        // an absolute amount is a coordinate: logarithmic on a log axis
+        let abs = abs.map(|v| if log[a] { v.ln() } else { v });
         let amount = abs.unwrap_or(rel * (max[a] - min[a]));
         if amount > 1e-9 * (max[a].abs() + 1.0) && !invalid {
             if lo {
@@ -798,7 +864,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
             }
         }
         // an empty range is widened
-        if (max[a] - min[a]).abs() < 1e-4 * min[a].abs().max(1e-4) || (max[a] - min[a]).abs() < 1e-12 {
+        if (max[a] - min[a]).abs() <= 1e-9 * min[a].abs().max(1e-4) || (max[a] - min[a]).abs() < 1e-12 {
             if log[a] {
                 min[a] -= 1.0;
                 max[a] += 1.0;
@@ -895,8 +961,7 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         ev[0] = Point::new(if d > 1e-12 { pw / d } else { 1.0 }, 0.0);
         ev[1] = Point::new(0.0, if d > 1e-12 { ph / d } else { 1.0 });
     } else if three_d && units.iter().all(Option::is_none) {
-        let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0);
-        let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
+        let (az, el) = view_angles(e);
         let (saz, caz) = az.to_radians().sin_cos();
         let (sel, cel) = (-el).to_radians().sin_cos();
         let ratio: Vec<f64> = e.pv("plot box ratio").replace(['{', '}'], " ").split_whitespace().filter_map(|x| x.parse().ok()).collect();
@@ -973,6 +1038,26 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 } else {
                     ev[1] = Point::new(0.0, s * target);
                 }
+            }
+        }
+    }
+    // `enlarge x limits={abs=1cm}`: the axis keeps its length, the data leave that room
+    if !three_d {
+        for a in 0..2 {
+            let Some((d, lo, hi)) = abs_dim[a] else { continue };
+            let range = (max[a] - min[a]).abs();
+            let unit = ev[a].norm();
+            let length = unit * range;
+            let room = d * (f64::from(u8::from(lo)) + f64::from(u8::from(hi)));
+            if range > 0.0 && length > room {
+                let u2 = (length - room) / range;
+                if lo {
+                    min[a] -= d / u2;
+                }
+                if hi {
+                    max[a] += d / u2;
+                }
+                ev[a] = ev[a].scale(u2 / unit);
             }
         }
     }
@@ -1072,14 +1157,25 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
     let mut hide = [keys::flag(e, "/pgfplots/hide x axis"), keys::flag(e, "/pgfplots/hide y axis"), keys::flag(e, "/pgfplots/hide z axis")];
     // an axis of no length on paper (z at view {0}{90}) is hidden (`\pgfplots@hide@ztrue`)
     for (a, h) in hide.iter_mut().enumerate() {
-        if a < dims && frame.e[a].norm() < 1e-12 {
+        if a < dims && frame.e[a].norm() * (frame.max[a] - frame.min[a]).abs() < 1e-9 {
             *h = true;
         }
     }
     let mut ticks: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut dist = [0.0; 3];
     for a in 0..dims {
-        let (t, d) = tick_list(e, a, &frame, axis)?;
+        let (mut t, d) = tick_list(e, a, &frame, axis)?;
+        // `xtickmin`, `xtickmax`: no tick outside
+        let c = axis_char(a);
+        let tol = 1e-9 * (frame.max[a] - frame.min[a]).abs().max(1e-300);
+        if let Some(lo) = keys::number(e, &format!("/pgfplots/{c}tickmin")) {
+            let lo = frame.logical(a, lo);
+            t.retain(|v| *v >= lo - tol);
+        }
+        if let Some(hi) = keys::number(e, &format!("/pgfplots/{c}tickmax")) {
+            let hi = frame.logical(a, hi);
+            t.retain(|v| *v <= hi + tol);
+        }
         ticks[a] = t;
         dist[a] = d;
     }
@@ -1265,6 +1361,13 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
     if trimmed.len() == 1 && trimmed[0].is_cs("empty") {
         return Ok((Vec::new(), 0.0));
     }
+    // `xtickten={1,2}` on a log axis: ticks at 10^1 and 10^2
+    if f.log[a] && text_is_empty(&e.tex.expand_to_string(trimmed.clone())?) {
+        if let Some(list) = pk::value(&e.tex, &format!("/pgfplots/{c}tickten")).filter(|l| !pk::trim(l).is_empty()) {
+            let v = number_list(e, list)?;
+            return Ok((v.into_iter().map(|k| k * std::f64::consts::LN_10).collect(), 0.0));
+        }
+    }
     let text = e.tex.expand_to_string(trimmed.clone())?;
     let text = text.trim();
     if text == "data" {
@@ -1311,8 +1414,15 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
     if f.log[a] {
         let try_min = keys::number(e, "/pgfplots/try min ticks log").unwrap_or(3.0) as usize;
-        let (t, d, _) = ticks::logarithmic(lo, hi, TickSettings { length_pt, max_space, try_min, distance, scale: None });
-        Ok((t, d))
+        // `log basis y=2`: the ticks at powers of the basis (`log basis ticks`), found as powers of
+        // ten in logarithms scaled by ln 10 / ln b
+        let k = match keys::number(e, &format!("/pgfplots/log basis {c}")) {
+            Some(b) if b > 0.0 && b != 1.0 && b != 10.0 => std::f64::consts::LN_10 / b.ln(),
+            _ => 1.0,
+        };
+        let distance = distance.map(|d| d.powf(k));
+        let (t, d, _) = ticks::logarithmic(lo * k, hi * k, TickSettings { length_pt, max_space, try_min, distance, scale: None });
+        Ok((t.into_iter().map(|v| v / k).collect(), d / k))
     } else {
         let try_min = keys::number(e, "/pgfplots/try min ticks").unwrap_or(4.0) as usize;
         // the data scale transformation: the data range (with given limits) and `width`/`height`
@@ -1323,10 +1433,31 @@ fn tick_list(e: &mut Engine, a: usize, f: &Frame, axis: &Axis) -> Result<(Vec<f6
     }
 }
 
+/// The view's azimuth and elevation, in degrees (`trig format=rad` gives them in radians).
+pub(super) fn view_angles(e: &mut Engine) -> (f64, f64) {
+    let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0);
+    let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0);
+    if e.st.trig_rad {
+        (az.to_degrees(), el.to_degrees())
+    } else {
+        (az, el)
+    }
+}
+
+/// Whether a coordinate's part has a unit (`1cm`, `-2pt`).
+fn has_unit(part: &str) -> bool {
+    let t = part.trim().trim_end_matches('}');
+    ["cm", "mm", "pt", "in", "em", "ex", "bp", "pc"].iter().any(|u| t.ends_with(u))
+}
+
+fn text_is_empty(s: &str) -> bool {
+    s.trim().is_empty()
+}
+
 /// The ticks of axis `a` that are drawn: (index in the list, logical value).
 pub(super) fn visible(f: &Frame, a: usize, list: &[f64]) -> Vec<(usize, f64)> {
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
-    let tol = 0.05 * PT / f.e[a].norm().max(1e-12);
+    let tol = 0.05 * PT / f.e[a].norm().max(f64::MIN_POSITIVE);
     list.iter().copied().enumerate().filter(|(_, t)| *t >= lo - tol && *t <= hi + tol).collect()
 }
 
@@ -1340,7 +1471,13 @@ fn on_axis(f: &Frame, a: usize, t: f64, b_value: f64) -> Point {
 }
 
 pub(super) fn unit(p: Point) -> Point {
-    p.scale(1.0 / p.norm().max(1e-12))
+    // tiny vectors are not zero: an axis up to 10^21 has a unit vector of 10^-20 pt
+    let n = p.norm();
+    if n > 0.0 {
+        p.scale(1.0 / n)
+    } else {
+        p
+    }
 }
 
 /// Everything of the axis, in pgfplots' order.
@@ -1439,6 +1576,16 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
             }
         }
     }
+    // `before end axis/.code`: the end of the axis' body
+    if e.key_exists("/pgfplots/before end axis") {
+        let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/before end axis"), None));
+        if let Err(err) = r {
+            if super::super::is_limit(&err) {
+                return Err(err);
+            }
+            e.warn(format!("before end axis: {err}"));
+        }
+    }
     e.end_scope();
     (e.st.x, e.st.y, e.st.z) = units;
     if clip {
@@ -1467,6 +1614,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         // marks outside the axis are not drawn, those on its border are drawn whole
         if clip && !f.three_d && !f.polar && !f.smith {
             m.points.retain(|(p, _)| inside(p));
+            m.styled.retain(|(p, _, _)| inside(p));
             m.nodes.retain(|n| inside(&n.point));
         } else if clip && f.polar {
             m.points.retain(|(p, _)| super::polar::contains(&f, *p));
@@ -1481,7 +1629,20 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     register_axis_node(e, "current axis", lo, hi, blo, bhi, &f);
     // descriptions, in description coordinates
     f.cs.set(Cs::Description);
-    descriptions(e, axis, s)?;
+    // the descriptions see the limits as computed (`\pgfkeysvalueof{/pgfplots/xmin}` in a title)
+    e.begin_group();
+    for a in 0..if f.three_d { 3 } else { 2 } {
+        let c = axis_char(a);
+        for (k, v) in [("min", f.min[a]), ("max", f.max[a])] {
+            let v = if f.log[a] { v.exp() } else { v };
+            if v.is_finite() && !f.polar && !f.ternary && !f.smith {
+                keys::set(e, &format!("/pgfplots/{c}{k}"), &super::super::pgf_number(v));
+            }
+        }
+    }
+    let r = descriptions(e, axis, s);
+    e.end_group();
+    r?;
     f.cs.set(Cs::Plain);
     if f.smith && keys::flag(e, "/pgfplots/show origin") {
         super::smith::show_origin(e, &f)?;
@@ -1728,7 +1889,7 @@ fn obscured(s: &Setup, a: usize, t: f64) -> bool {
     if s.line[a] != "center" || f.three_d {
         return false;
     }
-    let tol = 0.05 * PT / f.e[a].norm().max(1e-12);
+    let tol = 0.05 * PT / f.e[a].norm().max(f64::MIN_POSITIVE);
     let near = |v: f64| (t - v).abs() <= tol;
     let (lo, hi) = (f.min[a].min(f.max[a]), f.min[a].max(f.max[a]));
     match s.line[1 - a].as_str() {
@@ -1779,6 +1940,7 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         }
         let c = axis_char(a);
         let b = 1 - a;
+        let discontinuity = e.pv(&format!("axis {c} discontinuity"));
         // shifted outwards: away from the other axis' middle, along the normal for a centered line
         let ub = unit(f.e[b]).scale(if f.max[b] >= f.min[b] { 1.0 } else { -1.0 });
         let line = |bv: f64| {
@@ -1790,7 +1952,8 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
                 f.normal(a)
             };
             let d = out.scale(sa);
-            vec![Segment::MoveTo(on_axis(f, a, f.min[a], bv).plus(d)), Segment::LineTo(on_axis(f, a, f.max[a], bv).plus(d))]
+            let (p0, p1) = (on_axis(f, a, f.min[a], bv).plus(d), on_axis(f, a, f.max[a], bv).plus(d));
+            discontinuous(p0, p1, &discontinuity)
         };
         match s.line[a].as_str() {
             "center" => e.draw_with(&format!("/pgfplots/every inner {c} axis line"), line(f.zero[b]))?,
@@ -1804,6 +1967,35 @@ fn axis_lines(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// An axis line from `p0` to `p1`, with `axis x discontinuity` near its start: a zigzag of 12pt
+/// (`crunch`) or a 4pt gap between two bars (`parallel`), 4pt from the start.
+fn discontinuous(p0: Point, p1: Point, kind: &str) -> Vec<Segment> {
+    let u = unit(p1.minus(p0));
+    let n = Point::new(-u.y, u.x);
+    let at = |s: f64, h: f64| p0.plus(u.scale(s * PT)).plus(n.scale(h * PT));
+    match kind {
+        "crunch" => vec![
+            Segment::MoveTo(p0),
+            Segment::LineTo(at(4.0, 0.0)),
+            Segment::LineTo(at(7.0, 4.0)),
+            Segment::LineTo(at(13.0, -4.0)),
+            Segment::LineTo(at(16.0, 0.0)),
+            Segment::LineTo(p1),
+        ],
+        "parallel" => vec![
+            Segment::MoveTo(p0),
+            Segment::LineTo(at(4.0, 0.0)),
+            Segment::MoveTo(at(4.0, -8.0)),
+            Segment::LineTo(at(4.0, 8.0)),
+            Segment::MoveTo(at(8.0, -8.0)),
+            Segment::LineTo(at(8.0, 8.0)),
+            Segment::MoveTo(at(8.0, 0.0)),
+            Segment::LineTo(p1),
+        ],
+        _ => vec![Segment::MoveTo(p0), Segment::LineTo(p1)],
+    }
 }
 
 /// Replaces `\pgfmathprintnumber[options]{x}` in `tokens` by the number as printed.
@@ -1928,6 +2120,16 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
             _ => ("10".to_string(), t / std::f64::consts::LN_10),
         };
         let fmt = NumberFormat { style: super::number::Style::Fixed, precision: 2, ..e.st.number_format.clone() };
+        // `log identify minor tick positions` (extra ticks): 5·10^-6 rather than 10^-5.3
+        if base_text == "10" && keys::flag(e, "/pgfplots/log identify minor tick positions") {
+            let j = exp.floor();
+            let m = 10f64.powf(exp - j);
+            let i = m.round();
+            if (exp - exp.round()).abs() > 1e-4 && (2.0..=9.0).contains(&i) && (m - i).abs() < 1e-3 * i {
+                let sci = NumberFormat { style: super::number::Style::Sci, ..e.st.number_format.clone() };
+                return Ok(tex::string_tokens(&format!("${}$", sci.print(i * 10f64.powf(j)))));
+            }
+        }
         if keys::flag(e, "/pgfplots/@log fixed point") {
             let v = (exp * (base_text.parse::<f64>().unwrap_or(10.0)).ln()).exp();
             let ff = NumberFormat { style: super::number::Style::FixedRelative, precision: 3, ..e.st.number_format.clone() };
@@ -1938,7 +2140,54 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
     if let Some(name) = super::symbolic::label(e, c, t) {
         return Ok(super::super::tikra_tokens(&name));
     }
+    // `scaled y ticks=manual:{label}{code}`: the code maps the tick (#1) to \pgfmathresult
+    if let Some((_, code)) = manual_scale(e, c) {
+        let body = tex::substitute(&tex::parse_body(code), &[toks(&super::super::pgf_number(t))]);
+        e.begin_group();
+        let r = e.run_tokens(body).and_then(|_| e.tex.expand_to_string(vec![Token::cs("pgfmathresult")]));
+        let v = r.ok().and_then(|s| e.number(s.trim()).ok());
+        e.end_group();
+        if let Some(v) = v {
+            return Ok(tex::string_tokens(&format!("${}$", e.st.number_format.print(v))));
+        }
+    }
     Ok(tex::string_tokens(&format!("${}$", e.st.number_format.print(shown(t)))))
+}
+
+/// `scaled x ticks=manual:{label}{code}`: the label and the code.
+fn manual_scale(e: &Engine, c: char) -> Option<(Vec<Token>, Vec<Token>)> {
+    let v = pk::value(&e.tex, &format!("/pgfplots/scaled {c} ticks"))?;
+    let text = tex::tokens_to_string(&v);
+    let at = text.find("manual:")?;
+    let _ = at;
+    // the two groups after `manual:`
+    let start = v.iter().position(|t| t.is_char(':'))? + 1;
+    let mut groups = Vec::new();
+    let mut depth = 0usize;
+    let mut cur = Vec::new();
+    for t in &v[start..] {
+        match t {
+            Token::Char(_, tex::Cat::Begin) => {
+                depth += 1;
+                if depth == 1 {
+                    continue;
+                }
+            }
+            Token::Char(_, tex::Cat::End) => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    groups.push(std::mem::take(&mut cur));
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            cur.push(t.clone());
+        }
+    }
+    let mut it = groups.into_iter();
+    Some((it.next()?, it.next()?))
 }
 
 fn split_labels(list: &[Token]) -> Vec<Vec<Token>> {
@@ -2027,15 +2276,32 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
             "false" => None,
             other => other.strip_prefix("base 10:").and_then(|n| n.trim().parse().ok()),
         };
+        let binop = keys::value_tokens(e, "/pgfplots/tick scale binop").map_or_else(|| "\\cdot".to_string(), |t| tex::tokens_to_string(&t));
+        // `xtick scale label code/.code={…}`: the label, given the exponent (or the factor)
+        let code = pk::macro_name(&format!("/pgfplots/{c}tick scale label code/.@cmd"));
+        let custom = matches!(e.tex.meaning_of(&code), tex::Meaning::Macro(_));
+        let label_of = |e: &mut Engine, arg: String, default: String| -> String {
+            if !custom {
+                return default;
+            }
+            let mut call = vec![Token::cs(&code), Token::Char('{', tex::Cat::Begin)];
+            call.extend(toks(&arg));
+            call.push(Token::Char('}', tex::Cat::End));
+            e.tex.expand_fully(call).map(|t| tex::tokens_to_string(&t)).unwrap_or(default)
+        };
+        if let Some((label, _)) = manual_scale(e, c) {
+            scale_label = Some(tex::tokens_to_string(&label));
+        }
         if let Some(x) = exponent.filter(|x| *x != 0) {
             factor = 10f64.powi(x);
-            scale_label = Some(format!("$\\cdot 10^{{{}}}$", -x));
+            scale_label = Some(label_of(e, (-x).to_string(), format!("${binop} 10^{{{}}}$", -x)));
         }
         if let Some(r) = v.strip_prefix("real:") {
             if let Ok(d) = e.number(r) {
                 if d != 0.0 {
                     factor = 1.0 / d;
-                    scale_label = Some(format!("$\\cdot {}$", e.st.number_format.print(d)));
+                    let default = format!("${binop} {}$", e.st.number_format.print(d));
+                    scale_label = Some(label_of(e, super::super::pgf_number(d), default));
                 }
             }
         }
@@ -2073,10 +2339,20 @@ pub(super) fn tick_labels_at(e: &mut Engine, s: &Setup, a: usize, list: &[f64], 
             tick_text(e, a, t, next, k, factor, extra)
         })();
         e.end_group();
-        let text = r?;
+        let mut text = r?;
+        // `typeset ticklabels with strut`: every label as high and deep as a strut
+        if keys::flag(e, "/pgfplots/@ticklabel strut") {
+            let mut strut = toks("\\vrule width 0pt height 0.84em depth 0.36em");
+            strut.extend(text);
+            text = strut;
+        }
         let options = toks(&format!("anchor={anchor},{styles}"));
-        let (items, _, bbox) =
-            e.capture(|e| e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None }))?;
+        // `\ticknum` in the label's options too (`name=tick no \ticknum`)
+        e.begin_group();
+        e.tex.set_meaning(&Token::cs("ticknum"), super::super::macro_from(&k.to_string()), false);
+        let r = e.capture(|e| e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None }));
+        e.end_group();
+        let (items, _, bbox) = r?;
         if let Some((lo, hi)) = bbox {
             let corner = Point::new(if n.x > 0.0 { hi.x } else { lo.x }, if n.y > 0.0 { hi.y } else { lo.y });
             let d = (corner.x - p.x) * n.x + (corner.y - p.y) * n.y;
@@ -2139,8 +2415,22 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         e.canvas.items.extend(items);
     }
     super::legend::legend(e, axis, &f)?;
-    if let Some(code) = keys::value_tokens(&*e, "/pgfplots/extra description/.@cmd") {
-        let _ = code;
+    // `extra description/.code`, in description coordinates too
+    if e.key_exists("/pgfplots/extra description") {
+        e.begin_group();
+        let r = e.process_keys(toks("/pgfplots/extra description"), None);
+        e.end_group();
+        r?;
+    }
+    // `after end axis/.code`: plain coordinates again, nothing clipped
+    if e.key_exists("/pgfplots/after end axis") {
+        let cs = f.cs.get();
+        f.cs.set(if keys::compat(e) >= 111 { Cs::Axis } else { Cs::Plain });
+        e.begin_group();
+        let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/after end axis"), None));
+        e.end_group();
+        f.cs.set(cs);
+        r?;
     }
     Ok(())
 }
@@ -2148,6 +2438,23 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
 /// A filled or stroked path for a solid color (used by legend frames).
 pub fn solid(color: crate::color::Color, opacity: f64) -> Fill {
     Fill { paint: Paint::Solid(color), opacity, even_odd: false }
+}
+
+/// Runs `f` with TikZ's unit vectors those of the data scale transformation (so that a radius of
+/// 1 is one of its units), when plain coordinates are its coordinates.
+fn in_plain_units<T>(e: &mut Engine, f: &Frame, run: impl FnOnce(&mut Engine) -> Result<T, Error>) -> Result<T, Error> {
+    let units = (e.st.x, e.st.y, e.st.z);
+    if f.cs.get() == Cs::Plain && !f.polar && !f.smith && !f.ternary {
+        let inverse = e.st.transform.inverse();
+        let v: Vec<Point> = (0..3).map(|a| inverse.linear(f.e[a].scale(1.0 / data_scale_trafo(e, f, a).0))).collect();
+        (e.st.x, e.st.y) = (v[0], v[1]);
+        if f.three_d {
+            e.st.z = v[2];
+        }
+    }
+    let r = run(e);
+    (e.st.x, e.st.y, e.st.z) = units;
+    r
 }
 
 /// `axis cs`, `rel axis cs`, `axis description cs`, `ticklabel cs`: points of the axis being
@@ -2278,6 +2585,8 @@ impl Engine {
                 })();
                 Some(r)
             }
+            // a coordinate with units (`(1cm,0pt)`) stays TikZ's
+            Cs::Plain if parts.iter().any(|p| has_unit(p)) => None,
             // before compat 1.11, the coordinates of the data scale transformation: 10^E times the
             // data, less the smallest data value (`\pgfplots@set@optimal@datatrafo@for@`)
             Cs::Plain if !f.polar && !f.smith => {

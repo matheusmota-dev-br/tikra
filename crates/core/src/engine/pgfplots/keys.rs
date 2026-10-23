@@ -165,7 +165,11 @@ const DEFINITIONS: &str = r"
 	/pgfplots/every axis z grid/.style={}, /pgfplots/every minor z grid/.style={}, /pgfplots/every major z grid/.style={},
 	/pgfplots/every tick label/.style={}, /pgfplots/every x tick label/.style={},
 	/pgfplots/every y tick label/.style={}, /pgfplots/every z tick label/.style={},
-	/pgfplots/every extra x tick/.style={}, /pgfplots/every extra y tick/.style={}, /pgfplots/every extra z tick/.style={},
+	/pgfplots/log identify minor tick positions/.initial=false, /pgfplots/log identify minor tick positions/.default=true,
+	/pgfplots/every extra x tick/.style={/pgfplots/log identify minor tick positions=true},
+	/pgfplots/every extra y tick/.style={/pgfplots/log identify minor tick positions=true},
+	/pgfplots/every extra z tick/.style={/pgfplots/log identify minor tick positions=true},
+	/pgfplots/xtickten/.initial=, /pgfplots/ytickten/.initial=, /pgfplots/ztickten/.initial=,
 	/pgfplots/extra x tick style/.code={\pgfkeysalso{/pgfplots/every extra x tick/.append style={#1}}},
 	/pgfplots/extra y tick style/.code={\pgfkeysalso{/pgfplots/every extra y tick/.append style={#1}}},
 	/pgfplots/extra tick style/.code={\pgfkeysalso{/pgfplots/every extra x tick/.append style={#1},/pgfplots/every extra y tick/.append style={#1},/pgfplots/every extra z tick/.append style={#1}}},
@@ -516,7 +520,15 @@ const DEFINITIONS: &str = r"
 	/pgfplots/filter discard warning/.initial=true,
 	/pgfplots/restrict x to domain/.initial=, /pgfplots/restrict y to domain/.initial=,
 	/pgfplots/restrict x to domain*/.initial=, /pgfplots/restrict y to domain*/.initial=,
-	/pgfplots/x filter/.code=, /pgfplots/y filter/.code=, /pgfplots/pre filter/.code=, /pgfplots/filter point/.code=,
+	/pgfplots/x filter/.code=, /pgfplots/y filter/.code=, /pgfplots/z filter/.code=, /pgfplots/pre filter/.code=, /pgfplots/filter point/.code=,
+	/pgfplots/@restrict expr/.initial=, /pgfplots/@restrict expr domain/.initial=,
+	/pgfplots/@visualization depends on/.initial=,
+	/tikz/pos segment/.code=,
+	/pgfplots/@ticklabel strut/.initial=false, /pgfplots/typeset ticklabels with strut/.style={/pgfplots/@ticklabel strut=true},
+	/pgfplots/table/create col/linear regression/variance format/.initial=log,
+	/pgfplots/restrict expr to domain/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}\pgfkeysalso{/pgfplots/unbounded coords=jump}},
+	/pgfplots/restrict expr to domain*/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}},
+	/pgfplots/skip coords between index/.style 2 args={/pgfplots/x filter/.append code={\ifnum\coordindex<#1 \else\ifnum\coordindex<#2 \def\pgfmathresult{}\fi\fi}},
 	/pgfplots/point meta/.initial=, /pgfplots/point meta min/.initial=, /pgfplots/point meta max/.initial=,
 	/pgfplots/every node near coord/.style={},
 	/pgfplots/nodes near coords style/.style={/pgfplots/every node near coord/.append style={#1}},
@@ -755,9 +767,10 @@ const DEFINITIONS: &str = r"
 	/pgfplots/colorbar=false,
 	/pgfplots/colorbar style/.style={/pgfplots/every colorbar/.append style={#1}},
 	/pgfplots/colorbar/width/.initial=0.5cm,
-	/pgfplots/colorbar sampled/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}},
+	/pgfplots/colorbar sampled/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}\pgfkeyssetvalue{/pgfplots/@colorbar line}{false}},
 	/pgfplots/colorbar sampled/.default={surf,mark=none,shader=flat},
-	/pgfplots/colorbar sampled line/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}},
+	/pgfplots/colorbar sampled line/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}\pgfkeyssetvalue{/pgfplots/@colorbar line}{true}},
+	/pgfplots/@colorbar line/.initial=false,
 	/pgfplots/colorbar sampled line/.default={scatter,only marks},
 	/pgfplots/colorbar as palette/.style={/pgfplots/colorbar sampled={surf,shader=flat corner}},
 	/pgfplots/colorbar as legend/.style={/pgfplots/colorbar sampled={surf,shader=flat corner}},
@@ -870,6 +883,17 @@ keyfn!(k_unknown, |e, v| {
 });
 
 // `compat=1.x`: the level, and the label placement it implies (`compat/labels`).
+// `visualization depends on={expr \as \macro}`: one more, kept as a group
+keyfn!(k_visualization_depends_on, |e, v| {
+    let path = keys::macro_name("/pgfplots/@visualization depends on");
+    let mut list = keys::value(&e.tex, "/pgfplots/@visualization depends on").unwrap_or_default();
+    list.push(Token::Char('{', tex::Cat::Begin));
+    list.extend(v.unwrap_or_default());
+    list.push(Token::Char('}', tex::Cat::End));
+    e.tex.set_meaning(&Token::cs(&path), super::super::macro_tokens(list), false);
+    Ok(())
+});
+
 keyfn!(k_compat, |e, v| {
     let s = text(e, &v)?;
     let level = match s.as_str() {
@@ -1282,6 +1306,7 @@ keyfn!(k_nf, |e, v| {
     let f = nf(e);
     match name.as_str() {
         "fixed" => f.style = Style::Fixed,
+        "frac" => f.style = Style::Frac,
         "sci" => f.style = Style::Sci,
         "std" => {
             f.style = match value.split_once(':') {
@@ -1330,6 +1355,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/.unknown", k_unknown),
     ("/pgfplots/table/.unknown", k_table_unknown),
     ("/pgfplots/compat", k_compat),
+    ("/pgfplots/visualization depends on", k_visualization_depends_on),
     ("/pgfplots/mesh", k_mesh),
     ("/pgfplots/surf", k_mesh),
     ("/pgfplots/patch", k_mesh),
@@ -1384,6 +1410,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
 ];
 
 const NUMBER_FORMAT: &[&str] = &[
+    "frac",
     "fixed",
     "sci",
     "std",

@@ -85,6 +85,8 @@ pub struct GState {
     pub y: Point,
     pub z: Point,
     pub mode: Mode,
+    /// `overlay`: what is drawn does not grow the picture's bounding box.
+    pub overlay: bool,
 
     /// The current color (`color=`, a color name): stroke, fill and text unless they are set apart.
     pub color: Color,
@@ -265,6 +267,7 @@ impl Default for GState {
             key_path: "/".into(),
             transform: Transform::default(),
             pending: Transform::default(),
+            overlay: false,
             x: Point::new(1.0, 0.0),
             y: Point::new(0.0, 1.0),
             z: Point::new(-0.3851, -0.3851),

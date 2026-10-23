@@ -148,6 +148,8 @@ fn clean(text: &str) -> String {
 /// width, spaces too.
 fn typewriter(t: &str) -> String {
     const WIDTH: f32 = 0.525;
+    // `\textbackslash`, set aside by `families`
+    const BACKSLASH: char = '\u{e000}';
     let font = FONT.get();
     let mut out = String::from("$");
     let mut run = String::new();
@@ -177,6 +179,7 @@ fn typewriter(t: &str) -> String {
         let glyph = match (c, short) {
             (' ', _) => String::new(),
             ('_' | '#' | '%' | '&' | '$', _) => format!("\\text{{\\{c}}}"),
+            (BACKSLASH, _) => "\\backslash".to_string(),
             (c, Some((scale, bottom, top))) => format!("\\smash{{\\scalebox{{{scale:.4}}}{{{c}}}}}\\rule[{bottom:.4}em]{{0em}}{{{:.4}em}}", top - bottom),
             (c, None) => format!("\\text{{{c}}}"),
         };
@@ -243,7 +246,9 @@ fn families(text: &str, all: Option<&str>) -> String {
                 }
             }
             let inner = &body[..end];
-            done.push_str(&if inner.contains('$') || inner.contains('\\') { inner.to_string() } else { set(inner, family) });
+            // `\textbackslash` (and the space it ends with) is a character of typewriter text
+            let plain = if family == "mathtt" { inner.replace("\\textbackslash ", "\u{e000}").replace("\\textbackslash", "\u{e000}") } else { inner.to_string() };
+            done.push_str(&if plain.contains('$') || plain.contains('\\') { inner.to_string() } else { set(&plain, family) });
             rest = body.get(end + 1..).unwrap_or("");
         }
         done.push_str(rest);

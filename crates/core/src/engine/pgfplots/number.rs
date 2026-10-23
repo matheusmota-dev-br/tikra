@@ -44,6 +44,8 @@ pub enum Style {
     /// `relative=<exponent>`: rounds to 10^exponent units.
     Relative(i32),
     FixedRelative,
+    /// `frac`: a (mixed) fraction, `1\frac{1}{2}`.
+    Frac,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -187,6 +189,21 @@ impl Decimal {
     }
 }
 
+/// `v` as a fraction of the smallest denominator that gives it (to 10^-4): `2`, `\frac{3}{4}`,
+/// `1\frac{1}{2}` (its whole part apart), with its sign before.
+fn frac(v: f64) -> String {
+    let sign = if v < 0.0 { "-" } else { "" };
+    let a = v.abs();
+    let den = (1..=10_000u64).find(|d| ((a * *d as f64) - (a * *d as f64).round()).abs() < 1e-4 * *d as f64).unwrap_or(10_000);
+    let num = (a * den as f64).round() as u64;
+    let (whole, rest) = (num / den, num % den);
+    match (whole, rest) {
+        (w, 0) => format!("{sign}{w}"),
+        (0, r) => format!("{sign}\\frac{{{r}}}{{{den}}}"),
+        (w, r) => format!("{sign}{w}\\frac{{{r}}}{{{den}}}"),
+    }
+}
+
 impl NumberFormat {
     /// The TeX text of `v` (to be read in math mode).
     pub fn print(&self, v: f64) -> String {
@@ -243,6 +260,7 @@ impl NumberFormat {
                 let f = NumberFormat { fixed_zerofill: false, precision: 9999, ..self.clone() };
                 f.fixed(r)
             }
+            Style::Frac => frac(v),
         }
     }
 

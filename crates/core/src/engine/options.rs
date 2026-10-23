@@ -336,6 +336,33 @@ impl Engine {
             ".code" | ".ecode" => {
                 let v = if h == ".ecode" { self.tex.expand_fully(v)? } else { v };
                 self.define_code(base, 1, v);
+                // a pgfplots coordinate filter given as code drops its expressions
+                if base.ends_with(" filter") {
+                    self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/@expressions"))), macro_tokens(Vec::new()), false);
+                }
+            }
+            // pgfplots' `coordinate style/.condition={test}{style}` and `coordinate style/.from={style}`
+            ".condition" => {
+                let path = format!("{base}/@conditions");
+                let mut list = keys::value(&self.tex, &path).unwrap_or_default();
+                list.extend(v);
+                self.tex.set_meaning(&Token::cs(&macro_name(&path)), macro_tokens(list), false);
+            }
+            ".from" => {
+                self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/@from"))), macro_tokens(v), false);
+            }
+            // pgfplots' `x filter/.expression={…}`: the filter's value is the expression's (after
+            // the filter's code, `.append expression` after the expressions before)
+            ".expression" | ".append expression" => {
+                let path = format!("{base}/@expressions");
+                let mut list = if h == ".expression" {
+                    self.define_code(base, 1, Vec::new());
+                    Vec::new()
+                } else {
+                    keys::value(&self.tex, &path).unwrap_or_default()
+                };
+                list.extend(group(v));
+                self.tex.set_meaning(&Token::cs(&macro_name(&path)), macro_tokens(list), false);
             }
             ".append code" | ".prefix code" => {
                 let (n, old) = self.code_tokens(base).unwrap_or((1, Vec::new()));
@@ -1693,6 +1720,11 @@ keyfn!(k_declare_function, |e, v| {
 keyfn!(k_tikz_unknown, |e, v| e.tikz_unknown(v));
 
 keyfn!(k_ignore, |_e, _v| Ok(()));
+keyfn!(k_overlay, |e, v| {
+    e.st.overlay = v.is_none_or(|v| tex::tokens_to_string(&v).trim() != "false");
+    e.canvas.overlay = e.st.overlay;
+    Ok(())
+});
 
 // `fit=(a)(b)(1,2)`: the node covers the points (a node by its west, east, north and south).
 keyfn!(k_fit, |e, v| {
@@ -2204,7 +2236,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/mark color", k_mark_color),
     ("/pgf/declare function", k_declare_function),
     ("/tikz/declare function", k_declare_function),
-    ("/tikz/overlay", k_ignore),
+    ("/tikz/overlay", k_overlay),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
     ("/tikz/auto", k_auto),

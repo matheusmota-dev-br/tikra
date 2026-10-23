@@ -194,8 +194,8 @@ pub fn logarithmic(min: f64, max: f64, s: TickSettings) -> (Vec<f64>, f64, bool)
     let mut ticks = Vec::new();
     let mut k = 0usize;
     // too few ticks: pgfplots retries with ticks at 10^(i*h) for a fractional h
-    let count = ((top - first) / h).floor() as i64 + 1;
-    if count < 2 && s.distance.is_none() {
+    // only one label (the axis ends before the second tick: `MAX < MIN + 2H`)
+    if max + 1e-9 < first + 2.0 * h && s.distance.is_none() {
         let mut n2 = n.saturating_sub(1).max(1);
         if n2 > 2 {
             n2 -= 1;

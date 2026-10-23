@@ -847,6 +847,7 @@ impl Engine {
             if let Some(s) = self.saved.pop() {
                 self.st = s;
             }
+            self.canvas.overlay = self.st.overlay;
             self.close_local_boxes();
         } else {
             self.warn("extra '}'");
@@ -966,7 +967,14 @@ impl Engine {
 
     pub fn vars(&self) -> crate::expr::Variables {
         let sans = self.st.font.contains("\\sffamily");
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0), in_pt: false, sans }
+        crate::expr::Variables {
+            values: HashMap::new(),
+            functions: (*self.st.functions).clone(),
+            font_scale: Some(self.st.ambient_size / 10.0),
+            in_pt: false,
+            sans,
+            trig_rad: self.st.trig_rad,
+        }
     }
 
     /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).

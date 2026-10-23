@@ -24,6 +24,10 @@ pub struct Coord {
     /// The sampling variable's value (expressions), and `quiver`'s (u, v, w).
     pub param: [f64; 2],
     pub uvw: [f64; 3],
+    /// `coordinate style`: an index into the plot's `coord_styles` (`NO_LABEL`: none).
+    pub style: u32,
+    /// `visualization depends on`: an index into the plot's `deps` (`NO_LABEL`: none).
+    pub deps: u32,
 }
 
 /// No label.
@@ -44,7 +48,7 @@ fn add_label(tokens: Vec<Token>) -> u32 {
 
 impl Coord {
     pub fn new(x: f64, y: f64, z: f64) -> Coord {
-        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3] }
+        Coord { x, y, z, meta: f64::NAN, err: [f64::NAN; 4], label: NO_LABEL, param: [f64::NAN; 2], uvw: [f64::NAN; 3], style: NO_LABEL, deps: NO_LABEL }
     }
 }
 
@@ -89,6 +93,10 @@ pub struct Plot {
     pub late: Vec<Token>,
     /// `boxplot`, `boxplot prepared`: the box's numbers (the points are the outliers).
     pub boxplot: Option<Box<super::boxplot::BoxStats>>,
+    /// The styles of single coordinates (`coordinate style/.condition`, `.from`).
+    pub coord_styles: Vec<Vec<Token>>,
+    /// `visualization depends on={expr \as \macro}`: the macros' values at single coordinates.
+    pub deps: Vec<Vec<(String, String)>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -140,7 +148,6 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
     // `plot[behavior options]`
     let mut behavior = Vec::new();
     if let Some(Token::Char('p', Cat::Letter)) = peek(e) {
-        let _ = e.tex.next_nonspace();
         let w = word(e);
         if w == "plot" {
             if let Some(o) = e.optional()? {
@@ -176,15 +183,51 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
     let r = survey(e, &style, three_d);
     e.end_group();
     let mut plot = r?;
+    // a forgotten plot has `every forget plot` instead of the styles of the plot's number
+    let style = if plot.forget {
+        let mut forget = super::toks("/pgfplots/every axis plot,/pgfplots/every forget plot,");
+        forget.extend(spec.clone());
+        forget.extend(super::toks(",/pgfplots/.cd,/pgfplots/every forget plot,/pgfplots/every axis plot post"));
+        forget
+    } else {
+        style
+    };
     plot.style = style;
     plot.index = index;
     if !plot.forget {
+        // a scatter plot with classes has a legend entry per class: its mark
+        let classes = if plot.scatter {
+            e.begin_group();
+            let r = e.process_keys(style_for_classes(&spec), Some("/pgfplots"));
+            let c = scatter_classes(e);
+            e.end_group();
+            r?;
+            c
+        } else {
+            Vec::new()
+        };
         let a = e.axis.as_mut().expect("in an axis");
         a.numplots += 1;
-        a.images.push(spec);
+        if classes.is_empty() {
+            a.images.push(spec);
+        } else {
+            for (_, s) in classes {
+                let mut image = spec.clone();
+                image.extend(super::toks(",/tikz/only marks,"));
+                image.extend(s);
+                a.images.push(image);
+            }
+        }
     }
     e.axis.as_mut().expect("in an axis").entries.push(Entry::Plot(Box::new(plot)));
     Ok(())
+}
+
+/// The plot's options, for reading its `scatter/classes`.
+fn style_for_classes(spec: &[Token]) -> Vec<Token> {
+    let mut s = super::toks("/pgfplots/every axis plot,");
+    s.extend(spec.iter().cloned());
+    s
 }
 
 /// The entry of the cycle list for plot `k` (`\pgfplots@getautoplotspec`).
@@ -438,6 +481,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         patch_table(e, plot);
     }
     lattice_from_scanlines(e, plot);
+    coordinate_filters(e, plot)?;
     filter(e, plot)?;
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at end plot") {
         e.run_tokens(code)?;
@@ -551,12 +595,47 @@ fn sample_points(e: &mut Engine, domain_key: &str, samples_key: &str, log: bool)
     if n == 1 {
         return Ok(vec![a]);
     }
+    if !log {
+        if let Some(v) = tex_samples(a, b, n) {
+            return Ok(v);
+        }
+    }
     let mut v = Vec::with_capacity(n);
     for k in 0..n {
         let t = k as f64 / (n - 1) as f64;
         v.push(if log && a > 0.0 && b > 0.0 { (a.ln() + t * (b.ln() - a.ln())).exp() } else { a + t * (b - a) });
     }
     Ok(v)
+}
+
+/// The samples of `domain=a:b` as pgfplots loops over them, in pgf's floating point unit
+/// (`\pgfplots@domain@to@foreach` and the `a,a+h,...,b` loop of `\pgfplotsforeachungrouped`):
+/// `a + (b - a)/(n - 1)` is the second sample, `h` its distance to `a`, and the loop adds `h`
+/// while the sample is at most `b + h/2`. The steps keep few digits, so the last sample can fall a
+/// little short of `b`, which moves the data limits and, sometimes, the ticks.
+fn tex_samples(a: f64, b: f64, n: usize) -> Option<Vec<f64>> {
+    use super::fpu::Num;
+    if n < 2 || a == b {
+        return None;
+    }
+    let (fa, fb) = (Num::from_f64(a)?, Num::from_f64(b)?);
+    let q = fb.plus(fa.negated()).over(Num::from_f64((n - 1) as f64)?);
+    let h = fa.plus(q).plus(fa.negated());
+    if h.is_zero() {
+        return None;
+    }
+    let end = b + 0.5 * h.value();
+    let up = h.value() > 0.0;
+    let mut v = Vec::with_capacity(n + 1);
+    let mut x = fa;
+    while (up && x.value() <= end) || (!up && x.value() >= end) {
+        v.push(x.value());
+        x = x.plus(h);
+        if v.len() > 2 * n + 2 {
+            return None;
+        }
+    }
+    Some(v)
 }
 
 /// Where the points of one patch of a type lie in the unit interval or square (`sample in unit
@@ -714,36 +793,45 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
             let y = parts.get(1).map_or(f64::NAN, |p| axis_value(e, 'y', p));
             let z = parts.get(2).map_or(0.0, |p| value(e, p));
             let mut c = Coord::new(x, y, z);
-            // error bars, then [meta]
+            // error bars (`+- (…)`, or `+= (…) -= (…)`), then [meta]
             let mut j = i;
-            while j < list.len() && list[j].is_space() {
-                j += 1;
-            }
-            if j + 1 < list.len() && (list[j].is_char('+') || list[j].is_char('-')) && (list[j + 1].is_char('-') || list[j + 1].is_char('=')) {
-                let kind = (list[j].is_char('+'), list[j + 1].is_char('-'));
-                let mut k = j + 2;
-                while k < list.len() && list[k].is_space() {
-                    k += 1;
+            loop {
+                while j < list.len() && list[j].is_space() {
+                    j += 1;
                 }
-                if k < list.len() && list[k].is_char('(') {
-                    let mut kk = k;
-                    if let Some(inside) = read_paren(&mut kk) {
-                        let p = split_commas(&inside);
-                        let ex = p.first().map_or(f64::NAN, |v| value(e, v));
-                        let ey = p.get(1).map_or(f64::NAN, |v| value(e, v));
-                        match kind {
-                            (true, true) => c.err = [ex, ex, ey, ey],
-                            (true, false) => {
-                                c.err[1] = ex;
-                                c.err[3] = ey;
-                            }
-                            _ => {
-                                c.err[0] = ex;
-                                c.err[2] = ey;
-                            }
-                        }
-                        j = kk;
+                if !(j + 1 < list.len() && (list[j].is_char('+') || list[j].is_char('-')) && (list[j + 1].is_char('-') || list[j + 1].is_char('='))) {
+                    break;
+                }
+                let before = j;
+                {
+                    let kind = (list[j].is_char('+'), list[j + 1].is_char('-'));
+                    let mut k = j + 2;
+                    while k < list.len() && list[k].is_space() {
+                        k += 1;
                     }
+                    if k < list.len() && list[k].is_char('(') {
+                        let mut kk = k;
+                        if let Some(inside) = read_paren(&mut kk) {
+                            let p = split_commas(&inside);
+                            let ex = p.first().map_or(f64::NAN, |v| value(e, v));
+                            let ey = p.get(1).map_or(f64::NAN, |v| value(e, v));
+                            match kind {
+                                (true, true) => c.err = [ex, ex, ey, ey],
+                                (true, false) => {
+                                    c.err[1] = ex;
+                                    c.err[3] = ey;
+                                }
+                                _ => {
+                                    c.err[0] = ex;
+                                    c.err[2] = ey;
+                                }
+                            }
+                            j = kk;
+                        }
+                    }
+                }
+                if j == before {
+                    break;
                 }
             }
             while j < list.len() && list[j].is_space() {
@@ -801,6 +889,32 @@ fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
         let opts = e.optional()?;
         let data = match next(e) {
             Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+            // `table [options] from \macro`: a table read with \pgfplotstableread
+            Some(Token::Char('f', c)) => {
+                let mut taken = vec![Token::Char('f', c)];
+                for want in ['r', 'o', 'm'] {
+                    match e.tex.get_token() {
+                        Some(t @ Token::Char(x, _)) if x == want => taken.push(t),
+                        Some(t) => {
+                            taken.push(t);
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+                if taken.len() == 4 {
+                    match next(e) {
+                        Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
+                        Some(t) => vec![t],
+                        None => Vec::new(),
+                    }
+                } else {
+                    for t in taken.into_iter().skip(1).rev() {
+                        e.tex.back(t);
+                    }
+                    vec![Token::Char('f', c)]
+                }
+            }
             Some(t) => vec![t],
             None => Vec::new(),
         };
@@ -808,12 +922,20 @@ fn table_source(e: &mut Engine) -> Result<(Option<Vec<Token>>, String), Error> {
     })();
     e.tex.set_catcode('\n', saved.0);
     e.tex.set_catcode('\r', saved.1);
-    let (opts, data) = r?;
+    let (opts, mut data) = r?;
+    // a file name with macros (`plotdata/experiment\n.dat` in a \foreach) is expanded; a table
+    // kept by \pgfplotstableread (one macro) and inline data are not
+    let significant: Vec<&Token> = data.iter().filter(|t| !t.is_space()).collect();
+    let one_line = !data.iter().any(|t| matches!(t, Token::Char('\n' | '\r', _)) || t.is_cs("\\"));
+    if one_line && significant.len() > 1 && significant.iter().any(|t| matches!(t, Token::Cs(_))) {
+        data = super::toks(&e.tex.expand_to_string(data)?);
+    }
     let mut text = String::new();
     for t in &data {
         match t {
             Token::Char(c, _) => text.push(*c),
-            Token::Cs(n) if &**n == "\\" => text.push('\n'),
+            // `\\` kept as written: a row's end with `row sep=\\`
+            Token::Cs(n) if &**n == "\\" => text.push_str("\\\\"),
             Token::Cs(n) => {
                 text.push('\\');
                 text.push_str(n);
@@ -865,8 +987,10 @@ fn read_table(e: &mut Engine, three_d: bool) -> Result<(Vec<Coord>, Vec<usize>),
     }
     let row_sep = keys::value(e, "/pgfplots/table/row sep");
     if row_sep.contains("\\\\") {
-        text = text.replace("\\\\", "\n");
+        // the rows end at `\\`, not at the line ends
+        text = text.replace('\n', " ");
     }
+    text = text.replace("\\\\", "\n");
     let sep = table::col_sep(&keys::value(e, "/pgfplots/table/col sep"));
     let header = keys::value(e, "/pgfplots/table/header");
     let skip = keys::number(e, "/pgfplots/table/skip first n").unwrap_or(0.0) as usize;
@@ -901,6 +1025,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     enum Src {
         Col(Option<usize>),
         Expr(Vec<Token>),
+        /// A column made for the plot (`create col/linear regression`).
+        Values(Vec<f64>),
         None,
     }
     let pick = |e: &mut Engine, axis: &str, default: Option<usize>| -> Src {
@@ -908,6 +1034,30 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             return Src::Expr(expr);
         }
         let name = keys::value(e, &format!("/pgfplots/table/{axis}"));
+        let created = name.trim().trim_start_matches('{').trim_start();
+        if let Some(options) = created.strip_prefix("create col/linear regression") {
+            // `={y=…}`: the options, up to their closing brace
+            let options = options.trim().trim_start_matches('=').trim();
+            let options = match options.strip_prefix('{') {
+                Some(inner) => {
+                    let mut depth = 1;
+                    let end = inner
+                        .char_indices()
+                        .find(|(_, c)| {
+                            match c {
+                                '{' => depth += 1,
+                                '}' => depth -= 1,
+                                _ => {}
+                            }
+                            depth == 0
+                        })
+                        .map_or(inner.len(), |(i, _)| i);
+                    &inner[..end]
+                }
+                None => options.trim_end_matches('}'),
+            };
+            return Src::Values(linear_regression(e, t, options));
+        }
         if !name.is_empty() {
             return Src::Col(t.column(&name));
         }
@@ -957,17 +1107,21 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
     let sex = pick(e, "x error", None);
     let seyp = pick(e, "y error plus", None);
     let seym = pick(e, "y error minus", None);
+    let sexp = pick(e, "x error plus", None);
+    let sexm = pick(e, "x error minus", None);
     let box_filter = match e.tex.meaning_of(&crate::keys::macro_name("/pgfplots/boxplot/data filter/.@cmd")) {
         tex::Meaning::Macro(m) if !m.body.is_empty() && !keys::value(e, "/pgfplots/@boxplot").is_empty() => Some(m.body.clone()),
         _ => None,
     };
     let mut out = Vec::with_capacity(t.rows.len());
+    let mut rows = Vec::with_capacity(t.rows.len());
     for r in 0..t.rows.len() {
         // an expression may use the coordinates read so far: `z expr=x^2-y^2`
         let known: std::cell::RefCell<Vec<(&str, f64)>> = Default::default();
         let get = |e: &mut Engine, s: &Src| -> f64 {
             match s {
                 Src::Col(Some(c)) => t.cell(r, *c).and_then(table::parse_number).unwrap_or(f64::NAN),
+                Src::Values(v) => v.get(r).copied().unwrap_or(f64::NAN),
                 Src::Col(None) | Src::None => f64::NAN,
                 Src::Expr(tokens) => {
                     let replaced = replace_thisrow(tokens, t, r);
@@ -1026,6 +1180,13 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         if m.is_finite() {
             c.err[2] = m;
         }
+        let (p, m) = (get(e, &sexp), get(e, &sexm));
+        if p.is_finite() {
+            c.err[1] = p;
+        }
+        if m.is_finite() {
+            c.err[0] = m;
+        }
         let other = tie.as_ref().map(|ends| {
             let mut b = c;
             b.x = get(e, &ends[0]);
@@ -1053,9 +1214,104 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             }
         }
         out.push(c);
+        rows.push(r);
+        if other.is_some() {
+            rows.push(r);
+        }
         out.extend(other);
     }
+    FILTER_ROWS.with(|f| *f.borrow_mut() = Some((t.clone(), rows)));
     Ok(out)
+}
+
+/// `create col/linear regression={y=…}`: the least squares line through the table's points (in
+/// logarithms on log axes, weighted by `variance` or `variance list`), at every row's x; its slope
+/// and intercept are kept in `\pgfplotstableregressiona` and `\pgfplotstableregressionb`.
+fn linear_regression(e: &mut Engine, t: &Table, options: &str) -> Vec<f64> {
+    let mut opt = std::collections::HashMap::new();
+    for part in crate::keys::split_top_level(options) {
+        if let Some((k, v)) = part.split_once('=') {
+            opt.insert(k.trim().to_string(), v.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string());
+        }
+    }
+    let column = |name: Option<&String>, fallback: &str, index: usize| -> Option<usize> {
+        let n = name.cloned().unwrap_or_else(|| fallback.to_string());
+        if n.is_empty() {
+            Some(index)
+        } else {
+            t.column(&n)
+        }
+    };
+    let plot_x = keys::value(e, "/pgfplots/table/x");
+    let xs = column(opt.get("x"), &plot_x, 0);
+    let ys = column(opt.get("y"), "", 1);
+    let (Some(xc), Some(yc)) = (xs, ys) else {
+        e.warn("create col/linear regression: column not found");
+        return vec![f64::NAN; t.rows.len()];
+    };
+    // the modes: given, else the axis'
+    let mode = |e: &mut Engine, c: char| -> Option<f64> {
+        let m = opt.get(&format!("{c}mode")).cloned().unwrap_or_default();
+        let log = match m.as_str() {
+            "log" => true,
+            "linear" => false,
+            _ => keys::value(e, &format!("/pgfplots/{c}mode")) == "log",
+        };
+        // the logarithm's base: `log basis`, else e
+        log.then(|| keys::number(e, &format!("/pgfplots/log basis {c}")).filter(|b| *b > 0.0 && *b != 1.0).unwrap_or(std::f64::consts::E))
+    };
+    let (xlog, ylog) = (mode(e, 'x'), mode(e, 'y'));
+    let linear_variance = opt.get("variance format").cloned().unwrap_or_else(|| keys::value(e, "/pgfplots/table/create col/linear regression/variance format")) == "linear";
+    let mut variances: std::collections::VecDeque<f64> = match opt.get("variance list") {
+        Some(list) => list.split(',').filter_map(|v| e.number(v.trim()).ok()).collect(),
+        None => match opt.get("variance").and_then(|n| t.column(n)) {
+            Some(c) => (0..t.rows.len()).map(|r| t.cell(r, c).and_then(table::parse_number).unwrap_or(1.0)).collect(),
+            None => Default::default(),
+        },
+    };
+    let log_of = |v: f64, base: Option<f64>| match base {
+        Some(b) => v.ln() / b.ln(),
+        None => v,
+    };
+    let (mut s, mut sx, mut sxx, mut sy, mut sxy) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    let mut parsed = Vec::with_capacity(t.rows.len());
+    for r in 0..t.rows.len() {
+        let x = t.cell(r, xc).and_then(table::parse_number).unwrap_or(f64::NAN);
+        let y = t.cell(r, yc).and_then(table::parse_number).unwrap_or(f64::NAN);
+        if !(x.is_finite() && y.is_finite()) {
+            parsed.push(f64::NAN);
+            continue;
+        }
+        let (px, py) = (log_of(x, xlog), log_of(y, ylog));
+        parsed.push(px);
+        let var = variances.pop_front().unwrap_or(1.0);
+        let mut w = 1.0 / (var * var);
+        // a variance of y given for y itself: its logarithm's is dy / (y ln b)
+        if let (Some(b), true) = (ylog, linear_variance) {
+            w *= (y * b.ln()).powi(2);
+        }
+        s += w;
+        sx += px * w;
+        sxx += px * px * w;
+        sy += py * w;
+        sxy += px * py * w;
+    }
+    let delta = s * sxx - sx * sx;
+    let a = (s * sxy - sx * sy) / delta;
+    let b = (sxx * sy - sx * sxy) / delta;
+    for (name, v) in [("pgfplotstableregressiona", a), ("pgfplotstableregressionb", b)] {
+        e.tex.define_string(name, &format!("{v:e}"), true);
+    }
+    parsed
+        .into_iter()
+        .map(|px| {
+            let v = a * px + b;
+            match ylog {
+                Some(base) => base.powf(v),
+                None => v,
+            }
+        })
+        .collect()
 }
 
 /// `\thisrow{name}`, `\thisrowno{i}`, `\coordindex`, `\lineno` replaced by the row's values.
@@ -1121,36 +1377,229 @@ fn replace_thisrow_as(tokens: &[Token], t: &Table, row: usize, raw: bool) -> Vec
     out
 }
 
-/// `restrict x to domain`, `restrict y to domain`, `unbounded coords`.
-fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
-    // `x filter/.code={…}`: the code changes `\pgfmathresult`, the coordinate (empty: none)
-    for a in 0..3 {
-        let key = format!("/pgfplots/{} filter", ["x", "y", "z"][a]);
-        match e.tex.meaning_of(&crate::keys::macro_name(&format!("{key}/.@cmd"))) {
-            tex::Meaning::Macro(m) if !m.body.is_empty() => {}
-            _ => continue,
-        }
-        for (i, c) in plot.coords.iter_mut().enumerate() {
-            let v = match a {
-                0 => &mut c.x,
-                1 => &mut c.y,
-                _ => &mut c.z,
-            };
-            if !v.is_finite() {
-                continue;
+thread_local! {
+    /// The table the plot's coordinates were read from, and each coordinate's row: `\thisrow`
+    /// in coordinate filters.
+    static FILTER_ROWS: std::cell::RefCell<Option<(Table, Vec<usize>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The code of a key (`x filter/.code`), if it has some: its macro.
+fn filter_code(e: &Engine, path: &str) -> Option<Token> {
+    let name = crate::keys::macro_name(&format!("{path}/.@cmd"));
+    match e.tex.meaning_of(&name) {
+        tex::Meaning::Macro(m) if !m.body.is_empty() => Some(Token::cs(&name)),
+        _ => None,
+    }
+}
+
+/// pgfplots' coordinate filters (`\pgfplots@coord@filter`): `x filter`, `y filter`, `z filter` as
+/// code (`\pgfmathresult` in and out, empty to drop the point) and as expressions (`x`, `y`,
+/// `rawx`…, `\coordindex`, `\thisrow`), then `restrict expr to domain`.
+fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    let rows = FILTER_ROWS.with(|f| f.borrow_mut().take()).filter(|(_, r)| r.len() == plot.coords.len());
+    let dims = if plot.three_d { 3 } else { 2 };
+    let mut codes: Vec<Option<Token>> = Vec::new();
+    let mut exprs: Vec<Vec<Vec<Token>>> = Vec::new();
+    for c in ['x', 'y', 'z'].iter().take(dims) {
+        let path = format!("/pgfplots/{c} filter");
+        codes.push(filter_code(e, &path));
+        let list = crate::keys::value(&e.tex, &format!("{path}/@expressions")).unwrap_or_default();
+        exprs.push(split_groups(&list));
+    }
+    let restrict = keys::value_tokens(e, "/pgfplots/@restrict expr").zip(Some(keys::value(e, "/pgfplots/@restrict expr domain")));
+    let conditions = split_groups(&crate::keys::value(&e.tex, "/pgfplots/coordinate style/@conditions").unwrap_or_default());
+    let from = keys::value_tokens(e, "/pgfplots/coordinate style/@from");
+    let classes = if plot.scatter { scatter_classes(e) } else { Vec::new() };
+    // `visualization depends on`: (expression, verbatim, macro)
+    let deps: Vec<(Vec<Token>, bool, String)> = split_groups(&crate::keys::value(&e.tex, "/pgfplots/@visualization depends on").unwrap_or_default())
+        .into_iter()
+        .filter_map(|d| {
+            let at = d.iter().position(|t| t.is_cs("as"))?;
+            let name = d[at + 1..].iter().find_map(|t| if let Token::Cs(n) = t { Some(n.to_string()) } else { None })?;
+            let mut expr = crate::keys::trim(&d[..at]).to_vec();
+            let text = tex::tokens_to_string(&expr);
+            let verbatim = text.trim_start().starts_with("value");
+            if verbatim {
+                expr = tex::strip_outer_braces(crate::keys::trim(&super::toks(text.trim_start().trim_start_matches("value"))).to_vec());
             }
-            e.begin_group();
-            let text = super::super::pgf_number(*v);
-            e.tex.define_string("pgfmathresult", &text, false);
-            e.tex.define_string("coordindex", &i.to_string(), false);
-            let r = e.run_key(&key, Some(tex::string_tokens(&text))).and_then(|_| e.tex.expand_to_string(vec![Token::cs("pgfmathresult")]));
-            e.end_group();
-            *v = table::parse_number(&r?).unwrap_or(f64::NAN);
+            Some((expr, verbatim, name))
+        })
+        .collect();
+    if codes.iter().all(Option::is_none)
+        && exprs.iter().all(Vec::is_empty)
+        && restrict.is_none()
+        && conditions.is_empty()
+        && from.is_none()
+        && classes.is_empty()
+        && deps.is_empty()
+    {
+        return Ok(());
+    }
+    let number = |v: f64| super::super::pgf_number(v);
+    let mut drop = vec![false; plot.coords.len()];
+    for k in 0..plot.coords.len() {
+        let raw = plot.coords[k];
+        let mut cur = [raw.x, raw.y, raw.z];
+        let row = rows.as_ref().map(|(t, r)| (t, r[k]));
+        let substitute = |tokens: &[Token], result: f64| -> Vec<Token> {
+            let tokens = match row {
+                Some((t, r)) => replace_thisrow(tokens, t, r),
+                None => tokens.to_vec(),
+            };
+            let mut out = Vec::with_capacity(tokens.len());
+            for t in tokens {
+                if t.is_cs("pgfmathresult") {
+                    out.extend(super::toks(&format!("({})", number(result))));
+                } else if t.is_cs("coordindex") {
+                    out.extend(super::toks(&k.to_string()));
+                } else {
+                    out.push(t);
+                }
+            }
+            out
+        };
+        let eval = |e: &mut Engine, tokens: Vec<Token>, cur: [f64; 3]| -> f64 {
+            let mut vars = e.vars();
+            for (i, n) in ["x", "y", "z"].iter().enumerate() {
+                vars.insert((*n).into(), cur[i]);
+                vars.insert(format!("raw{n}"), [raw.x, raw.y, raw.z][i]);
+            }
+            e.math_string(tokens).and_then(|s| crate::expr::eval(&s, &vars)).unwrap_or(f64::NAN)
+        };
+        for a in 0..dims {
+            if let Some(code) = &codes[a] {
+                e.tex.define_string("pgfmathresult", &number(cur[a]), false);
+                e.tex.define_string("coordindex", &k.to_string(), false);
+                // the code's argument is the value too
+                let mut call = vec![code.clone(), Token::Char('{', Cat::Begin)];
+                call.extend(super::toks(&number(cur[a])));
+                call.push(Token::Char('}', Cat::End));
+                e.run_tokens(call)?;
+                let out = e.tex.expand_to_string(vec![Token::cs("pgfmathresult")])?;
+                let out = out.trim();
+                if out.is_empty() {
+                    drop[k] = true;
+                    break;
+                }
+                cur[a] = e.number(out).unwrap_or(f64::NAN);
+            }
+            for x in exprs[a].clone() {
+                let tokens = substitute(&x, cur[a]);
+                cur[a] = eval(e, tokens, cur);
+            }
+        }
+        if let Some((expr, domain)) = &restrict {
+            if let Some((lo, hi)) = domain.split_once(':') {
+                let (lo, hi) = (e.number(lo)?, e.number(hi)?);
+                let v = eval(e, substitute(expr, cur[0]), cur);
+                if !(lo..=hi).contains(&v) {
+                    cur[0] = f64::INFINITY;
+                }
+            }
+        }
+        // the coordinate's own style: its `scatter/classes` class (by its symbolic point meta),
+        // `.from` (a table cell), then the conditions that hold
+        let mut style = Vec::new();
+        // (the labels are still being collected)
+        let label = (raw.label != NO_LABEL).then(|| LABELS.with(|l| l.borrow().get(raw.label as usize).cloned())).flatten();
+        if let Some(l) = label {
+            let name = tex::tokens_to_string(&l);
+            if let Some((_, s)) = classes.iter().find(|(n, _)| *n == name.trim()) {
+                style.extend(s.clone());
+            }
+        }
+        if let Some(from) = &from {
+            // `\thisrow{style}`: the cell's text
+            let text = tex::tokens_to_string(from);
+            let cell = text.trim().strip_prefix("\\thisrow").map(|n| n.trim().trim_start_matches('{').trim_end_matches('}').trim().to_string());
+            let text = match (cell, row) {
+                (Some(name), Some((t, r))) => t.column(&name).and_then(|c| t.cell(r, c)).unwrap_or("").to_string(),
+                _ => e.tex.expand_to_string(from.clone())?,
+            };
+            let text = text.trim();
+            let text = text.strip_prefix('{').and_then(|t| t.strip_suffix('}')).unwrap_or(text);
+            style.extend(super::toks(text.trim()));
+        }
+        for pair in conditions.chunks(2) {
+            let [test, s] = pair else { break };
+            let v = eval(e, substitute(test, cur[0]), cur);
+            if v != 0.0 && !v.is_nan() {
+                if !style.is_empty() {
+                    style.push(Token::other(','));
+                }
+                style.extend(s.clone());
+            }
+        }
+        let mut values = Vec::new();
+        for (expr, verbatim, name) in &deps {
+            let tokens = substitute(expr, cur[0]);
+            let v = if *verbatim { e.tex.expand_to_string(tokens)?.trim().to_string() } else { super::super::pgf_number(eval(e, tokens, cur)) };
+            values.push((name.clone(), v));
+        }
+        if !values.is_empty() {
+            plot.coords[k].deps = plot.deps.len() as u32;
+            plot.deps.push(values);
+        }
+        let c = &mut plot.coords[k];
+        (c.x, c.y, c.z) = (cur[0], cur[1], cur[2]);
+        if style.iter().any(|t| !t.is_space()) {
+            c.style = plot.coord_styles.len() as u32;
+            plot.coord_styles.push(style);
         }
     }
+    if drop.iter().any(|d| *d) {
+        let mut k = 0;
+        plot.coords.retain(|_| {
+            k += 1;
+            !drop[k - 1]
+        });
+    }
+    Ok(())
+}
+
+/// `scatter/classes={a={mark=square*,blue},b={…}}`: each class' name and style.
+pub fn scatter_classes(e: &mut Engine) -> Vec<(String, Vec<Token>)> {
+    let Some(v) = keys::value_tokens(e, "/pgfplots/scatter/classes") else { return Vec::new() };
+    crate::keys::split_list(&v).into_iter().map(|i| (i.key.trim().to_string(), i.value.map(tex::strip_outer_braces).unwrap_or_default())).collect()
+}
+
+/// The brace groups of a list (`{a}{b}`).
+fn split_groups(list: &[Token]) -> Vec<Vec<Token>> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut cur = Vec::new();
+    for t in list {
+        match t {
+            Token::Char(_, Cat::Begin) => {
+                depth += 1;
+                if depth == 1 {
+                    continue;
+                }
+            }
+            Token::Char(_, Cat::End) => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    out.push(std::mem::take(&mut cur));
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            cur.push(t.clone());
+        }
+    }
+    out
+}
+
+/// `restrict x to domain`, `restrict y to domain`, `unbounded coords`.
+fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
+    // a restriction makes the coordinates outside unbounded, and unbounded coordinates jump
+    let mut restricted = false;
     for (axis, key) in [('x', "/pgfplots/restrict x to domain"), ('y', "/pgfplots/restrict y to domain")] {
         let d = keys::value(e, key);
         if let Some((a, b)) = d.split_once(':') {
+            restricted = true;
             let (a, b) = (e.number(a)?, e.number(b)?);
             for c in &mut plot.coords {
                 let v = if axis == 'x' { &mut c.x } else { &mut c.y };
@@ -1160,7 +1609,7 @@ fn filter(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
             }
         }
     }
-    let jump = keys::value(e, "/pgfplots/unbounded coords") == "jump";
+    let jump = restricted || keys::value(e, "/pgfplots/unbounded coords") == "jump";
     let log = (keys::value(e, "/pgfplots/xmode") == "log", keys::value(e, "/pgfplots/ymode") == "log");
     for c in &mut plot.coords {
         if (log.0 && c.x <= 0.0) || (log.1 && c.y <= 0.0) {
