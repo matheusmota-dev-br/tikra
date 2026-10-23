@@ -566,12 +566,16 @@ fn named_anchor(name: &str, lo: Point, hi: Point, blo: Point, bhi: Point, f: &Fr
         return Some(p);
     }
     let origin = f.at([f.zero[0], f.zero[1], f.zero[2]]);
+    // where the line through the origin along an axis meets an edge of the box (a 3d axis'
+    // lines are slanted)
+    let at_y = |dir: Point, y: f64| if dir.y.abs() > 1e-12 { origin.plus(dir.scale((y - origin.y) / dir.y)) } else { Point::new(origin.x, y) };
+    let at_x = |dir: Point, x: f64| if dir.x.abs() > 1e-12 { origin.plus(dir.scale((x - origin.x) / dir.x)) } else { Point::new(x, origin.y) };
     Some(match n {
         "origin" => origin,
-        "left of origin" => Point::new(lo.x, origin.y),
-        "right of origin" => Point::new(hi.x, origin.y),
-        "above origin" => Point::new(origin.x, hi.y),
-        "below origin" => Point::new(origin.x, lo.y),
+        "left of origin" => at_x(f.e[0], lo.x),
+        "right of origin" => at_x(f.e[0], hi.x),
+        "above origin" => at_y(f.e[1], hi.y),
+        "below origin" => at_y(f.e[1], lo.y),
         "right of north east" => Point::new(bhi.x, hi.y),
         "right of north west" => Point::new(blo.x.max(lo.x), hi.y),
         "right of south east" => Point::new(bhi.x, lo.y),
@@ -1258,6 +1262,11 @@ const DESCRIPTION_KEYS: &[&str] = &[
     "ylabel near ticks",
     "xlabel absolute",
     "ylabel absolute",
+    // their label styles
+    "axis lines",
+    "axis x line",
+    "axis y line",
+    "axis z line",
 ];
 
 /// `\pgfplots@BEGIN@prepare@description@styles`: once an axis is known to be 3d it gets
