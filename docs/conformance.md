@@ -6,7 +6,7 @@ to run it: [tools/conformance](../tools/conformance/README.md).
 
 **2330 of 2502 figures (93.1%) match TeX**; 150 are close, 22 differ and 0 fail in tikra. 159 of the ones that do not match came out with no warning.
 
-**Our 100%: 2345 of 2486 (94.3%)**. It leaves out the 16 figures no converter can reproduce (9 with random numbers TeX draws anew on every run, 3 with an image file or external program, 4 with the day's date), and counts as done 18 that differ only by antialiasing. The list, checked by eye: [unreproducible.json](../tools/conformance/unreproducible.json).
+**Our 100%: 2371 of 2486 (95.4%)**. It leaves out the 16 figures no converter can reproduce (9 with random numbers TeX draws anew on every run, 3 with an image file or external program, 4 with the day's date), and counts as done 44 that differ only by antialiasing. The list, checked by eye: [unreproducible.json](../tools/conformance/unreproducible.json).
 
 | | Figures | Match | Close | Different | Fails | Mean F1 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -172,23 +172,23 @@ Warnings, by how many figures they appear in (the varying part replaced by …):
 | 2 | `key handler … not supported (…): ignored` |
 | 2 | `fill between: soft clip … not understood: ignored` |
 | 1 | `E-REC-N column N: unsupported text command: \pgfuseimage; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \pgfimage; written as is` |
 | 1 | `environment colormixin not supported: content read as statements` |
+| 1 | `E-REC-N column N: unsupported text command: \pgfimage; written as is` |
 | 1 | `\pgfpathcurvebetweentime not supported: … ignored` |
 | 1 | `\pgfplotgnuplot not supported: … ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderrectangle; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderellipse; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointintersectionofcircles; statement ignored` |
 | 1 | `\pgfqbox{\mybox}: the box is not drawn` |
-| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
-| 1 | `\pgftransparencygroup not supported: … ignored` |
-| 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
+| 1 | `\pgftransparencygroup not supported: … ignored` |
+| 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
 | 1 | `\endpgftransparencygroup not supported: … ignored` |
-| 1 | `unrecognized path fragment: …` |
+| 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
+| 1 | `unrecognized path fragment: …` |
 | 1 | `\pgfmathparse: expression: unexpected character: …` |
 | 1 | `E-REC-N column N: \rmoustache is not a delimiter; used the empty one` |
 | 1 | `E-REC-N column N: unsupported text command: \-; written as is` |

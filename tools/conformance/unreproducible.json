@@ -33,7 +33,7 @@
     ]
   },
   "antialiasing": {
-    "about": "the same drawing, in the same places and colors: only how Ghostscript (which renders TeX's PDF) and tikra put a line or a fill on the pixels differs",
+    "about": "the same drawing, in the same places and colors: only how Ghostscript (which renders TeX's PDF) and tikra put a line or a fill on the pixels differs (thin help lines, which the comparison widens to a whole pixel, soft edges of fadings and shadings)",
     "ids": [
       "tikz/pgfmanual-en-base-actions:63",
       "tikz/pgfmanual-en-base-actions:77",
@@ -55,7 +55,34 @@
       "tikz/pgfmanual-en-tikz-transparency:733",
       "pgfplots/pgfplots.libs.fillbetween:1225",
       "pgfplots/pgfplots.libs.smithchart:622",
-      "pgfplots/pgfplots.reference.3dplots:1144"
+      "pgfplots/pgfplots.reference.3dplots:1144",
+      "tikz/pgfmanual-en-base-animations:71",
+      "tikz/pgfmanual-en-base-nodes:178",
+      "tikz/pgfmanual-en-base-nodes:455",
+      "tikz/pgfmanual-en-base-paths:358",
+      "tikz/pgfmanual-en-base-paths:730",
+      "tikz/pgfmanual-en-base-points:30",
+      "tikz/pgfmanual-en-base-points:54",
+      "tikz/pgfmanual-en-base-points:246",
+      "tikz/pgfmanual-en-base-points:259",
+      "tikz/pgfmanual-en-base-points:272",
+      "tikz/pgfmanual-en-base-points:296",
+      "tikz/pgfmanual-en-base-quick:68",
+      "tikz/pgfmanual-en-base-quick:105",
+      "tikz/pgfmanual-en-base-shadings:290",
+      "tikz/pgfmanual-en-base-transformations:254",
+      "tikz/pgfmanual-en-base-transformations:274",
+      "tikz/pgfmanual-en-base-transformations:283",
+      "tikz/pgfmanual-en-base-transformations:315",
+      "tikz/pgfmanual-en-base-transformations:571",
+      "tikz/pgfmanual-en-base-transformations:657",
+      "tikz/pgfmanual-en-base-transformations:673",
+      "tikz/pgfmanual-en-base-transformations:689",
+      "tikz/pgfmanual-en-base-transformations:955",
+      "tikz/pgfmanual-en-base-transparency:121",
+      "tikz/pgfmanual-en-base-transparency:209",
+      "tikz/pgfmanual-en-base-transparency:221",
+      "tikz/pgfmanual-en-base-transparency:360"
     ]
   }
 }
