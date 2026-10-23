@@ -77,6 +77,7 @@ pub enum Cmd {
     SetFillPattern,
     TikzDeclarePattern,
     PgfDeclarePattern,
+    ArrowsDeclare,
     DeclareShape,
     PositionNodeLater,
     PositionNodeNow,
@@ -188,6 +189,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfsetfillpattern", Cmd::SetFillPattern),
     ("tikzdeclarepattern", Cmd::TikzDeclarePattern),
     ("pgfdeclarepattern", Cmd::PgfDeclarePattern),
+    ("pgfarrowsdeclare", Cmd::ArrowsDeclare),
     ("pgfdeclareshape", Cmd::DeclareShape),
     ("pgfpositionnodelater", Cmd::PositionNodeLater),
     ("pgfpositionnodenow", Cmd::PositionNodeNow),
@@ -585,6 +587,7 @@ impl Clone for Engine {
 impl Engine {
     /// A fresh engine with TikZ defined (built once per thread, then cloned).
     pub fn new() -> Engine {
+        arrows::clear_declared();
         PROTOTYPE.with(|p| {
             let mut p = p.borrow_mut();
             if p.is_none() {
@@ -1155,6 +1158,7 @@ impl Engine {
             Cmd::SetFillPattern => self.set_fill_pattern(),
             Cmd::TikzDeclarePattern => self.tikz_declare_pattern(true),
             Cmd::PgfDeclarePattern => self.tikz_declare_pattern(false),
+            Cmd::ArrowsDeclare => self.arrows_declare(),
             Cmd::DeclareShape => self.declare_shape(),
             // `\pgfpositionnodelater{macro}`: the nodes of the group kept, not drawn (the macro,
             // which would save them, is not run: `\pgfpositionnodenow` places the last one)

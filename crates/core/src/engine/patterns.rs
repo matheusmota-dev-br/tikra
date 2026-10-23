@@ -148,8 +148,8 @@ impl Engine {
         r
     }
 
-    /// What `code` draws, as one tile: in a picture of its own, its coordinates kept.
-    fn draw_tile(&mut self, code: Vec<Token>) -> Result<Vec<Item>, Error> {
+    /// What `code` draws, as one tile (or an arrow tip): in a picture of its own, its coordinates kept.
+    pub(super) fn draw_tile(&mut self, code: Vec<Token>) -> Result<Vec<Item>, Error> {
         let saved_canvas = std::mem::take(&mut self.canvas);
         let saved_depth = std::mem::replace(&mut self.picture_depth, 1);
         let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
@@ -270,6 +270,39 @@ impl Engine {
         self.st.pattern_name = Some(name.trim().to_string());
         self.st.pattern_color = Some(c);
         self.st.fill_pattern = true;
+        Ok(())
+    }
+}
+
+impl Engine {
+    /// `\pgfarrowsdeclare{start}{end}{extents}{code}`: a tip of the old kind, its extents as
+    /// `\pgfarrowsleftextend{…}` and `\pgfarrowsrightextend{…}` give them and its drawing as the
+    /// code makes it, with the line width of the moment.
+    pub fn arrows_declare(&mut self) -> Result<(), Error> {
+        let start = self.argument_string()?;
+        let end = self.argument_string()?;
+        let extents = self.argument()?;
+        let code = self.argument()?;
+        let text = crate::tex::tokens_to_string(&extents);
+        let extent = |e: &mut Engine, name: &str| -> Result<f64, Error> {
+            let Some(rest) = text.split(&format!("\\{name}")).nth(1) else { return Ok(0.0) };
+            let arg = rest.trim_start().strip_prefix('{').and_then(|r| r.split_once('}')).map_or("0pt", |(a, _)| a);
+            Ok(e.length(arg)? / PT)
+        };
+        let (left, right) = (extent(self, "pgfarrowsleftextend")?, extent(self, "pgfarrowsrightextend")?);
+        let items = self.draw_tile(code)?;
+        let to_pt = Transform::scaling(1.0 / PT, 1.0 / PT);
+        let paths = items
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Path { segments, fill, stroke } => {
+                    let segs = crate::canvas::transform_segments(&segments, &to_pt);
+                    Some((segs, fill.is_some(), stroke.is_some(), stroke.map_or(0.0, |s| s.width / PT)))
+                }
+                _ => None,
+            })
+            .collect();
+        super::arrows::declare_tip(super::arrows::DeclaredTip { names: (start.trim().to_string(), end.trim().to_string()), left, right, paths });
         Ok(())
     }
 }
