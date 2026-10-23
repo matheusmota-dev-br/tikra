@@ -451,15 +451,32 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             rest = super::toks(&text);
         }
     }
-    if let Some(name) = e.st.name_path.take() {
-        e.named_paths.insert(name, segs.clone());
+    let name_path = e.st.name_path.take();
+    if let Some(name) = &name_path {
+        e.named_paths.insert(name.clone(), segs.clone());
     }
     let only_marks = e.st.only_marks;
     let mark = e.st.plot_mark.clone();
     if !only_marks && !segs.is_empty() {
         let draw = e.st.mode.draw;
         // a mark-only path does not need the line
-        e.use_path(segs.clone(), "addplot")?;
+        // with the path's decoration, preactions and postactions (`\tikz@finish`)
+        // (pgfplots' `every path` gives them the plot's draw and fill modes back, and its name)
+        let mut modes = format!("{}{}", if e.st.mode.draw { "draw," } else { "" }, if e.st.mode.fill { "fill," } else { "" });
+        if let Some(name) = &name_path {
+            modes.push_str(&format!("name path={{{name}}},"));
+        }
+        for actions in [&mut e.st.preactions, &mut e.st.postactions] {
+            if !actions.is_empty() {
+                for a in std::rc::Rc::make_mut(actions).iter_mut() {
+                    let mut o = super::toks(&modes);
+                    o.append(a);
+                    *a = o;
+                }
+            }
+        }
+        let outer = e.st.clone();
+        e.finish_path(segs.clone(), &outer, "addplot")?;
         let _ = draw;
     }
     // the rest of the path: nodes at the last point, those with `pos` along the plot

@@ -503,6 +503,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/hist/handler/.style={/tikz/ybar interval},
 	/pgfplots/hist/data filter/.code=,
 	/pgfplots/hist/@symbolic coords/.initial=,
+	/pgf/decoration/soft clip/.style={/pgf/decoration/name=soft clip}, /pgf/decoration/soft clip path/.initial=,
 	/pgfplots/@date coordinates in/.initial=, /pgfplots/date ZERO/.initial=,
 	/pgfplots/date coordinates in/.style={/pgfplots/@date coordinates in={#1},/pgfplots/#1ticklabel={\tick},/pgfplots/scaled #1 ticks=false},
 	/pgfplots/hist/symbolic coords/.style={/pgfplots/hist/@symbolic coords={#1},/pgfplots/symbolic x coords={#1}},
