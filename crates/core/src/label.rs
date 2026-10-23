@@ -512,6 +512,166 @@ fn words(line: &str) -> Vec<(String, bool)> {
     out
 }
 
+/// Characters of a height and a depth (em).
+type Class = (f32, f32, &'static str);
+
+/// The heights and depths (em) that TeX's fonts give the characters, by the first character of
+/// each alphabet the label font draws them from (roman, math italic, typewriter, bold, sans serif)
+/// and its characters of that height and depth: from the fonts' metrics (`cmr10`, `cmmi10`,
+/// `cmtt10`, `cmbx10`, `cmss10`). TeX sizes a box by these, not by the ink of the letters, which
+/// overshoots them (round letters dip below the baseline and rise above the x-height).
+const TEX_METRICS: &[(char, &[Class])] = &[
+    (
+        'A',
+        &[
+            (0.1056, 0.0, "."),
+            (0.1056, 0.1944, ","),
+            (0.3669, 0.0, "="),
+            (0.4306, 0.0, "-:acemnorsuvwxz"),
+            (0.4306, 0.1944, ";gpqy"),
+            (0.5833, 0.0833, "+"),
+            (0.6151, 0.0, "t"),
+            (0.6444, 0.0, "0123456789"),
+            (0.6679, 0.0, "i"),
+            (0.6679, 0.1944, "j"),
+            (0.6833, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZ"),
+            (0.6833, 0.1944, "Q"),
+            (0.6944, 0.0, "!&'?@bdfhkl"),
+            (0.6944, 0.1944, "#"),
+            (0.75, 0.0, "*"),
+            (0.75, 0.0556, "$%"),
+            (0.75, 0.25, "()/[]"),
+        ],
+    ),
+    (
+        '\u{1D434}',
+        &[
+            (0.4306, 0.0, "acemnorsuvwxz"),
+            (0.4306, 0.1944, "gpqy"),
+            (0.6151, 0.0, "t"),
+            (0.6595, 0.0, "i"),
+            (0.6595, 0.1944, "j"),
+            (0.6833, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZ"),
+            (0.6833, 0.1944, "Q"),
+            (0.6944, 0.0, "bdhkl"),
+            (0.6944, 0.1944, "f"),
+        ],
+    ),
+    (
+        '\u{1D670}',
+        &[
+            (0.4306, 0.0, "acemnorsuvwxz"),
+            (0.4306, 0.2222, "gpqy"),
+            (0.5536, 0.0, "t"),
+            (0.6111, 0.0, "0123456789ABCDEFGHIJKLMNOPRSTUVWXYZbdfhikl"),
+            (0.6111, 0.1389, "Q"),
+            (0.6111, 0.2222, "j"),
+        ],
+    ),
+    (
+        '\u{1D400}',
+        &[
+            (0.4444, 0.0, "acemnorsuvwxz"),
+            (0.4444, 0.1944, "gpqy"),
+            (0.6349, 0.0, "t"),
+            (0.6444, 0.0, "0123456789"),
+            (0.6861, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZ"),
+            (0.6861, 0.1944, "Q"),
+            (0.6944, 0.0, "bdfhikl"),
+            (0.6944, 0.1944, "j"),
+        ],
+    ),
+    (
+        '\u{1D5A0}',
+        &[
+            (0.4444, 0.0, "acemnorsuvwxz"),
+            (0.4444, 0.1944, "gpqy"),
+            (0.5714, 0.0, "t"),
+            (0.6556, 0.0, "0123456789"),
+            (0.6794, 0.0, "i"),
+            (0.6794, 0.1944, "j"),
+            (0.6944, 0.0, "ABCDEFGHIJKLMNOPRSTUVWXYZbdfhkl"),
+            (0.6944, 0.125, "Q"),
+        ],
+    ),
+];
+
+/// The character of the alphabet that starts at `first` (a mathematical alphanumeric one, or the
+/// ASCII roman for `A`) standing for `c`, as the label font has it.
+fn in_alphabet(first: char, c: char) -> Option<char> {
+    if first == 'A' {
+        return Some(c);
+    }
+    let offset = match c {
+        'A'..='Z' => c as u32 - 'A' as u32,
+        'a'..='z' => c as u32 - 'a' as u32 + 26,
+        '0'..='9' => {
+            // the digits of each alphabet, where Unicode has them
+            let zero = match first {
+                '\u{1D670}' => 0x1D7F6,
+                '\u{1D400}' => 0x1D7CE,
+                '\u{1D5A0}' => 0x1D7E2,
+                _ => return None,
+            };
+            return char::from_u32(zero + (c as u32 - '0' as u32));
+        }
+        _ => return None,
+    };
+    // the italic h is Planck's constant, out of the block
+    if first == '\u{1D434}' && c == 'h' {
+        return Some('\u{210E}');
+    }
+    char::from_u32(first as u32 + offset)
+}
+
+/// TeX's height and depth of the label font's glyphs that stand for Computer Modern characters, in
+/// font units.
+fn tex_metrics() -> &'static std::collections::HashMap<u16, (f32, f32)> {
+    static METRICS: std::sync::OnceLock<std::collections::HashMap<u16, (f32, f32)>> = std::sync::OnceLock::new();
+    METRICS.get_or_init(|| {
+        let font = FONT.get();
+        let em = font.units_per_em();
+        let mut m = std::collections::HashMap::new();
+        for (first, classes) in TEX_METRICS {
+            for (h, d, chars) in *classes {
+                for c in chars.chars() {
+                    if let Some(g) = in_alphabet(*first, c).and_then(|c| font.glyph(c)) {
+                        m.insert(g.0, (h * em, d * em));
+                    }
+                }
+            }
+        }
+        m
+    })
+}
+
+/// The box as tall and deep as TeX makes it: where its height (or depth) is that of a glyph's ink,
+/// that of the glyphs' metrics in TeX's font instead. A height set by a rule, a strut or `\smash`
+/// stays.
+fn tex_extents(mut b: MathBox) -> MathBox {
+    let font = FONT.get();
+    let metrics = tex_metrics();
+    let (mut ink_top, mut ink_bottom, mut top, mut bottom) = (f32::MIN, f32::MIN, f32::MIN, f32::MIN);
+    for item in &b.items {
+        if let mathra::layout::Item::Glyph { id, y, scale, .. } = item {
+            let (_, y0, _, y1) = font.limits(*id);
+            let (h, d) = metrics.get(&id.0).copied().unwrap_or((y1.max(0.0), (-y0).max(0.0)));
+            ink_top = ink_top.max(y + y1.max(0.0) * scale);
+            ink_bottom = ink_bottom.max(-y + (-y0).max(0.0) * scale);
+            top = top.max(y + h * scale);
+            bottom = bottom.max(-y + d * scale);
+        }
+    }
+    // (font units: a thousandth of an em)
+    if top > f32::MIN && (b.height - ink_top).abs() < 0.5 {
+        b.height = top.max(0.0);
+    }
+    if bottom > f32::MIN && (b.depth - ink_bottom).abs() < 0.5 {
+        b.depth = bottom.max(0.0);
+    }
+    b
+}
+
 /// `sc`: in small capitals (the node font's `\scshape`).
 fn typeset(text: &str, bold: bool, sc: bool, warnings: &mut Vec<String>) -> MathBox {
     let options = mathra::Options { display: false, ..Default::default() };
@@ -520,7 +680,7 @@ fn typeset(text: &str, bold: bool, sc: bool, warnings: &mut Vec<String>) -> Math
     match mathra::typeset_in_font(&tex, &options, FONT) {
         Ok((c, applied)) => {
             warnings.extend(applied.into_iter().map(|a| format!("{} {}", a.rule, a.description)));
-            c
+            tex_extents(c)
         }
         // even in tolerant mode mathra refuses some input (nesting past its limit)
         Err(e) => {
