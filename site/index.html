@@ -349,7 +349,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     const tiles = $("tiles");
     let total = 0;
     // the home page shows a few; gallery.html shows them all
-    const FEATURED = ["surface-3d", "mindmap", "automaton", "circuit", "fill-between", "shapes-gallery"];
+    const FEATURED = ["lorenz-attractor", "nightingale-rose", "petersen-graph", "feynman-diagram", "normal-distribution", "golden-spiral"];
     const shown = CORPUS.filter((f) => FEATURED.includes(f.name));
     $("gallery-all").textContent = `See all ${CORPUS.length} figures`;
     for (const { name, topic, tex: src } of CORPUS) {

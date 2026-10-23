@@ -64,16 +64,16 @@
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   // the folders of corpus/, in this order: title, what they show, and the figure on their card
   const TOPICS = {
-    "geometry": ["Geometry", "Points, lines, circles, angles, transformations and coordinates.", "angles-quotes"],
-    "plots-2d": ["Function plots", "TikZ plots and pgfplots axes in two dimensions.", "fill-between"],
-    "plots-3d": ["3D plots", "Surfaces, meshes, curves and heat maps with pgfplots.", "surface-3d"],
-    "charts": ["Charts", "Bars, pies, histograms, error bars and other statistics.", "stacked-bars"],
-    "special-axes": ["Special axes", "Polar, ternary and Smith charts, and data visualization.", "polar-rose"],
-    "diagrams": ["Diagrams", "Flowcharts, graphs, trees, mind maps, automata and Petri nets.", "mindmap"],
-    "science": ["Science and engineering", "Circuits, logic gates, physics, optics and chemistry.", "circuit"],
-    "decorations": ["Decorations and arrows", "Decorations, markings, text along paths, arrow tips and fractals.", "markings"],
-    "fills-and-colors": ["Fills and colors", "Patterns, shadings, fadings, opacity, blending and clipping.", "shadings-fadings"],
-    "nodes-and-text": ["Nodes and text", "Node shapes, labels, matrices, calendars and text layout.", "shapes-gallery"],
+    "geometry": ["Geometry", "Points, lines, circles, angles, transformations and coordinates.", "golden-spiral"],
+    "plots-2d": ["Function plots", "TikZ plots and pgfplots axes in two dimensions.", "normal-distribution"],
+    "plots-3d": ["3D plots", "Surfaces, meshes, curves and heat maps with pgfplots.", "lorenz-attractor"],
+    "charts": ["Charts", "Bars, pies, histograms, error bars and other statistics.", "nightingale-rose"],
+    "special-axes": ["Special axes", "Polar, ternary and Smith charts, and data visualization.", "antenna-radiation-pattern"],
+    "diagrams": ["Diagrams", "Flowcharts, graphs, trees, mind maps, automata and Petri nets.", "petersen-graph"],
+    "science": ["Science and engineering", "Circuits, logic gates, physics, optics and chemistry.", "feynman-diagram"],
+    "decorations": ["Decorations and arrows", "Decorations, markings, text along paths, arrow tips and fractals.", "koch-snowflake"],
+    "fills-and-colors": ["Fills and colors", "Patterns, shadings, fadings, opacity, blending and clipping.", "color-wheel-shading"],
+    "nodes-and-text": ["Nodes and text", "Node shapes, labels, matrices, calendars and text layout.", "periodic-table-corner"],
   };
   const topicOrder = (t) => { const i = Object.keys(TOPICS).indexOf(t); return i < 0 ? 99 : i; };
   const topics = [...new Set(CORPUS.map((f) => f.topic))].sort((a, b) => topicOrder(a) - topicOrder(b));
