@@ -782,6 +782,9 @@ impl Engine {
             Meaning::Undefined => {
                 if let Token::Cs(name) = &t {
                     self.unknown_command(name)?;
+                } else if matches!(t, Token::Char('~', Cat::Active)) && self.picture_depth == 0 {
+                    // `~`: an interword space where the line cannot break
+                    self.layout.push(Layout::Skip(SPACE));
                 }
             }
             _ => {
