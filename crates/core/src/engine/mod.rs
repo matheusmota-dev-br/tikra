@@ -2042,7 +2042,12 @@ impl Engine {
             "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
                 if name == "minipage" {
                     let _ = self.optional()?;
-                    let _ = self.argument()?;
+                    let width = self.argument()?;
+                    // the page is as wide as the minipage
+                    if self.picture_depth == 0 {
+                        let w = self.length_of(width)?;
+                        self.layout.push(Layout::Width(w));
+                    }
                 } else if name == "figure" {
                     let _ = self.optional()?;
                 }
