@@ -11,8 +11,11 @@ pub fn names(e: &Engine, c: char) -> Vec<String> {
     list(&crate::tex::tokens_to_string(&v))
 }
 
-/// The number a name stands for on axis `c`.
-pub fn index(e: &Engine, c: char, text: &str) -> Option<f64> {
+/// The number a name stands for on axis `c` (or a date, with `date coordinates in`).
+pub fn index(e: &mut Engine, c: char, text: &str) -> Option<f64> {
+    if super::dateplot::is_date(e, c) {
+        return super::dateplot::value(e, text);
+    }
     position(&names(e, c), text)
 }
 

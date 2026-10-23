@@ -10,6 +10,7 @@ pub mod colorbar;
 pub mod colormap;
 pub mod contour;
 pub mod cube;
+pub mod dateplot;
 pub mod draw;
 pub mod fillbetween;
 pub mod fpu;
@@ -147,6 +148,7 @@ impl Engine {
             self.begin_picture(None)?;
         }
         self.begin_group();
+        dateplot::reset(self);
         let mut axis = Axis { kind: kind.to_string(), opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
             "polaraxis" => "enlarge x limits=false,every polar axis",

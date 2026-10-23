@@ -503,6 +503,8 @@ const DEFINITIONS: &str = r"
 	/pgfplots/hist/handler/.style={/tikz/ybar interval},
 	/pgfplots/hist/data filter/.code=,
 	/pgfplots/hist/@symbolic coords/.initial=,
+	/pgfplots/@date coordinates in/.initial=, /pgfplots/date ZERO/.initial=,
+	/pgfplots/date coordinates in/.style={/pgfplots/@date coordinates in={#1},/pgfplots/#1ticklabel={\tick},/pgfplots/scaled #1 ticks=false},
 	/pgfplots/hist/symbolic coords/.style={/pgfplots/hist/@symbolic coords={#1},/pgfplots/symbolic x coords={#1}},
 	/pgfplots/xbar interval/.style={bar direction=x,bar cycle list,y tick label as interval,ytick=data,ymajorgrids,ytick align=outside,xbar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/xbar interval},

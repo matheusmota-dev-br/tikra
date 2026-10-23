@@ -2144,6 +2144,9 @@ fn tick_text(e: &mut Engine, a: usize, t: f64, next: Option<f64>, k: usize, fact
         let tick = super::super::pgf_number(value);
         e.tex.set_meaning(&Token::cs("tick"), super::super::macro_from(&tick), false);
         e.tex.set_meaning(&Token::cs("ticknum"), super::super::macro_from(&k.to_string()), false);
+        if super::dateplot::is_date(e, c) {
+            super::dateplot::define_tick(e, value);
+        }
         if let Some(n) = next {
             e.tex.set_meaning(&Token::cs("nexttick"), super::super::macro_from(&super::super::pgf_number(shown(n))), false);
         }
