@@ -11,8 +11,10 @@ printf 'var TIKRA_WASM_BASE64 = "%s";\n' "$(base64 < site/pkg/tikra_wasm_bg.wasm
 # the gallery, every figure of corpus/ (checked by crates/core/tests/corpus.rs), and the banner, as a script
 node -e '
   const fs = require("fs");
-  const figures = fs.readdirSync("corpus").filter((f) => f.endsWith(".tex")).sort()
-    .map((f) => ({ name: f.slice(0, -4), tex: fs.readFileSync("corpus/" + f, "utf8") }));
+  // corpus/<topic>/<name>.tex, by topic and then name
+  const figures = fs.readdirSync("corpus", { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()
+    .flatMap((topic) => fs.readdirSync("corpus/" + topic).filter((f) => f.endsWith(".tex")).sort()
+      .map((f) => ({ name: f.slice(0, -4), topic, tex: fs.readFileSync(`corpus/${topic}/${f}`, "utf8") })));
   fs.writeFileSync("site/pkg/corpus.js", "var TIKRA_CORPUS = " + JSON.stringify(figures) + ";\n" +
     "var TIKRA_BANNER = " + JSON.stringify(fs.readFileSync("docs/banner.tex", "utf8")) + ";\n");
 '

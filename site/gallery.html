@@ -36,7 +36,8 @@
       <input type="search" id="filter" placeholder="Filter: 3D, polar, mindmap, circuit…" aria-label="Filter the figures">
       <span class="stats" id="count"></span>
     </div>
-    <div class="gallery big" id="tiles"><span class="status" id="status">Loading WebAssembly…</span></div>
+    <nav class="topics" id="topics" aria-label="Topics"></nav>
+    <div id="tiles"><span class="status" id="status">Loading WebAssembly…</span></div>
   </section>
 
   <footer>
@@ -53,6 +54,20 @@
   const CORPUS = typeof TIKRA_CORPUS === "undefined" ? [] : TIKRA_CORPUS;
   const caption = (name) => { const s = name.replace(/^\d+-/, "").replace(/-/g, " "); return s[0].toUpperCase() + s.slice(1); };
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  // the folders of corpus/, in this order, with their titles
+  const TOPICS = {
+    "geometry": ["Geometry", "Points, lines, circles, angles, transformations and coordinates."],
+    "plots-2d": ["Function plots", "TikZ plots and pgfplots axes in two dimensions."],
+    "plots-3d": ["3D plots", "Surfaces, meshes, curves and heat maps with pgfplots."],
+    "charts": ["Charts", "Bars, pies, histograms, error bars and other statistics."],
+    "special-axes": ["Special axes", "Polar, ternary and Smith charts, and data visualization."],
+    "diagrams": ["Diagrams", "Flowcharts, graphs, trees, mind maps, automata and Petri nets."],
+    "science": ["Science and engineering", "Circuits, logic gates, physics, optics and chemistry."],
+    "decorations": ["Decorations and arrows", "Decorations, markings, text along paths, arrow tips and fractals."],
+    "fills-and-colors": ["Fills and colors", "Patterns, shadings, fadings, opacity, blending and clipping."],
+    "nodes-and-text": ["Nodes and text", "Node shapes, labels, matrices, calendars and text layout."],
+  };
+  const topicOrder = (t) => { const i = Object.keys(TOPICS).indexOf(t); return i < 0 ? 99 : i; };
   // the figure's source without its first comment line ("Made up for the tikra benchmark.")
   const source = (tex) => tex.replace(/^%[^\n]*\n/, "");
   let api;
@@ -66,20 +81,37 @@
   }
 
   function draw() {
-    const tiles = $("tiles");
-    tiles.innerHTML = "";
+    const root = $("tiles");
+    root.innerHTML = "";
     let total = 0;
-    for (const { name, tex } of CORPUS) {
+    const topics = [...new Set(CORPUS.map((f) => f.topic))].sort((a, b) => topicOrder(a) - topicOrder(b));
+    const sections = {};
+    for (const t of topics) {
+      const [title, about] = TOPICS[t] ?? [t, ""];
+      const n = CORPUS.filter((f) => f.topic === t).length;
+      const sec = document.createElement("section");
+      sec.className = "topic";
+      sec.id = t;
+      sec.innerHTML = `<h3>${escape(title)} <span class="stats">${n}</span></h3><p class="lead">${escape(about)}</p><div class="gallery big"></div>`;
+      root.append(sec);
+      sections[t] = sec.querySelector(".gallery");
+      const a = document.createElement("a");
+      a.href = `#${t}`;
+      a.textContent = `${title} (${n})`;
+      $("topics").append(a);
+    }
+    for (const { name, topic, tex } of CORPUS) {
+      const tiles = sections[topic];
       const start = performance.now();
       const out = JSON.parse(api.render(tex));
       total += performance.now() - start;
       const card = document.createElement("article");
       card.className = "card tile";
-      card.dataset.search = `${name} ${tex}`.toLowerCase();
+      card.dataset.search = `${name} ${topic} ${tex}`.toLowerCase();
       const src = source(tex);
       card.innerHTML =
         `<div class="eq">${out.svg}</div>` +
-        `<div class="cap"><span>${escape(caption(name))}</span><span>${escape(name.slice(0, 2))}</span></div>` +
+        `<div class="cap"><span>${escape(caption(name))}</span><span>${escape(TOPICS[topic]?.[0] ?? topic)}</span></div>` +
         `<div class="tile-actions"><a class="button" href="index.html#${new URLSearchParams({ tikz: src })}">Open in playground</a>` +
         `<button class="button" type="button" data-act="code">Source</button>` +
         `<button class="button" type="button" data-act="svg">SVG</button></div>` +
@@ -99,6 +131,8 @@
       card.hidden = !show;
       shown += show;
     }
+    // a topic with nothing left to show is hidden too
+    for (const sec of document.querySelectorAll("#tiles .topic")) sec.hidden = !sec.querySelector(".tile:not([hidden])");
     $("count").textContent = words.length ? `${shown} of ${CORPUS.length} figures` : `${CORPUS.length} figures`;
   });
 

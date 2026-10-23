@@ -214,7 +214,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   const CORPUS = typeof TIKRA_CORPUS === "undefined" ? [] : TIKRA_CORPUS;
   // "07-flowchart" → "Flowchart"
   const caption = (name) => { const s = name.replace(/^\d+-/, "").replace(/-/g, " "); return s[0].toUpperCase() + s.slice(1); };
-  const CHIPS = ["01-triangle-angles", "05-pgfplots-legend", "07-flowchart", "08-graph-nodes", "11-spring-decorations", "16-bar-chart", "21-polar-star"];
+  const CHIPS = ["triangle-angles", "pgfplots-legend", "flowchart", "graph-nodes", "spring-decorations", "bar-chart", "polar-star"];
 
   const $ = (id) => document.getElementById(id);
   // the conformance numbers, from docs/conformance.md at build time
@@ -349,17 +349,17 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     const tiles = $("tiles");
     let total = 0;
     // the home page shows a few; gallery.html shows them all
-    const FEATURED = ["26-surface-3d", "28-mindmap", "29-automaton", "30-circuit", "35-fill-between", "42-shapes-gallery"];
+    const FEATURED = ["surface-3d", "mindmap", "automaton", "circuit", "fill-between", "shapes-gallery"];
     const shown = CORPUS.filter((f) => FEATURED.includes(f.name));
     $("gallery-all").textContent = `See all ${CORPUS.length} figures`;
-    for (const { name, tex: src } of CORPUS) {
+    for (const { name, topic, tex: src } of CORPUS) {
       const start = performance.now();
       const svg = convert(src).svg;
       total += performance.now() - start;
       const b = document.createElement("button");
       b.type = "button";
       b.className = "card tile";
-      b.innerHTML = `<div class="eq">${svg}</div><div class="cap"><span>${escape(caption(name))}</span><span>${escape(name.slice(0, 2))}</span></div>`;
+      b.innerHTML = `<div class="eq">${svg}</div><div class="cap"><span>${escape(caption(name))}</span><span>${escape(topic ?? "")}</span></div>`;
       b.onclick = () => { load(src); $("playground").scrollIntoView(); tex.focus({ preventScroll: true }); };
       if (shown.some((f) => f.name === name)) tiles.append(b);
     }

@@ -177,6 +177,13 @@
   .tile-actions .button { padding: 6px 11px; font-size: 12.5px; }
   .tile-code { margin: 0 14px 14px; padding: 12px; background: var(--surface-2); border-radius: 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
   .gallery-more { margin-top: 16px; }
+  .topics { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  .topics a { font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; }
+  .topics a:hover { color: var(--ink); border-color: var(--ink); }
+  .topic { padding: 28px 0 4px; scroll-margin-top: 16px; }
+  .topic h3 { font-family: "STIX Two Text", Georgia, serif; font-weight: 600; font-size: 24px; margin: 0 0 4px; }
+  .topic h3 .stats { font-family: Inter, system-ui, sans-serif; font-size: 13px; color: var(--muted); font-weight: 400; }
+  .topic .lead { color: var(--muted); margin: 0 0 14px; }
 
   .usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
   .usage > * { min-width: 0; }

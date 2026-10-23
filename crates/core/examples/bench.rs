@@ -21,9 +21,18 @@ fn summary(mut v: Vec<f64>) -> (f64, f64) {
 }
 
 fn main() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus");
-    let mut files: Vec<_> =
-        std::fs::read_dir(dir).expect("corpus/ exists").filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "tex")).collect();
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus"));
+    let mut files = Vec::new();
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(d) = folders.pop() {
+        for p in std::fs::read_dir(&d).expect("corpus/ exists").filter_map(Result::ok).map(|e| e.path()) {
+            if p.is_dir() {
+                folders.push(p);
+            } else if p.extension().is_some_and(|x| x == "tex") {
+                files.push(p);
+            }
+        }
+    }
     files.sort();
     let (mut clean, mut warned, mut failed) = (0, 0, 0);
     let (mut svg_ms, mut png_ms) = (Vec::new(), Vec::new());

@@ -5,9 +5,17 @@
 
 use std::path::PathBuf;
 
-/// Corpus figures shown in the README, by file name without `.tex`.
-const EXAMPLES: &[&str] =
-    &["01-triangle-angles", "03-unit-circle", "05-pgfplots-legend", "07-flowchart", "08-graph-nodes", "11-spring-decorations", "16-bar-chart", "25-standalone-document"];
+/// Corpus figures shown in the README, by path in `corpus/` without `.tex`; the SVG takes the file's name.
+const EXAMPLES: &[&str] = &[
+    "geometry/triangle-angles",
+    "geometry/unit-circle",
+    "plots-2d/pgfplots-legend",
+    "diagrams/flowchart",
+    "diagrams/graph-nodes",
+    "science/spring-decorations",
+    "charts/bar-chart",
+    "nodes-and-text/standalone-document",
+];
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -30,12 +38,13 @@ fn committed_examples_match_the_code() {
         let r = tikra::convert(&source).unwrap();
         assert!(r.warnings.is_empty(), "{name}: {:?}", r.warnings);
         let svg = on_white(&r.svg);
-        let path = root().join("docs/examples").join(format!("{name}.svg"));
+        let file = name.rsplit('/').next().unwrap();
+        let path = root().join("docs/examples").join(format!("{file}.svg"));
         if update {
             std::fs::write(&path, &svg).unwrap();
         }
         let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        assert!(committed == svg, "docs/examples/{name}.svg is out of date: run TIKRA_UPDATE_EXAMPLES=1 cargo test -p tikra --test examples");
+        assert!(committed == svg, "docs/examples/{file}.svg is out of date: run TIKRA_UPDATE_EXAMPLES=1 cargo test -p tikra --test examples");
     }
 }
 
