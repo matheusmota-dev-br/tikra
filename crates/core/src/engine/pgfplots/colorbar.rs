@@ -64,8 +64,9 @@ pub fn snapshot(e: &mut Engine, meta: [f64; 2], box_size: (f64, f64), parent: su
     if !keys::flag(e, "/pgfplots/colorbar") {
         return None;
     }
+    // `colorbar to name`: kept for a `\ref` (that a single run of LaTeX leaves as ??), not drawn
     if !keys::value(e, "/pgfplots/colorbar to name").is_empty() {
-        e.warn("colorbar to name not supported: the colorbar is drawn next to its axis");
+        return None;
     }
     let mut saved: Vec<(String, Meaning)> = SAVED.iter().map(|k| (pk::macro_name(k), e.tex.meaning_of(&pk::macro_name(k)))).collect();
     // the colormap itself

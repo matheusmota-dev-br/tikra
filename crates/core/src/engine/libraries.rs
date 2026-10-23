@@ -71,6 +71,11 @@ pub const KEYS: &[(&str, KeyFn)] = &[
 pub const DEFINITIONS: &str = r"
 \newcount\tikznumberofchildren
 \newcount\tikznumberofcurrentchild
+% plain TeX's form of the scope environment
+\def\scope{\begin{scope}}
+\def\endscope{\end{scope}}
+% a reference of a single run of LaTeX: not yet known
+\def\ref#1{{\bfseries ??}}
 \def\tikzaddafternodepathoption#1{#1\tikzset{prefix after command={\pgfextra{#1}}}}
 \tikzset{
   every state/.style={}, every accepting by arrow/.style={}, every initial by arrow/.style={},
