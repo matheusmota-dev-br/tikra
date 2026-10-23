@@ -89,6 +89,22 @@ impl Frame {
         }
     }
 
+    /// The data coordinates of a canvas point of a 2d axis (`\pgfplotspointgetcoordinates`).
+    pub fn data_at(&self, p: Point) -> Option<[f64; 2]> {
+        if self.three_d || self.polar || self.ternary || self.smith {
+            return None;
+        }
+        let (a, b) = (self.e[0], self.e[1]);
+        let det = a.x * b.y - a.y * b.x;
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let d = p.minus(self.origin);
+        let (u, v) = ((d.x * b.y - d.y * b.x) / det, (a.x * d.y - a.y * d.x) / det);
+        let l = [u + self.min[0], v + self.min[1]];
+        Some([0, 1].map(|k| if self.log[k] { l[k].exp() } else { l[k] }))
+    }
+
     /// The canvas point of logical coordinates.
     pub fn at(&self, l: [f64; 3]) -> Point {
         if self.ternary {
@@ -2043,6 +2059,23 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
     while i < tokens.len() {
         if tokens[i].is_cs("pgfplotspointplotattime") {
             i = super::attime::run(e, tokens, i)?;
+            continue;
+        }
+        // `\pgfplotspointgetcoordinates{(point)}`: the point's axis coordinates as `/data point/x`…
+        if tokens[i].is_cs("pgfplotspointgetcoordinates") {
+            let mut j = i + 1;
+            while j < tokens.len() && tokens[j].is_space() {
+                j += 1;
+            }
+            let (arg, end) = group_at(tokens, j);
+            i = end;
+            let text = e.tex.expand_to_string(arg)?;
+            let inner = text.trim().strip_prefix('(').and_then(|r| r.strip_suffix(')')).unwrap_or(text.trim()).to_string();
+            let (Some(f), Ok(c)) = (e.frame.clone(), e.coordinate(&inner)) else { continue };
+            if let Some([x, y]) = f.data_at(c.p) {
+                super::keys::set(e, "/data point/x", &super::super::pgf_number(x));
+                super::keys::set(e, "/data point/y", &super::super::pgf_number(y));
+            }
             continue;
         }
         if tokens[i].is_cs("pgfmathprintnumber") {
