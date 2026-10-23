@@ -1525,6 +1525,33 @@ keyfn!(k_transform_canvas, |e, v| {
     e.open_in_scope(crate::canvas::Item::Transform { transform: t });
     Ok(())
 });
+// `view={(a) (b) at (c) (d)}` (animations library): what the scope draws in the box from a to b,
+// shown in the box from c to d, as large as fits and centered, and clipped to it (the view as it is
+// before any animation of it)
+keyfn!(k_view, |e, v| {
+    let s = text(e, &v)?;
+    let Some((from, to)) = s.split_once(" at ") else { return Ok(()) };
+    let mut corners = Vec::new();
+    for part in [from, to] {
+        for c in part.split(')').map(|c| c.trim().trim_start_matches('(').trim()).filter(|c| !c.is_empty()) {
+            corners.push(e.coordinate(c)?.p);
+        }
+    }
+    let [a, b, c, d] = corners[..] else { return Ok(()) };
+    let (w, h) = ((b.x - a.x).abs().max(1e-9), (b.y - a.y).abs().max(1e-9));
+    let k = ((d.x - c.x).abs() / w).min((d.y - c.y).abs() / h);
+    let (from_mid, to_mid) = (a.lerp(b, 0.5), c.lerp(d, 0.5));
+    let t = Transform::translation(to_mid.x, to_mid.y).compose(&Transform::scaling(k, k)).compose(&Transform::translation(-from_mid.x, -from_mid.y));
+    let p = Point::new;
+    use crate::scene::Segment;
+    let clip = vec![Segment::MoveTo(c), Segment::LineTo(p(d.x, c.y)), Segment::LineTo(d), Segment::LineTo(p(c.x, d.y)), Segment::Close];
+    e.open_in_scope(crate::canvas::Item::Clip { segments: clip, even_odd: false });
+    if let Some(s) = e.scopes.last_mut() {
+        s.clipped = true;
+    }
+    e.open_in_scope(crate::canvas::Item::Transform { transform: t });
+    Ok(())
+});
 keyfn!(k_snapshot, |e, v| {
     let s = text(e, &v)?;
     e.set_snapshot(&s);
@@ -2245,6 +2272,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/trig format", k_trig_format),
     ("/tikz/animate", k_animate),
     ("/tikz/transform canvas", k_transform_canvas),
+    ("/tikz/view", k_view),
     ("/tikz/trim right", k_trim_right),
     ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
