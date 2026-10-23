@@ -1000,6 +1000,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let mut boxes = Vec::new();
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
+    let text_raw = text;
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
@@ -1007,7 +1008,19 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
-    for (line, after) in manual_lines(&text, size) {
+    let manual = manual_lines(&text, size);
+    // lines aligned without a text width are the cells of an `\halign`, each a group: a size
+    // command in one is that line's alone, and the baselines are the node font's apart
+    // (from the text before its size commands go)
+    let raw = manual_lines(text_raw, size);
+    let sizes: Vec<f64> = if raw.len() == manual.len() { raw.iter().map(|(l, _)| font_size(&format!("{font} {l}"))).collect() } else { vec![size; manual.len()] };
+    let per_line = text_width.is_none() && sizes.windows(2).any(|w| w[0] != w[1]);
+    let fam = family(text_raw, font, bold);
+    let (size, scale, line_height) = if per_line { (sizes[0], EM_CM * sizes[0] / 1000.0, 1.2 * EM_CM * font_size(font)) } else { (size, scale, 1.2 * EM_CM * size) };
+    if per_line {
+        stretch *= design_width(10.0 * size, fam) / design_width(10.0 * font_size(&format!("{font} {text_raw}")), fam);
+    }
+    for (k, (line, after)) in manual.into_iter().enumerate() {
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
@@ -1018,7 +1031,11 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             families(&line, all)
         };
         match text_width {
-            None => boxes.push(typeset(&line, bold, sc, warnings)),
+            None => {
+                // (a line in another size is in that size's design width too)
+                let b = scaled(typeset(&line, bold, sc, warnings), (sizes[k] / size) as f32);
+                boxes.push(widen(b, (design_width(10.0 * sizes[k], fam) / design_width(10.0 * size, fam)) as f32));
+            }
             Some(max) => {
                 boxes.extend(paragraph_lines(&line, (max / scale / stretch) as f32, align, &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings), warnings))
             }
@@ -1029,7 +1046,48 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         }
     }
     let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
-    Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips }
+    Label { lines, scale, color, align: drawn, line_height, stretch, skips }
+}
+
+/// The box `f` times as large, its items too.
+fn scaled(mut b: MathBox, f: f32) -> MathBox {
+    use mathra::layout::Item;
+    if f == 1.0 {
+        return b;
+    }
+    for item in &mut b.items {
+        match item {
+            Item::Glyph { x, y, scale, .. } => {
+                *x *= f;
+                *y *= f;
+                *scale *= f;
+            }
+            Item::Rule { x, y, width, height, .. } => {
+                *x *= f;
+                *y *= f;
+                *width *= f;
+                *height *= f;
+            }
+            Item::Line { x1, y1, x2, y2, thickness, .. } => {
+                *x1 *= f;
+                *y1 *= f;
+                *x2 *= f;
+                *y2 *= f;
+                *thickness *= f;
+            }
+            Item::Ellipse { cx, cy, rx, ry, thickness, .. } => {
+                *cx *= f;
+                *cy *= f;
+                *rx *= f;
+                *ry *= f;
+                *thickness *= f;
+            }
+        }
+    }
+    b.width *= f;
+    b.height *= f;
+    b.depth *= f;
+    b
 }
 
 #[cfg(test)]
