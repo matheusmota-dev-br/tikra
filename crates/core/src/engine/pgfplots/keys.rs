@@ -502,6 +502,8 @@ const DEFINITIONS: &str = r"
 	/pgfplots/hist/density/.initial=false, /pgfplots/hist/density/.default=true,
 	/pgfplots/hist/handler/.style={/tikz/ybar interval},
 	/pgfplots/hist/data filter/.code=,
+	/pgfplots/hist/@symbolic coords/.initial=,
+	/pgfplots/hist/symbolic coords/.style={/pgfplots/hist/@symbolic coords={#1},/pgfplots/symbolic x coords={#1}},
 	/pgfplots/xbar interval/.style={bar direction=x,bar cycle list,y tick label as interval,ytick=data,ymajorgrids,ytick align=outside,xbar interval legend,
 		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/xbar interval},
 	/pgfplots/xbar interval/.default=1,

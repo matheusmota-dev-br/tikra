@@ -1133,9 +1133,11 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
                 }
             }
         };
-        // a cell of a symbolic axis is a name
+        // a cell of a symbolic axis (or of a histogram's symbolic data) is a name
         let sym = |e: &mut Engine, s: &Src, c: char, v: f64| match s {
-            Src::Col(Some(col)) if !v.is_finite() => t.cell(r, *col).and_then(|cell| super::symbolic::index(e, c, cell)).unwrap_or(v),
+            Src::Col(Some(col)) if !v.is_finite() => {
+                t.cell(r, *col).and_then(|cell| super::symbolic::index(e, c, cell).or_else(|| super::symbolic::hist_index(e, cell))).unwrap_or(v)
+            }
             _ => v,
         };
         let x = get(e, &sx);
