@@ -91,6 +91,7 @@ impl Engine {
                 self.tex.set_meaning(&Token::cs(name), meaning.clone(), false);
             }
             let num = super::super::pgf_number;
+            keys::set(self, "/pgfplots/@colorbar axis", "true");
             keys::set(self, "/pgfplots/point meta min", &num(cb.meta[0]));
             keys::set(self, "/pgfplots/point meta max", &num(cb.meta[1]));
             keys::set(self, "/pgfplots/parent axis width", &format!("{}pt", num(cb.width / PT)));

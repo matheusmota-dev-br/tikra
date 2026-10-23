@@ -734,7 +734,7 @@ const DEFINITIONS: &str = r"
 	/pgfplots/point meta rel/.initial=axis wide,
 	/pgfplots/colorbar to name/.initial=, /pgfplots/colorbar pos*/.initial=,
 	/pgfplots/parent axis width/.initial=6cm, /pgfplots/parent axis height/.initial=6cm,
-	/pgfplots/@colorbar orientation/.initial=v, /pgfplots/@colorbar sampled/.initial=,
+	/pgfplots/@colorbar axis/.initial=false, /pgfplots/@colorbar orientation/.initial=v, /pgfplots/@colorbar sampled/.initial=,
 	/pgfplots/colorbar vertical/lowlevel/.code={\pgfkeyssetvalue{/pgfplots/@colorbar orientation}{v}},
 	/pgfplots/colorbar horizontal/lowlevel/.code={\pgfkeyssetvalue{/pgfplots/@colorbar orientation}{h}},
 	/pgfplots/every colorbar global/.style={

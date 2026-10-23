@@ -2489,6 +2489,10 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
         if s.hide[a] {
             continue;
         }
+        // (but not in a colorbar, which TeX's drawing shows without them)
+        if pk::trim(&text).is_empty() && keys::flag(e, "/pgfplots/@colorbar axis") {
+            continue;
+        }
         // the units library: ` [km]` after the label (`x unit=m`, `x unit prefix=k`)
         let unit = keys::value(e, &format!("/pgfplots/{c} unit"));
         if !unit.trim().is_empty() && keys::flag(e, "/pgfplots/use units") {
