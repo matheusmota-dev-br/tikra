@@ -18,6 +18,7 @@ pub mod legend;
 pub mod marks;
 pub mod mesh;
 pub mod number;
+pub mod patch;
 pub mod plot;
 pub mod polar;
 pub mod smith;
@@ -84,6 +85,9 @@ enum C {
     Closedcycle,
     Pgfplotsinvokeforeach,
     Pgfplotstableread,
+    Colormaptodatafile,
+    Colormaptoshadingspec,
+    Tikzfillbetween,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -97,6 +101,9 @@ const COMMANDS: &[(&str, C)] = &[
     ("closedcycle", C::Closedcycle),
     ("pgfplotsinvokeforeach", C::Pgfplotsinvokeforeach),
     ("pgfplotstableread", C::Pgfplotstableread),
+    ("pgfplotscolormaptodatafile", C::Colormaptodatafile),
+    ("pgfplotscolormaptoshadingspec", C::Colormaptoshadingspec),
+    ("tikzfillbetween", C::Tikzfillbetween),
 ];
 
 /// The environments that are axes.
@@ -228,7 +235,12 @@ impl Engine {
     /// pgfplots' commands.
     pub fn pgfplots_command(&mut self, id: u16) -> Result<(), Error> {
         let cmd = COMMANDS[(id - BASE) as usize].1;
-        if self.axis.is_none() && !matches!(cmd, C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread) {
+        if self.axis.is_none()
+            && !matches!(
+                cmd,
+                C::Pgfplotsinvokeforeach | C::Closedcycle | C::Nextgroupplot | C::Pgfplotstableread | C::Colormaptodatafile | C::Colormaptoshadingspec | C::Tikzfillbetween
+            )
+        {
             let rest = self.skip_statement()?;
             let name = COMMANDS[(id - BASE) as usize].0;
             self.warn(format!("\\{name} outside an axis: '{}' ignored", rest.chars().take(30).collect::<String>().trim()));
@@ -283,6 +295,18 @@ impl Engine {
             C::Nextgroupplot => self.next_group_plot(),
             C::Closedcycle => Ok(()),
             C::Pgfplotstableread => plot::table_read(self),
+            C::Colormaptodatafile => colormap::to_data_file(self),
+            C::Colormaptoshadingspec => colormap::to_shading_spec(self),
+            // `\tikzfillbetween[of=A and B, …]{style}`: the area between two named paths
+            C::Tikzfillbetween => {
+                let spec = self.optional()?.unwrap_or_default();
+                let style = self.argument()?;
+                let plot = Plot { style, ..Default::default() };
+                self.begin_group();
+                let r = fillbetween::draw(self, &plot, &spec);
+                self.end_group();
+                r
+            }
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}
                 let list = self.argument()?;

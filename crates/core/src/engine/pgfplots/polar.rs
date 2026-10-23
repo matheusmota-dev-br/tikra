@@ -49,17 +49,31 @@ fn outline_points(xmin: f64, xmax: f64, ymin: f64, ymax: f64) -> Vec<(f64, f64)>
     v
 }
 
-/// The sector's width and height for a unit of 1.
-pub fn unit_size(xmin: f64, xmax: f64, ymin: f64, ymax: f64) -> (f64, f64) {
-    let pts = outline_points(xmin, xmax, ymin, ymax);
-    let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
-    for (x, y) in pts {
-        x0 = x0.min(x);
-        x1 = x1.max(x);
-        y0 = y0.min(y);
-        y1 = y1.max(y);
+/// Whether a point of the canvas lies in the sector (`\pgfplotsaxisifcontainspoint@polar`): its
+/// radius within [ymin, ymax] and its angle, modulo 360, within [xmin, xmax].
+pub fn contains(f: &Frame, p: Point) -> bool {
+    let d = p.minus(f.origin);
+    let (u, v) = (d.x / f.e[0].x, d.y / f.e[1].y);
+    if !(u.is_finite() && v.is_finite()) {
+        return true;
     }
-    (x1 - x0, y1 - y0)
+    let tol = 0.05 * PT / f.e[1].norm().max(1e-12);
+    let r = u.hypot(v);
+    if r < f.min[1].abs().min(f.max[1].abs()) - tol || r > f.max[1].abs() + tol {
+        return false;
+    }
+    if r <= tol || full(f.min[0], f.max[0]) {
+        return true;
+    }
+    let a = v.atan2(u).to_degrees().rem_euclid(360.0);
+    let (lo, hi) = (f.min[0].rem_euclid(360.0), f.max[0].rem_euclid(360.0));
+    let eps = 1e-3;
+    if hi > lo {
+        a >= lo - eps && a <= hi + eps
+    } else {
+        // the sector goes round 0
+        a <= hi + eps || a >= lo - eps
+    }
 }
 
 /// The sector's outline on the canvas.
@@ -189,6 +203,10 @@ pub(super) fn draw_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         let c = axis_char(a);
         let styles = format!("/pgfplots/every tick label,/pgfplots/every {c} tick label");
         let off = tick_offset(e, a);
+        let sloped = match e.tex.meaning_of(&crate::keys::macro_name(&format!("/pgfplots/every {c} tick label/.@cmd"))) {
+            crate::tex::Meaning::Macro(m) => crate::tex::tokens_to_string(&crate::tex::substitute(&m.body, &[])).contains("sloped"),
+            _ => false,
+        };
         for (k, t) in list.iter().enumerate() {
             let (p, out) = if a == 0 {
                 let p = f.at([*t, ymax, 0.0]);
@@ -208,10 +226,22 @@ pub(super) fn draw_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
             e.end_group();
             let text = r?;
             // the node's border faces the axis: an angle anchor against the outward direction
-            let angle = (-out.y).atan2(-out.x).to_degrees();
+            let mut angle = (-out.y).atan2(-out.x).to_degrees();
+            // `sloped like x axis` turns an angle's label along the circle, never upside down:
+            // the anchor turns with it
+            if a == 0 && sloped {
+                let (sn, cs) = sin_cos(*t);
+                let mut d = f.e[0].scale(-sn).plus(f.e[1].scale(cs));
+                if d.x < 0.0 {
+                    d = d.scale(-1.0);
+                }
+                angle -= d.y.atan2(d.x).to_degrees();
+                f.slope.set(Some(d));
+            }
             let options = toks(&format!("anchor={angle},{styles}"));
-            let items = e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
-            e.canvas.items.extend(items);
+            let items = e.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None });
+            f.slope.set(None);
+            e.canvas.items.extend(items?);
         }
     }
     Ok(())
