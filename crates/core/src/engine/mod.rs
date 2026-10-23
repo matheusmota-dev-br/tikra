@@ -851,6 +851,20 @@ impl Engine {
 
     /// An undefined command: in a picture, the statement it starts is skipped to its `;`.
     fn unknown_command(&mut self, name: &str) -> Result<(), Error> {
+        // `\\` between pictures (in a minipage): a new line
+        if name == "\\" && self.picture_depth == 0 {
+            if let Some(t) = self.tex.next_nonspace() {
+                if t.is_char('[') {
+                    let _ = self.tex.read_until_char(']', false)?;
+                } else {
+                    self.tex.back(t);
+                }
+            }
+            if !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
+                self.layout.push(Layout::Par);
+            }
+            return Ok(());
+        }
         if self.picture_depth > 0 {
             let rest = self.skip_statement()?;
             self.warn(format!("\\{name} not supported: '{}' ignored", rest.chars().take(40).collect::<String>().trim()));
