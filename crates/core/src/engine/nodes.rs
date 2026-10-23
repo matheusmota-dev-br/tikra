@@ -398,6 +398,24 @@ impl Engine {
 
     /// The node's drawing, and what its labels need: the node, their specifications, and the last
     /// node to leave after them.
+    /// A picture inside a node's text, drawn on a canvas of its own, its coordinates from its
+    /// origin: what it draws and its box's corners (none when it draws nothing).
+    fn inner_picture(&mut self, code: Vec<Token>) -> Result<Option<(Vec<Item>, Point, Point)>, Error> {
+        let saved_canvas = std::mem::take(&mut self.canvas);
+        let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
+        self.begin_group();
+        self.begin_scope();
+        self.st.transform = Transform::default();
+        self.st.pending = Transform::default();
+        let r = self.run_tokens(code);
+        self.end_scope();
+        self.end_group();
+        let crate::canvas::Canvas { items, min, max, .. } = std::mem::replace(&mut self.canvas, saved_canvas);
+        self.canvas_frozen = saved_frozen;
+        r?;
+        Ok(min.zip(max).map(|(lo, hi)| (items, lo, hi)))
+    }
+
     /// `\pgfpositionnodenow{point}`: the node `\pgfpositionnodelater` kept, moved from the origin
     /// it was made at to the point, drawn and known by its name.
     pub fn position_node_now(&mut self) -> Result<(), Error> {
@@ -515,6 +533,16 @@ impl Engine {
                 texts[0].1.clear();
             }
         }
+        // a text that is a picture: its box (its baseline at its bottom), drawn where the text goes
+        self.text_picture = None;
+        let whole = texts.first().map(|(_, t)| t.trim().to_string()).unwrap_or_default();
+        let tikz = whole.strip_prefix("\\tikz").is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphabetic()));
+        if texts.len() == 1 && (tikz || (whole.starts_with("\\begin{tikzpicture}") && whole.ends_with("\\end{tikzpicture}"))) {
+            if let Some(p) = self.inner_picture(spec.text.clone())? {
+                self.text_picture = Some(p);
+                texts[0].1.clear();
+            }
+        }
         for (k, (part, t)) in texts.iter().enumerate() {
             let lbl = if shape == "coordinate" || t.is_empty() {
                 None
@@ -555,6 +583,9 @@ impl Engine {
             if k == 0 {
                 if let Some((_, w, h)) = &self.text_shading {
                     (wd, ht, dp) = (2.0 * w, 2.0 * h, 0.0);
+                }
+                if let Some((_, lo, hi)) = &self.text_picture {
+                    (wd, ht, dp) = (hi.x - lo.x, hi.y - lo.y, 0.0);
                 }
                 if let Some(b) = self.forced_box.take() {
                     (wd, ht, dp) = b;
@@ -776,6 +807,14 @@ impl Engine {
             Ok(())
         };
         layer_items(self, &[Layer::BehindBackground, Layer::Background, Layer::BeforeBackground], &mut items)?;
+        if let Some((drawn, lo, _)) = self.text_picture.take() {
+            if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
+                let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y));
+                items.push(Item::Transform { transform: place });
+                items.extend(drawn);
+                items.push(Item::End);
+            }
+        }
         if let Some((name, w, h)) = self.text_shading.take() {
             if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
                 let saved = std::mem::take(&mut self.canvas.items);

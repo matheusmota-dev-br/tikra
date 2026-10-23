@@ -438,6 +438,9 @@ pub struct Engine {
     pub forced_box: Option<(f64, f64, f64)>,
     /// the shading a node's text is (`\pgfuseshading{name}`), with its half width and height (cm)
     pub text_shading: Option<(String, f64, f64)>,
+    /// the picture a node's text is (`\begin{tikzpicture}…\end{tikzpicture}`, `\tikz…`): what it
+    /// draws and its box's corners (cm)
+    pub text_picture: Option<(Vec<Item>, Point, Point)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
@@ -546,6 +549,7 @@ impl Clone for Engine {
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
             text_shading: None,
+            text_picture: None,
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
             basic_shadings: self.basic_shadings.clone(),
@@ -629,6 +633,7 @@ impl Engine {
             tree_child_names: Vec::new(),
             forced_box: None,
             text_shading: None,
+            text_picture: None,
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
             basic_shadings: HashMap::new(),
