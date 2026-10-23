@@ -667,6 +667,12 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
     let uniform_x = texts.first().is_some_and(|t| t.trim() == var);
     let xs = sample_points(e, "/pgfplots/domain", "/pgfplots/samples", xlog && uniform_x)?;
     let mut vars = e.vars();
+    // `trig format plots`: the plot's expressions in radians (or degrees), whatever pgf's is
+    match keys::value(e, "/pgfplots/trig format plots").trim() {
+        "rad" => vars.trig_rad = true,
+        "deg" => vars.trig_rad = false,
+        _ => {}
+    }
     let mut out = Vec::new();
     let eval = |text: &str, vars: &crate::expr::Variables| crate::expr::eval(text, vars).unwrap_or(f64::NAN);
     // `patch type sampling`: each interval (or cell) gives the points of one patch, at the places
