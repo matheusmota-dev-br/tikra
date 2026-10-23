@@ -21,7 +21,7 @@
     <a class="name" href="#">tikra</a>
     <nav>
       <a href="#playground">Playground</a>
-      <a href="#gallery">Gallery</a>
+      <a href="gallery.html">Gallery</a>
       <a href="#docs">Docs</a>
       <a href="https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md">Subset</a>
       <a href="https://github.com/matheusmota-dev-br/tikra">GitHub</a>
@@ -35,7 +35,7 @@
     <p class="sub">tikra reads the figure, draws paths, nodes and plots itself and typesets the math in labels with <a href="https://matheusmota-dev-br.github.io/mathra/">mathra</a>. The banner above was drawn just now, in your browser, from <a href="https://github.com/matheusmota-dev-br/tikra/blob/main/docs/banner.tex"><code>docs/banner.tex</code></a>.</p>
     <div class="cta">
       <a class="button solid" href="#playground">Try it now</a>
-      <a class="button" href="#gallery">See the gallery</a>
+      <a class="button" href="gallery.html">See the gallery</a>
       <a class="button" href="https://github.com/matheusmota-dev-br/tikra">GitHub</a>
     </div>
     <div class="installer" id="installer">
@@ -137,8 +137,9 @@
 
   <section id="gallery">
     <h2>Gallery</h2>
-    <p class="lead">The 25 figures of <a href="https://github.com/matheusmota-dev-br/tikra/tree/main/corpus"><code>corpus/</code></a>, drawn live on this page. Click one to open it in the playground.</p>
+    <p class="lead">A few figures of <a href="https://github.com/matheusmota-dev-br/tikra/tree/main/corpus"><code>corpus/</code></a>, drawn live on this page. Click one to open it in the playground, or see them all in the gallery.</p>
     <div class="gallery" id="tiles"></div>
+    <p class="gallery-more"><a class="button solid" href="gallery.html" id="gallery-all">See all the figures</a></p>
   </section>
 
   <section id="docs">
@@ -347,6 +348,10 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     for (const el of document.querySelectorAll("[data-tikz]")) el.innerHTML = convert(el.dataset.tikz).svg;
     const tiles = $("tiles");
     let total = 0;
+    // the home page shows a few; gallery.html shows them all
+    const FEATURED = ["26-surface-3d", "28-mindmap", "29-automaton", "30-circuit", "35-fill-between", "42-shapes-gallery"];
+    const shown = CORPUS.filter((f) => FEATURED.includes(f.name));
+    $("gallery-all").textContent = `See all ${CORPUS.length} figures`;
     for (const { name, tex: src } of CORPUS) {
       const start = performance.now();
       const svg = convert(src).svg;
@@ -356,7 +361,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       b.className = "card tile";
       b.innerHTML = `<div class="eq">${svg}</div><div class="cap"><span>${escape(caption(name))}</span><span>${escape(name.slice(0, 2))}</span></div>`;
       b.onclick = () => { load(src); $("playground").scrollIntoView(); tex.focus({ preventScroll: true }); };
-      tiles.append(b);
+      if (shown.some((f) => f.name === name)) tiles.append(b);
     }
     if (CORPUS.length) $("stat-time").innerHTML = `${(total / CORPUS.length).toFixed(2)}<span> ms</span>`;
   }

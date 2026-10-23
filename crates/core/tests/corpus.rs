@@ -10,7 +10,12 @@ fn every_corpus_figure_converts_without_warnings() {
         let tex = std::fs::read_to_string(&f).unwrap();
         let out = tikra::convert(&tex).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
         assert!(out.warnings.is_empty(), "{}: {:?}", f.display(), out.warnings);
-        assert!(!out.svg.contains("NaN") && !out.svg.contains("inf"), "{}", f.display());
+        // the drawing, not its metadata (which holds the source: `info=` has an "inf")
+        let drawing = match (out.svg.find("<metadata>"), out.svg.find("</metadata>")) {
+            (Some(a), Some(b)) => format!("{}{}", &out.svg[..a], &out.svg[b..]),
+            _ => out.svg.clone(),
+        };
+        assert!(!drawing.contains("NaN") && !drawing.contains("inf"), "{}", f.display());
         tikra::png(&out.svg, 96.0, true).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
     }
 }

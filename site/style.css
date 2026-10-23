@@ -166,6 +166,17 @@
   .tile .eq svg { max-width: 100%; height: auto; }
   .tile .cap { font-size: 13px; color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
   .tile .cap span:last-child { color: var(--accent-ink); }
+  /* the gallery page: bigger tiles, each with its actions and its source */
+  .gallery.big { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .gallery.big .tile { cursor: default; }
+  .gallery.big .tile .eq { min-height: 220px; }
+  .gallery.big .tile .eq svg { max-height: 300px; }
+  .gallery-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 18px; }
+  .gallery-tools input { flex: 1; min-width: 220px; max-width: 420px; font: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
+  .tile-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 14px 12px; }
+  .tile-actions .button { padding: 6px 11px; font-size: 12.5px; }
+  .tile-code { margin: 0 14px 14px; padding: 12px; background: var(--surface-2); border-radius: 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+  .gallery-more { margin-top: 16px; }
 
   .usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
   .usage > * { min-width: 0; }

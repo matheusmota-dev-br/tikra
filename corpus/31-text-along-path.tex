@@ -1,0 +1,11 @@
+% Made up for the tikra benchmark.
+\begin{tikzpicture}
+  \draw[help lines] (0,0) circle (2.2);
+  \path[decorate, decoration={text along path, text align=center,
+      text={TikZ without TeX, drawn by tikra}}]
+    (-2.4,0) arc (180:0:2.4);
+  \path[decorate, decoration={text along path, text align=center, text color=red!70!black,
+      text={|\itshape|and turned along any path}}]
+    (-2.2,-0.4) .. controls (-1,-2.6) and (1,-2.6) .. (2.2,-0.4);
+  \node[font=\Large] {$\oint$};
+\end{tikzpicture}

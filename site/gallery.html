@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tikra gallery</title>
+<meta name="description" content="Every figure of tikra's corpus, drawn live in your browser from its TikZ source: 3D surfaces, polar and ternary plots, mind maps, circuits, automata, decorations, shadings, patterns and more.">
+<link rel="icon" href="pkg/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="pkg/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="pkg/apple-touch-icon.png">
+<meta name="theme-color" content="#fbf9f4">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <a class="name" href="index.html">tikra</a>
+    <nav>
+      <a href="index.html#playground">Playground</a>
+      <a href="gallery.html" aria-current="page">Gallery</a>
+      <a href="index.html#docs">Docs</a>
+      <a href="https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md">Subset</a>
+      <a href="https://github.com/matheusmota-dev-br/tikra">GitHub</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">◐</button>
+    </nav>
+  </div>
+
+  <section id="gallery">
+    <h2>Gallery</h2>
+    <p class="lead" id="lead">Every figure of <a href="https://github.com/matheusmota-dev-br/tikra/tree/main/corpus"><code>corpus/</code></a>, drawn just now in your browser from its TikZ source. Open one in the playground to change it.</p>
+    <div class="gallery-tools">
+      <input type="search" id="filter" placeholder="Filter: 3D, polar, mindmap, circuit…" aria-label="Filter the figures">
+      <span class="stats" id="count"></span>
+    </div>
+    <div class="gallery big" id="tiles"><span class="status" id="status">Loading WebAssembly…</span></div>
+  </section>
+
+  <footer>
+    <span>tikra · MIT or Apache-2.0 · Latin Modern Math (GUST Font License) and STIX Two Math (OFL-1.1) fonts, through mathra</span>
+    <a href="https://github.com/matheusmota-dev-br/tikra">github.com/matheusmota-dev-br/tikra</a>
+  </footer>
+</div>
+
+<script src="pkg/tikra_wasm.js"></script>
+<script src="pkg/corpus.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const CORPUS = typeof TIKRA_CORPUS === "undefined" ? [] : TIKRA_CORPUS;
+  const caption = (name) => { const s = name.replace(/^\d+-/, "").replace(/-/g, " "); return s[0].toUpperCase() + s.slice(1); };
+  const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  // the figure's source without its first comment line ("Made up for the tikra benchmark.")
+  const source = (tex) => tex.replace(/^%[^\n]*\n/, "");
+  let api;
+
+  function save(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 0);
+  }
+
+  function draw() {
+    const tiles = $("tiles");
+    tiles.innerHTML = "";
+    let total = 0;
+    for (const { name, tex } of CORPUS) {
+      const start = performance.now();
+      const out = JSON.parse(api.render(tex));
+      total += performance.now() - start;
+      const card = document.createElement("article");
+      card.className = "card tile";
+      card.dataset.search = `${name} ${tex}`.toLowerCase();
+      const src = source(tex);
+      card.innerHTML =
+        `<div class="eq">${out.svg}</div>` +
+        `<div class="cap"><span>${escape(caption(name))}</span><span>${escape(name.slice(0, 2))}</span></div>` +
+        `<div class="tile-actions"><a class="button" href="index.html#${new URLSearchParams({ tikz: src })}">Open in playground</a>` +
+        `<button class="button" type="button" data-act="code">Source</button>` +
+        `<button class="button" type="button" data-act="svg">SVG</button></div>` +
+        `<pre class="tile-code" hidden>${escape(src)}</pre>`;
+      card.querySelector('[data-act="code"]').onclick = () => { const pre = card.querySelector("pre"); pre.hidden = !pre.hidden; };
+      card.querySelector('[data-act="svg"]').onclick = () => save(new Blob([out.svg], { type: "image/svg+xml" }), `${name}.svg`);
+      tiles.append(card);
+    }
+    $("count").textContent = `${CORPUS.length} figures, ${(total / Math.max(1, CORPUS.length)).toFixed(2)} ms each on average`;
+  }
+
+  $("filter").addEventListener("input", (e) => {
+    const words = e.target.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    for (const card of document.querySelectorAll("#tiles .tile")) {
+      const show = words.every((w) => card.dataset.search.includes(w));
+      card.hidden = !show;
+      shown += show;
+    }
+    $("count").textContent = words.length ? `${shown} of ${CORPUS.length} figures` : `${CORPUS.length} figures`;
+  });
+
+  // opened from disk (file://), the browser blocks fetching the .wasm: read the base64 copy instead
+  function wasmSource() {
+    if (location.protocol !== "file:") return Promise.resolve("pkg/tikra_wasm_bg.wasm");
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "pkg/tikra_wasm_bytes.js";
+      s.onload = () => resolve(Uint8Array.from(atob(TIKRA_WASM_BASE64), (c) => c.charCodeAt(0)));
+      s.onerror = () => reject(new Error("pkg/tikra_wasm_bytes.js not found: run site/build.sh"));
+      document.head.append(s);
+    });
+  }
+
+  if (typeof wasm_bindgen === "undefined") {
+    $("status").innerHTML = "pkg/tikra_wasm.js not found: run <code>site/build.sh</code>.";
+    return;
+  }
+  wasmSource()
+    .then((module_or_path) => wasm_bindgen({ module_or_path }))
+    .then(() => { api = wasm_bindgen; draw(); })
+    .catch((e) => { $("status").textContent = `Could not load WebAssembly: ${String(e.message ?? e)}`; });
+})();
+</script>
+</body>
+</html>
