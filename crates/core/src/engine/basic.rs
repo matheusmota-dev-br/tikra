@@ -384,14 +384,18 @@ pub fn define(e: &mut Engine) {
     for (i, (name, _)) in COMMANDS.iter().enumerate() {
         e.tex.define(name, Meaning::Native(BASE + i as u16));
     }
-    // points are read by the commands that take them; on their own they do nothing
-    for name in POINTS {
-        e.tex.define(name, Meaning::Prim(tex::Prim::Relax));
+    // points are read by the commands that take them; on their own they put the point in
+    // `\pgf@x` and `\pgf@y`
+    for (i, name) in POINTS.iter().enumerate() {
+        e.tex.define(name, Meaning::Native(POINT_BASE + i as u16));
     }
 }
 
+/// Where the points' ids start, as statements.
+const POINT_BASE: u16 = 700;
+
 pub fn is_basic(id: u16) -> bool {
-    (BASE..BASE + COMMANDS.len() as u16).contains(&id)
+    (BASE..BASE + COMMANDS.len() as u16).contains(&id) || (POINT_BASE..POINT_BASE + POINTS.len() as u16).contains(&id)
 }
 
 /// The basic layer's path being built, in canvas coordinates.
@@ -661,6 +665,15 @@ impl Engine {
     }
 
     pub fn basic_command(&mut self, id: u16) -> Result<(), Error> {
+        if id >= POINT_BASE {
+            // a point on its own: into `\pgf@x`, `\pgf@y` (pt), in the current coordinate system
+            let Some(name) = POINTS.get((id - POINT_BASE) as usize) else { return Ok(()) };
+            self.tex.back(Token::cs(name));
+            let p = self.point_here(0)?;
+            self.tex.dimens.insert(4050, (p.x / crate::PT * 65536.0).round() as i64);
+            self.tex.dimens.insert(4051, (p.y / crate::PT * 65536.0).round() as i64);
+            return Ok(());
+        }
         let Some(&(_, cmd)) = COMMANDS.get((id - BASE) as usize) else { return Ok(()) };
         let t = self.st.transform;
         match cmd {
