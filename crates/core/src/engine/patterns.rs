@@ -76,11 +76,13 @@ impl Engine {
     }
 
     /// `\tikzdeclarepattern{name=…, type=colored|uncolored, bottom left=…, top right=…, bounding
-    /// box={(a) and (b)}, tile size=…, tile transformation=…, parameters=…, defaults=…, code=…}`.
-    pub fn tikz_declare_pattern(&mut self) -> Result<(), Error> {
+    /// box={(a) and (b)}, tile size=…, tile transformation=…, parameters=…, defaults=…, code=…}`,
+    /// and the basic layer's `\pgfdeclarepattern{…}` (`tikz` false), with the same keys: its points
+    /// `\pgfpoint{x}{y}`, its tile transformation basic-layer code (`\pgftransformrotate{…}`).
+    pub fn tikz_declare_pattern(&mut self, tikz: bool) -> Result<(), Error> {
         let spec = self.argument()?;
         let (mut name, mut colored, mut lazy) = (String::new(), false, false);
-        let mut p = LazyPattern { origin: Vec::new(), size: Vec::new(), code: Vec::new(), tile_options: Vec::new(), defaults: Vec::new(), tikz: true };
+        let mut p = LazyPattern { origin: Vec::new(), size: Vec::new(), code: Vec::new(), tile_options: Vec::new(), defaults: Vec::new(), tikz };
         for item in crate::keys::split_list(&spec) {
             let v = item.value.clone().unwrap_or_default();
             match item.key.as_str() {
@@ -115,10 +117,8 @@ impl Engine {
         let Some(lazy) = p.lazy.clone() else { return Ok(p.clone()) };
         self.begin_group();
         let r = (|| {
-            if lazy.tikz {
-                self.process_keys(lazy.defaults.clone(), Some("/pgf/pattern keys"))?;
-                self.process_keys(super::tikra_tokens(options), Some("/pgf/pattern keys"))?;
-            }
+            self.process_keys(lazy.defaults.clone(), Some("/pgf/pattern keys"))?;
+            self.process_keys(super::tikra_tokens(options), Some("/pgf/pattern keys"))?;
             let point = |e: &mut Engine, v: &[Token], default: Point| -> Result<Point, Error> {
                 if v.iter().all(|t| t.is_space()) {
                     return Ok(default);
@@ -135,8 +135,14 @@ impl Engine {
             let items = self.draw_tile(lazy.code.clone())?;
             self.st.transform = Transform::default();
             self.st.pending = Transform::default();
-            self.process_keys(lazy.tile_options.clone(), Some("/tikz"))?;
-            Ok(UserPattern { items, origin, size, transform: self.st.pending, colored: p.colored, lazy: None })
+            let transform = if lazy.tikz {
+                self.process_keys(lazy.tile_options.clone(), Some("/tikz"))?;
+                self.st.pending
+            } else {
+                self.run_tokens(lazy.tile_options.clone())?;
+                self.st.transform
+            };
+            Ok(UserPattern { items, origin, size, transform, colored: p.colored, lazy: None })
         })();
         self.end_group();
         r
