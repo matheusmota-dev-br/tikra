@@ -86,6 +86,21 @@ impl Engine {
             }
             return Ok(());
         }
+        // `/handlers/first char syntax`: a key that starts with a character that has a macro there
+        // is that macro, with the whole key (and its value) as argument
+        if let Some(c) = key.trim_start().chars().next() {
+            let handler = format!("/handlers/first char syntax/the character {c}");
+            if let Some(code) = keys::value(&self.tex, &handler).filter(|_| self.key_text("/handlers/first char syntax").trim() == "true") {
+                let mut whole = tikra_tokens(key.trim());
+                if let Some(v) = value {
+                    whole.push(Token::Char('=', tex::Cat::Other));
+                    whole.extend(v);
+                }
+                let mut run = code;
+                run.extend(group(whole));
+                return self.run_tokens(run);
+            }
+        }
         let path = keys::full_path(&self.st.key_path, key);
         // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
         if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
@@ -1309,6 +1324,10 @@ keyfn!(k_transform_shape, |e, _v| {
     e.st_node().transform_shape = true;
     Ok(())
 });
+keyfn!(k_transform_shape_nonlinear, |e, v| {
+    e.st_node().transform_shape_nonlinear = text(e, &v)?.trim() != "false";
+    Ok(())
+});
 keyfn!(k_name, |e, v| {
     let s = text(e, &v)?;
     e.st_node().name = Some(s);
@@ -1496,10 +1515,40 @@ keyfn!(k_at_empty_cell, |e, v| {
 // whole (line widths and text too)
 keyfn!(k_transform_canvas, |e, v| {
     let saved = std::mem::take(&mut e.st.pending);
+    // (read with the transformations reset, as TikZ does: a node's point there is the canvas's)
+    let transform = std::mem::take(&mut e.st.transform);
     let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    e.st.transform = transform;
     let t = std::mem::replace(&mut e.st.pending, saved);
     r?;
     // the transformations act on the canvas around the current origin, as pgf's low level does
+    e.open_in_scope(crate::canvas::Item::Transform { transform: t });
+    Ok(())
+});
+// `view={(a) (b) at (c) (d)}` (animations library): what the scope draws in the box from a to b,
+// shown in the box from c to d, as large as fits and centered, and clipped to it (the view as it is
+// before any animation of it)
+keyfn!(k_view, |e, v| {
+    let s = text(e, &v)?;
+    let Some((from, to)) = s.split_once(" at ") else { return Ok(()) };
+    let mut corners = Vec::new();
+    for part in [from, to] {
+        for c in part.split(')').map(|c| c.trim().trim_start_matches('(').trim()).filter(|c| !c.is_empty()) {
+            corners.push(e.coordinate(c)?.p);
+        }
+    }
+    let [a, b, c, d] = corners[..] else { return Ok(()) };
+    let (w, h) = ((b.x - a.x).abs().max(1e-9), (b.y - a.y).abs().max(1e-9));
+    let k = ((d.x - c.x).abs() / w).min((d.y - c.y).abs() / h);
+    let (from_mid, to_mid) = (a.lerp(b, 0.5), c.lerp(d, 0.5));
+    let t = Transform::translation(to_mid.x, to_mid.y).compose(&Transform::scaling(k, k)).compose(&Transform::translation(-from_mid.x, -from_mid.y));
+    let p = Point::new;
+    use crate::scene::Segment;
+    let clip = vec![Segment::MoveTo(c), Segment::LineTo(p(d.x, c.y)), Segment::LineTo(d), Segment::LineTo(p(c.x, d.y)), Segment::Close];
+    e.open_in_scope(crate::canvas::Item::Clip { segments: clip, even_odd: false });
+    if let Some(s) = e.scopes.last_mut() {
+        s.clipped = true;
+    }
     e.open_in_scope(crate::canvas::Item::Transform { transform: t });
     Ok(())
 });
@@ -2173,6 +2222,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/at end", k_at_end),
     ("/tikz/sloped", k_sloped),
     ("/tikz/transform shape", k_transform_shape),
+    ("/tikz/transform shape nonlinear", k_transform_shape_nonlinear),
     ("/tikz/name", k_name),
     ("/tikz/at", k_at),
     ("/tikz/label", k_label),
@@ -2222,6 +2272,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgf/trig format", k_trig_format),
     ("/tikz/animate", k_animate),
     ("/tikz/transform canvas", k_transform_canvas),
+    ("/tikz/view", k_view),
     ("/tikz/trim right", k_trim_right),
     ("/tikz/remember picture", k_ignore),
     ("/tikz/continue chain", k_continue_chain),
@@ -2323,7 +2374,7 @@ const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={draw=none,fill=none}, every pin/.style={draw=none,fill=none}, every pin edge/.style={help lines},
-  every edge/.style={draw}, every to/.style={}, centered/.style={anchor=center}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  every edge/.style={draw}, every to/.style={}, centered/.style={anchor=center}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /handlers/first char syntax/.initial=false, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},

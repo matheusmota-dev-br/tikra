@@ -176,6 +176,8 @@ pub struct GState {
     /// `edge from parent[options] node{…}` read in a child: options and label nodes
     pub tree_edge: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
     pub name_prefix: String,
+    /// `\pgfpositionnodelater`: the nodes made are kept to be placed by `\pgfpositionnodenow`
+    pub position_later: bool,
     /// what the options of the matrix being read say about its cells
     pub matrix: super::matrix::MatrixSettings,
     /// shadings: which one (`axis`, `radial`, `ball`), its angle and its colors
@@ -381,6 +383,7 @@ impl Default for GState {
             quotes_in_pic: false,
             tree_edge: None,
             name_prefix: String::new(),
+            position_later: false,
             at_begin_scope: Vec::new(),
             at_end_scope: Vec::new(),
             at_begin_picture: Vec::new(),

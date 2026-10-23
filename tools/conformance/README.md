@@ -61,6 +61,14 @@ compares each pair by:
 
 A figure **matches** with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size and no missing or extra piece; it is
 **close** with F1 ≥ 0.75.
+**Our 100%** is the share of the figures a converter can reproduce that tikra draws as TeX does. It
+leaves out, by an explicit list checked by eye ([unreproducible.json](unreproducible.json)), the
+figures with random numbers and no `\pgfmathsetseed` (TeX draws new ones on every run), with an image
+file or an external program (gnuplot), and with the day's date; and it counts as done the figures that
+differ from TeX's only by antialiasing (Ghostscript, which renders TeX's PDF, and tikra put lines and
+fills on the pixels differently), as long as they stay at least close. A figure joins the list only
+after looking at both drawings; one that later differs again is named in the report.
+
 The tolerance absorbs what is expected to differ: labels in Latin Modern Math (Computer Modern
 from a math font, without TeX's optical sizes or text italic), antialiasing, a bounding box off by a hair. A figure that does not match although tikra gave no
 warning is counted apart: that is tikra being wrong without saying so.

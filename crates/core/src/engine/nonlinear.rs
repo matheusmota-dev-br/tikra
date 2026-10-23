@@ -134,21 +134,22 @@ impl Engine {
     }
 
     /// `\pgfpointcurvilinearbezierorthogonal{distance}{offset}`: the point `distance` along the curve
-    /// and `offset` to its right, into `\pgf@x`, `\pgf@y`.
+    /// and `offset` to its left (as the picture's y axis is to the left of its x axis: the map keeps
+    /// the orientation), into `\pgf@x`, `\pgf@y`.
     pub fn point_curvilinear(&mut self) -> Result<(), Error> {
         let (a, b) = (self.argument()?, self.argument()?);
         let (along, off) = (self.length_of(a)? / PT, self.length_of(b)? / PT);
         let Some(c) = self.st.curvilinear.clone() else { return Ok(()) };
         let t = c.time(along);
         let p = c.at(t);
-        // the tangent of de Casteljau's last step, turned to the right
+        // the tangent of de Casteljau's last step, turned to the left
         let [q0, q1, q2, q3] = c.points;
         let (ab, bc, cd) = (q0.lerp(q1, t), q1.lerp(q2, t), q2.lerp(q3, t));
         let mut d = bc.lerp(cd, t).minus(ab.lerp(bc, t));
         if d.norm() < 1e-9 {
             d = q2.minus(q0);
         }
-        let n = Point::new(d.y, -d.x).scale(1.0 / d.norm().max(1e-12));
+        let n = Point::new(-d.y, d.x).scale(1.0 / d.norm().max(1e-12));
         let r = p.plus(n.scale(off * PT));
         self.tex.dimens.insert(4050, (r.x / PT * 65536.0).round() as i64);
         self.tex.dimens.insert(4051, (r.y / PT * 65536.0).round() as i64);

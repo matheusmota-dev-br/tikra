@@ -525,6 +525,8 @@ impl Tex {
             ("PackageWarning", Typeout),
             ("showtokens", Showtokens),
             ("newcount", Newcount),
+            // a box register: a number, as `\setbox` reads it
+            ("newbox", Newcount),
             ("newdimen", Newdimen),
             ("newskip", Newskip),
             ("newlength", Newlength),
@@ -1735,9 +1737,38 @@ impl Tex {
     }
 
     fn expand_frame(&mut self, depth: usize) -> Result<Vec<Token>, Error> {
+        self.expand_frame_until(depth, &[]).map(|(out, _)| out)
+    }
+
+    /// Starts expanding `tokens` piece by piece, with `expand_more`: the depth of the input that
+    /// they end at.
+    pub fn expand_start(&mut self, tokens: Vec<Token>) -> usize {
+        let depth = self.input.len();
+        self.input.push(Frame::Tokens(tokens.into_iter().collect()));
+        depth
+    }
+
+    /// Expands what `expand_start` began, to its end or to the first unexpandable control sequence
+    /// named in `stops`: what it expanded to, and that control sequence, after which the input
+    /// is what follows it (for the caller to read its arguments and run it, as TeX would while
+    /// typesetting, and then to call again).
+    pub fn expand_more(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
+        let r = self.expand_frame_until(depth, stops);
+        if r.is_err() {
+            self.drain_to(depth);
+        }
+        r
+    }
+
+    fn expand_frame_until(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
         let mut out = Vec::new();
         while self.input.len() > depth {
             let Some(t) = self.get_token_until(depth) else { break };
+            if let Token::Cs(name) = &t {
+                if stops.contains(&name.as_ref()) && !self.meaning(&t).is_expandable() {
+                    return Ok((out, Some(t)));
+                }
+            }
             if t.is_cs("tikra@noexpand") {
                 if let Some(n) = self.get_token_until(depth) {
                     out.push(n);
@@ -1759,7 +1790,7 @@ impl Tex {
                 return Err(Error::Figure("expansion too long".into()));
             }
         }
-        Ok(out)
+        Ok((out, None))
     }
 
     /// Expands tokens fully and returns them as text (control sequences written `\name `).
@@ -2439,6 +2470,15 @@ impl Tex {
                         if let Some(n) = named {
                             self.named_boxes.retain(|(m, _)| *m != n);
                             self.named_boxes.push((n, body));
+                        }
+                    } else if x.is_cs("box") || x.is_cs("copy") {
+                        // another box register's content: the register read (by name or number)
+                        match self.next_nonspace() {
+                            Some(Token::Cs(_)) | None => {}
+                            Some(other) => {
+                                self.back(other);
+                                let _ = self.scan_int()?;
+                            }
                         }
                     } else {
                         self.back(x);

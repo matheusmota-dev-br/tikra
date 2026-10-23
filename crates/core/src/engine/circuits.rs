@@ -479,6 +479,22 @@ pub fn definitions() -> String {
     for g in ["and", "nand"] {
         keys.push(format!("{g} gate CDH graphic/.style={{{}}}", us.replace("##1", &format!("{g} gate CDH"))));
     }
+    // the shapes.gates.logic libraries: the gates as shapes of one style, outside circuits
+    for style in ["US", "IEC", "CDH"] {
+        let mut styles: Vec<String> = GATES
+            .iter()
+            .map(|g| {
+                let shape = if style == "CDH" && !matches!(*g, "and" | "nand") { "US" } else { style };
+                format!("{g} gate/.style={{shape={g} gate {shape}}}")
+            })
+            .collect();
+        if style == "IEC" {
+            styles.extend(GATES.iter().map(|g| format!("{g} gate symbol/.style={{{g} gate IEC symbol={{##1}}}}")));
+            styles.push("logic gate symbol align/.style={/pgf/logic gate IEC symbol align={##1}}".into());
+            styles.push("logic gate symbol color/.style={/pgf/logic gate IEC symbol color={##1}}".into());
+        }
+        keys.push(format!("use {style} style logic gates/.code={{\\tikzset{{{}}}}}", styles.join(",")));
+    }
     // circuits.ee and its IEC graphics
     keys.push("circuit ee/.style={circuit,every circuit ee/.try}".into());
     for sym in EE_SYMBOLS {

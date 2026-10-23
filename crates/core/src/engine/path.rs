@@ -2158,22 +2158,23 @@ fn let_macro(e: &mut Engine, letter: &str) -> Result<(), Error> {
 
 /// `\foreach` inside a path: its body is more path operations.
 fn path_foreach(e: &mut Engine, b: &mut Builder) -> Result<(), Error> {
-    let (names, list) = foreach_header(e)?;
+    let (names, list, options) = foreach_header(e)?;
     let body = match e.tex.next_nonspace() {
         Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
         Some(t) => vec![t],
         None => Vec::new(),
     };
-    foreach_run(e, b, names, list, body)
+    foreach_run(e, b, names, list, options, body)
 }
 
 /// `\x/\y in {list}` of a `foreach` (the word already read): the variables and the list.
-fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>), Error> {
+fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>, super::ForeachOptions), Error> {
     let mut vars: Vec<Token> = Vec::new();
+    let mut opts: Vec<Token> = Vec::new();
     loop {
         let Some(t) = e.tex.get_token() else { return Err(Error::Figure("\\foreach without 'in'".into())) };
         if t.is_char('[') {
-            let _ = e.tex.read_until_char(']', false)?;
+            opts.extend(e.tex.read_until_char(']', false)?);
             continue;
         }
         if t.is_char('i') {
@@ -2192,12 +2193,12 @@ fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>), Error> {
         Some(t) => vec![t],
         None => Vec::new(),
     };
-    Ok((names, e.tex.expand_fully(list_tokens)?))
+    Ok((names, e.tex.expand_fully(list_tokens)?, super::foreach_options(&opts)))
 }
 
 /// `node foreach \x in {list} [options] at (…) {text}`: the node once for each item.
 fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error> {
-    let (names, list) = foreach_header(e)?;
+    let (names, list, options) = foreach_header(e)?;
     // the rest of the node as it is written, up to its text
     let mut spec = tikra_tokens(&format!("{kind} "));
     // the letters of the last word, spaces after it skipped
@@ -2243,22 +2244,25 @@ fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error
             }
         }
     }
-    foreach_run(e, b, names, list, spec)
+    foreach_run(e, b, names, list, options, spec)
 }
 
 /// The path operations `body` once for each item of `list`, with the variables set.
-fn foreach_run(e: &mut Engine, b: &mut Builder, names: Vec<Token>, list: Vec<Token>, body: Vec<Token>) -> Result<(), Error> {
-    for item in super::foreach_items(&list) {
+fn foreach_run(e: &mut Engine, b: &mut Builder, names: Vec<Token>, list: Vec<Token>, options: super::ForeachOptions, body: Vec<Token>) -> Result<(), Error> {
+    let mut memory = options.initial_memory();
+    for (k, item) in super::foreach_items(&list).into_iter().enumerate() {
         e.begin_group();
         let parts: Vec<Vec<Token>> = item.split(|t| t.is_char('/')).map(|p| keys::trim(p).to_vec()).collect();
         for (i, n) in names.iter().enumerate() {
             let v = parts.get(i).or(parts.last()).cloned().unwrap_or_default();
             e.tex.set_meaning(n, super::macro_tokens(v), false);
         }
+        e.foreach_iteration(&options, k, &memory)?;
         let depth = e.tex.depth();
         e.tex.push_frame(body.clone());
         let r = operations(e, b, Some(depth));
         e.tex.drain_to(depth);
+        e.foreach_remember(&options, &mut memory);
         // the path's settings stay; only the loop variables end with the iteration
         let st = e.st.clone();
         e.end_group();
