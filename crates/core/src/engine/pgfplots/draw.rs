@@ -979,7 +979,27 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
         }
         let (bw, bh) = bbox_size(&corners);
         let (sx, sy) = (if bw > 1e-9 { width / bw } else { 1.0 }, if bh > 1e-9 { height / bh } else { 1.0 });
-        for k in 0..3 {
+        let ratio = e.pv("unit vector ratio");
+        let mode = e.pv("scale mode");
+        // `unit vector ratio` asks for one scale for all unit vectors
+        let uniform = mode == "scale uniformly" || (mode == "auto" && !ratio.trim().is_empty());
+        if uniform {
+            let inp = super::scaling::Input {
+                e: [0, 1, 2].map(|k| base[k].scale(if dir[k] { -1.0 } else { 1.0 })),
+                width,
+                height,
+                unit_box: true,
+                three_d: true,
+                strategy: super::scaling::Strategy::parse(&e.pv("scale uniformly strategy")),
+                ratio: &ratio,
+                ratio_axis: &e.pv("unit vector ratio axis"),
+                keep: super::scaling::KeepSize::parse(&e.pv("unit rescale keep size")),
+                auto_min,
+                auto_max,
+            };
+            ev = super::scaling::uniform(&inp, &mut min, &mut max);
+        }
+        for k in (0..3).filter(|_| !uniform) {
             let range = (max[k] - min[k]).abs().max(1e-12);
             let s = if dir[k] { -1.0 } else { 1.0 };
             // 1/range as pgfplots multiplies it (compat before 1.3's pgfbasic scaling): a TeX
@@ -1010,8 +1030,26 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                 }
             };
         }
-        // unit vector ratio (axis equal): one scale for both, the limits enlarged to keep the size
+        // a 3d axis with given unit vectors, scaled uniformly to width × height
         let ratio = e.pv("unit vector ratio");
+        let mode = e.pv("scale mode");
+        if three_d && units.iter().all(Option::is_some) && (mode == "scale uniformly" || (mode == "auto" && !ratio.trim().is_empty())) {
+            let inp = super::scaling::Input {
+                e: ev,
+                width,
+                height,
+                unit_box: false,
+                three_d: true,
+                strategy: super::scaling::Strategy::parse(&e.pv("scale uniformly strategy")),
+                ratio: &ratio,
+                ratio_axis: &e.pv("unit vector ratio axis"),
+                keep: super::scaling::KeepSize::parse(&e.pv("unit rescale keep size")),
+                auto_min,
+                auto_max,
+            };
+            ev = super::scaling::uniform(&inp, &mut min, &mut max);
+        }
+        // unit vector ratio (axis equal): one scale for both, the limits enlarged to keep the size
         if !ratio.is_empty() && !three_d && units[0].is_none() && units[1].is_none() {
             let r: Vec<f64> = ratio.split_whitespace().filter_map(|x| x.parse().ok()).collect();
             let (rx, ry) = (r.first().copied().unwrap_or(1.0), r.get(1).copied().unwrap_or(1.0));

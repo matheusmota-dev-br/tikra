@@ -22,6 +22,7 @@ pub mod number;
 pub mod patch;
 pub mod plot;
 pub mod polar;
+pub mod scaling;
 pub mod smith;
 pub mod symbolic;
 pub mod table;
