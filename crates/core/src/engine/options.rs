@@ -1511,7 +1511,10 @@ keyfn!(k_at_empty_cell, |e, v| {
 // whole (line widths and text too)
 keyfn!(k_transform_canvas, |e, v| {
     let saved = std::mem::take(&mut e.st.pending);
+    // (read with the transformations reset, as TikZ does: a node's point there is the canvas's)
+    let transform = std::mem::take(&mut e.st.transform);
     let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
+    e.st.transform = transform;
     let t = std::mem::replace(&mut e.st.pending, saved);
     r?;
     // the transformations act on the canvas around the current origin, as pgf's low level does
