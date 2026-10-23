@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tikra gallery</title>
-<meta name="description" content="Every figure of tikra's corpus, drawn live in your browser from its TikZ source: 3D surfaces, polar and ternary plots, mind maps, circuits, automata, decorations, shadings, patterns and more.">
+<meta name="description" content="tikra's corpus of figures, by topic, drawn live in your browser from their TikZ source: 3D surfaces, polar and ternary plots, mind maps, circuits, automata, decorations, shadings, patterns and more.">
 <link rel="icon" href="pkg/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="pkg/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="pkg/apple-touch-icon.png">
@@ -29,15 +29,23 @@
     </nav>
   </div>
 
-  <section id="gallery">
+  <!-- the topics: one card each, with a figure that stands for it -->
+  <section id="home">
     <h2>Gallery</h2>
-    <p class="lead" id="lead">Every figure of <a href="https://github.com/matheusmota-dev-br/tikra/tree/main/corpus"><code>corpus/</code></a>, drawn just now in your browser from its TikZ source. Open one in the playground to change it.</p>
+    <p class="lead">The figures of <a href="https://github.com/matheusmota-dev-br/tikra/tree/main/corpus"><code>corpus/</code></a>, by topic, drawn in your browser from their TikZ source. Pick a topic to see its figures.</p>
+    <div class="topic-cards" id="cards"><span class="status" id="status">Loading WebAssembly…</span></div>
+  </section>
+
+  <!-- one topic: its figures -->
+  <section id="topic" hidden>
+    <p><a class="button" href="#">← All topics</a></p>
+    <h2 id="topic-title"></h2>
+    <p class="lead" id="topic-lead"></p>
     <div class="gallery-tools">
-      <input type="search" id="filter" placeholder="Filter: 3D, polar, mindmap, circuit…" aria-label="Filter the figures">
+      <input type="search" id="filter" placeholder="Filter this topic" aria-label="Filter the figures">
       <span class="stats" id="count"></span>
     </div>
-    <nav class="topics" id="topics" aria-label="Topics"></nav>
-    <div id="tiles"><span class="status" id="status">Loading WebAssembly…</span></div>
+    <div class="gallery big" id="tiles"></div>
   </section>
 
   <footer>
@@ -54,23 +62,30 @@
   const CORPUS = typeof TIKRA_CORPUS === "undefined" ? [] : TIKRA_CORPUS;
   const caption = (name) => { const s = name.replace(/^\d+-/, "").replace(/-/g, " "); return s[0].toUpperCase() + s.slice(1); };
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  // the folders of corpus/, in this order, with their titles
+  // the folders of corpus/, in this order: title, what they show, and the figure on their card
   const TOPICS = {
-    "geometry": ["Geometry", "Points, lines, circles, angles, transformations and coordinates."],
-    "plots-2d": ["Function plots", "TikZ plots and pgfplots axes in two dimensions."],
-    "plots-3d": ["3D plots", "Surfaces, meshes, curves and heat maps with pgfplots."],
-    "charts": ["Charts", "Bars, pies, histograms, error bars and other statistics."],
-    "special-axes": ["Special axes", "Polar, ternary and Smith charts, and data visualization."],
-    "diagrams": ["Diagrams", "Flowcharts, graphs, trees, mind maps, automata and Petri nets."],
-    "science": ["Science and engineering", "Circuits, logic gates, physics, optics and chemistry."],
-    "decorations": ["Decorations and arrows", "Decorations, markings, text along paths, arrow tips and fractals."],
-    "fills-and-colors": ["Fills and colors", "Patterns, shadings, fadings, opacity, blending and clipping."],
-    "nodes-and-text": ["Nodes and text", "Node shapes, labels, matrices, calendars and text layout."],
+    "geometry": ["Geometry", "Points, lines, circles, angles, transformations and coordinates.", "angles-quotes"],
+    "plots-2d": ["Function plots", "TikZ plots and pgfplots axes in two dimensions.", "fill-between"],
+    "plots-3d": ["3D plots", "Surfaces, meshes, curves and heat maps with pgfplots.", "surface-3d"],
+    "charts": ["Charts", "Bars, pies, histograms, error bars and other statistics.", "stacked-bars"],
+    "special-axes": ["Special axes", "Polar, ternary and Smith charts, and data visualization.", "polar-rose"],
+    "diagrams": ["Diagrams", "Flowcharts, graphs, trees, mind maps, automata and Petri nets.", "mindmap"],
+    "science": ["Science and engineering", "Circuits, logic gates, physics, optics and chemistry.", "circuit"],
+    "decorations": ["Decorations and arrows", "Decorations, markings, text along paths, arrow tips and fractals.", "markings"],
+    "fills-and-colors": ["Fills and colors", "Patterns, shadings, fadings, opacity, blending and clipping.", "shadings-fadings"],
+    "nodes-and-text": ["Nodes and text", "Node shapes, labels, matrices, calendars and text layout.", "shapes-gallery"],
   };
   const topicOrder = (t) => { const i = Object.keys(TOPICS).indexOf(t); return i < 0 ? 99 : i; };
+  const topics = [...new Set(CORPUS.map((f) => f.topic))].sort((a, b) => topicOrder(a) - topicOrder(b));
+  const of = (t) => CORPUS.filter((f) => f.topic === t);
   // the figure's source without its first comment line ("Made up for the tikra benchmark.")
   const source = (tex) => tex.replace(/^%[^\n]*\n/, "");
   let api;
+  const svgs = new Map();
+  const draw = (f) => {
+    if (!svgs.has(f.name)) svgs.set(f.name, JSON.parse(api.render(f.tex)).svg);
+    return svgs.get(f.name);
+  };
 
   function save(blob, name) {
     const a = document.createElement("a");
@@ -80,61 +95,79 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 0);
   }
 
-  function draw() {
-    const root = $("tiles");
-    root.innerHTML = "";
-    let total = 0;
-    const topics = [...new Set(CORPUS.map((f) => f.topic))].sort((a, b) => topicOrder(a) - topicOrder(b));
-    const sections = {};
+  // the home view: a card per topic, with its cover figure (only these are drawn)
+  function showHome() {
+    $("home").hidden = false;
+    $("topic").hidden = true;
+    const cards = $("cards");
+    if (cards.dataset.drawn) return;
+    cards.innerHTML = "";
     for (const t of topics) {
-      const [title, about] = TOPICS[t] ?? [t, ""];
-      const n = CORPUS.filter((f) => f.topic === t).length;
-      const sec = document.createElement("section");
-      sec.className = "topic";
-      sec.id = t;
-      sec.innerHTML = `<h3>${escape(title)} <span class="stats">${n}</span></h3><p class="lead">${escape(about)}</p><div class="gallery big"></div>`;
-      root.append(sec);
-      sections[t] = sec.querySelector(".gallery");
+      const [title, about, cover] = TOPICS[t] ?? [t, "", ""];
+      const figures = of(t);
+      const f = figures.find((x) => x.name === cover) ?? figures[0];
       const a = document.createElement("a");
+      a.className = "card topic-card";
       a.href = `#${t}`;
-      a.textContent = `${title} (${n})`;
-      $("topics").append(a);
+      a.innerHTML = `<div class="eq">${f ? draw(f) : ""}</div><div class="topic-text"><h3>${escape(title)}</h3><p>${escape(about)}</p><span class="stats">${figures.length} figures →</span></div>`;
+      cards.append(a);
     }
-    for (const { name, topic, tex } of CORPUS) {
-      const tiles = sections[topic];
+    cards.dataset.drawn = "1";
+  }
+
+  // a topic: its figures, drawn when it is opened
+  function showTopic(t) {
+    const [title, about] = TOPICS[t] ?? [t, ""];
+    $("home").hidden = true;
+    $("topic").hidden = false;
+    $("topic-title").textContent = title;
+    $("topic-lead").textContent = about;
+    $("filter").value = "";
+    const tiles = $("tiles");
+    tiles.innerHTML = "";
+    const figures = of(t);
+    let total = 0;
+    for (const f of figures) {
       const start = performance.now();
-      const out = JSON.parse(api.render(tex));
+      const svg = draw(f);
       total += performance.now() - start;
       const card = document.createElement("article");
       card.className = "card tile";
-      card.dataset.search = `${name} ${topic} ${tex}`.toLowerCase();
-      const src = source(tex);
+      card.dataset.search = `${f.name} ${f.tex}`.toLowerCase();
+      const src = source(f.tex);
       card.innerHTML =
-        `<div class="eq">${out.svg}</div>` +
-        `<div class="cap"><span>${escape(caption(name))}</span><span>${escape(TOPICS[topic]?.[0] ?? topic)}</span></div>` +
+        `<div class="eq">${svg}</div>` +
+        `<div class="cap"><span>${escape(caption(f.name))}</span></div>` +
         `<div class="tile-actions"><a class="button" href="index.html#${new URLSearchParams({ tikz: src })}">Open in playground</a>` +
         `<button class="button" type="button" data-act="code">Source</button>` +
         `<button class="button" type="button" data-act="svg">SVG</button></div>` +
         `<pre class="tile-code" hidden>${escape(src)}</pre>`;
       card.querySelector('[data-act="code"]').onclick = () => { const pre = card.querySelector("pre"); pre.hidden = !pre.hidden; };
-      card.querySelector('[data-act="svg"]').onclick = () => save(new Blob([out.svg], { type: "image/svg+xml" }), `${name}.svg`);
+      card.querySelector('[data-act="svg"]').onclick = () => save(new Blob([svg], { type: "image/svg+xml" }), `${f.name}.svg`);
       tiles.append(card);
     }
-    $("count").textContent = `${CORPUS.length} figures, ${(total / Math.max(1, CORPUS.length)).toFixed(2)} ms each on average`;
+    $("count").textContent = `${figures.length} figures`;
+    window.scrollTo(0, 0);
   }
 
   $("filter").addEventListener("input", (e) => {
     const words = e.target.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const cards = [...document.querySelectorAll("#tiles .tile")];
     let shown = 0;
-    for (const card of document.querySelectorAll("#tiles .tile")) {
+    for (const card of cards) {
       const show = words.every((w) => card.dataset.search.includes(w));
       card.hidden = !show;
       shown += show;
     }
-    // a topic with nothing left to show is hidden too
-    for (const sec of document.querySelectorAll("#tiles .topic")) sec.hidden = !sec.querySelector(".tile:not([hidden])");
-    $("count").textContent = words.length ? `${shown} of ${CORPUS.length} figures` : `${CORPUS.length} figures`;
+    $("count").textContent = words.length ? `${shown} of ${cards.length} figures` : `${cards.length} figures`;
   });
+
+  const route = () => {
+    const t = decodeURIComponent(location.hash.slice(1));
+    if (topics.includes(t)) showTopic(t);
+    else showHome();
+  };
+  window.addEventListener("hashchange", route);
 
   // opened from disk (file://), the browser blocks fetching the .wasm: read the base64 copy instead
   function wasmSource() {
@@ -154,7 +187,7 @@
   }
   wasmSource()
     .then((module_or_path) => wasm_bindgen({ module_or_path }))
-    .then(() => { api = wasm_bindgen; draw(); })
+    .then(() => { api = wasm_bindgen; route(); })
     .catch((e) => { $("status").textContent = `Could not load WebAssembly: ${String(e.message ?? e)}`; });
 })();
 </script>

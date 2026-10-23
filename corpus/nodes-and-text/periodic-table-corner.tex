@@ -1,0 +1,16 @@
+% Made up for the tikra benchmark.
+\usetikzlibrary{matrix}
+\begin{tikzpicture}[
+    el/.style={draw, thick, minimum size=1.15cm, align=center, font=\small, inner sep=1pt},
+    alk/.style={el, fill=red!25}, ear/.style={el, fill=orange!25}, non/.style={el, fill=green!25},
+    nob/.style={el, fill=cyan!25}, met/.style={el, fill=yellow!30}, hal/.style={el, fill=violet!20}]
+  \matrix[matrix of nodes, column sep=1pt, row sep=1pt, nodes in empty cells=false] {
+    |[non]| {\tiny 1\\\textbf{H}} & & & & & & & |[nob]| {\tiny 2\\\textbf{He}} \\
+    |[alk]| {\tiny 3\\\textbf{Li}} & |[ear]| {\tiny 4\\\textbf{Be}} & |[met]| {\tiny 5\\\textbf{B}} &
+      |[non]| {\tiny 6\\\textbf{C}} & |[non]| {\tiny 7\\\textbf{N}} & |[non]| {\tiny 8\\\textbf{O}} &
+      |[hal]| {\tiny 9\\\textbf{F}} & |[nob]| {\tiny 10\\\textbf{Ne}} \\
+    |[alk]| {\tiny 11\\\textbf{Na}} & |[ear]| {\tiny 12\\\textbf{Mg}} & |[met]| {\tiny 13\\\textbf{Al}} &
+      |[met]| {\tiny 14\\\textbf{Si}} & |[non]| {\tiny 15\\\textbf{P}} & |[non]| {\tiny 16\\\textbf{S}} &
+      |[hal]| {\tiny 17\\\textbf{Cl}} & |[nob]| {\tiny 18\\\textbf{Ar}} \\
+  };
+\end{tikzpicture}

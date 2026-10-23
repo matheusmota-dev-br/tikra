@@ -169,8 +169,19 @@
   /* the gallery page: bigger tiles, each with its actions and its source */
   .gallery.big { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
   .gallery.big .tile { cursor: default; }
-  .gallery.big .tile .eq { min-height: 220px; }
-  .gallery.big .tile .eq svg { max-height: 300px; }
+  .gallery.big .tile .eq { min-height: 220px; overflow: visible; }
+  /* the whole figure, scaled down to the card (its 10 px white padding included), never cut */
+  .gallery.big .tile .eq svg { width: auto; height: auto; max-width: calc(100% - 20px); max-height: 340px; }
+  /* the home of the gallery: a card per topic */
+  .topic-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .topic-card { display: flex; flex-direction: column; overflow: hidden; color: inherit; text-decoration: none; }
+  .topic-card:hover { border-color: var(--accent); }
+  .topic-card .eq { height: 220px; display: flex; align-items: center; justify-content: center; padding: 16px; border-bottom: 1px solid var(--line); }
+  .topic-card .eq svg { width: auto; height: auto; max-width: calc(100% - 20px); max-height: 190px; background: #fff; border-radius: 8px; padding: 10px; box-sizing: content-box; }
+  .topic-text { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .topic-text h3 { font-family: "STIX Two Text", Georgia, serif; font-weight: 600; font-size: 22px; margin: 0; }
+  .topic-text p { margin: 0; color: var(--muted); font-size: 14px; }
+  .topic-text .stats { color: var(--accent-ink); font-size: 13px; }
   .gallery-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 18px; }
   .gallery-tools input { flex: 1; min-width: 220px; max-width: 420px; font: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
   .tile-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 14px 12px; }
