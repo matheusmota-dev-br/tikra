@@ -472,6 +472,10 @@ enum Layout {
     /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
     Skip(f64),
     Par,
+    /// `\\`: the line ends there
+    Break,
+    /// `center` begins (true) or ends: its lines are centered in the line's width
+    Center(bool),
     /// the width of the line (cm), in a `\vbox` of that `\hsize`
     Width(f64),
 }
@@ -823,6 +827,10 @@ impl Engine {
 
     /// An undefined command: in a picture, the statement it starts is skipped to its `;`.
     fn unknown_command(&mut self, name: &str) -> Result<(), Error> {
+        if self.picture_depth == 0 && name == "\\" {
+            self.layout.push(Layout::Break);
+            return Ok(());
+        }
         if self.picture_depth > 0 {
             let rest = self.skip_statement()?;
             self.warn(format!("\\{name} not supported: '{}' ignored", rest.chars().take(40).collect::<String>().trim()));
@@ -1978,6 +1986,9 @@ impl Engine {
                 self.fading_from_picture()
             }
             "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
+                if name == "center" && self.picture_depth == 0 {
+                    self.layout.extend([Layout::Par, Layout::Center(true)]);
+                }
                 if name == "minipage" {
                     let _ = self.optional()?;
                     let _ = self.argument()?;
@@ -2041,6 +2052,9 @@ impl Engine {
                     self.run_tokens(end)?;
                 }
                 self.end_group();
+                if name == "center" && self.picture_depth == 0 {
+                    self.layout.extend([Layout::Par, Layout::Center(false)]);
+                }
             }
         }
         Ok(())
@@ -2345,22 +2359,102 @@ const LINE_SKIP: f64 = 1.0 * crate::PT;
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
 fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
-    let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
-    for l in layout {
-        match l {
-            Layout::Par => lines.push(Vec::new()),
-            other => lines.last_mut().expect("a line").push(*other),
-        }
-    }
     // the words as TeX sets them, in the text font
     let mut warnings = Vec::new();
     let labels: Vec<crate::scene::Label> = words.iter().map(|(font, w)| crate::label::compose_label(w, font, None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
+    let width_of = |l: &Layout| match l {
+        Layout::Picture(i) => boxes[*i].canvas.min.zip(boxes[*i].canvas.max).map_or(0.0, |(a, b)| b.x - a.x),
+        Layout::Word(i) => labels[*i].width(),
+        Layout::Skip(w) => *w,
+        Layout::Space => SPACE,
+        _ => 0.0,
+    };
+    // the lines: a paragraph ends one, so does `\\` (and `\\` then a paragraph's end leaves an
+    // empty line); in `center` they are centered
+    struct Line {
+        items: Vec<Layout>,
+        center: bool,
+        empty_kept: bool,
+    }
+    let line = |center| Line { items: Vec::new(), center, empty_kept: false };
+    let mut lines = vec![line(false)];
+    let mut center = false;
+    let mut hsize: Option<f64> = None;
+    let mut after_break = false;
+    for l in layout {
+        match l {
+            Layout::Par => {
+                if after_break {
+                    lines.last_mut().expect("a line").empty_kept = true;
+                }
+                lines.push(line(center));
+            }
+            Layout::Break => lines.push(line(center)),
+            Layout::Center(c) => {
+                center = *c;
+                lines.last_mut().expect("a line").center = center;
+            }
+            other => {
+                if let Layout::Width(w) = other {
+                    hsize = Some(*w);
+                }
+                lines.last_mut().expect("a line").items.push(*other);
+            }
+        }
+        after_break = matches!(l, Layout::Break) || (after_break && matches!(l, Layout::Center(_)));
+    }
+    // a line longer than the line's width (when known) is broken at its spaces
+    if let Some(w) = hsize {
+        let mut broken = Vec::new();
+        for l in lines {
+            let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept };
+            let (mut x, mut pending) = (0.0, 0.0);
+            let mut started = false;
+            let mut chunk: Vec<Layout> = Vec::new();
+            let mut chunk_w = 0.0;
+            let flush = |cur: &mut Line, broken: &mut Vec<Line>, chunk: &mut Vec<Layout>, chunk_w: &mut f64, x: &mut f64, pending: &mut f64, started: &mut bool| {
+                if chunk.is_empty() {
+                    return;
+                }
+                let content = chunk.iter().any(|c| matches!(c, Layout::Picture(_) | Layout::Word(_)));
+                if *started && content && *x + *pending + *chunk_w > w + 1e-9 {
+                    let next = Line { items: Vec::new(), center: cur.center, empty_kept: false };
+                    broken.push(std::mem::replace(cur, next));
+                    *x = 0.0;
+                    *pending = 0.0;
+                } else if *started {
+                    cur.items.push(Layout::Space);
+                    *x += *pending;
+                }
+                *pending = 0.0;
+                cur.items.append(chunk);
+                *x += *chunk_w;
+                *chunk_w = 0.0;
+                *started |= content;
+            };
+            for item in l.items {
+                if matches!(item, Layout::Space) {
+                    flush(&mut cur, &mut broken, &mut chunk, &mut chunk_w, &mut x, &mut pending, &mut started);
+                    if started {
+                        pending = SPACE;
+                    }
+                } else {
+                    chunk_w += width_of(&item);
+                    chunk.push(item);
+                }
+            }
+            flush(&mut cur, &mut broken, &mut chunk, &mut chunk_w, &mut x, &mut pending, &mut started);
+            broken.push(cur);
+        }
+        lines = broken;
+    }
     let mut baseline_y = 0.0;
     let mut previous_depth: Option<f64> = None;
     let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
-    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && l.iter().any(|x| matches!(x, Layout::Word(_))))) {
+    let shown = |l: &Line| l.items.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && (l.empty_kept || l.items.iter().any(|x| matches!(x, Layout::Word(_)))));
+    for line in lines.iter().filter(|l| shown(l)) {
         let (mut height, mut depth) = (0.0f64, 0.0f64);
-        for l in line {
+        for l in &line.items {
             match l {
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
@@ -2379,9 +2473,15 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
             let gap = BASELINE_SKIP - d - height;
             baseline_y -= if gap >= 0.0 { BASELINE_SKIP } else { d + LINE_SKIP + height };
         }
+        // centered: what the line holds (from its first box) in the middle of its width
         let mut x = 0.0;
+        if let (true, Some(w)) = (line.center, hsize) {
+            let first = line.items.iter().position(|l| matches!(l, Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_))).unwrap_or(line.items.len());
+            let natural: f64 = line.items[first..].iter().map(&width_of).sum();
+            x = ((w - natural) / 2.0).max(0.0);
+        }
         let mut started = false;
-        for l in line {
+        for l in &line.items {
             match l {
                 Layout::Space if started => x += SPACE,
                 // glue at the start of a paragraph stays (`\hskip 1cm` before a picture)
