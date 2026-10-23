@@ -759,6 +759,8 @@ fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Fram
     let stacked = p.stack.is_some() && compat >= 109 && matches!(handler, "ybar" | "xbar");
     let offset = keys::number(e, "/pgfplots/nodes near coords bar offset").unwrap_or(0.5);
     let shift = match handler {
+        // (the nodes of stacked bars before compat 1.9 stay where the stacked point is)
+        _ if p.stack.is_some() && !stacked => Point::default(),
         "ybar" => unit(f.e[0]).scale(bar_shift),
         "xbar" => unit(f.e[1]).scale(bar_shift),
         _ => Point::default(),
