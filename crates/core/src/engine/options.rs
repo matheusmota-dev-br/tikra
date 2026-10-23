@@ -576,7 +576,12 @@ fn shift_vector(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<Point, Error> 
 }
 
 fn dash_from(e: &mut Engine, spec: &str) -> Result<Option<Vec<f64>>, Error> {
-    // on 3pt off 2pt on \pgflinewidth off 2pt
+    // on 3pt off 2pt on \pgflinewidth off 2pt; a length that `\the` gives keeps no space before
+    // what follows (`on \the\pgflinewidth off 2pt` is `0.4ptoff`): TeX's length ends at its unit
+    let mut spec = spec.to_string();
+    for unit in ["pt", "cm", "mm", "bp", "em", "ex", "in", "pc"] {
+        spec = spec.replace(&format!("{unit}on"), &format!("{unit} on")).replace(&format!("{unit}off"), &format!("{unit} off"));
+    }
     let words: Vec<&str> = spec.split_whitespace().collect();
     let mut v = Vec::new();
     let mut i = 0;
@@ -1986,6 +1991,7 @@ keyfn!(k_path_fading, |e, v| {
 keyfn!(k_fading_angle, |e, v| {
     let s = text(e, &v)?;
     e.st.fading_transform = Transform::rotation(e.number(&s)?);
+    note_fading_settings(e);
     Ok(())
 });
 // `fading transform={rotate=90}`: the transformations of the options, for the path fading
@@ -1993,8 +1999,16 @@ keyfn!(k_fading_transform, |e, v| {
     let saved = std::mem::take(&mut e.st.pending);
     let r = e.process_keys(v.unwrap_or_default(), Some("/tikz"));
     e.st.fading_transform = std::mem::replace(&mut e.st.pending, saved);
+    note_fading_settings(e);
     r
 });
+
+/// The fading settings just set, for the `scope fading`s of the path being read.
+fn note_fading_settings(e: &mut Engine) {
+    if let Some(s) = e.path_fading_settings.last_mut() {
+        *s = (e.st.fading_transform, e.st.fit_fading);
+    }
+}
 keyfn!(k_local_bounding_box, |e, v| {
     let s = text(e, &v)?;
     e.open_local_box(s.trim().to_string());
@@ -2018,12 +2032,19 @@ keyfn!(k_active_in_nodes, |e, _v| {
 });
 keyfn!(k_fit_fading, |e, v| {
     e.st.fit_fading = text(e, &v)? != "false";
+    note_fading_settings(e);
     Ok(())
 });
 // `scope fading=name`: what the scope draws is faded, the fading at the scope's origin
 keyfn!(k_scope_fading, |e, v| {
     let s = text(e, &v)?;
+    // in a path's options: what the path draws, the fading fitted to it when it is done
     let t = e.st.transform.compose(&e.st.pending);
+    let (start, fit) = (e.canvas.items.len(), e.st.fit_fading);
+    if let Some(list) = e.path_fadings.last_mut() {
+        list.push((s, start, fit, t));
+        return Ok(());
+    }
     e.open_fading(&s, t);
     Ok(())
 });

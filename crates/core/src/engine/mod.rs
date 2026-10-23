@@ -65,6 +65,7 @@ pub enum Cmd {
     Node,
     Coordinate,
     Useasboundingbox,
+    ResetBoundingBox,
     Matrix,
     PgfMatrix,
     Chainin,
@@ -170,6 +171,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("node", Cmd::Node),
     ("coordinate", Cmd::Coordinate),
     ("useasboundingbox", Cmd::Useasboundingbox),
+    ("pgfresetboundingbox", Cmd::ResetBoundingBox),
     ("matrix", Cmd::Matrix),
     ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
@@ -386,6 +388,16 @@ pub struct Engine {
     pub after_node_path: Vec<Token>,
     /// The open `local bounding box`es: their names and the group depth they were opened at.
     pub local_boxes: Vec<(String, usize)>,
+    /// The picture's size when each `pgfinterruptboundingbox` opened, restored when it closes.
+    interrupted_boxes: Vec<(Option<Point>, Option<Point>)>,
+    /// For each path statement being read, its `scope fading`s: the fading, where in the items
+    /// what the statement draws begins, `fit fading`, and the transformation when it was given.
+    pub path_fadings: Vec<Vec<(String, usize, bool, Transform)>>,
+    /// The `scope fading`s of a path that drew nothing: the next path is faded.
+    pub carried_fadings: Vec<(String, bool, Transform)>,
+    /// For each path statement being read, the `fading transform` and `fit fading` its options (and
+    /// its nodes') set: what its `scope fading`s use.
+    pub path_fading_settings: Vec<(Transform, bool)>,
     /// the path's last point and where it came from, for `turn` in the next coordinate
     pub turn_from: (crate::scene::Point, crate::scene::Point),
     /// where the path's subpath started (`current subpath start`)
@@ -508,6 +520,10 @@ impl Clone for Engine {
             math_kinds: self.math_kinds.clone(),
             after_node_path: Vec::new(),
             local_boxes: Vec::new(),
+            interrupted_boxes: Vec::new(),
+            path_fadings: Vec::new(),
+            carried_fadings: Vec::new(),
+            path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
@@ -584,6 +600,10 @@ impl Engine {
             math_kinds: Default::default(),
             after_node_path: Vec::new(),
             local_boxes: Vec::new(),
+            interrupted_boxes: Vec::new(),
+            path_fadings: Vec::new(),
+            carried_fadings: Vec::new(),
+            path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: None,
@@ -1457,6 +1477,11 @@ impl Engine {
                 }
                 Ok(())
             }
+            // the picture's size forgotten: what follows makes it anew
+            Cmd::ResetBoundingBox => {
+                (self.canvas.min, self.canvas.max) = (None, None);
+                Ok(())
+            }
             Cmd::Ignore2 => {
                 let _ = self.argument()?;
                 let _ = self.argument()?;
@@ -1941,6 +1966,12 @@ impl Engine {
                 Ok(())
             }
             "pgfviewboxscope" => self.begin_view_box_scope(),
+            // what is drawn inside does not make the picture larger
+            "pgfinterruptboundingbox" => {
+                self.interrupted_boxes.push((self.canvas.min, self.canvas.max));
+                self.begin_group();
+                Ok(())
+            }
             "tikzfadingfrompicture" => {
                 // its \end is read with its body
                 self.tex.env_stack.pop();
@@ -1995,6 +2026,12 @@ impl Engine {
                 self.end_group();
             }
             "pgfonlayer" => self.end_on_layer(),
+            "pgfinterruptboundingbox" => {
+                self.end_group();
+                if let Some((min, max)) = self.interrupted_boxes.pop() {
+                    (self.canvas.min, self.canvas.max) = (min, max);
+                }
+            }
             "scope" => {
                 self.close_tikz_scope()?;
                 self.depth = self.depth.saturating_sub(1);

@@ -153,7 +153,7 @@ impl Engine {
     }
 
     /// A fading by name, fitted to the path's bounding box (`fit fading`, on by default).
-    fn fading_for(&mut self, name: &str, segs: &[Segment]) -> Option<crate::canvas::Shading> {
+    pub(super) fn fading_for(&mut self, name: &str, segs: &[Segment]) -> Option<crate::canvas::Shading> {
         let mut c = crate::canvas::Canvas::default();
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);

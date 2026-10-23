@@ -99,7 +99,14 @@ pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     e.st.mode = Mode::default();
     e.st.pending = crate::scene::Transform::default();
     reset_path_settings(e);
+    // a `scope fading` of a path that drew nothing fades the next one
+    let carried = std::mem::take(&mut e.carried_fadings);
+    e.path_fadings.push(carried.into_iter().map(|(name, fit, t)| (name, e.canvas.items.len(), fit, t)).collect());
+    e.path_fading_settings.push((e.st.fading_transform, e.st.fit_fading));
     let r = statement_in_group(e, defaults, &outer);
+    let fadings = e.path_fadings.pop().unwrap_or_default();
+    let settings = e.path_fading_settings.pop().unwrap_or((crate::scene::Transform::default(), true));
+    e.close_path_fadings(fadings, settings);
     e.end_group();
     r
 }
@@ -220,6 +227,10 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     }
     let behind = std::mem::take(&mut e.behind_path);
     e.canvas.items.extend(behind);
+    // `current path bounding box`, and what a `scope fading` of the path is fitted to
+    let mut bounds = crate::canvas::Canvas::default();
+    bounds.include_path(&segs);
+    e.st.path_box = bounds.min.zip(bounds.max);
     e.finish_path(segs, outer, "path")?;
     for (segs, options, items) in std::mem::take(&mut b.edges) {
         edge_path(e, segs, options)?;
