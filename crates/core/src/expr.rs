@@ -517,6 +517,8 @@ impl Parser<'_> {
                     "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
                     "mod" => a % args.get(1).copied().unwrap_or(1.0),
                     "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
+                    // n! of the integer part, as pgfmath has it
+                    "factorial" => (1..=a.trunc().max(0.0) as u64).map(|k| k as f64).product(),
                     // pgfmath's hyperbolic and other functions
                     "sinh" => a.sinh(),
                     "cosh" => a.cosh(),
@@ -556,6 +558,14 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn factorial_of_the_integer_part() {
+        let v = Variables::new();
+        assert_eq!(eval("factorial(5)", &v).unwrap(), 120.0);
+        assert_eq!(eval("factorial(0)", &v).unwrap(), 1.0);
+        assert_eq!(eval("factorial(4.7)", &v).unwrap(), 24.0);
+    }
+
     use super::*;
 
     #[test]
