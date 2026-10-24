@@ -22,7 +22,7 @@ import { init, tikzToSvg, render, png } from "@mathlabs/tikra";
 
 await init();                                                    // browsers and bundlers; Node needs nothing
 const svg = tikzToSvg(String.raw`\tikz \draw[->] (0,0) -- (2,1) node[right] {$v$};`);
-const { warnings } = render(code);                               // what was ignored or approximated
+const { warnings, alt, description } = render(code);             // what was ignored, and the figure in words
 const bytes = png(svg, { dpi: 300 });                            // Uint8Array; { background: false } for transparent
 ```
 
@@ -33,7 +33,7 @@ import tikra
 
 svg = tikra.tikz_to_svg(r"\tikz \draw[->] (0,0) -- (2,1) node[right] {$v$};")
 open("v.png", "wb").write(tikra.png(svg, dpi=300))     # background=False for transparent
-tikra.render(code)["warnings"]                          # dict: svg, warnings
+tikra.render(code)["warnings"]                          # dict: svg, alt, description, warnings
 ```
 
 Types included; more in [`crates/python/README.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/crates/python/README.md).
@@ -45,6 +45,8 @@ $ tikra figure.tex -o figure.svg
 $ tikra figure.tex -o figure.png --dpi 300       # white background
 $ tikra figure.tex -o figure.png --transparent
 $ cat figure.tex | tikra --warnings              # SVG on stdout, warnings listed
+$ tikra figure.tex --describe                    # the figure in words: alt text and description
+$ tikra figure.tex -o figure.svg --locale pt-BR  # its words in Portuguese; the drawing is the same
 ```
 
 ### Rust
@@ -54,6 +56,7 @@ let out = tikra::convert(r"\begin{tikzpicture}\draw[->] (0,0) -- (2,1) node[righ
 std::fs::write("v.svg", &out.svg)?;
 std::fs::write("v.png", tikra::png(&out.svg, 300.0, true)?)?;
 for w in &out.warnings { eprintln!("{w}"); }
+println!("{}", out.description);                 // the figure in words; `out.alt` in one sentence
 ```
 
 The banner above is drawn by tikra itself from [`docs/banner.tex`](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/banner.tex).
@@ -97,6 +100,27 @@ TikZ and pgf as the manuals describe them, through a small TeX interpreter (macr
 The details, and what is left out, are in [`spec/subset.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md) and [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).
 
 Labels: node text is typeset by mathra in Latin Modern Math, with `$…$` and `\(…\)` for math, `\textbf`, `\textit`, `\texttt`, `\textcolor`, `\\` for line breaks and `\tiny`…`\Huge`. Math follows mathra's default locale (English).
+
+## The figure in words
+
+Each figure comes with a text that tells what it shows, for those who cannot see it: screen readers read it, and it can be the `alt` of an image. tikra writes it from what it drew: a chart's kind, title, axes and their ranges, and its data (each value, or the formula and where the curve is lowest and highest); a diagram's nodes and its connections, with their direction and labels; the text of the other figures. Math is read the way [mathra](https://github.com/matheusmota-dev-br/mathra) speaks it.
+
+The words come in mathra's 16 languages, English by default: `en`, `pt-BR`, `es`, `fr`, `de`, `it`, `ru`, `zh`, `ja`, `ko`, `hi`, `ar`, `id`, `tr`, `nl` and `pl`. The figure is drawn the same in all of them; only what is said about it changes, with the language's plurals, decimal comma and quotes, and its math spoken in that language. Each language is a JSON file in [`crates/core/src/locales/`](https://github.com/matheusmota-dev-br/tikra/tree/main/crates/core/src/locales), and a phrase a language lacks is English. English and pt-BR are reviewed; the other languages still need a native speaker's review.
+
+| | |
+|---|---|
+| `alt` | One sentence, the SVG's `<title>`: *Bar chart: Rain by city and decade*. |
+| `description` | The whole of it, the SVG's `<desc>`: *Bar chart titled “Rain by city and decade”. Horizontal axis, with the categories Lisbon, Oslo, Quito, Nairobi. Vertical axis “rainy days per year”, from 0 to 100. 3 series. “1990s”: 4 bars — Lisbon: 62, Oslo: 88, …* |
+
+`render(code, { locale: "pt-BR" })` returns both in JavaScript, `render(code, locale="pt-BR")` in Python, `convert_with(code, &Options::locale(Locale::PtBr))` in Rust (`Output::alt`, `Output::description`), and `tikra figure.tex --describe --locale pt-BR` prints them; `tikzToSvg` and `tikz_to_svg` take the locale too, for the SVG's words. Every SVG has ids of its own for them, so a page with many figures labels each by its own words.
+
+**The description is not perfect.** It tells what tikra can read in the drawing, not what the figure means: charts and diagrams come out well; a free drawing (a spiral, a Venn diagram, a timeline drawn by hand) gets little more than its text and how many shapes it has, and a figure can be told in a way its author did not intend. It is a starting point to review, not a finished text: read it before you publish, and when it falls short, write the figure's own with `alt`.
+
+The author knows best what a figure means. Their words, given as LaTeX's tagging gives them, with `alt` on the picture, are told instead, as written in whatever language they are (math spoken in the locale), and then there is no description of tikra's:
+
+```latex
+\begin{tikzpicture}[alt={The unit circle, with the angle $\theta$ and its sine and cosine}]
+```
 
 ## Warnings, not errors
 
