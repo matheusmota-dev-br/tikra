@@ -5,13 +5,13 @@ export function wrap(raw, isReady) {
     if (!isReady()) throw new Error("tikra: call `await init()` once before converting (only needed outside Node)");
   };
   return {
-    tikzToSvg(code) {
+    tikzToSvg(code, options) {
       check();
-      return raw.tikzToSvg(code);
+      return raw.tikzToSvg(code, options?.locale ?? null);
     },
-    render(code) {
+    render(code, options) {
       check();
-      return JSON.parse(raw.render(code));
+      return JSON.parse(raw.render(code, options?.locale ?? null));
     },
     png(svg, options) {
       check();

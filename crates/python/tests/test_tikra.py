@@ -30,6 +30,17 @@ def test_render_reports_warnings():
     assert r["warnings"]
 
 
+def test_render_describes_the_figure():
+    r = tikra.render(FIGURE)
+    assert r["alt"] == "Drawing of one shape with the text “x”"
+    assert r["description"] == "Text in the figure: x."
+    assert "<desc" in r["svg"]
+    assert tikra.render(FIGURE, locale="pt-BR")["description"] == "Texto na figura: x."
+    assert "Texte de la figure" in tikra.tikz_to_svg(FIGURE, locale="fr")
+    with pytest.raises(ValueError, match="unknown locale"):
+        tikra.render(FIGURE, locale="xx")
+
+
 def test_no_figure_is_value_error():
     with pytest.raises(ValueError, match="no tikzpicture"):
         tikra.tikz_to_svg("just text")

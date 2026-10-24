@@ -85,6 +85,20 @@ fn warnings_on_stderr_or_listed() {
 }
 
 #[test]
+fn the_figure_in_words() {
+    // --describe prints the alt text and the description, not the SVG
+    let o = tikra(&["--describe"], Some(FIGURE.as_bytes()));
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert_eq!(text(&o.stdout), "alt: Drawing of one shape with the text “x”\ndescription: Text in the figure: x.\n");
+    // in another language; the SVG is drawn the same
+    let o = tikra(&["--describe", "--locale", "pt-BR"], Some(FIGURE.as_bytes()));
+    assert_eq!(text(&o.stdout), "alt: Desenho de uma forma com o texto “x”\ndescription: Texto na figura: x.\n");
+    let o = tikra(&["-l", "klingon"], Some(FIGURE.as_bytes()));
+    assert_eq!(o.status.code(), Some(2));
+    assert!(text(&o.stderr).contains("unknown locale: klingon"));
+}
+
+#[test]
 fn input_errors() {
     let o = tikra(&["/path/that/does/not/exist.tex"], None);
     assert_eq!(o.status.code(), Some(1));

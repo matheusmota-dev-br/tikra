@@ -5,16 +5,24 @@ fn error(e: tikra::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// Converts a TikZ figure to SVG.
-#[pyfunction]
-fn tikz_to_svg(code: &str) -> PyResult<String> {
-    tikra::convert(code).map(|r| r.svg).map_err(error)
+/// The options from a language code (`pt-BR`, `fr`…).
+fn options(locale: &str) -> PyResult<tikra::Options> {
+    locale.parse().map(tikra::Options::locale).map_err(PyValueError::new_err)
 }
 
-/// The SVG and the warnings (what was ignored or approximated); `tikra.render` turns them into a dict.
+/// Converts a TikZ figure to SVG, with the figure in words in `locale`.
 #[pyfunction]
-fn render(code: &str) -> PyResult<(String, Vec<String>)> {
-    tikra::convert(code).map(|r| (r.svg, r.warnings)).map_err(error)
+#[pyo3(signature = (code, *, locale = "en"))]
+fn tikz_to_svg(code: &str, locale: &str) -> PyResult<String> {
+    tikra::convert_with(code, &options(locale)?).map(|r| r.svg).map_err(error)
+}
+
+/// The SVG, the figure in words (alt text and description) and the warnings (what was ignored or
+/// approximated); `tikra.render` turns them into a dict.
+#[pyfunction]
+#[pyo3(signature = (code, *, locale = "en"))]
+fn render(code: &str, locale: &str) -> PyResult<(String, String, String, Vec<String>)> {
+    tikra::convert_with(code, &options(locale)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
 }
 
 /// Rasterizes an SVG written by tikra to PNG bytes.
