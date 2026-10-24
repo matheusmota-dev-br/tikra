@@ -7,6 +7,16 @@ use std::path::PathBuf;
 
 /// Corpus figures shown in the README, by path in `corpus/` without `.tex`; the SVG takes the file's name.
 const EXAMPLES: &[&str] = &[
+    "plots-3d/lorenz-attractor",
+    "charts/nightingale-rose",
+    "plots-2d/normal-distribution",
+    "diagrams/petersen-graph",
+    "science/feynman-diagram",
+    "geometry/golden-spiral",
+    "nodes-and-text/periodic-table-corner",
+    "plots-3d/surface-3d",
+    // shown by the READMEs of the versions already published (PyPI, crates.io, npm), which load
+    // the images from main: they stay, and stay in sync
     "geometry/triangle-angles",
     "geometry/unit-circle",
     "plots-2d/pgfplots-legend",
@@ -52,4 +62,23 @@ fn committed_examples_match_the_code() {
 fn white_card_covers_the_view_box() {
     let svg = on_white(r#"<svg viewBox="-1 -2 3 4"><path d="M0 0"/></svg>"#);
     assert_eq!(svg, r##"<svg viewBox="-1 -2 3 4"><rect x="-1" y="-2" width="3" height="4" fill="#ffffff"/><path d="M0 0"/></svg>"##);
+}
+
+#[test]
+fn the_readmes_show_examples_that_exist() {
+    // the npm and PyPI pages show these images by their URL on GitHub: a renamed file breaks them
+    for readme in ["README.md", "npm/README.md", "crates/python/README.md"] {
+        let text = std::fs::read_to_string(root().join(readme)).unwrap();
+        for part in text.split("docs/examples/").skip(1) {
+            let file: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '.').collect();
+            let file = file.trim_end_matches('.');
+            assert!(root().join("docs/examples").join(file).exists(), "{readme} shows docs/examples/{file}, which does not exist");
+        }
+        for part in text.split("/corpus/").skip(1) {
+            let file: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | '.')).collect();
+            if file.ends_with(".tex") {
+                assert!(root().join("corpus").join(&file).exists(), "{readme} links corpus/{file}, which does not exist");
+            }
+        }
+    }
 }

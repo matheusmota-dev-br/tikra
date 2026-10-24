@@ -2,7 +2,7 @@
 
 # tikra
 
-tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. Math in labels is typeset by [mathra](https://github.com/matheusmota-dev-br/mathra). It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)**.
+tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. It reimplements TikZ, pgf and pgfplots in Rust, and labels are set by [mathra](https://github.com/matheusmota-dev-br/mathra) in Latin Modern, TeX's own Computer Modern. It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)** · **[See the gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html)**.
 
 ## Install and use
 
@@ -60,34 +60,53 @@ The banner above is drawn by tikra itself from [`docs/banner.tex`](https://githu
 
 ## Examples
 
-Each image is an SVG drawn by tikra from the figure in [`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) it links to, shown on a white card. `tests/examples.rs` keeps them in sync with the code.
+Each image is an SVG drawn by tikra from the figure in [`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) it links to, shown on a white card; `tests/examples.rs` keeps them in sync with the code. The [gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html) draws all 227 figures of the corpus, by topic, live in the browser.
 
 <table>
-<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/geometry/triangle-angles.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/triangle-angles.svg" alt="Triangle with an angle arc and a height" width="380"></a><br><sub>Triangle with an angle arc and a height</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/geometry/unit-circle.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/unit-circle.svg" alt="Unit circle with polar points" width="380"></a><br><sub>Unit circle with polar points</sub></td></tr>
-<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-2d/pgfplots-legend.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/pgfplots-legend.svg" alt="pgfplots: expressions, marks and a legend" width="380"></a><br><sub>pgfplots: expressions, marks and a legend</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/diagrams/flowchart.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/flowchart.svg" alt="Flowchart with positioning" width="380"></a><br><sub>Flowchart with positioning</sub></td></tr>
-<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/diagrams/graph-nodes.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/graph-nodes.svg" alt="Graph with a bent edge" width="380"></a><br><sub>Graph with a bent edge</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/science/spring-decorations.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/spring-decorations.svg" alt="zigzag, snake and random steps" width="380"></a><br><sub>zigzag, snake and random steps</sub></td></tr>
-<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/charts/bar-chart.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/bar-chart.svg" alt="Bar chart from a foreach" width="380"></a><br><sub>Bar chart from a foreach</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/nodes-and-text/standalone-document.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/standalone-document.svg" alt="standalone document, bend and labels" width="380"></a><br><sub>standalone document, bend and labels</sub></td></tr>
+<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-3d/lorenz-attractor.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/lorenz-attractor.svg" alt="The Lorenz attractor, colored by height" width="380"></a><br><sub>The Lorenz attractor, colored by height</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/charts/nightingale-rose.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/nightingale-rose.svg" alt="Nightingale's rose of the causes of mortality" width="380"></a><br><sub>Nightingale's rose of the causes of mortality</sub></td></tr>
+<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-2d/normal-distribution.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/normal-distribution.svg" alt="The bell curve and the 68–95–99.7 rule" width="380"></a><br><sub>The bell curve and the 68–95–99.7 rule</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/diagrams/petersen-graph.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/petersen-graph.svg" alt="The Petersen graph" width="380"></a><br><sub>The Petersen graph</sub></td></tr>
+<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/science/feynman-diagram.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/feynman-diagram.svg" alt="A Feynman diagram, with decorations" width="380"></a><br><sub>A Feynman diagram, with decorations</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/geometry/golden-spiral.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/golden-spiral.svg" alt="The golden spiral" width="380"></a><br><sub>The golden spiral</sub></td></tr>
+<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/nodes-and-text/periodic-table-corner.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/periodic-table-corner.svg" alt="The periodic table, by family" width="380"></a><br><sub>The periodic table, by family</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-3d/surface-3d.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/surface-3d.svg" alt="A pgfplots surface and its colorbar" width="380"></a><br><sub>A pgfplots surface and its colorbar</sub></td></tr>
 </table>
+
+## How close to TikZ
+
+Every example of the TikZ manual and of the pgfplots manual is drawn by pdflatex and by tikra, and the two are compared figure by figure ([docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md), [how](https://github.com/matheusmota-dev-br/tikra/blob/main/tools/conformance/README.md)):
+
+| | Figures | Drawn as TeX draws them |
+|---|---:|---:|
+| Every figure of the manuals | 2502 | 2330 (93.1%) |
+| Our 100%: the ones a converter can reproduce | 2486 | 2371 (95.4%) |
+
+"Our 100%" leaves out what no converter can reproduce (random numbers without a seed, image files, gnuplot, the day's date) and counts the figures that differ only by antialiasing as drawn; the list is checked by eye ([unreproducible.json](https://github.com/matheusmota-dev-br/tikra/blob/main/tools/conformance/unreproducible.json)). tikra converts a figure in about half a millisecond, against about 0.7 s for pdflatex.
 
 ## Input
 
-A full `standalone` document, a bare `tikzpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset` and `\usetikzlibrary`; the rest is ignored.
+A full `standalone` document, a bare `tikzpicture` or `pgfpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset`, `\pgfplotsset`, `\newcommand` and `\def`; `\usetikzlibrary` lines are accepted, and every library is available.
 
 ## What it draws
 
-See [`spec/subset.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md). In short: `\draw`, `\fill`, `\filldraw`, `\path`, `\node`, `\coordinate`, `\clip`, `\foreach` (several variables, `...`, `count`), `scope` with `rotate`/`shift`/`scale`/`x=`/`y=`, `\def`, `\pgfmathsetmacro`, `declare function`, `\tikzset` and styles, `\definecolor`, xcolor mixes, positioning (`below=of A`, `right=2cm of B`, `below left=1cm and 2cm of C`), `calc` (`$(A)!0.5!(B)$`), `--`, `|-`, `-|`, `to[out=,in=]`, `bend left/right`, `.. controls ..`, `rectangle`, `circle`, `ellipse`, `arc`, `grid`, `plot` (functions and coordinates, `smooth`), polar coordinates, nodes (`rectangle`, `circle`, `ellipse`, `diamond`) with `text width`, `align`, `minimum size`, `rounded corners`, anchors, `label`, nodes in the middle of a segment, arrow tips (`->`, `->>`, `-Latex`, `-Stealth`, `|`, `o`), dashes, line widths, opacity, hatching (`pattern=…`), the `zigzag`, `snake` and `random steps` decorations, and pgfplots basics (`axis`, `\addplot` of an expression or of coordinates, `only marks`, legend, axis labels, title).
+TikZ and pgf as the manuals describe them, through a small TeX interpreter (macros, `\def`, `\newcommand`, conditionals, registers, `\foreach`, pgfmath and `\tikzmath`):
 
-Labels: node text is typeset by mathra, with `$…$` and `\(…\)` for math, `\textbf`, `\\` for line breaks and `\small`…`\Huge`. Labels on a path inherit the path's color. Math follows mathra's default locale (English).
+- **Paths and coordinates**: every path operation (`--`, `|-`, `to`, `.. controls ..`, `arc`, `circle`, `rectangle`, `grid`, `plot`, `svg`, `let`), `calc`, positioning, polar and 3D coordinates, intersections, `through`, transformations and `transform canvas`, nonlinear transformations, `spy`.
+- **Nodes and shapes**: every shape library (geometric, symbols, arrows, multipart, callouts, misc), labels and pins, `quotes`, matrices and `matrix of nodes`, `fit`, pics and `\pgfdeclareshape`; text with `text width`, alignment, line breaking with hyphenation, `itemize`, simple `tabular`, font sizes and families.
+- **Diagrams**: chains, trees, the `graphs` library, mind maps, automata, Petri nets, ER diagrams, circuits (`circuits.ee.IEC`, logic gates), calendars, folding, turtle and Lindenmayer systems.
+- **Painting**: arrow tips (`arrows.meta`, `bending`), dashes, opacity, transparency groups and blend modes, shadings (axial, radial, ball, declared and functional), fadings, patterns (classic, `patterns.meta`, declared), shadows, backgrounds and layers, every decoration (`pathmorphing`, `pathreplacing`, `markings`, `shapes`, `text`, `fractals`, `footprints`).
+- **pgfplots**: 2D and 3D axes, `\addplot` of expressions, coordinates and tables, marks, legends, colorbars and colormaps, bar charts and histograms, error bars, `fill between`, surfaces, meshes, patches and contours, polar, ternary, Smith charts, `dateplot`, group plots and statistics; and the `datavisualization` library.
+
+The details, and what is left out, are in [`spec/subset.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md) and [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).
+
+Labels: node text is typeset by mathra in Latin Modern Math, with `$…$` and `\(…\)` for math, `\textbf`, `\textit`, `\texttt`, `\textcolor`, `\\` for line breaks and `\tiny`…`\Huge`. Math follows mathra's default locale (English).
 
 ## Warnings, not errors
 
-What tikra does not understand becomes a **warning**, and the figure is drawn with the rest: `\matrix`, `\pic`, unknown commands and environments, TikZ escaped twice or for Markdown (undone), labels with broken LaTeX (recovered by mathra's tolerant mode). `--warnings` lists them; `Output::warnings` has them in the library. Options are not checked yet: an option tikra does not know (`ybar`, `xtick`, `fit`, `drop shadow`) is ignored without a warning. How often that changes the drawing is measured in [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).
+What tikra does not understand becomes a **warning**, and the figure is drawn with the rest: unknown commands, environments and options, TikZ escaped twice or for Markdown (undone), labels with broken LaTeX (recovered by mathra's tolerant mode). `--warnings` lists them; `Output::warnings` has them in the library.
 
 Limits protect against hostile input: 100,000 statements per figure, 64 levels of nesting, 2,000 samples per plot, coordinates within ±100,000 cm, PNG up to 100 megapixels. Past a limit you get a clear error or a warning, never a hang.
 
 ## Benchmark
 
-[`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) holds hand-made figures, one folder per topic, that cover the features above. Reproduce with:
+[`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) holds 227 hand-made figures, one folder per topic, that cover the features above. Reproduce with:
 
 ```console
 $ cargo run --release -p tikra --example bench
@@ -97,12 +116,14 @@ One run on an Apple M5 (arm64), 15 runs per figure, median per figure:
 
 | Figures | Without warnings | With warnings | Errors |
 |---:|---:|---:|---:|
-| 25 | 25 | 0 | 0 |
+| 227 | 227 | 0 | 0 |
 
 | Per figure | Mean | p95 |
 |---|---:|---:|
-| SVG | 0.12 ms | 0.26 ms |
-| SVG + PNG at 300 dpi | 2.13 ms | 5.88 ms |
+| SVG | 1.68 ms | 5.76 ms |
+| SVG + PNG at 300 dpi | 6.58 ms | 17.10 ms |
+
+The corpus now holds large figures too (3D surfaces of a thousand cells, fractals, the Lorenz attractor): most figures take well under a millisecond.
 
 `tests/corpus.rs` checks on every `cargo test` that all corpus figures convert without warnings.
 
