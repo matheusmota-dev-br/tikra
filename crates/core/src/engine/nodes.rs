@@ -311,6 +311,16 @@ impl Engine {
         }
     }
 
+    /// `\tikzlastnode` is also known as `alias` (an unnamed node that edges need to name): the
+    /// description finds it by either.
+    pub fn alias_last_node(&mut self, alias: &str) {
+        let last = self.tex.expand_to_string(vec![Token::cs("tikzlastnode")]).unwrap_or_default();
+        let last = last.trim();
+        if let Some(f) = self.facts.nodes.iter_mut().rev().find(|f| f.key == last) {
+            f.key = alias.to_string();
+        }
+    }
+
     /// Creates a node: returns what it draws (drawn after its path) and registers its name.
     pub fn node(&mut self, spec: NodeSpec) -> Result<Vec<Item>, Error> {
         // `\pgfmathprintnumber{…}` in a node's text is printed as pgf prints numbers
@@ -725,23 +735,29 @@ impl Engine {
             self.later_node = Some((items, info, name.map(|n| format!("{}{n}", self.st.name_prefix))));
             return Ok((Vec::new(), None));
         }
-        if let Some(n) = &name {
+        let key = if let Some(n) = &name {
             // inside a pic, names get its prefix
             let n = format!("{}{n}", self.st.name_prefix);
             self.tex.define_string("tikzlastnode", &n, true);
             self.join_sets(&n);
-            self.nodes.insert(n, info.clone());
+            self.nodes.insert(n.clone(), info.clone());
+            n
         } else {
             // an unnamed node is `\tikzlastnode` by an internal name, as TikZ's `tikz@f@…`
             let n = format!("tikz@f@{}", self.nodes.len());
             self.tex.define_string("tikzlastnode", &n, true);
-            self.nodes.insert(n, info.clone());
-        }
+            self.nodes.insert(n.clone(), info.clone());
+            n
+        };
         for n in chain_names.into_iter().chain(std::mem::take(&mut self.st.aliases)) {
             self.nodes.insert(n, info.clone());
         }
         // the last node, for trees (labels below do not count)
         let registered = name.as_ref().map(|n| format!("{}{n}", self.st.name_prefix));
+        if self.facts.mute == 0 && shape != "coordinate" {
+            let all: Vec<&str> = texts.iter().map(|(_, t)| t.as_str()).filter(|t| !t.trim().is_empty()).collect();
+            self.facts.nodes.push(crate::describe::NodeFact { key, named: registered.is_some(), text: all.join(" "), at: info.center(), on_link: false });
+        }
         if let Some(slot @ None) = self.tree_child_names.last_mut() {
             *slot = Some(registered.clone().unwrap_or_default());
         }

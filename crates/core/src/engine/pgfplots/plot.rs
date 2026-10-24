@@ -97,6 +97,8 @@ pub struct Plot {
     pub coord_styles: Vec<Vec<Token>>,
     /// `visualization depends on={expr \as \macro}`: the macros' values at single coordinates.
     pub deps: Vec<Vec<(String, String)>>,
+    /// The formula it was sampled from (`\addplot {x^2}`), for the figure's description.
+    pub expression: String,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -369,6 +371,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
         }
         Token::Char(_, Cat::Begin) => {
             let body = e.tex.read_group_body()?;
+            plot.expression = tex::tokens_to_string(&body);
             let mut parts = vec![super::toks("x"), body];
             if three_d {
                 parts = vec![super::toks("x"), super::toks("y"), parts.pop().unwrap_or_default()];
@@ -399,6 +402,7 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
                         Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
                         _ => return Err(Error::Figure("expression without a formula".into())),
                     };
+                    plot.expression = tex::tokens_to_string(&body);
                     let parts = if three_d { vec![super::toks("x"), super::toks("y"), body] } else { vec![super::toks("x"), body] };
                     plot.coords = sample(e, &parts, plot)?;
                 }

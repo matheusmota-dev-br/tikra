@@ -123,7 +123,11 @@ fn comments_are_removed_but_escaped_percent_stays() {
 #[test]
 fn svg_has_title_and_escaped_source() {
     let r = no_warnings(r#"\begin{tikzpicture} \draw (0,0) -- (1,0) node[right] {"a" & <b>}; \end{tikzpicture}"#);
-    assert!(r.svg.contains("<title id=\"tr-title\">Figure</title>"));
+    // the ids of the words end in the figure's own suffix
+    let svg = r.svg.replace(&r.svg[r.svg.find("tr-title-").unwrap() + 8..r.svg.find("tr-title-").unwrap() + 17], "");
+    assert!(svg.contains(r#"aria-labelledby="tr-title" aria-describedby="tr-desc""#));
+    assert!(svg.contains("<title id=\"tr-title\">Drawing of one shape with the text “&quot;a&quot; &amp; &lt;b&gt;”</title>"));
+    assert!(svg.contains("<desc id=\"tr-desc\">Text in the figure: &quot;a&quot; &amp; &lt;b&gt;.</desc>"));
     assert!(r.svg.contains("<tikra:source type=\"tikz\">"));
     assert!(r.svg.contains("&quot;a&quot; &amp; &lt;b&gt;"));
 }

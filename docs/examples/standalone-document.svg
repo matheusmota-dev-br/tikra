@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-4.981 -53.279 115.094 58.26" width="115.094pt" height="58.26pt" role="img" aria-labelledby="tr-title"><rect x="-4.981" y="-53.279" width="115.094" height="58.26" fill="#ffffff"/><title id="tr-title">Figure</title><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-4.981 -53.279 115.094 58.26" width="115.094pt" height="58.26pt" role="img" aria-labelledby="tr-title-dd8a6d27" aria-describedby="tr-desc-dd8a6d27"><rect x="-4.981" y="-53.279" width="115.094" height="58.26" fill="#ffffff"/><title id="tr-title-dd8a6d27">Diagram with 2 nodes and 2 connections</title><desc id="tr-desc-dd8a6d27">Diagram with 2 nodes and 2 connections. Nodes: S; T. Connections: from S to T, labeled “lambda”; from T to S, labeled “mu”.</desc><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
 \documentclass[tikz, border=5pt]{standalone}
 \usetikzlibrary{arrows.meta, positioning}
 \begin{document}

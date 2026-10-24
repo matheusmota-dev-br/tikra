@@ -2139,6 +2139,16 @@ keyfn!(k_baseline, |e, v| {
     Ok(())
 });
 
+// `alt={…}`, as LaTeX's tagging gives a picture its alternative text: the author's words, told
+// instead of the description tikra writes
+keyfn!(k_alt, |e, v| {
+    let t = text(e, &v)?;
+    if e.facts.author_alt.trim().is_empty() {
+        e.facts.author_alt = t;
+    }
+    Ok(())
+});
+
 /// Keys done natively: the path and its function.
 const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/.unknown", k_tikz_unknown),
@@ -2315,6 +2325,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/overlay", k_overlay),
     ("/tikz/inner frame sep", k_ignore),
     ("/tikz/baseline", k_baseline),
+    ("/tikz/alt", k_alt),
     ("/tikz/auto", k_auto),
     ("/tikz/path fading", k_path_fading),
     ("/tikz/fit fading", k_fit_fading),

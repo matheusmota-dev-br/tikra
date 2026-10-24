@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-1.993 -184.605 299.984 186.598" width="299.984pt" height="186.598pt" role="img" aria-labelledby="tr-title"><rect x="-1.993" y="-184.605" width="299.984" height="186.598" fill="#ffffff"/><title id="tr-title">Figure</title><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-1.993 -184.605 299.984 186.598" width="299.984pt" height="186.598pt" role="img" aria-labelledby="tr-title-bba255b3" aria-describedby="tr-desc-bba255b3"><rect x="-1.993" y="-184.605" width="299.984" height="186.598" fill="#ffffff"/><title id="tr-title-bba255b3">Drawing of 8 shapes with the text “1”, “1”, “2”, …</title><desc id="tr-desc-bba255b3">Text in the figure: 1; 1; 2; 3; 5; 8.</desc><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
 \begin{tikzpicture}[x=0.8cm, y=0.8cm, line join=round]
   \foreach \a/\b/\s/\c in {0/0/1/red, -1/0/1/orange, -1/-2/2/yellow, 1/-2/3/green,
                            -1/1/5/teal, -9/-2/8/blue} {

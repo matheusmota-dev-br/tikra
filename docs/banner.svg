@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="0 -113.386 453.543 113.386" width="453.543pt" height="113.386pt" role="img" aria-labelledby="tr-title"><title id="tr-title">Figure</title><metadata><tikra:source type="tikz">% README banner, drawn by tikra itself: `tikra docs/banner.tex -o docs/banner.svg`.
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="0 -113.386 453.543 113.386" width="453.543pt" height="113.386pt" role="img" aria-labelledby="tr-title-bfafc27b" aria-describedby="tr-desc-bfafc27b"><title id="tr-title-bfafc27b">Drawing of 14 shapes with the text “tikra”, “TikZ to SVG and PNG, no TeX install”, “x”, …</title><desc id="tr-desc-bfafc27b">Text in the figure: tikra; TikZ to SVG and PNG, no TeX install; x; y; sine of fraction, pi x, over 2, end fraction; cosine of fraction, pi x, over 2, end fraction.</desc><metadata><tikra:source type="tikz">% README banner, drawn by tikra itself: `tikra docs/banner.tex -o docs/banner.svg`.
 % The same version always writes the same bytes (crates/core/tests/banner.rs checks the committed file).
 \documentclass[tikz,border=0pt]{standalone}
 \begin{document}

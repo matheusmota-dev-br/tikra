@@ -26,17 +26,22 @@ impl Cell {
     }
 }
 
+/// The legend's entries: `\addlegendentry`, `\legend` or `legend entries`.
+pub fn entries(e: &Engine, axis: &Axis) -> Vec<LegendEntry> {
+    if axis.legend.is_empty() {
+        if let Some(list) = keys::value_tokens(e, "/pgfplots/legend entries") {
+            return split(&list);
+        }
+    }
+    axis.legend.clone()
+}
+
 pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
     // `legend to name`: kept for a `\ref` (that a single run of LaTeX leaves as ??), not drawn
     if !keys::value(e, "/pgfplots/legend to name").is_empty() {
         return Ok(());
     }
-    let mut entries: Vec<LegendEntry> = axis.legend.clone();
-    if entries.is_empty() {
-        if let Some(list) = keys::value_tokens(&*e, "/pgfplots/legend entries") {
-            entries = split(&list);
-        }
-    }
+    let mut entries = entries(e, axis);
     if entries.is_empty() {
         return Ok(());
     }
