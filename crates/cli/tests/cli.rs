@@ -14,7 +14,10 @@ fn tikra(args: &[&str], stdin: Option<&[u8]>) -> Output {
     {
         let mut input = child.stdin.take().unwrap();
         if let Some(b) = stdin {
-            input.write_all(b).unwrap();
+            // a binary that stops before reading (an unknown option) closes its input: not an error
+            if let Err(e) = input.write_all(b) {
+                assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "{e}");
+            }
         }
     }
     child.wait_with_output().unwrap()
