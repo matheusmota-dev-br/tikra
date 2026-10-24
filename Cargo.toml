@@ -5,7 +5,7 @@ members = ["crates/core", "crates/cli", "crates/python", "crates/wasm"]
 default-members = ["crates/core", "crates/cli"]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/matheusmota-dev-br/tikra"
@@ -13,6 +13,6 @@ homepage = "https://github.com/matheusmota-dev-br/tikra"
 
 [workspace.dependencies]
 # the core's published name lives only here and in crates/core/Cargo.toml
-tikra = { path = "crates/core", version = "1.1.0" }
+tikra = { path = "crates/core", version = "1.1.1" }
 # math labels are typeset by mathra; to work against a local checkout, see "Development" in the README
 mathra = { version = "1.2.0", features = ["latin-modern"] }
