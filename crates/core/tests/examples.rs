@@ -15,6 +15,16 @@ const EXAMPLES: &[&str] = &[
     "geometry/golden-spiral",
     "nodes-and-text/periodic-table-corner",
     "plots-3d/surface-3d",
+    // shown by the READMEs of the versions already published (PyPI, crates.io, npm), which load
+    // the images from main: they stay, and stay in sync
+    "geometry/triangle-angles",
+    "geometry/unit-circle",
+    "plots-2d/pgfplots-legend",
+    "diagrams/flowchart",
+    "diagrams/graph-nodes",
+    "science/spring-decorations",
+    "charts/bar-chart",
+    "nodes-and-text/standalone-document",
 ];
 
 fn root() -> PathBuf {
