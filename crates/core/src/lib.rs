@@ -7,6 +7,7 @@
 
 pub mod canvas;
 pub mod color;
+pub mod describe;
 pub mod driver;
 pub mod engine;
 pub mod expr;
@@ -41,15 +42,46 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// The language the figure is told in (its `alt` and `description`): mathra's 16 languages. The
+/// drawing is the same in all of them.
+pub use mathra::locale::Locale;
+
+/// How to convert.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Options {
+    /// The language of the figure in words. English by default.
+    pub locale: Locale,
+}
+
+impl Options {
+    pub fn locale(locale: Locale) -> Options {
+        Options { locale }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Output {
     pub svg: String,
+    /// The figure in a sentence, for readers who cannot see it: the SVG's `<title>`, an image's `alt`.
+    pub alt: String,
+    /// The figure in words: what it shows (axes, data, nodes and their connections), the SVG's `<desc>`.
+    ///
+    /// Written by tikra from what it drew, it is not perfect: it says what is in the drawing, not
+    /// what the figure means, and says little about free drawings. Review it; the author's own text
+    /// (`alt={…}` on the picture) is told instead when there is one.
+    pub description: String,
     /// What was ignored or approximated (unsupported commands, labels with mathra warnings).
     pub warnings: Vec<String>,
 }
 
 /// Accepts a full `standalone` document, a bare `tikzpicture`, an inline `\tikz` or an `axis`.
 pub fn convert(code: &str) -> Result<Output, Error> {
+    convert_with(code, &Options::default())
+}
+
+/// [`convert`], with the figure in words in `options.locale`.
+pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
     let mut early = Vec::new();
     // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
     let repaired = mathra::input::latex::undo_doubled_backslashes(code);
@@ -70,11 +102,12 @@ pub fn convert(code: &str) -> Result<Output, Error> {
     } else {
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
-    let (canvas, warnings) = engine::run_document(&input)?;
-    let svg = driver::svg(&canvas, code, "Figure");
+    let (canvas, warnings, facts) = engine::run_document_noting(&input)?;
+    let words = describe::describe(&facts, options.locale);
+    let svg = driver::svg(&canvas, code, &words);
     let mut all = early;
     all.extend(warnings);
-    Ok(Output { svg, warnings: all })
+    Ok(Output { svg, alt: words.alt, description: words.text, warnings: all })
 }
 
 /// TikZ that went through a Markdown generator: code fences, `\\draw` and `\[red\]`.

@@ -25,12 +25,13 @@ open("v.png", "wb").write(tikra.png(svg, dpi=300))
 
 r = tikra.render(r"\tikz \draw (0,0) circle (1);")
 r["warnings"]      # [] — what tikra skips or approximates is listed here, and the rest is drawn
+r["alt"]           # 'Drawing of one shape, without text' — the figure in words, for those who cannot see it
 ```
 
 | | |
 |---|---|
-| `tikz_to_svg(code)` | The SVG as a string. |
-| `render(code)` | A dict: `svg` and `warnings` (a list of strings). |
+| `tikz_to_svg(code, *, locale="en")` | The SVG as a string. `locale` (`en`, `pt-BR`, `es`, `fr`, `de`, `it`, `ru`, `zh`, `ja`, `ko`, `hi`, `ar`, `id`, `tr`, `nl`, `pl`) is the language of the figure in words; the drawing is the same in all. |
+| `render(code, *, locale="en")` | A dict, the words in `locale`: `svg`; `alt`, the figure in one sentence (the SVG's `<title>`, for an image's alt text); `description`, the figure in words (the SVG's `<desc>`: a chart's axes and data, a diagram's nodes and connections); and `warnings` (a list of strings). When the picture has its author's text (`\begin{tikzpicture}[alt={…}]`), `alt` and `description` are that text. The words tikra writes are not perfect (they say what is in the drawing, not what it means, and little about free drawings): review them before publishing. |
 | `png(svg, *, dpi=300, background=True)` | PNG bytes; `background=False` keeps it transparent instead of white. |
 
 `code` is a full `standalone` document, a bare `tikzpicture`, an inline `\tikz`, an `axis` environment or loose TikZ statements. Errors (no figure in the input, an invalid dpi, a PNG past 100 megapixels) are `ValueError`. Types are included (`py.typed`).

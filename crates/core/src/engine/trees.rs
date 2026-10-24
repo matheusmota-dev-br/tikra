@@ -29,6 +29,7 @@ impl Engine {
             None => {
                 self.tree_count += 1;
                 let n = format!("tikra@tree@{}", self.tree_count);
+                self.alias_last_node(&n);
                 self.nodes.insert(n.clone(), info);
                 n
             }

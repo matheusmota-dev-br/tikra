@@ -276,7 +276,8 @@ fn expanded_legend_entries() {
     let drawing = |legend: &str| {
         let r = convert_with_deadline(&figure(&format!(r"\begin{{axis}}\addplot {{x^2}}; {legend}{{$x^2$}}\end{{axis}}"))).unwrap();
         assert!(r.warnings.is_empty(), "{:?}", r.warnings);
-        let (head, tail) = (r.svg.find("<metadata>").unwrap(), r.svg.find("</metadata>").unwrap());
+        // the drawing: not the words' ids (they come from the source) nor the source
+        let (head, tail) = (r.svg.find(" aria-labelledby").unwrap(), r.svg.find("</metadata>").unwrap());
         format!("{}{}", &r.svg[..head], &r.svg[tail..])
     };
     assert_eq!(drawing(r"\addlegendentryexpanded"), drawing(r"\addlegendentry"));

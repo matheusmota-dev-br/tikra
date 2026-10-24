@@ -479,6 +479,8 @@ pub struct Engine {
     pub graphs: graphs::State,
     /// the open spy scopes, innermost last
     pub spy_scopes: Vec<spy::SpyScope>,
+    /// what the figure shows, noted as it is drawn, for its description in words
+    pub facts: crate::describe::Facts,
 }
 
 /// A finished picture: its canvas and the height of its baseline in it (cm).
@@ -597,6 +599,7 @@ impl Clone for Engine {
             plot_group: self.plot_group.clone(),
             graphs: self.graphs.clone(),
             spy_scopes: self.spy_scopes.clone(),
+            facts: self.facts.clone(),
         }
     }
 }
@@ -683,6 +686,7 @@ impl Engine {
             plot_group: None,
             graphs: graphs::State::default(),
             spy_scopes: Vec::new(),
+            facts: Default::default(),
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
@@ -2878,6 +2882,11 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
 
 /// Runs a whole document (or figure) and returns the canvas and the warnings.
 pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
+    run_document_noting(code).map(|(canvas, warnings, _)| (canvas, warnings))
+}
+
+/// [`run_document`], and what the figure shows, for its description in words.
+pub fn run_document_noting(code: &str) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
     let mut e = Engine::new();
     crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
@@ -2896,5 +2905,5 @@ pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
     let _ = Transform::default();
-    Ok((e.canvas, warnings))
+    Ok((e.canvas, warnings, std::mem::take(&mut e.facts)))
 }

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-1.993 -131.337 202.78 133.329" width="202.78pt" height="133.329pt" role="img" aria-labelledby="tr-title"><rect x="-1.993" y="-131.337" width="202.78" height="133.329" fill="#ffffff"/><title id="tr-title">Figure</title><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-1.993 -131.337 202.78 133.329" width="202.78pt" height="133.329pt" role="img" aria-labelledby="tr-title-ba63c1ff" aria-describedby="tr-desc-ba63c1ff"><rect x="-1.993" y="-131.337" width="202.78" height="133.329" fill="#ffffff"/><title id="tr-title-ba63c1ff">Drawing of 3 shapes with the text “alpha”, “A”, “B”, …</title><desc id="tr-desc-ba63c1ff">Text in the figure: alpha; A; B; C; H.</desc><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
 \begin{tikzpicture}[scale=1.2]
   \coordinate (A) at (0,0);
   \coordinate (B) at (5,0);

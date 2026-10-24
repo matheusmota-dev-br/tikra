@@ -14,7 +14,10 @@ fn tikra(args: &[&str], stdin: Option<&[u8]>) -> Output {
     {
         let mut input = child.stdin.take().unwrap();
         if let Some(b) = stdin {
-            input.write_all(b).unwrap();
+            // a binary that stops before reading (an unknown option) closes its input: not an error
+            if let Err(e) = input.write_all(b) {
+                assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "{e}");
+            }
         }
     }
     child.wait_with_output().unwrap()
@@ -82,6 +85,20 @@ fn warnings_on_stderr_or_listed() {
     assert!(o.status.success());
     assert!(text(&o.stdout).starts_with("warning: "));
     assert!(!text(&o.stdout).contains("<svg"));
+}
+
+#[test]
+fn the_figure_in_words() {
+    // --describe prints the alt text and the description, not the SVG
+    let o = tikra(&["--describe"], Some(FIGURE.as_bytes()));
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert_eq!(text(&o.stdout), "alt: Drawing of one shape with the text “x”\ndescription: Text in the figure: x.\n");
+    // in another language; the SVG is drawn the same
+    let o = tikra(&["--describe", "--locale", "pt-BR"], Some(FIGURE.as_bytes()));
+    assert_eq!(text(&o.stdout), "alt: Desenho de uma forma com o texto “x”\ndescription: Texto na figura: x.\n");
+    let o = tikra(&["-l", "klingon"], Some(FIGURE.as_bytes()));
+    assert_eq!(o.status.code(), Some(2));
+    assert!(text(&o.stderr).contains("unknown locale: klingon"));
 }
 
 #[test]

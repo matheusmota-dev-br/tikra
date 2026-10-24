@@ -30,7 +30,7 @@ import { writeFileSync } from "node:fs";
 const svg = tikzToSvg(String.raw`\begin{tikzpicture}\draw[->] (0,0) -- (2,1) node[right] {$\vec v$};\end{tikzpicture}`);
 writeFileSync("v.svg", svg);
 writeFileSync("v.png", png(svg, { dpi: 300 }));
-const { warnings } = render(String.raw`\tikz \draw (0,0) circle (1);`);   // []
+const { warnings, alt } = render(String.raw`\tikz \draw (0,0) circle (1);`);   // [], "Drawing of one shape, without text"
 ```
 
 ## Browsers and bundlers (Vite, webpack, esbuild)
@@ -59,8 +59,8 @@ Without a bundler, from a CDN:
 | | |
 |---|---|
 | `init(input?)` | Loads the wasm. Needed once in browsers and bundlers; does nothing in Node. `input` overrides where the wasm comes from (a URL, a `Response`, bytes or a `WebAssembly.Module`). |
-| `tikzToSvg(code)` | The SVG as a string. |
-| `render(code)` | `{ svg, warnings }`: `warnings` lists, as strings, what was ignored or approximated. |
+| `tikzToSvg(code, options?)` | The SVG as a string. `options.locale` (`"en"` by default, or `"pt-BR"`, `"es"`, `"fr"`, `"de"`, `"it"`, `"ru"`, `"zh"`, `"ja"`, `"ko"`, `"hi"`, `"ar"`, `"id"`, `"tr"`, `"nl"`, `"pl"`) is the language of the figure in words; the drawing is the same in all. |
+| `render(code, options?)` | `{ svg, alt, description, warnings }`, the words in `options.locale`: `alt` is the figure in one sentence (the SVG's `<title>`, for an image's `alt`), `description` the figure in words (the SVG's `<desc>`: a chart's axes and data, a diagram's nodes and connections), and `warnings` lists, as strings, what was ignored or approximated. When the picture has its author's text (`\begin{tikzpicture}[alt={…}]`), `alt` and `description` are that text. The words tikra writes are not perfect (they say what is in the drawing, not what it means, and little about free drawings): review them before publishing. |
 | `png(svg, options?)` | PNG bytes as a `Uint8Array`. Options: `dpi` (300 by default) and `background` (`true`, white, by default; `false` for transparent). |
 | `version()` | The version of tikra's core inside the package (the npm package has its own version). |
 

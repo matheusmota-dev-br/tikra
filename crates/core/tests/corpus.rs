@@ -25,8 +25,9 @@ fn every_corpus_figure_converts_without_warnings() {
         let tex = std::fs::read_to_string(&f).unwrap();
         let out = tikra::convert(&tex).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
         assert!(out.warnings.is_empty(), "{}: {:?}", f.display(), out.warnings);
-        // the drawing, not its metadata (which holds the source: `info=` has an "inf")
-        let drawing = match (out.svg.find("<metadata>"), out.svg.find("</metadata>")) {
+        // the drawing, not its words (the description says "rainfall") nor its metadata (which
+        // holds the source: `info=` has an "inf")
+        let drawing = match (out.svg.find("<title"), out.svg.find("</metadata>")) {
             (Some(a), Some(b)) => format!("{}{}", &out.svg[..a], &out.svg[b..]),
             _ => out.svg.clone(),
         };

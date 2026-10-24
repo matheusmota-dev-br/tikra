@@ -559,6 +559,9 @@ impl Engine {
         // the data visualization's own bounding box starts empty
         dv.outer_box = (self.canvas.min.take(), self.canvas.max.take());
         self.datavis.push(dv);
+        if self.facts.mute == 0 {
+            self.facts.data_visualizations += 1;
+        }
         let r = self.datavisualization_body();
         let dv = self.datavis.pop();
         if let Some(dv) = dv {

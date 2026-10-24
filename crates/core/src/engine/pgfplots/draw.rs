@@ -448,7 +448,13 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
     e.frame = Some(frame.clone());
     // the canvas items and bounding box of the axis alone, then moved by `at` and `anchor`
     let nodes_before: std::collections::HashSet<String> = e.nodes.keys().cloned().collect();
+    if e.facts.mute == 0 && super::colorbar::parent().is_none() {
+        note_axis(e, axis, &frame);
+    }
+    // its ticks, labels and legend are not the figure's text
+    e.facts.mute += 1;
     let r = e.capture(|e| draw_all(e, axis, &setup));
+    e.facts.mute -= 1;
     let ((), items, bbox) = match r {
         Ok(v) => v,
         Err(err) => {
@@ -508,6 +514,85 @@ pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::
         register_axis_node(e, &n, lo, hi, blo, bhi, &shifted);
     }
     Ok(colorbar)
+}
+
+/// The axis for the figure's description: its kind, title, labels, ranges and plots.
+fn note_axis(e: &mut Engine, axis: &Axis, f: &Frame) {
+    use crate::describe::{AxisFact, Series};
+    let mut names = super::legend::entries(e, axis).into_iter().map(|l| tex::tokens_to_string(&l.text));
+    let mut series = Vec::new();
+    let mut colored = false;
+    let marks_only = tex::tokens_to_string(&axis.options).contains("only marks");
+    for en in &axis.entries {
+        let Entry::Plot(p) = en else { continue };
+        let name = if p.forget { String::new() } else { names.next().unwrap_or_default() };
+        colored |= p.mesh.is_some() || p.patch || p.scatter || p.handler.starts_with("contour");
+        let points = p.coords.iter().map(|c| [c.x, c.y, c.z]).collect();
+        let boxplot = p.boxplot.as_ref().map(|b| [b.lower_whisker, b.lower_quartile, b.median, b.upper_quartile, b.upper_whisker]);
+        series.push(Series { kind: plot_kind(p, marks_only), name, expression: p.expression.clone(), points, boxplot });
+    }
+    let kind = if f.polar {
+        "polar"
+    } else if f.ternary {
+        "ternary"
+    } else if f.smith {
+        "smith"
+    } else {
+        ""
+    };
+    // bars stand on zero: their value axis shows it
+    let base = |k: usize| series.iter().any(|s| s.kind == ["horizontal bar", "bar"][k.min(1)]) && k < 2;
+    let range = |k: usize| {
+        let [mut lo, mut hi] = f.data_range[k];
+        if base(k) && !f.log[k] {
+            (lo, hi) = (lo.min(0.0), hi.max(0.0));
+        }
+        let (lo, hi) = if f.log[k] { (lo.exp(), hi.exp()) } else { (lo, hi) };
+        (lo.is_finite() && hi.is_finite() && lo <= hi).then_some([lo, hi])
+    };
+    let fact = AxisFact {
+        kind,
+        three_d: f.three_d,
+        title: keys::value(e, "/pgfplots/title"),
+        labels: [keys::value(e, "/pgfplots/xlabel"), keys::value(e, "/pgfplots/ylabel"), keys::value(e, "/pgfplots/zlabel")],
+        range: [range(0), range(1), range(2)],
+        log: f.log,
+        symbolic: [super::symbolic::names(e, 'x'), super::symbolic::names(e, 'y'), super::symbolic::names(e, 'z')],
+        series,
+        colors: (colored && f.colormap.is_some() && f.meta.iter().all(|v| v.is_finite())).then_some(f.meta),
+    };
+    e.facts.axes.push(fact);
+}
+
+/// What kind of plot it is, in words.
+fn plot_kind(p: &Plot, marks_only: bool) -> &'static str {
+    let style = tex::tokens_to_string(&p.style);
+    let h = p.handler.as_str();
+    if p.boxplot.is_some() || h == "boxplot" {
+        "box plot"
+    } else if h.starts_with("contour") {
+        "contour"
+    } else if h == "quiver" {
+        "vector field"
+    } else if h.ends_with("interval") {
+        "histogram"
+    } else if h.starts_with("ybar") {
+        "bar"
+    } else if h.starts_with("xbar") {
+        "horizontal bar"
+    } else if h.contains("comb") {
+        "stem"
+    } else if p.mesh == Some('s') || p.patch {
+        "surface"
+    } else if p.mesh == Some('m') {
+        "mesh"
+    } else if p.scatter || marks_only || style.contains("only marks") {
+        "scatter"
+    } else if p.fill_between.is_some() || p.post.iter().any(|t| t.is_cs("closedcycle")) {
+        "area"
+    } else {
+        "line"
+    }
 }
 
 fn clone_frame(f: &Frame) -> Frame {
@@ -1641,7 +1726,10 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 }
             }
             Entry::Tikz(tokens) => {
+                // what the axis' body draws is the figure's
+                let mute = std::mem::take(&mut e.facts.mute);
                 let r = e.run_tokens(tokens.clone());
+                e.facts.mute = mute;
                 if let Err(err) = r {
                     if super::super::is_limit(&err) {
                         return Err(err);

@@ -435,7 +435,12 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
     }
 }
 
-pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
+/// FNV-1a: a hash that is the same on every platform, for ids that depend only on the input.
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3))
+}
+
+pub fn svg(canvas: &Canvas, source: &str, words: &crate::describe::Description) -> String {
     let m = canvas.margin;
     let (min, max) = match (canvas.min, canvas.max) {
         (Some(a), Some(b)) => (a, b),
@@ -456,18 +461,25 @@ pub fn svg(canvas: &Canvas, source: &str, description: &str) -> String {
             let _ = write!(defs.text, r#"<path id="tr-g{}" d="{}"/>"#, g.0, font.outline(g));
         }
     }
+    // the words' ids are the figure's own: a page with many figures labels each by its own words
+    let id = fnv(source.as_bytes()) & 0xffff_ffff;
     let mut s = String::new();
     let _ = write!(
         s,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="img" aria-labelledby="tr-title">"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="img" aria-labelledby="tr-title-{id:08x}"{}>"#,
         n(x0 * BP),
         n(-y1 * BP),
         n(width),
         n(height),
         n(width),
-        n(height)
+        n(height),
+        if words.by_author { String::new() } else { format!(r#" aria-describedby="tr-desc-{id:08x}""#) }
     );
-    let _ = write!(s, r#"<title id="tr-title">{}</title>"#, escape(description));
+    let _ = write!(s, r#"<title id="tr-title-{id:08x}">{}</title>"#, escape(&words.alt));
+    // the author's text is the whole of it; tikra's own has a longer description
+    if !words.by_author {
+        let _ = write!(s, r#"<desc id="tr-desc-{id:08x}">{}</desc>"#, escape(&words.text));
+    }
     let _ = write!(s, r#"<metadata><tikra:source type="tikz">{}</tikra:source></metadata>"#, escape(source));
     let _ = write!(s, "<defs>{}</defs>{body}</svg>", defs.text);
     s

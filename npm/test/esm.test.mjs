@@ -26,6 +26,15 @@ test("render returns the svg and the warnings", () => {
   assert.equal(typeof r.warnings[0], "string");
 });
 
+test("render describes the figure in words", () => {
+  const r = render(FIGURE);
+  assert.equal(r.alt, "Drawing of one shape with the text “x”");
+  assert.equal(r.description, "Text in the figure: x.");
+  assert.equal(render(FIGURE, { locale: "pt-BR" }).description, "Texto na figura: x.");
+  assert.match(tikzToSvg(FIGURE, { locale: "de" }), /Text in der Abbildung: x\./);
+  assert.throws(() => render(FIGURE, { locale: "xx" }), /unknown locale/);
+});
+
 test("errors are Error objects", () => {
   assert.throws(() => tikzToSvg("just text"), /no tikzpicture/);
   assert.throws(() => png("not svg"), Error);

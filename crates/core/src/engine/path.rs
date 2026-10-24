@@ -13,6 +13,7 @@ use super::coords::{read_coordinate_tokens, Coord};
 use super::nodes::{NodeSpec, OnPath};
 use super::state::Mode;
 use super::{macro_from, tikra_tokens, Engine};
+use crate::describe::{Arrow, Link};
 
 /// Largest accepted coordinate, in cm (one kilometer): beyond that it is a typo or a bad computation.
 pub const MAX_COORDINATE: f64 = 100_000.0;
@@ -41,6 +42,9 @@ struct MidNode {
     pic: bool,
 }
 
+/// An `edge`: its segments, options, nodes and connections.
+type EdgePath = (Vec<Segment>, Vec<Token>, Vec<Item>, Vec<Link>);
+
 struct Builder {
     segs: Vec<Segment>,
     current: Option<Coord>,
@@ -48,8 +52,8 @@ struct Builder {
     last: Option<OnPath>,
     node_items: Vec<Item>,
     mid_nodes: Vec<MidNode>,
-    /// `edge` paths, drawn after the main path: (segments, options)
-    edges: Vec<(Vec<Segment>, Vec<Token>, Vec<Item>)>,
+    /// `edge` paths, drawn after the main path: (segments, options, nodes, connections)
+    edges: Vec<EdgePath>,
     /// the point a `+` coordinate is relative to (set by `+`, not moved)
     relative_base: Option<Point>,
     /// where a path is before its first point: the origin of its coordinate system
@@ -60,6 +64,11 @@ struct Builder {
     to_start: Option<Coord>,
     /// the current point where each `{` of the path opened, for `current point is local`
     groups: Vec<Option<Coord>>,
+    /// the lines from node to node, for the figure's description; the node the path last was at,
+    /// and whether the last operation made a line (its nodes are its labels)
+    links: Vec<Link>,
+    from_node: Option<String>,
+    fresh_link: bool,
 }
 
 impl Builder {
@@ -84,6 +93,7 @@ impl Builder {
     }
 
     fn move_to(&mut self, r: Coord) {
+        self.from_node = r.node.clone();
         self.segs.push(Segment::MoveTo(r.p));
         self.subpath_start = Some(r.p);
         self.last = Some(OnPath::Point(r.p));
@@ -212,6 +222,9 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         close_after: false,
         to_start: None,
         groups: Vec::new(),
+        links: Vec::new(),
+        from_node: None,
+        fresh_link: false,
     };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
@@ -231,9 +244,14 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     let mut bounds = crate::canvas::Canvas::default();
     bounds.include_path(&segs);
     e.st.path_box = bounds.min.zip(bounds.max);
+    let m = &e.st.mode;
+    if !segs.is_empty() && e.facts.mute == 0 && (m.draw || m.fill || m.shade || m.pattern) {
+        e.facts.shapes += 1;
+    }
+    e.note_links(std::mem::take(&mut b.links));
     e.finish_path(segs, outer, "path")?;
-    for (segs, options, items) in std::mem::take(&mut b.edges) {
-        edge_path(e, segs, options)?;
+    for (segs, options, items, links) in std::mem::take(&mut b.edges) {
+        edge_path(e, segs, options, links)?;
         e.canvas.items.extend(items);
     }
     let items = std::mem::take(&mut b.node_items);
@@ -241,7 +259,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     Ok(())
 }
 
-fn edge_path(e: &mut Engine, segs: Vec<Segment>, options: Vec<Token>) -> Result<(), Error> {
+fn edge_path(e: &mut Engine, segs: Vec<Segment>, options: Vec<Token>, links: Vec<Link>) -> Result<(), Error> {
     e.begin_group();
     let outer = e.st.clone();
     e.st.mode = Mode::default();
@@ -249,6 +267,7 @@ fn edge_path(e: &mut Engine, segs: Vec<Segment>, options: Vec<Token>) -> Result<
     let r = (|| {
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(options, Some("/tikz"))?;
+        e.note_links(links);
         e.finish_path(segs, &outer, "edge")
     })();
     e.end_group();
@@ -300,13 +319,40 @@ fn word(e: &mut Engine, first: char) -> String {
 fn coordinate(e: &mut Engine) -> Result<Coord, Error> {
     let tokens = read_coordinate_tokens(e)?;
     let text = e.math_string(tokens)?;
-    e.coordinate(&text)
+    let c = e.coordinate(&text)?;
+    e.facts.touched = named_node(e, &text);
+    Ok(c)
+}
+
+/// The node a coordinate's text names, with or without an anchor: `a`, `a.east`, `a.30`.
+fn named_node(e: &Engine, text: &str) -> Option<String> {
+    let t = text.trim();
+    let name = if e.lookup_node(t).is_some() { t } else { t.rsplit_once('.').map(|(n, _)| n.trim()).filter(|n| e.lookup_node(n).is_some())? };
+    let prefixed = format!("{}{name}", e.st.name_prefix);
+    Some(if e.nodes.contains_key(&prefixed) { prefixed } else { name.to_string() })
+}
+
+/// A node that a connection can join: a coordinate is a point the line goes through.
+fn joinable(e: &Engine, name: &str) -> bool {
+    e.nodes.get(name).is_some_and(|n| n.shape != "coordinate")
+}
+
+/// A line just made to `r`: a connection when it goes from a node to a node.
+fn note_link(e: &mut Engine, b: &mut Builder, r: &Coord) {
+    let touched = e.facts.touched.take();
+    let Some(to) = r.node.clone().or(touched).filter(|n| joinable(e, n)) else { return };
+    if let Some(from) = b.from_node.clone().filter(|n| joinable(e, n)) {
+        b.links.push(Link { from, to: to.clone(), arrow: Arrow::None, labels: Vec::new() });
+        b.fresh_link = true;
+    }
+    b.from_node = Some(to);
 }
 
 /// A point that must follow: skips spaces and reads `(…)`, with an optional `+`/`++`.
 fn target(e: &mut Engine, b: &mut Builder, depth: Option<usize>, what: &str) -> Result<Coord, Error> {
     e.turn_from = b.tangent();
     e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
+    e.facts.touched = None;
     match next(e, depth)? {
         Some(t) if t.is_char('(') => coordinate(e),
         Some(t) if t.is_char('+') => relative(e, b, depth),
@@ -578,6 +624,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 // name, as `\tikz@fig@mustbenamed` gives one
                                 if let Some(info) = e.last_node.clone() {
                                     let n = format!("tikra@fig@{}", e.steps);
+                                    e.alias_last_node(&n);
                                     e.nodes.insert(n.clone(), info);
                                     e.tex.define_string("tikzlastnode", &n, false);
                                     e.last_node_name = Some(n);
@@ -819,7 +866,9 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
         Some("-|") | Some("|-") => {
             let a = b.point();
             let corner = if op.as_deref() == Some("-|") { Point::new(r.p.x, a.y) } else { Point::new(a.x, r.p.y) };
+            let touched = e.facts.touched.take();
             line_to(e, b, Coord { p: corner, node: None });
+            e.facts.touched = touched;
             // the legs from and to the nodes' borders
             let start = match b.last {
                 Some(OnPath::Segment(p, _, _)) => p,
@@ -841,6 +890,9 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
         }
         _ => {
             b.move_to(r);
+            if b.from_node.is_none() {
+                b.from_node = e.facts.touched.take();
+            }
             place_mid_nodes(e, b, Some(0.5))?;
         }
     }
@@ -849,6 +901,7 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
 
 /// A rectangle from the current point to the corner `r`.
 fn rectangle_to(e: &mut Engine, b: &mut Builder, r: Coord) {
+    b.from_node = None;
     let a = b.point();
     let t = e.st.transform;
     let inv = t.inverse();
@@ -897,6 +950,7 @@ fn line_to(e: &mut Engine, b: &mut Builder, r: Coord) {
     }
     b.segs.push(Segment::LineTo(pb));
     b.last = Some(OnPath::Segment(pa, None, pb));
+    note_link(e, b, &r);
     b.current = Some(r);
 }
 
@@ -924,6 +978,7 @@ fn curve_to(e: &mut Engine, b: &mut Builder, c1: Point, c2: Point, r: Coord) {
     };
     b.segs.push(Segment::CurveTo(c1, c2, pb));
     b.last = Some(OnPath::Segment(start, Some((c1, c2)), pb));
+    note_link(e, b, &r);
     b.current = Some(r);
 }
 
@@ -1064,6 +1119,7 @@ fn to_path(e: &mut Engine, b: &mut Builder, r: Coord) -> Result<(), Error> {
             }
             b.segs.push(Segment::CurveTo(c1, c2, p));
             b.last = Some(OnPath::Segment(a, Some((c1, c2)), p));
+            note_link(e, b, &r);
             b.current = Some(Coord { p, node: r.node.clone() });
         }
         None => curve_to(e, b, c1, c2, r),
@@ -1120,6 +1176,9 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         close_after: false,
         to_start: None,
         groups: Vec::new(),
+        links: Vec::new(),
+        from_node: None,
+        fresh_link: false,
     };
     if let Some(c) = b.to_start.clone().or_else(|| saved_current.clone()) {
         sub.move_to(c);
@@ -1145,7 +1204,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
     })();
     e.end_group();
     res?;
-    b.edges.push((sub.segs, opts, sub.node_items));
+    b.edges.push((sub.segs, opts, sub.node_items, sub.links));
     b.current = saved_current;
     Ok(())
 }
@@ -1186,6 +1245,9 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
 }
 
 fn place_mid_nodes(e: &mut Engine, b: &mut Builder, default_pos: Option<f64>) -> Result<(), Error> {
+    // the nodes on a line just made from node to node are its labels
+    let link = std::mem::take(&mut b.fresh_link).then(|| b.links.len() - 1);
+    let first = e.facts.nodes.len();
     for m in std::mem::take(&mut b.mid_nodes) {
         let place = b.last.unwrap_or(OnPath::Point(b.point()));
         if m.pic {
@@ -1194,6 +1256,12 @@ fn place_mid_nodes(e: &mut Engine, b: &mut Builder, default_pos: Option<f64>) ->
         }
         let items = e.node(NodeSpec { options: m.options, name: m.name, at: None, text: m.text, place, point: b.point(), coordinate: m.coordinate, default_pos })?;
         b.node_items.extend(items);
+    }
+    if let Some(l) = link {
+        for i in first..e.facts.nodes.len() {
+            e.facts.nodes[i].on_link = true;
+            b.links[l].labels.push(i);
+        }
     }
     Ok(())
 }
@@ -1365,6 +1433,30 @@ fn radii(e: &mut Engine) -> Result<(f64, f64), Error> {
 }
 
 impl Engine {
+    /// The connections of a path, kept for the description when the path is drawn, with its tips.
+    fn note_links(&mut self, links: Vec<Link>) {
+        if links.is_empty() {
+            return;
+        }
+        if self.facts.mute > 0 || !self.st.mode.draw {
+            // not drawn: its labels are nodes like any other
+            for l in links {
+                for i in l.labels {
+                    self.facts.nodes[i].on_link = false;
+                }
+            }
+            return;
+        }
+        let tip = |a: &Option<String>| a.as_ref().is_some_and(|s| !s.trim().is_empty());
+        let arrow = match (tip(&self.st.start_arrow), tip(&self.st.end_arrow)) {
+            (false, false) => Arrow::None,
+            (false, true) => Arrow::Forward,
+            (true, false) => Arrow::Backward,
+            (true, true) => Arrow::Both,
+        };
+        self.facts.links.extend(links.into_iter().map(|l| Link { arrow, ..l }));
+    }
+
     /// A radius: with a unit in cm, without one in the x unit (as TikZ scales circle radii).
     fn radius_length(&mut self, text: &str) -> Result<f64, Error> {
         let (v, unit) = crate::expr::eval_length(crate::keys::strip_braces(text.trim()), &self.vars())?;
@@ -1571,6 +1663,9 @@ pub fn svg_path(e: &Engine, text: &str, from: Option<Point>) -> Vec<Segment> {
         close_after: false,
         to_start: None,
         groups: Vec::new(),
+        links: Vec::new(),
+        from_node: None,
+        fresh_link: false,
     };
     svg_data(e, &mut b, text);
     b.segs

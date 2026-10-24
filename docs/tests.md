@@ -35,23 +35,24 @@ Integration, in `crates/core/tests/`:
 | `plots.rs` | 12 | pgfplots: `axis lines` (left, middle, box, none), the window from the data, `domain`/`samples` on the axis and on the series, `\addplot+`, marks, a legend with `at=` and a frame, log variants read as linear, `axis` without `\end`, `only marks`, `mark=`, `no marks`. |
 | `svg_and_png.rs` | 7 | The generated SVG (opacities, dashes, drawn nodes, multiline labels and alignments, mathra's rules, lines and circles, nested clips, an empty scene) and the PNG (background, dpi, invalid SVG, zero/negative/infinite dpi, pixel cap). |
 | `figures.rs` | 12 | Whole figures that combine several features: a number line, a folding fan in a rotated scope, a flowchart, stacked waves from a declared function, a signpost with hatching and inherited label color, a plot with a legend. |
+| `describe.rs` | 23 | The figure in words (`alt`, `description`, the SVG's `<title>` and `<desc>`, with ids of each figure's own), in other languages with the same drawing; the author's `alt={…}` told instead: drawings with and without text, math spoken, flowcharts with directions and labels, connections by anchors and through coordinates, loops, `edge` with quotes, paths that are not drawn, trees and mind maps, long lists cut, bar, horizontal bar, histogram, line, scatter, area, surface, mesh, stem, quiver, contour and box plots, log, polar, ternary and Smith axes, several axes, data visualizations. |
 | `corpus.rs` | 1 | Every figure in `corpus/<topic>/` converts without warnings, with no `NaN`/`inf`, to SVG and PNG. |
 | `problematic.rs` | 19 | Input built to break the interpreter (section below), including groups that never close at every place a group is read. |
 | `banner.rs` | 1 | The README banner: `docs/banner.svg` must be byte for byte what tikra draws from `docs/banner.tex`, and `docs/banner.png` must be 1280 px wide. |
 | `examples.rs` | 2 | The README gallery: each `docs/examples/*.svg` must be byte for byte what tikra draws from its corpus figure, on a white card. |
 
-Command line, in `crates/cli/tests/cli.rs` (6 tests): help and version, stdin → stdout, file → SVG and PNG, `--dpi`, `--transparent`, `--warnings`, a missing file, a file and a stdin that are not UTF-8, input with no figure, output into a missing folder, a PNG that is too large. The test runs the real binary (`CARGO_BIN_EXE_tikra`), and `cargo llvm-cov` counts that child process's coverage.
+Command line, in `crates/cli/tests/cli.rs` (7 tests): help and version, stdin → stdout, file → SVG and PNG, `--dpi`, `--transparent`, `--warnings`, `--describe`, `--locale` (and an unknown one), a missing file, a file and a stdin that are not UTF-8, input with no figure, output into a missing folder, a PNG that is too large. The test runs the real binary (`CARGO_BIN_EXE_tikra`), and `cargo llvm-cov` counts that child process's coverage.
 
 Packages, run by `.github/workflows/ci.yml` on every pull request:
 
 | File | Tests | What it exercises |
 |---|---:|---|
-| `crates/wasm/tests/native.rs` | 4 | The functions behind the JavaScript API, natively: SVG, the JSON of `render` with and without warnings, PNG defaults (white background, 300 dpi), errors as text. |
+| `crates/wasm/tests/native.rs` | 4 | The functions behind the JavaScript API, natively: SVG, the JSON of `render` (with the figure in words) with and without warnings, PNG defaults (white background, 300 dpi), errors as text. |
 | `crates/wasm/tests/web.rs` | 2 | The same exports compiled to wasm and run on Node; errors become a `JsError`. |
-| `npm/test/*.test.*` | 7 | The packed npm package, installed in a scratch project: ESM and `require`, every input form, `render`, `png` options, errors as `Error`, `version()`. |
-| `crates/python/tests/test_tikra.py` | 7 | The Python module as installed: every input form, `render`, `png` (bytes, `dpi`, `background`), `ValueError`, versions. `pypi.yml` runs it against each built wheel and the sdist. |
+| `npm/test/*.test.*` | 8 | The packed npm package, installed in a scratch project: ESM and `require`, every input form, `render` and its figure in words, `png` options, errors as `Error`, `version()`. |
+| `crates/python/tests/test_tikra.py` | 8 | The Python module as installed: every input form, `render` and its figure in words, `png` (bytes, `dpi`, `background`), `ValueError`, versions. `pypi.yml` runs it against each built wheel and the sdist. |
 
-Unit tests, inside the modules: `color.rs` (mixes), `expr.rs` (basic expressions), `label.rs` (wrapping and font size). Plus the documentation example in `lib.rs`.
+Unit tests, inside the modules: `describe.rs` (numbers, text and math as spoken, an axis with nothing to tell, plural forms, every language's phrases against English's placeholders, a chart in Portuguese), `color.rs` (mixes), `expr.rs` (basic expressions), `label.rs` (wrapping and font size). Plus the documentation example in `lib.rs`.
 
 ## Coverage
 

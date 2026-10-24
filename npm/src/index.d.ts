@@ -1,8 +1,20 @@
 export interface Result {
   /** Standalone SVG, with math labels typeset by mathra. */
   svg: string;
+  /** The figure in a sentence, for readers who cannot see it: the SVG's `<title>`, an image's `alt`. */
+  alt: string;
+  /** The figure in words (axes, data, nodes and their connections): the SVG's `<desc>`. */
+  description: string;
   /** What was ignored or approximated: unsupported commands, labels with broken LaTeX. */
   warnings: string[];
+}
+
+/** mathra's languages: the figure in words (`alt`, `description`) is told in them; the drawing is the same. */
+export type Locale = "en" | "pt-BR" | "es" | "fr" | "de" | "it" | "ru" | "zh" | "ja" | "ko" | "hi" | "ar" | "id" | "tr" | "nl" | "pl";
+
+export interface Options {
+  /** The language of the figure in words. Default `"en"`. A code with a region (`"es-MX"`) takes its language. */
+  locale?: Locale | (string & {});
 }
 
 export interface PngOptions {
@@ -15,11 +27,11 @@ export interface PngOptions {
 /** Loads the WebAssembly module: await it once before converting in browsers and bundlers. In Node it does nothing. */
 export function init(input?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module): Promise<void>;
 
-/** Converts a TikZ figure (a `standalone` document, a `tikzpicture`, `\tikz`, an `axis` or loose statements) to SVG. Throws when there is no figure to draw. */
-export function tikzToSvg(code: string): string;
+/** Converts a TikZ figure (a `standalone` document, a `tikzpicture`, `\tikz`, an `axis` or loose statements) to SVG, with the figure in words in `options.locale`. Throws when there is no figure to draw or the locale is unknown. */
+export function tikzToSvg(code: string, options?: Options): string;
 
-/** Converts a TikZ figure and returns the SVG with the warnings. */
-export function render(code: string): Result;
+/** Converts a TikZ figure and returns the SVG, the figure in words and the warnings. */
+export function render(code: string, options?: Options): Result;
 
 /** Rasterizes an SVG written by tikra to PNG bytes. Throws on an invalid SVG or dpi, or past 100 megapixels. */
 export function png(svg: string, options?: PngOptions): Uint8Array;

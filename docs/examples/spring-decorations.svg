@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-1.993 -88.918 126.273 90.91" width="126.273pt" height="90.91pt" role="img" aria-labelledby="tr-title"><rect x="-1.993" y="-88.918" width="126.273" height="90.91" fill="#ffffff"/><title id="tr-title">Figure</title><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="-1.993 -88.918 126.273 90.91" width="126.273pt" height="90.91pt" role="img" aria-labelledby="tr-title-95e8b6f0" aria-describedby="tr-desc-95e8b6f0"><rect x="-1.993" y="-88.918" width="126.273" height="90.91" fill="#ffffff"/><title id="tr-title-95e8b6f0">Drawing of 6 shapes, without text</title><desc id="tr-desc-95e8b6f0">Drawing of 6 shapes, without text.</desc><metadata><tikra:source type="tikz">% Made up for the tikra benchmark.
 \begin{tikzpicture}
   \fill[pattern=north east lines] (-0.3,-0.8) rectangle (0,0.8);
   \draw[thick] (0,-0.8) -- (0,0.8);

@@ -13,6 +13,9 @@ OPTIONS
       --dpi <n>           PNG resolution (default 300)
       --transparent       PNG without the white background
       --warnings          lists what was ignored or approximated
+      --describe          prints the figure in words: its alt text and its description
+  -l, --locale <code>     the language of the figure in words: en (default), pt-BR, es, fr, de,
+                          it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl (the drawing is the same)
   -V, --version
   -h, --help
 ";
@@ -23,6 +26,8 @@ fn main() -> ExitCode {
     let mut dpi = 300.0f32;
     let mut background = true;
     let mut show_warnings = false;
+    let mut describe = false;
+    let mut options = tikra::Options::default();
     let mut it = env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -38,6 +43,14 @@ fn main() -> ExitCode {
             "--dpi" => dpi = it.next().and_then(|v| v.parse().ok()).unwrap_or(300.0),
             "--transparent" => background = false,
             "--warnings" => show_warnings = true,
+            "--describe" => describe = true,
+            "-l" | "--locale" => match it.next().unwrap_or_default().parse() {
+                Ok(l) => options.locale = l,
+                Err(e) => {
+                    eprintln!("tikra: {e}");
+                    return ExitCode::from(2);
+                }
+            },
             _ => input = Some(a),
         }
     }
@@ -57,7 +70,7 @@ fn main() -> ExitCode {
             }
         },
     };
-    let r = match tikra::convert(&code) {
+    let r = match tikra::convert_with(&code, &options) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("tikra: {e}");
@@ -70,6 +83,10 @@ fn main() -> ExitCode {
         } else {
             eprintln!("tikra: warning: {w}");
         }
+    }
+    if describe {
+        println!("alt: {}", r.alt);
+        println!("description: {}", r.description);
     }
     match output {
         Some(s) if s.ends_with(".png") => match tikra::png(&r.svg, dpi, background) {
@@ -90,7 +107,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         }
-        None if !show_warnings => println!("{}", r.svg),
+        None if !show_warnings && !describe => println!("{}", r.svg),
         None => {}
     }
     ExitCode::SUCCESS

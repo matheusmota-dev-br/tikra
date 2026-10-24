@@ -81,7 +81,7 @@ fn expressions_tables_and_coordinates() {
 #[test]
 fn cycle_list_and_marks() {
     let (c, _) = axis("", r"\addplot coordinates {(0,0) (1,1)}; \addplot coordinates {(0,1) (1,0)};");
-    let svg = tikra::driver::svg(&c, "", "t");
+    let svg = tikra::driver::svg(&c, "", &Default::default());
     // blue line, red line; marks filled blue!80!black and red!80!black
     assert!(svg.contains("#0000ff") && svg.contains("#ff0000"), "{svg}");
     assert!(svg.contains("#0000cc") && svg.contains("#cc0000"), "{svg}");

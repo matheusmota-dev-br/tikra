@@ -81,6 +81,7 @@
   <div class="card inspect">
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="warnings" aria-selected="true">Warnings</button>
+      <button role="tab" data-tab="words" aria-selected="false">In words</button>
       <button role="tab" data-tab="svg" aria-selected="false">SVG source</button>
     </div>
     <div class="panel" id="panel" role="tabpanel"></div>
@@ -154,7 +155,7 @@
 
 await init();  // browsers and bundlers; Node needs nothing
 const svg = tikzToSvg(String.raw`\tikz \draw (0,0) circle (1);`);
-const { warnings } = render(code);
+const { warnings, alt, description } = render(code);  // and the figure in words
 const bytes = png(svg, { dpi: 300 });</pre>
       </div>
       <div class="card platform">
@@ -165,7 +166,8 @@ const bytes = png(svg, { dpi: 300 });</pre>
 
 svg = tikra.tikz_to_svg(r"\tikz \draw (0,0) circle (1);")
 open("figure.png", "wb").write(tikra.png(svg, dpi=300))
-tikra.render(code)["warnings"]</pre>
+tikra.render(code)["warnings"]
+tikra.render(code)["description"]  # the figure in words</pre>
       </div>
       <div class="card platform">
         <div class="platform-head"><h3>Terminal</h3><a class="pill live" href="https://crates.io/crates/tikra-cli">on crates.io</a></div>
@@ -174,7 +176,8 @@ tikra.render(code)["warnings"]</pre>
 <pre>tikra figure.tex -o figure.svg
 tikra figure.tex -o figure.png --dpi 300
 tikra figure.tex -o figure.png --transparent
-cat figure.tex | tikra --warnings</pre>
+cat figure.tex | tikra --warnings
+tikra figure.tex --describe</pre>
       </div>
       <div class="card platform">
         <div class="platform-head"><h3>Rust</h3><a class="pill live" href="https://crates.io/crates/tikra">on crates.io</a></div>
@@ -227,10 +230,14 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     $("conf-out").textContent = String(c.left_out);
   }
   const tex = $("tex"), preview = $("preview"), messages = $("messages"), panel = $("panel");
-  let api = null, last = null, tab = "warnings";
+  let api = null, last = null, tab = "warnings", locale = "en";
+  // mathra's languages: the figure in words is told in them, the drawing is the same
+  const LOCALES = [["en", "English"], ["pt-BR", "Português (Brasil)"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"],
+    ["ru", "Русский"], ["zh", "中文"], ["ja", "日本語"], ["ko", "한국어"], ["hi", "हिन्दी"], ["ar", "العربية"], ["id", "Bahasa Indonesia"],
+    ["tr", "Türkçe"], ["nl", "Nederlands"], ["pl", "Polski"]];
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const convert = (code) => JSON.parse(api.render(code));
+  const convert = (code) => JSON.parse(api.render(code, locale));
 
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
@@ -318,6 +325,17 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       panel.innerHTML = last.warnings.length
         ? last.warnings.map((w) => `<div class="warning">${escape(w)}</div>`).join("")
         : '<p class="empty">Nothing was ignored or approximated in this figure.</p>';
+      return;
+    }
+    if (tab === "words") {
+      // what a screen reader says: the SVG's <title> and <desc>
+      const options = LOCALES.map(([c, n]) => `<option value="${c}"${c === locale ? " selected" : ""}>${escape(n)}</option>`).join("");
+      const dir = locale === "ar" ? ' dir="rtl"' : "";
+      panel.innerHTML = `<p class="lang"><label>Language <select id="words-locale">${options}</select></label></p>`
+        + `<div class="rule"><code>alt</code><span lang="${locale}"${dir}>${escape(last.alt)}</span></div>`
+        + `<div class="rule"><code>description</code><span lang="${locale}"${dir}>${escape(last.description)}</span></div>`
+        + `<p class="empty">Written by tikra from what it drew, so not perfect: it says what is in the drawing, not what the figure means. Review it, and write your own with <code>\\begin{tikzpicture}[alt={…}]</code> when it falls short.</p>`;
+      $("words-locale").onchange = (e) => { locale = e.target.value; update(); };
       return;
     }
     panel.innerHTML = `<pre>${escape(last.svg)}</pre>`;
