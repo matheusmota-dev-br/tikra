@@ -463,6 +463,8 @@ pub struct Engine {
     /// the words of the text around the pictures, each with the font it starts in
     words: Vec<(String, String)>,
     /// keys run so far
+    /// `/handlers/first char syntax` was set: keys are checked for a handler of their first character.
+    pub first_char_syntax: bool,
     pub keys_run: usize,
     /// the data visualizations being run, innermost last
     pub datavis: Vec<datavis::Dv>,
@@ -513,8 +515,9 @@ enum Layout {
 
 /// Cap on nested runs (a style calling itself).
 pub const MAX_NESTING: usize = 150;
-/// Cap on keys per figure (styles that multiply: `s/.style={t,t,t,t}`…).
-pub const MAX_KEYS: usize = 200_000;
+/// Cap on keys per figure (styles that multiply: `s/.style={t,t,t,t}`…). The figures of the manuals
+/// and the corpus run at most about 10,000.
+pub const MAX_KEYS: usize = 50_000;
 
 /// Ids at and above this are native keys (`\pgfk@…/.@cmd`), below are commands.
 pub const NATIVE_KEY_BASE: u16 = 1000;
@@ -543,6 +546,7 @@ impl Clone for Engine {
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
+            first_char_syntax: self.first_char_syntax,
             datavis: self.datavis.clone(),
             pgf_path: self.pgf_path.clone(),
             plot_stream: Vec::new(),
@@ -628,6 +632,7 @@ impl Engine {
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
+            first_char_syntax: false,
             datavis: Vec::new(),
             pgf_path: basic::PgfPath::default(),
             plot_stream: Vec::new(),

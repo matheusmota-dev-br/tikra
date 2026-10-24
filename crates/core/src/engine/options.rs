@@ -88,7 +88,8 @@ impl Engine {
         }
         // `/handlers/first char syntax`: a key that starts with a character that has a macro there
         // is that macro, with the whole key (and its value) as argument
-        if let Some(c) = key.trim_start().chars().next() {
+        // (looked up only once it is on: every key passes here)
+        if let Some(c) = key.trim_start().chars().next().filter(|_| self.first_char_syntax) {
             let handler = format!("/handlers/first char syntax/the character {c}");
             if let Some(code) = keys::value(&self.tex, &handler).filter(|_| self.key_text("/handlers/first char syntax").trim() == "true") {
                 let mut whole = tikra_tokens(key.trim());
@@ -102,6 +103,9 @@ impl Engine {
             }
         }
         let path = keys::full_path(&self.st.key_path, key);
+        if path == "/handlers/first char syntax" {
+            self.first_char_syntax = true;
+        }
         // a key named like a handler (`characters/.append`) is a key: pgfkeys looks for keys first
         if let Some((base, h)) = keys::handler(&path).filter(|_| !self.tex.is_defined(&macro_name(&format!("{path}/.@cmd")))) {
             let (mut base, h) = (base.to_string(), h.to_string());
