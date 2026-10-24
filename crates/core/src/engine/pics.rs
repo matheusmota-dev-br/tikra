@@ -17,6 +17,8 @@ pub struct PicSpec {
     pub name: Option<String>,
     pub at: Point,
     pub content: Vec<Token>,
+    /// between an operation and its target: the segment, and the default `pos` on it
+    pub place: Option<(super::nodes::OnPath, Option<f64>)>,
 }
 
 impl Engine {
@@ -41,7 +43,19 @@ impl Engine {
         if self.st.node.transform_shape {
             linear = Transform { e: 0.0, f: 0.0, ..self.st.transform };
         }
-        let at = self.st.node.at.unwrap_or(spec.at);
+        let mut at = self.st.node.at.unwrap_or(spec.at);
+        // on a segment: at its `pos`, turned along it when `sloped`
+        if let (None, Some((place, default_pos))) = (self.st.node.at, spec.place) {
+            if let Some(t) = self.st.node.pos.or(default_pos) {
+                let (p, direction) = place.at(t);
+                at = p;
+                if self.st.node.sloped {
+                    let angle = direction.y.atan2(direction.x).to_degrees();
+                    let angle = if !self.st.allow_upside_down && (angle > 90.0 + 1e-9 || angle < -90.0 - 1e-9) { angle + 180.0 } else { angle };
+                    linear = linear.compose(&Transform::rotation(angle));
+                }
+            }
+        }
         self.st.transform = Transform::translation(at.x, at.y).compose(&linear).compose(&self.st.pending);
         self.st.pending = Transform::default();
         if let Some(n) = spec.name.or_else(|| self.st.node.name.clone()) {
@@ -78,7 +92,11 @@ impl Engine {
                 "foreground code" => "every front pic/.try",
                 _ => "every pic/.try",
             };
-            let r = self.process_keys(tikra_tokens(every), Some("/tikz")).and_then(|_| self.run_tokens(code));
+            // a scope with that style: its transformations too
+            let r = self.process_keys(tikra_tokens(every), Some("/tikz")).and_then(|_| {
+                self.st.apply_pending();
+                self.run_tokens(code)
+            });
             self.end_scope();
             self.end_group();
             r?;

@@ -71,6 +71,11 @@ pub const KEYS: &[(&str, KeyFn)] = &[
 pub const DEFINITIONS: &str = r"
 \newcount\tikznumberofchildren
 \newcount\tikznumberofcurrentchild
+% plain TeX's form of the scope environment
+\def\scope{\begin{scope}}
+\def\endscope{\end{scope}}
+% a reference of a single run of LaTeX: not yet known
+\def\ref#1{{\bfseries ??}}
 \def\tikzaddafternodepathoption#1{#1\tikzset{prefix after command={\pgfextra{#1}}}}
 \tikzset{
   every state/.style={}, every accepting by arrow/.style={}, every initial by arrow/.style={},
@@ -186,10 +191,11 @@ pub const DEFINITIONS: &str = r"
   below delimiter/.code={\tikzset{append after command={\tikra@delimiter{south west}{south west}
     {every delimiter,every below delimiter,rotate=-90}{west}{east}{.}{#1}{x}}}},
 }
-\def\tikra@delimiter#1#2#3#4#5#6#7#8{{let \p1=($(\tikzlastnode.#5)-(\tikzlastnode.#4)$) in
+\def\tikra@delimiter#1#2#3#4#5#6#7#8{{\pgfextra{\global\let\tikra@delimited=\tikzlastnode}let \p1=($(\tikzlastnode.#5)-(\tikzlastnode.#4)$) in
   \pgfextra{\pgfmathsetmacro\tikra@size{abs(\csname #8\endcsname1)}\pgfmathsetmacro\tikra@raise{2.5-\tikra@size/2}}
   node[outer sep=0pt,inner sep=0pt,draw=none,fill=none,anchor=#1,at=(\tikzlastnode.#2),#3]
-  {$\left#6\rule[\tikra@raise pt]{0pt}{\tikra@size pt}\right#7$}}}
+  {$\left#6\rule[\tikra@raise pt]{0pt}{\tikra@size pt}\right#7$}
+  \pgfextra{\global\let\tikzlastnode=\tikra@delimited}}}
 ";
 
 /// Shape keys with nothing set: every key at its default.

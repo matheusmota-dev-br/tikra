@@ -13,6 +13,12 @@ pub struct Variables {
     pub functions: HashMap<String, (Vec<String>, String)>,
     /// The font size over 10pt, for `em` and `ex` (none: 10pt).
     pub font_scale: Option<f64>,
+    /// `trig format=rad`: the trigonometric functions take and give radians.
+    pub trig_rad: bool,
+    /// lengths count in pt (as pgfmath counts them: `100/2cm` is 100/56.9), not in cm
+    pub in_pt: bool,
+    /// The font is sans serif (its `em` and `ex` are cmss's).
+    pub sans: bool,
 }
 
 impl Variables {
@@ -42,10 +48,17 @@ pub fn unit_cm(u: &str) -> Option<f64> {
     })
 }
 
-/// Centimeters per unit, `em` and `ex` in the font of `vars`.
+/// Centimeters per unit, `em` and `ex` in the font of `vars` (an em is the font's quad, wider
+/// than its size in the small designs and narrower in the large ones).
 fn unit_cm_in(u: &str, vars: &Variables) -> Option<f64> {
     let f = unit_cm(u)?;
-    Some(if u == "em" || u == "ex" { f * vars.font_scale.unwrap_or(1.0) } else { f })
+    let scale = vars.font_scale.unwrap_or(1.0);
+    let f = match u {
+        "em" => f * scale * crate::label::quad(10.0 * scale, vars.sans),
+        "ex" => f * scale * crate::label::x_height(vars.sans) / crate::label::x_height(false),
+        _ => f,
+    };
+    Some(if vars.in_pt { f / (2.54 / 72.27) } else { f })
 }
 
 /// Nesting cap (parentheses, signs, calls): `f(x) = f(x)` does not overflow the stack.
@@ -284,9 +297,71 @@ impl Parser<'_> {
         }
     }
 
+    /// At a `{` that an index `[…]` follows (pgfmath's arrays, `{1, {2, 3}}[1][0]`): where its
+    /// group ends.
+    fn array_end(&self) -> Option<usize> {
+        let mut depth = 0;
+        for (k, &c) in self.c.iter().enumerate().skip(self.pos) {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let next = self.c[k + 1..].iter().position(|c| !c.is_whitespace()).map(|d| k + 1 + d)?;
+                        return (self.c[next] == '[').then_some(k + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// The array from here to `end` indexed by the `[…]` after it (from 0), one array in another
+    /// for each index: the value of the element.
+    fn index_array(&mut self, end: usize) -> Result<f64, Error> {
+        let mut element: String = self.c[self.pos..end].iter().collect();
+        self.pos = end;
+        loop {
+            self.skip_spaces();
+            if self.peek() != Some('[') {
+                break;
+            }
+            self.pos += 1;
+            let i = self.ternary()?;
+            self.skip_spaces();
+            if self.peek() != Some(']') {
+                return Err(Error::Expression("missing ']'".into()));
+            }
+            self.pos += 1;
+            let inner = element.trim().strip_prefix('{').and_then(|s| s.strip_suffix('}')).ok_or_else(|| Error::Expression(format!("'{element}' is not an array")))?.to_string();
+            // its elements, at the commas outside braces
+            let mut items = vec![String::new()];
+            let mut depth = 0;
+            for c in inner.chars() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    ',' if depth == 0 => {
+                        items.push(String::new());
+                        continue;
+                    }
+                    _ => {}
+                }
+                items.last_mut().unwrap().push(c);
+            }
+            element = items.get(i.max(0.0) as usize).ok_or_else(|| Error::Expression(format!("index {i} out of the array '{inner}'")))?.trim().to_string();
+        }
+        eval_at(&element, self.vars, self.depth + 1)
+    }
+
     fn atom(&mut self) -> Result<f64, Error> {
         self.skip_spaces();
         match self.peek() {
+            Some('{') if self.array_end().is_some() => {
+                let end = self.array_end().unwrap_or(self.pos);
+                self.index_array(end)
+            }
             Some('(') | Some('{') => {
                 let close = if self.peek() == Some('(') { ')' } else { '}' };
                 self.pos += 1;
@@ -366,10 +441,14 @@ impl Parser<'_> {
                         "rnd" => Ok(pseudo_random()),
                         "true" => Ok(1.0),
                         "false" => Ok(0.0),
+                        // the fpu's special numbers (pgfplots' `nan` point meta, `unbounded coords`)
+                        "nan" | "NaN" => Ok(f64::NAN),
+                        "inf" | "Inf" => Ok(f64::INFINITY),
                         _ => Err(Error::Expression(format!("function without parentheses: {name}"))),
                     };
                 }
                 self.pos += 1;
+                let units_before = self.units;
                 let mut args = vec![self.ternary()?];
                 self.skip_spaces();
                 while self.peek() == Some(',') {
@@ -388,8 +467,33 @@ impl Parser<'_> {
                     }
                     return eval_at(&body, &locals, self.depth + 1);
                 }
-                let g = |x: f64| x.to_radians();
+                let rad = self.vars.trig_rad;
+                // the argument of a trigonometric function, in degrees; an angle given back
+                let deg = |x: f64| if rad { x.to_degrees() } else { x };
+                let angle = |x: f64| if rad { x.to_radians() } else { x };
+                let g = |x: f64| deg(x).to_radians();
                 let a = args[0];
+                if rad {
+                    match name.as_str() {
+                        "sin" | "cos" | "sec" | "cosec" => {
+                            return Ok(match name.as_str() {
+                                "sin" => sin_degrees(deg(a)),
+                                "cos" => cos_degrees(deg(a)),
+                                "sec" => 1.0 / sin_degrees(deg(a) + 90.0),
+                                _ => 1.0 / sin_degrees(deg(a)),
+                            })
+                        }
+                        "asin" | "acos" | "atan" | "atan2" => {
+                            return Ok(angle(match name.as_str() {
+                                "asin" => a.asin().to_degrees(),
+                                "acos" => a.acos().to_degrees(),
+                                "atan" => a.atan().to_degrees(),
+                                _ => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
+                            }))
+                        }
+                        _ => {}
+                    }
+                }
                 Ok(match name.as_str() {
                     "sin" => sin_degrees(a),
                     "cos" => cos_degrees(a),
@@ -413,6 +517,8 @@ impl Parser<'_> {
                     "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
                     "mod" => a % args.get(1).copied().unwrap_or(1.0),
                     "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
+                    // n! of the integer part, as pgfmath has it
+                    "factorial" => (1..=a.trunc().max(0.0) as u64).map(|k| k as f64).product(),
                     // pgfmath's hyperbolic and other functions
                     "sinh" => a.sinh(),
                     "cosh" => a.cosh(),
@@ -424,6 +530,11 @@ impl Parser<'_> {
                     "int" => a.trunc(),
                     "frac" => a - a.trunc(),
                     "real" => a,
+                    // its value without the units its argument declared (a ratio of lengths)
+                    "scalar" => {
+                        self.units = units_before;
+                        a
+                    }
                     "neg" => -a,
                     "sign" => {
                         if a > 0.0 {
@@ -447,6 +558,14 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn factorial_of_the_integer_part() {
+        let v = Variables::new();
+        assert_eq!(eval("factorial(5)", &v).unwrap(), 120.0);
+        assert_eq!(eval("factorial(0)", &v).unwrap(), 1.0);
+        assert_eq!(eval("factorial(4.7)", &v).unwrap(), 24.0);
+    }
+
     use super::*;
 
     #[test]

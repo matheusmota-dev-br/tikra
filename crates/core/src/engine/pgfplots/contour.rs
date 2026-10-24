@@ -175,7 +175,7 @@ fn bands(e: &mut Engine, f: &Frame) -> Vec<(f64, crate::color::Color)> {
 }
 
 /// The part of a triangle where its (linear) value is ≥ `lo` and ≤ `hi`.
-fn clip(tri: &[(Point, f64)], lo: f64, hi: f64) -> Vec<Point> {
+pub fn clip(tri: &[(Point, f64)], lo: f64, hi: f64) -> Vec<Point> {
     fn cut(poly: Vec<(Point, f64)>, keep: &dyn Fn(f64) -> bool, at: f64) -> Vec<(Point, f64)> {
         let mut out = Vec::new();
         for i in 0..poly.len() {
@@ -209,6 +209,13 @@ pub fn draw_filled(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Res
     let opacity = e.st.fill_opacity;
     // per band, all its pieces in one path
     let mut pieces: Vec<Vec<Segment>> = vec![Vec::new(); bands.len()];
+    let reversed = if f.three_d {
+        let az = keys::number(e, "/pgfplots/view/az").unwrap_or(25.0).to_radians();
+        let el = keys::number(e, "/pgfplots/view/el").unwrap_or(30.0).to_radians();
+        (az.sin() * el.cos() < -1e-9, -az.cos() * el.cos() < -1e-9)
+    } else {
+        (false, false)
+    };
     for r in 0..rows.saturating_sub(1) {
         for c in 0..cols.saturating_sub(1) {
             let k = r * cols + c;
@@ -216,7 +223,14 @@ pub fn draw_filled(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Res
             if q.iter().any(|&i| i >= pts.len() || !meta(i).is_finite()) {
                 continue;
             }
-            for tri in [[q[0], q[1], q[2]], [q[0], q[2], q[3]]] {
+            // the cell's two triangles as the shading of type 5 cuts them: along the diagonal from
+            // its second to its last corner, the corners turned as the z buffer reverses a 3d
+            // matrix's rows or columns
+            let tris = match reversed {
+                (false, false) | (true, true) => [[q[0], q[1], q[3]], [q[1], q[2], q[3]]],
+                _ => [[q[0], q[1], q[2]], [q[0], q[2], q[3]]],
+            };
+            for tri in tris {
                 let t: Vec<(Point, f64)> = tri.iter().map(|&i| (f.at(pts[i]), meta(i))).collect();
                 for (b, (level, _)) in bands.iter().enumerate() {
                     // the lowest band also takes what is below its level

@@ -308,7 +308,12 @@ impl Run<'_> {
         e.st.pending = Transform::default();
         let at = e.st.transform.apply(Point::default());
         let mut text = c.tokens.clone();
-        if let Some(cmd) = &te.character_command {
+        // the character's styles may set its command (`every word/.style={character command=…}`)
+        e.begin_group();
+        let styled = e.process_keys(options.clone(), Some("/tikz")).map(|_| e.st.decoration.te.character_command.clone());
+        e.end_group();
+        let command = styled.ok().flatten().or_else(|| te.character_command.clone());
+        if let Some(cmd) = &command {
             let mut v = cmd.clone();
             v.push(Token::Char('{', Cat::Begin));
             v.extend(text);
@@ -318,7 +323,7 @@ impl Run<'_> {
         let blank = is_space(&c.tokens);
         if blank {
             // a space: an empty box as wide as the font's interword space
-            text = Vec::new();
+            text = super::super::tikra_tokens("$\\hspace{0.33333em}$");
         }
         if let Some((_, code)) = te.replacements.iter().find(|(s, _)| s.trim() == c.text.trim()) {
             // `replace characters`: the code in a scope with the character's options; its width
@@ -353,29 +358,33 @@ impl Run<'_> {
         }
         let name = "tikra@te@character".to_string();
         let r = e.node(NodeSpec { options, name: Some(name.clone()), at: None, text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None });
+        // the size of what the node draws, as pgf measures the picture it makes: its outline (no
+        // outer sep), with half the line width around it if it is drawn
         let width = e.nodes.get(&name).map(|info| {
-            // half the size between the outer anchors (outer sep included)
-            let half = |a: &str, b: &str| match (info.anchor(a), info.anchor(b)) {
-                (Some(p), Some(q)) => p.minus(q).norm() / 2.0,
-                _ => 0.0,
-            };
-            let (w, h) = (half("east", "west"), half("north", "south"));
-            if te.segment_from_width {
-                2.0 * w
-            } else {
-                2.0 * h
+            let mut b = crate::canvas::Canvas::default();
+            for p in info.geometry.paths.iter().filter(|p| p.layer == crate::engine::shapes::Layer::Background && matches!(p.usage, crate::engine::shapes::Usage::Node)) {
+                b.include_path(&crate::canvas::transform_segments(&p.segments, &info.transform));
+            }
+            match (b.min, b.max) {
+                (Some(lo), Some(hi)) if te.segment_from_width => (hi.x - lo.x, info.transform),
+                (Some(lo), Some(hi)) => (hi.y - lo.y, info.transform),
+                _ => (0.0, info.transform),
             }
         });
         e.nodes.remove(&name);
         e.end_group();
         let items = r?;
+        let line = items.iter().find_map(|i| match i {
+            crate::canvas::Item::Path { stroke: Some(s), .. } => Some(s.width),
+            _ => None,
+        });
+        let width = width.map(|(w, _)| w + line.unwrap_or(0.0));
         if t.is_none() {
             (self.e.canvas.min, self.e.canvas.max) = saved;
         } else {
             self.e.canvas.items.extend(items);
         }
-        let space = if blank { 3.33333 * self.te.factor.max(1e-6) } else { 0.0 };
-        Ok(width.unwrap_or(0.0) / PT + space)
+        Ok(width.unwrap_or(0.0) / PT)
     }
 }
 

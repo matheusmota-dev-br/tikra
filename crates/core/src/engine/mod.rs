@@ -13,6 +13,7 @@ pub mod datavis;
 pub mod decorations;
 pub mod fadings;
 pub mod folding;
+pub mod functional;
 pub mod graphs;
 pub mod intersections;
 pub mod libraries;
@@ -36,6 +37,7 @@ pub mod three_d;
 pub mod tikzmath;
 pub mod trees;
 pub mod turtle;
+pub mod user_shapes;
 pub mod views;
 
 use std::collections::HashMap;
@@ -64,6 +66,7 @@ pub enum Cmd {
     Node,
     Coordinate,
     Useasboundingbox,
+    ResetBoundingBox,
     Matrix,
     PgfMatrix,
     Chainin,
@@ -73,6 +76,11 @@ pub enum Cmd {
     DeclarePatternColored,
     SetFillPattern,
     TikzDeclarePattern,
+    PgfDeclarePattern,
+    ArrowsDeclare,
+    DeclareShape,
+    PositionNodeLater,
+    PositionNodeNow,
     DeclareShadingH,
     DeclareShadingV,
     DeclareShadingR,
@@ -84,6 +92,7 @@ pub enum Cmd {
     ApproximateNonlinearTranslation,
     SetCurvilinear,
     PointCurvilinear,
+    PointCurvilinearPolar,
     ToNumber,
     MathSinCos,
     SetFadingForPath,
@@ -109,8 +118,10 @@ pub enum Cmd {
     Colorlet,
     Color,
     Textcolor,
+    Pgfqbox,
     Pgfmathsetmacro,
     Pgfmathparse,
+    PgfmathFunction,
     Pgfmathtruncatemacro,
     Pgfmathsetlengthmacro,
     Pgfmathsetcount,
@@ -123,6 +134,8 @@ pub enum Cmd {
     Ignore1,
     Ignore2,
     Hspace,
+    Fbox,
+    Hskip,
     FontSize,
     FontSeries,
     Unsupported,
@@ -166,6 +179,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("node", Cmd::Node),
     ("coordinate", Cmd::Coordinate),
     ("useasboundingbox", Cmd::Useasboundingbox),
+    ("pgfresetboundingbox", Cmd::ResetBoundingBox),
     ("matrix", Cmd::Matrix),
     ("pgfmatrix", Cmd::PgfMatrix),
     ("chainin", Cmd::Chainin),
@@ -175,6 +189,11 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfdeclarepatterninherentlycolored", Cmd::DeclarePatternColored),
     ("pgfsetfillpattern", Cmd::SetFillPattern),
     ("tikzdeclarepattern", Cmd::TikzDeclarePattern),
+    ("pgfdeclarepattern", Cmd::PgfDeclarePattern),
+    ("pgfarrowsdeclare", Cmd::ArrowsDeclare),
+    ("pgfdeclareshape", Cmd::DeclareShape),
+    ("pgfpositionnodelater", Cmd::PositionNodeLater),
+    ("pgfpositionnodenow", Cmd::PositionNodeNow),
     ("pgfdeclarehorizontalshading", Cmd::DeclareShadingH),
     ("pgfdeclareverticalshading", Cmd::DeclareShadingV),
     ("pgfdeclareradialshading", Cmd::DeclareShadingR),
@@ -186,6 +205,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfapproximatenonlineartranslation", Cmd::ApproximateNonlinearTranslation),
     ("pgfsetcurvilinearbeziercurve", Cmd::SetCurvilinear),
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
+    ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
     ("pgf@sys@tonumber", Cmd::ToNumber),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
@@ -212,8 +232,34 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("colorlet", Cmd::Colorlet),
     ("color", Cmd::Color),
     ("textcolor", Cmd::Textcolor),
+    ("pgfqbox", Cmd::Pgfqbox),
     ("pgfmathsetmacro", Cmd::Pgfmathsetmacro),
     ("pgfmathparse", Cmd::Pgfmathparse),
+    ("pgfmathadd", Cmd::PgfmathFunction),
+    ("pgfmathsubtract", Cmd::PgfmathFunction),
+    ("pgfmathmultiply", Cmd::PgfmathFunction),
+    ("pgfmathdivide", Cmd::PgfmathFunction),
+    ("pgfmathmax", Cmd::PgfmathFunction),
+    ("pgfmathmin", Cmd::PgfmathFunction),
+    ("pgfmathmod", Cmd::PgfmathFunction),
+    ("pgfmathpow", Cmd::PgfmathFunction),
+    ("pgfmathveclen", Cmd::PgfmathFunction),
+    ("pgfmathatan2", Cmd::PgfmathFunction),
+    ("pgfmathabs", Cmd::PgfmathFunction),
+    ("pgfmathneg", Cmd::PgfmathFunction),
+    ("pgfmathsqrt", Cmd::PgfmathFunction),
+    ("pgfmathsin", Cmd::PgfmathFunction),
+    ("pgfmathcos", Cmd::PgfmathFunction),
+    ("pgfmathtan", Cmd::PgfmathFunction),
+    ("pgfmathexp", Cmd::PgfmathFunction),
+    ("pgfmathln", Cmd::PgfmathFunction),
+    ("pgfmathround", Cmd::PgfmathFunction),
+    ("pgfmathfloor", Cmd::PgfmathFunction),
+    ("pgfmathceil", Cmd::PgfmathFunction),
+    ("pgfmathint", Cmd::PgfmathFunction),
+    ("pgfmathdeg", Cmd::PgfmathFunction),
+    ("pgfmathrad", Cmd::PgfmathFunction),
+    ("pgfmathsign", Cmd::PgfmathFunction),
     ("pgfmathtruncatemacro", Cmd::Pgfmathtruncatemacro),
     ("pgfmathsetlengthmacro", Cmd::Pgfmathsetlengthmacro),
     ("pgfmathsetcount", Cmd::Pgfmathsetcount),
@@ -230,6 +276,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
+    ("fbox", Cmd::Fbox),
+    ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
     ("pgfsetlayers", Cmd::SetLayers),
@@ -297,6 +345,8 @@ fn path_command(cmd: Cmd) -> Option<&'static str> {
 #[derive(Debug, Clone, Default)]
 struct PgfScope {
     ends: usize,
+    /// the item opened last in it is a fading: a new fading takes its place
+    fading_last: bool,
     /// a path clipped it: what it draws after does not make the picture larger
     pub clipped: bool,
 }
@@ -341,6 +391,8 @@ pub struct Engine {
     on_layer: Vec<(String, Vec<Item>)>,
     /// the last node made (a tree's parent), its name, and how many tree parents were named
     pub last_node: Option<nodes::NodeInfo>,
+    /// the shifts a node's animations move it by (canvas), which its picture's size makes room for
+    pub anim_shifts: Vec<Point>,
     pub last_node_name: Option<String>,
     tree_count: usize,
     /// the chains of the chains library (global, as TikZ keeps their counts)
@@ -351,6 +403,16 @@ pub struct Engine {
     pub after_node_path: Vec<Token>,
     /// The open `local bounding box`es: their names and the group depth they were opened at.
     pub local_boxes: Vec<(String, usize)>,
+    /// The picture's size when each `pgfinterruptboundingbox` opened, restored when it closes.
+    interrupted_boxes: Vec<(Option<Point>, Option<Point>)>,
+    /// For each path statement being read, its `scope fading`s: the fading, where in the items
+    /// what the statement draws begins, `fit fading`, and the transformation when it was given.
+    pub path_fadings: Vec<Vec<(String, usize, bool, Transform)>>,
+    /// The `scope fading`s of a path that drew nothing: the next path is faded.
+    pub carried_fadings: Vec<(String, bool, Transform)>,
+    /// For each path statement being read, the `fading transform` and `fit fading` its options (and
+    /// its nodes') set: what its `scope fading`s use.
+    pub path_fading_settings: Vec<(Transform, bool)>,
     /// the path's last point and where it came from, for `turn` in the next coordinate
     pub turn_from: (crate::scene::Point, crate::scene::Point),
     /// where the path's subpath started (`current subpath start`)
@@ -361,18 +423,36 @@ pub struct Engine {
     pub picture_fadings: HashMap<String, fadings::PictureFading>,
     /// the basic layer's declared shadings
     pub basic_shadings: HashMap<String, shadings::BasicShading>,
+    /// the declared functional shadings
+    pub functional_shadings: HashMap<String, functional::Functional>,
     /// marks declared by `\pgfdeclareplotmark`: their code
     pub plot_marks_declared: HashMap<String, Vec<Token>>,
+    /// plot handlers declared by `\pgfdeclareplothandler`: the code for each point (`##1` the
+    /// point, `#1`… the handler's arguments)
+    pub plot_handlers: HashMap<String, String>,
     /// paths kept by `save path`
     pub saved_paths: HashMap<String, Vec<crate::scene::Segment>>,
+    /// the points `\pgfintersectionofpaths` found (canvas)
+    pub pgf_solutions: Vec<Point>,
     /// patterns declared by the basic layer
     pub user_patterns: HashMap<String, patterns::UserPattern>,
+    /// shapes declared by `\pgfdeclareshape`
+    pub user_shapes: HashMap<String, user_shapes::UserShape>,
+    /// the node `\pgfpositionnodelater` kept: what it draws, where its anchors are, its name
+    pub later_node: Option<(Vec<Item>, nodes::NodeInfo, Option<String>)>,
     /// the text box a node must take (a matrix's cells), instead of its text's
     pub forced_box: Option<(f64, f64, f64)>,
+    /// the shading a node's text is (`\pgfuseshading{name}`), with its half width and height (cm)
+    pub text_shading: Option<(String, f64, f64)>,
+    /// the picture a node's text is (`\begin{tikzpicture}…\end{tikzpicture}`, `\tikz…`): what it
+    /// draws and its box's corners (cm)
+    pub text_picture: Option<(Vec<Item>, Point, Point)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
     pub tree_edge_out: Option<(Vec<Token>, Vec<Token>)>,
+    /// what the `behind path` nodes of the path being built draw, drawn before it
+    pub behind_path: Vec<Item>,
     /// open `\pgfdecoration`s
     pub decoration_envs: Vec<decorations::Env>,
     /// paths kept by `name path`
@@ -383,6 +463,8 @@ pub struct Engine {
     /// the words of the text around the pictures, each with the font it starts in
     words: Vec<(String, String)>,
     /// keys run so far
+    /// `/handlers/first char syntax` was set: keys are checked for a handler of their first character.
+    pub first_char_syntax: bool,
     pub keys_run: usize,
     /// the data visualizations being run, innermost last
     pub datavis: Vec<datavis::Dv>,
@@ -416,12 +498,26 @@ enum Layout {
     /// `\quad`, `\qquad`, `\hspace{…}`: glue of that width (cm)
     Skip(f64),
     Par,
+    /// `\\`: the line ends there
+    Break,
+    /// `center` begins (true) or ends: its lines are centered in the line's width
+    Center(bool),
+    /// a `tabular` begins: its columns' alignments, two bits each (`l` 0, `c` 1, `r` 2), with
+    /// their count in the low byte
+    TabStart(u32),
+    /// `&`, `\\` and the end of a `tabular`
+    Cell,
+    Row,
+    TabEnd,
+    /// the width of the line (cm), in a `\vbox` of that `\hsize`
+    Width(f64),
 }
 
 /// Cap on nested runs (a style calling itself).
 pub const MAX_NESTING: usize = 150;
-/// Cap on keys per figure (styles that multiply: `s/.style={t,t,t,t}`…).
-pub const MAX_KEYS: usize = 200_000;
+/// Cap on keys per figure (styles that multiply: `s/.style={t,t,t,t}`…). The figures of the manuals
+/// and the corpus run at most about 10,000.
+pub const MAX_KEYS: usize = 50_000;
 
 /// Ids at and above this are native keys (`\pgfk@…/.@cmd`), below are commands.
 pub const NATIVE_KEY_BASE: u16 = 1000;
@@ -450,6 +546,7 @@ impl Clone for Engine {
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
+            first_char_syntax: self.first_char_syntax,
             datavis: self.datavis.clone(),
             pgf_path: self.pgf_path.clone(),
             plot_stream: Vec::new(),
@@ -462,17 +559,30 @@ impl Clone for Engine {
             math_kinds: self.math_kinds.clone(),
             after_node_path: Vec::new(),
             local_boxes: Vec::new(),
+            interrupted_boxes: Vec::new(),
+            path_fadings: Vec::new(),
+            carried_fadings: Vec::new(),
+            path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
+            behind_path: Vec::new(),
             tree_child_names: self.tree_child_names.clone(),
             forced_box: self.forced_box,
+            text_shading: None,
+            text_picture: None,
             fadings: self.fadings.clone(),
             picture_fadings: self.picture_fadings.clone(),
             basic_shadings: self.basic_shadings.clone(),
+            functional_shadings: self.functional_shadings.clone(),
             plot_marks_declared: self.plot_marks_declared.clone(),
+            plot_handlers: self.plot_handlers.clone(),
             saved_paths: self.saved_paths.clone(),
+            pgf_solutions: self.pgf_solutions.clone(),
+            anim_shifts: Vec::new(),
             user_patterns: self.user_patterns.clone(),
+            user_shapes: self.user_shapes.clone(),
+            later_node: None,
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
             layer_order: self.layer_order.clone(),
@@ -494,6 +604,7 @@ impl Clone for Engine {
 impl Engine {
     /// A fresh engine with TikZ defined (built once per thread, then cloned).
     pub fn new() -> Engine {
+        arrows::clear_declared();
         PROTOTYPE.with(|p| {
             let mut p = p.borrow_mut();
             if p.is_none() {
@@ -521,6 +632,7 @@ impl Engine {
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
+            first_char_syntax: false,
             datavis: Vec::new(),
             pgf_path: basic::PgfPath::default(),
             plot_stream: Vec::new(),
@@ -533,17 +645,30 @@ impl Engine {
             math_kinds: Default::default(),
             after_node_path: Vec::new(),
             local_boxes: Vec::new(),
+            interrupted_boxes: Vec::new(),
+            path_fadings: Vec::new(),
+            carried_fadings: Vec::new(),
+            path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
             tree_edge_out: None,
+            behind_path: Vec::new(),
             tree_child_names: Vec::new(),
             forced_box: None,
+            text_shading: None,
+            text_picture: None,
             fadings: HashMap::new(),
             picture_fadings: HashMap::new(),
             basic_shadings: HashMap::new(),
+            functional_shadings: HashMap::new(),
             plot_marks_declared: HashMap::new(),
+            plot_handlers: HashMap::new(),
             saved_paths: HashMap::new(),
+            pgf_solutions: Vec::new(),
+            anim_shifts: Vec::new(),
             user_patterns: HashMap::new(),
+            user_shapes: HashMap::new(),
+            later_node: None,
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
             layer_order: vec!["background".into(), "main".into()],
@@ -655,6 +780,29 @@ impl Engine {
             }
             Meaning::Char(_, Cat::Begin) => self.begin_group(),
             Meaning::Char(_, Cat::End) => self.end_group(),
+            // `$=\implies$` in the text around the pictures: a formula, set as a word
+            Meaning::Char(_, Cat::Math) if self.picture_depth == 0 => {
+                let mut formula = Vec::new();
+                while let Some(n) = self.tex.get_token() {
+                    if matches!(self.tex.meaning(&n), Meaning::Char(_, Cat::Math)) {
+                        break;
+                    }
+                    formula.push(n);
+                }
+                if formula.iter().any(|x| x.is_cs("tikz") || x.is_cs("begin")) {
+                    // a picture inside: read as it comes
+                    self.tex.push_tokens(formula);
+                    return Ok(());
+                }
+                let text = format!("${}$", tex::tokens_to_string(&formula));
+                match self.layout.last() {
+                    Some(Layout::Word(i)) => self.words[*i].1.push_str(&text),
+                    _ => {
+                        self.layout.push(Layout::Word(self.words.len()));
+                        self.words.push((self.st.font.clone(), text));
+                    }
+                }
+            }
             Meaning::Prim(Prim::Par) if self.picture_depth == 0 => {
                 if !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
                     self.layout.push(Layout::Par);
@@ -679,6 +827,9 @@ impl Engine {
             Meaning::Undefined => {
                 if let Token::Cs(name) = &t {
                     self.unknown_command(name)?;
+                } else if matches!(t, Token::Char('~', Cat::Active)) && self.picture_depth == 0 {
+                    // `~`: an interword space where the line cannot break
+                    self.layout.push(Layout::Skip(SPACE));
                 }
             }
             _ => {
@@ -692,8 +843,24 @@ impl Engine {
         Ok(())
     }
 
+    /// A box of text in the paragraph, a word of its own (a `tabular`).
+    pub fn typeset_word(&mut self, text: String) {
+        self.layout.push(Layout::Word(self.words.len()));
+        self.words.push((self.st.font.clone(), text));
+    }
+
+    /// Whether a `tabular` around the pictures is open.
+    fn in_table(&self) -> bool {
+        let opened = self.layout.iter().filter(|l| matches!(l, Layout::TabStart(_))).count();
+        opened > self.layout.iter().filter(|l| matches!(l, Layout::TabEnd)).count()
+    }
+
     /// A character outside any statement: TeX would typeset it; in a picture TikZ ignores it.
     fn text(&mut self, c: char) {
+        if self.picture_depth == 0 && c == '&' && self.in_table() {
+            self.layout.push(Layout::Cell);
+            return;
+        }
         if self.picture_depth == 0 && c.is_whitespace() {
             // a space after a picture or a word is TeX's interword space; spaces with commands
             // between them (`\tikzset{…}` on its own line) are glue each, so is one after `\hspace{…}`
@@ -724,6 +891,18 @@ impl Engine {
 
     /// An undefined command: in a picture, the statement it starts is skipped to its `;`.
     fn unknown_command(&mut self, name: &str) -> Result<(), Error> {
+        if self.picture_depth == 0 && name == "\\" {
+            // `\\[2pt]`: the space it asks for is not kept
+            if let Some(t) = self.tex.next_nonspace() {
+                if t.is_char('[') {
+                    let _ = self.tex.read_until_char(']', false)?;
+                } else {
+                    self.tex.back(t);
+                }
+            }
+            self.layout.push(if self.in_table() { Layout::Row } else { Layout::Break });
+            return Ok(());
+        }
         if self.picture_depth > 0 {
             let rest = self.skip_statement()?;
             self.warn(format!("\\{name} not supported: '{}' ignored", rest.chars().take(40).collect::<String>().trim()));
@@ -768,6 +947,7 @@ impl Engine {
             if let Some(s) = self.saved.pop() {
                 self.st = s;
             }
+            self.canvas.overlay = self.st.overlay;
             self.close_local_boxes();
         } else {
             self.warn("extra '}'");
@@ -805,9 +985,20 @@ impl Engine {
 
     /// Opens a canvas item that the current pgf scope closes (a clip, a transparency group).
     pub fn open_in_scope(&mut self, item: Item) {
+        let fading = matches!(item, Item::Fade { .. } | Item::FadePicture { .. });
+        // a fading replaces the scope's fading, as pgf's graphic state holds one
+        if fading && self.scopes.last().is_some_and(|s| s.fading_last && s.ends > 0) {
+            self.canvas.push(Item::End);
+            if let Some(s) = self.scopes.last_mut() {
+                s.ends -= 1;
+            }
+        }
         self.canvas.push(item);
         match self.scopes.last_mut() {
-            Some(s) => s.ends += 1,
+            Some(s) => {
+                s.ends += 1;
+                s.fading_last = fading;
+            }
             None => self.canvas.push(Item::End),
         }
     }
@@ -875,14 +1066,24 @@ impl Engine {
     }
 
     pub fn vars(&self) -> crate::expr::Variables {
-        crate::expr::Variables { values: HashMap::new(), functions: (*self.st.functions).clone(), font_scale: Some(self.st.ambient_size / 10.0) }
+        let sans = self.st.font.contains("\\sffamily");
+        crate::expr::Variables {
+            values: HashMap::new(),
+            functions: (*self.st.functions).clone(),
+            font_scale: Some(self.st.ambient_size / 10.0),
+            in_pt: false,
+            sans,
+            trig_rad: self.st.trig_rad,
+        }
     }
 
-    /// A pgfmath number from text.
+    /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).
     pub fn number(&mut self, text: &str) -> Result<f64, Error> {
         let t = tex::string_tokens(text);
         let s = self.math_string(t)?;
-        crate::expr::eval(&s, &self.vars())
+        let mut vars = self.vars();
+        vars.in_pt = true;
+        crate::expr::eval(&s, &vars)
     }
 
     /// A pgfmath length in cm (a number without a unit is in pt, as pgf reads lengths).
@@ -948,6 +1149,21 @@ impl Engine {
         }
         match cmd {
             Cmd::Node => {
+                // `\node[matrix]` is a `\matrix`
+                if let Some(o) = self.tex.next_nonspace() {
+                    let mut back = vec![o.clone()];
+                    let mut matrix = false;
+                    if o.is_char('[') {
+                        let options = self.tex.read_until_char(']', false)?;
+                        matrix = crate::keys::split_list(&options).iter().any(|i| i.key == "matrix" && i.value.is_none());
+                        back.extend(options);
+                        back.push(Token::other(']'));
+                    }
+                    self.tex.push_tokens(back);
+                    if matrix {
+                        return self.matrix();
+                    }
+                }
                 self.tex.push_tokens(tikra_tokens("node "));
                 let r = path::statement(self, "");
                 self.recover(r, t)
@@ -975,7 +1191,18 @@ impl Engine {
             Cmd::DeclarePatternForm => self.declare_pattern(false),
             Cmd::DeclarePatternColored => self.declare_pattern(true),
             Cmd::SetFillPattern => self.set_fill_pattern(),
-            Cmd::TikzDeclarePattern => self.tikz_declare_pattern(),
+            Cmd::TikzDeclarePattern => self.tikz_declare_pattern(true),
+            Cmd::PgfDeclarePattern => self.tikz_declare_pattern(false),
+            Cmd::ArrowsDeclare => self.arrows_declare(),
+            Cmd::DeclareShape => self.declare_shape(),
+            // `\pgfpositionnodelater{macro}`: the nodes of the group kept, not drawn (the macro,
+            // which would save them, is not run: `\pgfpositionnodenow` places the last one)
+            Cmd::PositionNodeLater => {
+                let _ = self.argument()?;
+                self.st.position_later = true;
+                Ok(())
+            }
+            Cmd::PositionNodeNow => self.position_node_now(),
             Cmd::DeclareShadingH => self.declare_shading('h'),
             Cmd::DeclareShadingV => self.declare_shading('v'),
             Cmd::DeclareShadingR => self.declare_shading('r'),
@@ -987,6 +1214,7 @@ impl Engine {
             Cmd::ApproximateNonlinearTranslation => self.approximate_nonlinear(false),
             Cmd::SetCurvilinear => self.set_curvilinear(),
             Cmd::PointCurvilinear => self.point_curvilinear(),
+            Cmd::PointCurvilinearPolar => self.point_curvilinear_polar(),
             Cmd::ToNumber => self.to_number(),
             Cmd::MathSinCos => self.math_sincos(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
@@ -1056,7 +1284,12 @@ impl Engine {
             }
             Cmd::Tikzset => {
                 let a = self.argument()?;
-                self.keys_command(a, Some("/tikz"), true)
+                self.keys_command(a, Some("/tikz"), true)?;
+                // `\tikzset{xshift=1cm}` in a picture transforms what follows in the group
+                if self.picture_depth > 0 {
+                    self.st.apply_pending();
+                }
+                Ok(())
             }
             Cmd::Pgfset => {
                 let a = self.argument()?;
@@ -1148,6 +1381,12 @@ impl Engine {
                 }
                 Ok(())
             }
+            Cmd::Pgfqbox => {
+                // `\pgfqbox{\box}`: a box put in the picture, outside its size
+                let b = self.argument()?;
+                self.warn(format!("\\pgfqbox{{{}}}: the box is not drawn", tex::tokens_to_string(&b).trim()));
+                Ok(())
+            }
             Cmd::Textcolor => {
                 // text, typeset by TeX: outside nodes it is ignored
                 let _ = self.argument()?;
@@ -1159,8 +1398,10 @@ impl Engine {
                 let expr = self.argument()?;
                 let Some(name) = name.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
                 let text = self.math_string(expr)?;
-                // a result with units is in pt, as pgfmath gives it
-                let v = crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v });
+                // lengths in pt, as pgfmath counts them
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                let v = crate::expr::eval_length(&text, &vars).map(|(v, _)| v);
                 match v {
                     Ok(v) if v.is_finite() => {
                         let s = match cmd {
@@ -1179,9 +1420,37 @@ impl Engine {
             Cmd::Pgfmathparse => {
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                match crate::expr::eval_length(&text, &vars).map(|(v, _)| v) {
                     Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
+                }
+                Ok(())
+            }
+            // `\pgfmathadd{a}{b}` and the other functions as commands: `\pgfmathresult` is their value
+            Cmd::PgfmathFunction => {
+                let name = match t {
+                    Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
+                    _ => return Ok(()),
+                };
+                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
+                let mut args = Vec::new();
+                for _ in 0..n {
+                    let a = self.argument()?;
+                    args.push(format!("({})", self.math_string(a)?));
+                }
+                let text = match name.as_str() {
+                    "add" => format!("{}+{}", args[0], args[1]),
+                    "subtract" => format!("{}-{}", args[0], args[1]),
+                    "multiply" => format!("{}*{}", args[0], args[1]),
+                    "divide" => format!("{}/{}", args[0], args[1]),
+                    "neg" => format!("-{}", args[0]),
+                    other => format!("{other}({})", args.join(",")),
+                };
+                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
+                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
+                    Err(e) => self.warn(format!("\\pgfmath{name}: {e}")),
                 }
                 Ok(())
             }
@@ -1278,6 +1547,39 @@ impl Engine {
                 Ok(())
             }
             // `\hspace{1cm}` (or `\hspace*`) between pictures: the space TeX leaves there
+            // `\fbox{…}`: a frame of `\fboxrule` around the pictures, `\fboxsep` away
+            Cmd::Fbox => {
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    let sep = self.tex.dimens.get(&247).copied().unwrap_or(0) as f64 / 65536.0 * crate::PT;
+                    let rule = self.tex.dimens.get(&246).copied().unwrap_or(0) as f64 / 65536.0 * crate::PT;
+                    for b in &mut self.boxes[start..] {
+                        let (Some(lo), Some(hi)) = (b.canvas.min, b.canvas.max) else { continue };
+                        let d = sep + rule / 2.0;
+                        let (lo, hi) = (Point::new(lo.x - d, lo.y - d), Point::new(hi.x + d, hi.y + d));
+                        use crate::scene::Segment as S;
+                        let segments = vec![S::MoveTo(lo), S::LineTo(Point::new(hi.x, lo.y)), S::LineTo(hi), S::LineTo(Point::new(lo.x, hi.y)), S::Close];
+                        let stroke = crate::canvas::Stroke {
+                            color: crate::color::Color::BLACK,
+                            width: rule,
+                            dash: None,
+                            cap: crate::canvas::Cap::Butt,
+                            join: crate::canvas::Join::Miter,
+                            miter_limit: 10.0,
+                            opacity: 1.0,
+                        };
+                        b.canvas.items.push(Item::Path { segments, fill: None, stroke: Some(stroke) });
+                        b.canvas.include(Point::new(lo.x - rule / 2.0, lo.y - rule / 2.0));
+                        b.canvas.include(Point::new(hi.x + rule / 2.0, hi.y + rule / 2.0));
+                    }
+                }
+                Ok(())
+            }
             Cmd::Hspace => {
                 match self.tex.next_nonspace() {
                     Some(t) if t.is_char('*') => {}
@@ -1289,6 +1591,25 @@ impl Engine {
                     let w = self.length_of(arg)?;
                     self.layout.push(Layout::Skip(w));
                 }
+                Ok(())
+            }
+            // `\hskip 1cm plus 1fil`: glue of its natural width between pictures
+            Cmd::Hskip => {
+                let w = self.tex.scan_dimen()?;
+                for k in ["plus", "minus"] {
+                    if self.tex.scan_keyword(k)? {
+                        let _ = self.tex.scan_dimen();
+                        let _ = self.tex.scan_keyword("fill")? || self.tex.scan_keyword("fil")?;
+                    }
+                }
+                if self.picture_depth == 0 {
+                    self.layout.push(Layout::Skip(w as f64 / 65536.0 * crate::PT));
+                }
+                Ok(())
+            }
+            // the picture's size forgotten: what follows makes it anew
+            Cmd::ResetBoundingBox => {
+                (self.canvas.min, self.canvas.max) = (None, None);
                 Ok(())
             }
             Cmd::Ignore2 => {
@@ -1496,6 +1817,7 @@ impl Engine {
             self.process_keys(o, Some("/tikz")).map_err(|e| Error::Figure(format!("picture options: {e}")))?;
         }
         self.st.apply_pending();
+        self.open_transparency_group();
         // a picture is a scope too: `execute at begin scope` first, its end last
         let mut begin = std::mem::take(&mut self.st.at_begin_scope);
         begin.append(&mut self.st.at_begin_picture);
@@ -1503,6 +1825,18 @@ impl Engine {
         end.append(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
         self.run_tokens(begin)
+    }
+
+    /// `transparency group` given to a scope or a picture: what it draws is a group of its own.
+    fn open_transparency_group(&mut self) {
+        if std::mem::take(&mut self.st.transparency_group) {
+            // the scope's opacity is the group's; inside, everything is opaque
+            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
+            self.open_in_scope(Item::Group { opacity });
+            self.st.draw_opacity = 1.0;
+            self.st.fill_opacity = 1.0;
+            self.st.text_opacity = 1.0;
+        }
     }
 
     /// `\begin{scope}[options]` and `\scoped`: a group, a pgf scope, the options, `execute at begin scope`.
@@ -1519,14 +1853,7 @@ impl Engine {
             }
         }
         self.st.apply_pending();
-        if std::mem::take(&mut self.st.transparency_group) {
-            // the scope's opacity is the group's; inside, everything is opaque
-            let opacity = self.st.fill_opacity.min(self.st.draw_opacity);
-            self.open_in_scope(Item::Group { opacity });
-            self.st.draw_opacity = 1.0;
-            self.st.fill_opacity = 1.0;
-            self.st.text_opacity = 1.0;
-        }
+        self.open_transparency_group();
         let begin = std::mem::take(&mut self.st.at_begin_scope);
         let end = std::mem::take(&mut self.st.at_end_scope);
         self.scope_ends.push(end);
@@ -1597,6 +1924,10 @@ impl Engine {
     /// `\tikra@frame`: the picture's box, and with the frame seps around it, as macros in pt
     /// (`\tikra@xa`… inner, `\tikra@oxa`… outer) for the backgrounds library.
     fn frame_macros(&mut self) -> Result<(), Error> {
+        // once per picture: the frame is around what the picture drew, not around another frame
+        if matches!(self.tex.meaning_of("tikra@xa"), Meaning::Macro(_)) {
+            return Ok(());
+        }
         let (Some(lo), Some(hi)) = (self.canvas.min, self.canvas.max) else { return Ok(()) };
         let sep = |e: &mut Engine, name: &str| -> f64 {
             let v = match e.tex.meaning_of(name) {
@@ -1664,6 +1995,11 @@ impl Engine {
         if outermost {
             let margin = self.canvas.margin;
             let canvas = std::mem::replace(&mut self.canvas, Canvas { margin, ..Canvas::default() });
+            // in a `\vbox` of another `\hsize`, the line is that wide
+            let hsize = self.tex.dimens.get(&255).copied().unwrap_or(0);
+            if hsize != 345 * 65536 && hsize > 0 {
+                self.layout.push(Layout::Width(hsize as f64 / 65536.0 * crate::PT));
+            }
             self.layout.push(Layout::Picture(self.boxes.len()));
             self.boxes.push(PictureBox { canvas, baseline });
         }
@@ -1699,6 +2035,11 @@ impl Engine {
         }
         if let Some(inner) = s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
             return self.coordinate(inner).map(|c| c.p.y).unwrap_or(lower);
+        }
+        // \pgfsetbaselinepointlater{point}: the point's height once the picture is drawn
+        if let Some(point) = s.strip_prefix("tikra@point:") {
+            let t = self.st.transform;
+            return self.point_of(tikra_tokens(point)).map(|p| t.apply(p).y).unwrap_or(lower);
         }
         self.length(s).unwrap_or(lower)
     }
@@ -1755,15 +2096,48 @@ impl Engine {
                 Ok(())
             }
             "pgfviewboxscope" => self.begin_view_box_scope(),
+            // what is drawn inside does not make the picture larger
+            "pgfinterruptboundingbox" => {
+                self.interrupted_boxes.push((self.canvas.min, self.canvas.max));
+                self.begin_group();
+                Ok(())
+            }
             "tikzfadingfrompicture" => {
                 // its \end is read with its body
                 self.tex.env_stack.pop();
                 self.fading_from_picture()
             }
+            "tabular" if self.picture_depth == 0 => {
+                // `\begin{tabular}[pos]{rl}`: the pictures in the cells, set as TeX sets an \halign
+                let _ = self.optional()?;
+                let spec = self.argument_string()?;
+                let cols: Vec<u32> = spec
+                    .chars()
+                    .filter_map(|c| match c {
+                        'l' => Some(0),
+                        'c' => Some(1),
+                        'r' => Some(2),
+                        _ => None,
+                    })
+                    .take(12)
+                    .collect();
+                let code = cols.iter().enumerate().fold(cols.len() as u32, |acc, (k, a)| acc | (a << (8 + 2 * k)));
+                self.layout.push(Layout::TabStart(code));
+                self.begin_group();
+                Ok(())
+            }
             "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
+                if name == "center" && self.picture_depth == 0 {
+                    self.layout.extend([Layout::Par, Layout::Center(true)]);
+                }
                 if name == "minipage" {
                     let _ = self.optional()?;
-                    let _ = self.argument()?;
+                    let width = self.argument()?;
+                    // the page is as wide as the minipage
+                    if self.picture_depth == 0 {
+                        let w = self.length_of(width)?;
+                        self.layout.push(Layout::Width(w));
+                    }
                 } else if name == "figure" {
                     let _ = self.optional()?;
                 }
@@ -1809,6 +2183,12 @@ impl Engine {
                 self.end_group();
             }
             "pgfonlayer" => self.end_on_layer(),
+            "pgfinterruptboundingbox" => {
+                self.end_group();
+                if let Some((min, max)) = self.interrupted_boxes.pop() {
+                    (self.canvas.min, self.canvas.max) = (min, max);
+                }
+            }
             "scope" => {
                 self.close_tikz_scope()?;
                 self.depth = self.depth.saturating_sub(1);
@@ -1818,12 +2198,52 @@ impl Engine {
                     self.run_tokens(end)?;
                 }
                 self.end_group();
+                if name == "center" && self.picture_depth == 0 {
+                    self.layout.extend([Layout::Par, Layout::Center(false)]);
+                }
+                if name == "tabular" && self.picture_depth == 0 {
+                    self.layout.push(Layout::TabEnd);
+                }
             }
         }
         Ok(())
     }
 
     // ---------------------------------------------------------------- \foreach
+
+    /// A pgfmath expression whose value is text: a quoted string (`"-- "`), or `ifthenelse` (or
+    /// `?:`) choosing between two. `None` for a number.
+    fn math_text_value(&mut self, text: &str) -> Result<Option<String>, Error> {
+        let t = text.trim();
+        let t = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')).unwrap_or(t).trim();
+        if !t.contains('"') {
+            return Ok(None);
+        }
+        if let Some(q) = t.strip_prefix('"').and_then(|x| x.strip_suffix('"')).filter(|q| !q.contains('"')) {
+            return Ok(Some(q.to_string()));
+        }
+        // `ifthenelse(condition, a, b)`: its arguments at the commas outside quotes and parentheses
+        // (the closing parenthesis may be missing at the end, as pgfmath lets it)
+        let Some(args) = t.strip_prefix("ifthenelse").map(str::trim).and_then(|a| a.strip_prefix('(')).map(|a| a.strip_suffix(')').unwrap_or(a)) else { return Ok(None) };
+        let mut parts = vec![String::new()];
+        let (mut depth, mut quoted) = (0, false);
+        for c in args.chars() {
+            match c {
+                '"' => quoted = !quoted,
+                '(' if !quoted => depth += 1,
+                ')' if !quoted => depth -= 1,
+                ',' if !quoted && depth == 0 => {
+                    parts.push(String::new());
+                    continue;
+                }
+                _ => {}
+            }
+            parts.last_mut().unwrap().push(c);
+        }
+        let [cond, a, b] = &parts[..] else { return Ok(None) };
+        let pick = if self.number(cond)? != 0.0 { a } else { b };
+        Ok(Some(self.math_text_value(pick)?.unwrap_or_else(|| pick.trim().to_string())))
+    }
 
     /// `\foreach \x/\y [count=\i, evaluate=\x as \v using …, remember=\x as \lastx (initially 0)] in {list} body`
     fn foreach(&mut self) -> Result<(), Error> {
@@ -1868,50 +2288,13 @@ impl Engine {
             }
         }
         let body = self.next_statement()?;
-        let options = crate::keys::split_list(&opts);
-        let mut count: Option<(Token, i64)> = None;
-        let mut remember: Vec<(Token, Token, Option<Vec<Token>>)> = Vec::new();
-        let mut evaluate: Vec<(Token, Option<Token>, Option<Vec<Token>>)> = Vec::new();
-        for o in &options {
-            let v = o.value.clone().unwrap_or_default();
-            let parts: Vec<Token> = v.iter().filter(|t| !t.is_space()).cloned().collect();
-            match o.key.as_str() {
-                "count" => {
-                    // count=\i from 0
-                    let name = parts.first().cloned();
-                    let s = tex::tokens_to_string(&v);
-                    let start = s.split("from").nth(1).and_then(|x| x.trim().parse().ok()).unwrap_or(1);
-                    if let Some(n) = name {
-                        count = Some((n, start));
-                    }
-                }
-                "remember" => {
-                    let s = tex::tokens_to_string(&v);
-                    let initially = s.split("initially").nth(1).map(|x| tex::string_tokens(x.trim().trim_start_matches('(').trim_end_matches(')')));
-                    let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-                    if cs.len() >= 2 {
-                        remember.push((cs[0].clone(), cs[1].clone(), initially));
-                    }
-                }
-                "evaluate" => {
-                    let s = tex::tokens_to_string(&v);
-                    let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-                    let using = s.split("using").nth(1).map(|x| tex::string_tokens(x.trim()));
-                    let target = if s.contains(" as ") { cs.get(1).cloned() } else { None };
-                    if let Some(var) = cs.first() {
-                        evaluate.push((var.clone(), target, using));
-                    }
-                }
-                "parse" => {}
-                _ => {}
-            }
-        }
+        let o = foreach_options(&opts);
         if self.depth >= MAX_DEPTH {
             return Err(Error::Figure(format!("scope/\\foreach nesting went past {MAX_DEPTH} levels")));
         }
         self.depth += 1;
         // remembered values live across iterations
-        let mut memory: Vec<Option<Vec<Token>>> = remember.iter().map(|r| r.2.clone()).collect();
+        let mut memory = o.initial_memory();
         for (k, item) in items.iter().enumerate() {
             self.count_step()?;
             self.begin_group();
@@ -1920,35 +2303,127 @@ impl Engine {
                 let v = parts.get(i).or(parts.last()).cloned().unwrap_or_default();
                 self.tex.set_meaning(name, macro_tokens(v), false);
             }
-            if let Some((n, start)) = &count {
-                self.tex.set_meaning(n, macro_from(&(start + k as i64).to_string()), false);
-            }
-            for ((_, as_name, _), m) in remember.iter().zip(&memory) {
-                if let Some(v) = m {
-                    self.tex.set_meaning(as_name, macro_tokens(v.clone()), false);
-                }
-            }
-            for (var, target, using) in &evaluate {
-                let expr = match using {
-                    Some(u) => u.clone(),
-                    None => vec![var.clone()],
-                };
-                let v = self.number_of(expr)?;
-                let dest = target.clone().unwrap_or_else(|| var.clone());
-                self.tex.set_meaning(&dest, macro_from(&pgf_number(v)), false);
-            }
+            self.foreach_iteration(&o, k, &memory)?;
             let r = self.run_tokens(body.clone());
-            for (i, (var, _, _)) in remember.iter().enumerate() {
-                if let Meaning::Macro(m) = self.tex.meaning(var) {
-                    memory[i] = Some(tex::substitute(&m.body, &[]));
-                }
-            }
+            self.foreach_remember(&o, &mut memory);
             self.end_group();
             r?;
+            // `\breakforeach`: this was the last iteration
+            if matches!(self.tex.meaning_of("tikra@foreach@break"), Meaning::Macro(m) if !m.body.is_empty()) {
+                self.tex.set_meaning(&Token::cs("tikra@foreach@break"), macro_tokens(Vec::new()), true);
+                break;
+            }
         }
         self.depth -= 1;
         Ok(())
     }
+
+    /// What `\foreach`'s options set for iteration `k` (from 0): the count, the remembered values
+    /// (`memory`, the last iteration's), the evaluated variables.
+    pub fn foreach_iteration(&mut self, o: &ForeachOptions, k: usize, memory: &[Option<Vec<Token>>]) -> Result<(), Error> {
+        if let Some((n, start)) = &o.count {
+            self.tex.set_meaning(n, macro_from(&(start + k as i64).to_string()), false);
+        }
+        for ((_, as_name, _), m) in o.remember.iter().zip(memory) {
+            if let Some(v) = m {
+                self.tex.set_meaning(as_name, macro_tokens(v.clone()), false);
+            }
+        }
+        for (var, target, using) in &o.evaluate {
+            let expr = match using {
+                Some(u) => u.clone(),
+                None => vec![var.clone()],
+            };
+            let dest = target.clone().unwrap_or_else(|| var.clone());
+            let text = self.tex.expand_to_string(expr.clone())?;
+            if let Some(s) = self.math_text_value(&text)? {
+                self.tex.set_meaning(&dest, macro_tokens(tikra_tokens(&s)), false);
+                continue;
+            }
+            let v = self.number_of(expr)?;
+            self.tex.set_meaning(&dest, macro_from(&pgf_number(v)), false);
+        }
+        Ok(())
+    }
+
+    /// The values to remember, after an iteration.
+    pub fn foreach_remember(&self, o: &ForeachOptions, memory: &mut [Option<Vec<Token>>]) {
+        for (i, (var, _, _)) in o.remember.iter().enumerate() {
+            if let Meaning::Macro(m) = self.tex.meaning(var) {
+                memory[i] = Some(tex::substitute(&m.body, &[]));
+            }
+        }
+    }
+}
+
+/// `\foreach`'s options: `count=\i from 1`, `remember=\x as \last (initially v)`, `evaluate=\x as
+/// \v using expr` (or `evaluate={\v=expr;}`).
+#[derive(Default)]
+pub struct ForeachOptions {
+    count: Option<(Token, i64)>,
+    remember: Vec<(Token, Token, Option<Vec<Token>>)>,
+    evaluate: Vec<(Token, Option<Token>, Option<Vec<Token>>)>,
+}
+
+impl ForeachOptions {
+    /// What the remembered variables start with (`initially`).
+    pub fn initial_memory(&self) -> Vec<Option<Vec<Token>>> {
+        self.remember.iter().map(|r| r.2.clone()).collect()
+    }
+}
+
+/// The options of a `\foreach` (between its brackets).
+pub fn foreach_options(opts: &[Token]) -> ForeachOptions {
+    let options = crate::keys::split_list(opts);
+    let mut count: Option<(Token, i64)> = None;
+    let mut remember: Vec<(Token, Token, Option<Vec<Token>>)> = Vec::new();
+    let mut evaluate: Vec<(Token, Option<Token>, Option<Vec<Token>>)> = Vec::new();
+    for o in &options {
+        let v = o.value.clone().unwrap_or_default();
+        let parts: Vec<Token> = v.iter().filter(|t| !t.is_space()).cloned().collect();
+        match o.key.as_str() {
+            "count" => {
+                // count=\i from 0
+                let name = parts.first().cloned();
+                let s = tex::tokens_to_string(&v);
+                let start = s.split("from").nth(1).and_then(|x| x.trim().parse().ok()).unwrap_or(1);
+                if let Some(n) = name {
+                    count = Some((n, start));
+                }
+            }
+            "remember" => {
+                let s = tex::tokens_to_string(&v);
+                let initially = s.split("initially").nth(1).map(|x| tex::string_tokens(x.trim().trim_start_matches('(').trim_end_matches(')')));
+                let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
+                if cs.len() >= 2 {
+                    remember.push((cs[0].clone(), cs[1].clone(), initially));
+                }
+            }
+            // `evaluate={\c=\x*10;}`: assignments, each a variable and its expression
+            "evaluate" if !tex::tokens_to_string(&v).contains(" as ") && tex::tokens_to_string(&v).contains('=') => {
+                let s = tex::tokens_to_string(&v);
+                for statement in s.split(';') {
+                    if let Some((name, expr)) = statement.split_once('=') {
+                        if let Some(var) = tikra_tokens(name.trim()).into_iter().find(|t| matches!(t, Token::Cs(_))) {
+                            evaluate.push((var.clone(), Some(var), Some(tikra_tokens(expr.trim()))));
+                        }
+                    }
+                }
+            }
+            "evaluate" => {
+                let s = tex::tokens_to_string(&v);
+                let cs: Vec<Token> = v.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
+                let using = s.split("using").nth(1).map(|x| tikra_tokens(x.trim()));
+                let target = if s.contains(" as ") { cs.get(1).cloned() } else { None };
+                if let Some(var) = cs.first() {
+                    evaluate.push((var.clone(), target, using));
+                }
+            }
+            "parse" => {}
+            _ => {}
+        }
+    }
+    ForeachOptions { count, remember, evaluate }
 }
 
 impl Default for Engine {
@@ -2032,13 +2507,17 @@ fn split_slash(item: &[Token]) -> Vec<Vec<Token>> {
 /// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
 pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
     let mut raw: Vec<Vec<Token>> = Vec::new();
-    let mut current = Vec::new();
+    let mut current: Vec<Token> = Vec::new();
     let mut depth = 0usize;
+    // an item that starts with `(` runs to its `)` (`(0,0), (1,1)`), as pgffor reads it
+    let mut parens = 0usize;
     for t in list {
         match t {
             Token::Char(_, Cat::Begin) => depth += 1,
             Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
-            Token::Char(',', _) if depth == 0 => {
+            Token::Char('(', _) if depth == 0 && (parens > 0 || current.iter().all(Token::is_space)) => parens += 1,
+            Token::Char(')', _) if depth == 0 && parens > 0 => parens -= 1,
+            Token::Char(',', _) if depth == 0 && parens == 0 => {
                 raw.push(std::mem::take(&mut current));
                 continue;
             }
@@ -2102,22 +2581,106 @@ const LINE_SKIP: f64 = 1.0 * crate::PT;
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
 fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
-    let mut lines: Vec<Vec<Layout>> = vec![Vec::new()];
-    for l in layout {
-        match l {
-            Layout::Par => lines.push(Vec::new()),
-            other => lines.last_mut().expect("a line").push(*other),
-        }
-    }
     // the words as TeX sets them, in the text font
     let mut warnings = Vec::new();
     let labels: Vec<crate::scene::Label> = words.iter().map(|(font, w)| crate::label::compose_label(w, font, None, 'l', crate::color::Color::BLACK, &mut warnings)).collect();
+    // each `tabular` becomes a box of its own
+    let (table_boxes, layout) = tables(boxes, layout, &labels);
+    let boxes = &table_boxes[..];
+    let layout = &layout[..];
+    let width_of = |l: &Layout| match l {
+        Layout::Picture(i) => boxes[*i].canvas.min.zip(boxes[*i].canvas.max).map_or(0.0, |(a, b)| b.x - a.x),
+        Layout::Word(i) => labels[*i].width(),
+        Layout::Skip(w) => *w,
+        Layout::Space => SPACE,
+        _ => 0.0,
+    };
+    // the lines: a paragraph ends one, so does `\\` (and `\\` then a paragraph's end leaves an
+    // empty line); in `center` they are centered
+    struct Line {
+        items: Vec<Layout>,
+        center: bool,
+        empty_kept: bool,
+    }
+    let line = |center| Line { items: Vec::new(), center, empty_kept: false };
+    let mut lines = vec![line(false)];
+    let mut center = false;
+    let mut hsize: Option<f64> = None;
+    let mut after_break = false;
+    for l in layout {
+        match l {
+            Layout::Par => {
+                if after_break {
+                    lines.last_mut().expect("a line").empty_kept = true;
+                }
+                lines.push(line(center));
+            }
+            Layout::Break => lines.push(line(center)),
+            Layout::Center(c) => {
+                center = *c;
+                lines.last_mut().expect("a line").center = center;
+            }
+            other => {
+                if let Layout::Width(w) = other {
+                    hsize = Some(*w);
+                }
+                lines.last_mut().expect("a line").items.push(*other);
+            }
+        }
+        after_break = matches!(l, Layout::Break) || (after_break && matches!(l, Layout::Center(_)));
+    }
+    // a line longer than the line's width (when known) is broken at its spaces
+    if let Some(w) = hsize {
+        let mut broken = Vec::new();
+        for l in lines {
+            let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept };
+            let (mut x, mut pending) = (0.0, 0.0);
+            let mut started = false;
+            let mut chunk: Vec<Layout> = Vec::new();
+            let mut chunk_w = 0.0;
+            let flush = |cur: &mut Line, broken: &mut Vec<Line>, chunk: &mut Vec<Layout>, chunk_w: &mut f64, x: &mut f64, pending: &mut f64, started: &mut bool| {
+                if chunk.is_empty() {
+                    return;
+                }
+                let content = chunk.iter().any(|c| matches!(c, Layout::Picture(_) | Layout::Word(_)));
+                if *started && content && *x + *pending + *chunk_w > w + 1e-9 {
+                    let next = Line { items: Vec::new(), center: cur.center, empty_kept: false };
+                    broken.push(std::mem::replace(cur, next));
+                    *x = 0.0;
+                    *pending = 0.0;
+                } else if *started {
+                    cur.items.push(Layout::Space);
+                    *x += *pending;
+                }
+                *pending = 0.0;
+                cur.items.append(chunk);
+                *x += *chunk_w;
+                *chunk_w = 0.0;
+                *started |= content;
+            };
+            for item in l.items {
+                if matches!(item, Layout::Space) {
+                    flush(&mut cur, &mut broken, &mut chunk, &mut chunk_w, &mut x, &mut pending, &mut started);
+                    if started {
+                        pending = SPACE;
+                    }
+                } else {
+                    chunk_w += width_of(&item);
+                    chunk.push(item);
+                }
+            }
+            flush(&mut cur, &mut broken, &mut chunk, &mut chunk_w, &mut x, &mut pending, &mut started);
+            broken.push(cur);
+        }
+        lines = broken;
+    }
     let mut baseline_y = 0.0;
     let mut previous_depth: Option<f64> = None;
     let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
-    for line in lines.iter().filter(|l| l.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && l.iter().any(|x| matches!(x, Layout::Word(_))))) {
+    let shown = |l: &Line| l.items.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && (l.empty_kept || l.items.iter().any(|x| matches!(x, Layout::Word(_)))));
+    for line in lines.iter().filter(|l| shown(l)) {
         let (mut height, mut depth) = (0.0f64, 0.0f64);
-        for l in line {
+        for l in &line.items {
             match l {
                 Layout::Picture(i) => {
                     let b = &boxes[*i];
@@ -2136,12 +2699,23 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
             let gap = BASELINE_SKIP - d - height;
             baseline_y -= if gap >= 0.0 { BASELINE_SKIP } else { d + LINE_SKIP + height };
         }
+        // centered: what the line holds (from its first box) in the middle of its width
         let mut x = 0.0;
+        if let (true, Some(w)) = (line.center, hsize) {
+            let first = line.items.iter().position(|l| matches!(l, Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_))).unwrap_or(line.items.len());
+            let natural: f64 = line.items[first..].iter().map(&width_of).sum();
+            x = ((w - natural) / 2.0).max(0.0);
+        }
         let mut started = false;
-        for l in line {
+        for l in &line.items {
             match l {
                 Layout::Space if started => x += SPACE,
-                Layout::Skip(w) if started => x += w,
+                // glue at the start of a paragraph stays (`\hskip 1cm` before a picture)
+                Layout::Skip(w) => x += w,
+                Layout::Width(w) => {
+                    out.include(Point::new(0.0, baseline_y));
+                    out.include(Point::new(*w, baseline_y));
+                }
                 Layout::Word(i) => {
                     let label = &labels[*i];
                     out.include(Point::new(x, baseline_y - label.depth()));
@@ -2166,7 +2740,8 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                         it.translate(d);
                         out.items.push(it);
                     }
-                    out.include(min.plus(d));
+                    // (what glue moved left of the line's start, `\hskip-1cm`, is off the page)
+                    out.include(Point::new((min.x + d.x).max(0.0), min.y + d.y));
                     out.include(max.plus(d));
                     x += max.x - min.x;
                     started = true;
@@ -2176,7 +2751,129 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         }
         previous_depth = Some(depth);
     }
+    // a `\vbox` of a known `\hsize` is that wide: what sticks out of it is cut off with the page
+    if let (Some(w), Some(lo), Some(hi)) = (hsize, out.min.as_mut(), out.max.as_mut()) {
+        lo.x = 0.0;
+        hi.x = w;
+    }
     out
+}
+
+/// `\tabcolsep`, and the strut of a row (`\arraystretch` 1: 0.7 and 0.3 `\baselineskip`), in cm.
+const TABCOLSEP: f64 = 6.0 * crate::PT;
+const STRUT: (f64, f64) = (8.4 * crate::PT, 3.6 * crate::PT);
+/// The math axis of Computer Modern at 10 pt, which a `tabular` is centered on.
+const MATH_AXIS: f64 = 2.5 * crate::PT;
+
+/// The pictures and words of each `tabular` set in its cells, as one box: its rows one under the
+/// other (struts making them tall enough), its columns as wide as their widest cell with
+/// `\tabcolsep` on both sides, the whole centered on the math axis. Returns the boxes (the
+/// pictures', then the tables') and the layout with each table as one of them.
+fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label]) -> (Vec<PictureBox>, Vec<Layout>) {
+    let mut all: Vec<PictureBox> = boxes.to_vec();
+    if !layout.iter().any(|l| matches!(l, Layout::TabStart(_))) {
+        return (all, layout.to_vec());
+    }
+    // what a cell's item is: its width, and its height and depth around the baseline
+    let measure = |all: &[PictureBox], l: &Layout| -> Option<(f64, f64, f64)> {
+        match l {
+            Layout::Picture(i) => {
+                let b = &all[*i];
+                let (lo, hi) = b.canvas.min.zip(b.canvas.max)?;
+                Some((hi.x - lo.x, hi.y - b.baseline, b.baseline - lo.y))
+            }
+            Layout::Word(i) => Some((labels[*i].width(), labels[*i].height(), labels[*i].depth())),
+            Layout::Skip(w) => Some((*w, 0.0, 0.0)),
+            _ => None,
+        }
+    };
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < layout.len() {
+        let Layout::TabStart(code) = layout[i] else {
+            out.push(layout[i]);
+            i += 1;
+            continue;
+        };
+        let ncols = (code & 0xff) as usize;
+        let align = |k: usize| if k < ncols { (code >> (8 + 2 * k)) & 3 } else { 0 };
+        // the rows and their cells, up to the table's end
+        let mut rows: Vec<Vec<Vec<Layout>>> = vec![vec![Vec::new()]];
+        i += 1;
+        while i < layout.len() && !matches!(layout[i], Layout::TabEnd) {
+            match layout[i] {
+                Layout::Cell => rows.last_mut().expect("a row").push(Vec::new()),
+                Layout::Row => rows.push(vec![Vec::new()]),
+                Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
+                // the line's width stays known
+                Layout::Width(w) if !out.contains(&Layout::Width(w)) => out.push(Layout::Width(w)),
+                _ => {}
+            }
+            i += 1;
+        }
+        i += 1;
+        // `\\` before `\end{tabular}` ends the last row: nothing after it
+        if rows.len() > 1 && rows.last().is_some_and(|r| r.iter().all(Vec::is_empty)) {
+            rows.pop();
+        }
+        let size = |cell: &[Layout]| cell.iter().filter_map(|l| measure(&all, l)).fold((0.0f64, 0.0f64, 0.0f64), |(w, h, d), (a, b, c)| (w + a, h.max(b), d.max(c)));
+        let n = rows.iter().map(Vec::len).max().unwrap_or(0);
+        let widths: Vec<f64> = (0..n).map(|k| rows.iter().filter_map(|r| r.get(k)).map(|c| size(c).0).fold(0.0, f64::max)).collect();
+        let mut canvas = Canvas::default();
+        let mut y = 0.0;
+        for row in &rows {
+            let (h, d) = row.iter().map(|c| size(c)).fold(STRUT, |(h, d), (_, a, b)| (h.max(a), d.max(b)));
+            let base = y - h;
+            let mut x = 0.0;
+            for (k, w) in widths.iter().enumerate() {
+                let cell = row.get(k).map_or(&[][..], Vec::as_slice);
+                let room = w - size(cell).0;
+                let mut cx = x
+                    + TABCOLSEP
+                    + match align(k) {
+                        2 => room,
+                        1 => room / 2.0,
+                        _ => 0.0,
+                    };
+                for l in cell {
+                    match l {
+                        Layout::Picture(p) => {
+                            let b = &all[*p];
+                            let Some((lo, hi)) = b.canvas.min.zip(b.canvas.max) else { continue };
+                            let shift = Point::new(cx - lo.x, base - b.baseline);
+                            for item in &b.canvas.items {
+                                let mut it = item.clone();
+                                it.translate(shift);
+                                canvas.items.push(it);
+                            }
+                            canvas.include(lo.plus(shift));
+                            canvas.include(hi.plus(shift));
+                            cx += hi.x - lo.x;
+                        }
+                        Layout::Word(wd) => {
+                            let label = &labels[*wd];
+                            canvas.items.push(Item::Text { label: label.clone(), place: crate::scene::Transform::translation(cx, base), opacity: 1.0 });
+                            canvas.include(Point::new(cx, base - label.depth()));
+                            canvas.include(Point::new(cx + label.width(), base + label.height()));
+                            cx += label.width();
+                        }
+                        Layout::Skip(s) => cx += s,
+                        _ => {}
+                    }
+                }
+                x += w + 2.0 * TABCOLSEP;
+            }
+            // the table's box: its columns' room and its rows' struts
+            canvas.include(Point::new(0.0, y));
+            canvas.include(Point::new(x, base - d));
+            y = base - d;
+        }
+        // centered on the math axis
+        let baseline = y / 2.0 - MATH_AXIS;
+        out.push(Layout::Picture(all.len()));
+        all.push(PictureBox { canvas, baseline });
+    }
+    (all, out)
 }
 
 /// Runs a whole document (or figure) and returns the canvas and the warnings.

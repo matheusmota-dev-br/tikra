@@ -25,6 +25,10 @@ shape, its color and its size:
 
 A figure *matches* with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size and no missing or extra piece; it is
 *close* with F1 ≥ 0.75.
+
+"Our 100%" leaves out what no converter can reproduce, listed by hand in unreproducible.json: figures
+with unseeded random numbers, with an image file or external program, and with the day's date; and it
+counts as done the figures that differ only by antialiasing, while they stay at least close.
 """
 
 import argparse
@@ -238,6 +242,20 @@ def main():
 
 
 CATS = ["match", "close", "different", "fails"]
+# the figures "our 100%" leaves out, or counts as done (antialiasing only), checked by eye
+LEFT_OUT = json.loads((Path(__file__).parent / "unreproducible.json").read_text())
+KINDS_LEFT_OUT = ("random", "external", "date")
+
+
+def ours(counted):
+    """Our 100%: the figures that can be reproduced, and how many of them tikra draws as TeX does."""
+    out = {i for k in KINDS_LEFT_OUT for i in LEFT_OUT[k]["ids"]}
+    aliased = set(LEFT_OUT["antialiasing"]["ids"])
+    base = [r for r in counted if r["id"] not in out]
+    done = [r for r in base if r["category"] == "match" or (r["id"] in aliased and r["category"] == "close")]
+    left = Counter(k for k in KINDS_LEFT_OUT for r in counted if r["id"] in LEFT_OUT[k]["ids"])
+    regressed = [r["id"] for r in base if r["id"] in aliased and r["category"] not in ("match", "close")]
+    return base, done, left, regressed
 # what counts as a figure: TikZ pictures and the basic layer's pgfpicture
 FIGURE_KINDS = ("tikz", "pgf")
 
@@ -266,6 +284,16 @@ def report_md(results, timing=None):
         f"**{c['match']} of {len(counted)} figures ({pct(c['match'], len(counted))}) match TeX**; "
         f"{c['close']} are close, {c['different']} differ and {c['fails']} fail in tikra. "
         f"{len(silent)} of the ones that do not match came out with no warning.",
+        "",
+    ]
+    base, done, left, regressed = ours(counted)
+    aliased = sum(1 for r in done if r["category"] == "close")
+    out += [
+        f"**Our 100%: {len(done)} of {len(base)} ({pct(len(done), len(base))})**. It leaves out the {sum(left.values())} figures no converter can reproduce "
+        f"({left['random']} with random numbers TeX draws anew on every run, {left['external']} with an image file or external program, "
+        f"{left['date']} with the day's date), and counts as done {aliased} that differ only by antialiasing. The list, checked by eye: "
+        "[unreproducible.json](../tools/conformance/unreproducible.json)."
+        + (f" Listed as antialiasing only but now differing: {', '.join(regressed)}." if regressed else ""),
         "",
         "| | Figures | Match | Close | Different | Fails | Mean F1 |",
         "|---|---:|---:|---:|---:|---:|---:|",

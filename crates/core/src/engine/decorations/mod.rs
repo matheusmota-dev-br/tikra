@@ -582,6 +582,10 @@ impl Engine {
             self.end_group();
             segs = r?;
         }
+        // a name the path still has (a pre- or postaction's `name path`) is the decorated path's
+        if let Some(name) = self.st.name_path.take() {
+            self.named_paths.insert(name, segs.clone());
+        }
         let pre = std::mem::take(&mut self.st.preactions);
         let post = std::mem::take(&mut self.st.postactions);
         for a in pre.iter() {
@@ -681,6 +685,21 @@ impl Engine {
     /// with a moveto.
     pub fn decorate_segments(&mut self, segs: &[Segment], existing: Option<Point>) -> Result<Vec<Segment>, Error> {
         let Some(name) = self.st.decoration.name.clone() else { return Ok(segs.to_vec()) };
+        // pgfplots' `soft clip`: the path cut to `soft clip path`
+        if name.trim() == "soft clip" {
+            let spec = keys::value(&self.tex, "/pgf/decoration/soft clip path").map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+            return Ok(match crate::engine::pgfplots::fillbetween::soft_clip_region(self, &spec) {
+                Some(r) => {
+                    // it starts where the path started
+                    let start = segs.iter().find_map(|s| if let Segment::MoveTo(p) = s { Some(*p) } else { None });
+                    start.map(Segment::MoveTo).into_iter().chain(crate::engine::pgfplots::fillbetween::clip_lines(segs, r)).collect()
+                }
+                None => {
+                    self.warn(format!("soft clip path '{}' not understood: path drawn unclipped", spec.trim()));
+                    segs.to_vec()
+                }
+            });
+        }
         if library::resolve_meta(self, &name).is_none() && library::resolve(self, &name).is_none() {
             self.warn(format!("decoration '{name}' not supported: path drawn undecorated"));
             return Ok(segs.to_vec());
@@ -777,7 +796,7 @@ impl Engine {
         let list = self.argument()?;
         let meta = self.argument_string()? == "1";
         let existing = std::mem::take(&mut self.pgf_path);
-        self.pgf_path = super::basic::PgfPath { segments: Vec::new(), last: existing.last, start: existing.start };
+        self.pgf_path = super::basic::PgfPath { segments: Vec::new(), last: existing.last, start: existing.start, quick: false };
         self.decoration_envs.push(Env { list, meta, existing });
         self.begin_group();
         Ok(())

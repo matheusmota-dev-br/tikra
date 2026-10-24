@@ -166,6 +166,35 @@
   .tile .eq svg { max-width: 100%; height: auto; }
   .tile .cap { font-size: 13px; color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
   .tile .cap span:last-child { color: var(--accent-ink); }
+  /* the gallery page: bigger tiles, each with its actions and its source */
+  .gallery.big { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .gallery.big .tile { cursor: default; }
+  .gallery.big .tile .eq { min-height: 220px; overflow: visible; }
+  /* the whole figure, scaled down to the card (its 10 px white padding included), never cut */
+  .gallery.big .tile .eq svg { width: auto; height: auto; max-width: calc(100% - 20px); max-height: 340px; }
+  /* the home of the gallery: a card per topic */
+  .topic-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .topic-card { display: flex; flex-direction: column; overflow: hidden; color: inherit; text-decoration: none; }
+  .topic-card:hover { border-color: var(--accent); }
+  .topic-card .eq { height: 220px; display: flex; align-items: center; justify-content: center; padding: 16px; border-bottom: 1px solid var(--line); }
+  .topic-card .eq svg { width: auto; height: auto; max-width: calc(100% - 20px); max-height: 190px; background: #fff; border-radius: 8px; padding: 10px; box-sizing: content-box; }
+  .topic-text { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .topic-text h3 { font-family: "STIX Two Text", Georgia, serif; font-weight: 600; font-size: 22px; margin: 0; }
+  .topic-text p { margin: 0; color: var(--muted); font-size: 14px; }
+  .topic-text .stats { color: var(--accent-ink); font-size: 13px; }
+  .gallery-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 18px; }
+  .gallery-tools input { flex: 1; min-width: 220px; max-width: 420px; font: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
+  .tile-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 14px 12px; }
+  .tile-actions .button { padding: 6px 11px; font-size: 12.5px; }
+  .tile-code { margin: 0 14px 14px; padding: 12px; background: var(--surface-2); border-radius: 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+  .gallery-more { margin-top: 16px; }
+  .topics { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  .topics a { font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; }
+  .topics a:hover { color: var(--ink); border-color: var(--ink); }
+  .topic { padding: 28px 0 4px; scroll-margin-top: 16px; }
+  .topic h3 { font-family: "STIX Two Text", Georgia, serif; font-weight: 600; font-size: 24px; margin: 0 0 4px; }
+  .topic h3 .stats { font-family: Inter, system-ui, sans-serif; font-size: 13px; color: var(--muted); font-weight: 400; }
+  .topic .lead { color: var(--muted); margin: 0 0 14px; }
 
   .usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
   .usage > * { min-width: 0; }

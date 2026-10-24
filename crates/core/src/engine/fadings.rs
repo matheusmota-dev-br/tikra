@@ -33,11 +33,12 @@ impl PictureFading {
         Item::FadePicture { items }
     }
 
-    /// The transformation that fits the picture's box onto the box `lo`–`hi` (`fit fading`).
+    /// The transformation that fits the fading onto the box `lo`–`hi` (`fit fading`): as pgf does,
+    /// 50 bp of it around its center become the box.
     fn fit(&self, lo: Point, hi: Point) -> Transform {
-        let (w, h) = ((self.max.x - self.min.x).max(1e-9), (self.max.y - self.min.y).max(1e-9));
+        let side = 50.0 * 2.54 / 72.0;
         let c = lo.lerp(hi, 0.5);
-        Transform::translation(c.x, c.y).compose(&Transform::scaling((hi.x - lo.x) / w, (hi.y - lo.y) / h))
+        Transform::translation(c.x, c.y).compose(&Transform::scaling((hi.x - lo.x).max(1e-9) / side, (hi.y - lo.y).max(1e-9) / side))
     }
 }
 
@@ -54,9 +55,11 @@ impl Engine {
     fn fading_from(&mut self, name: String, code: Vec<Token>) -> Result<(), Error> {
         // a bare shading or text is a picture's content
         let first = code.iter().find(|t| !t.is_space()).cloned();
+        // a shading after settings (`\tikzset{top color=…}\pgfuseshading{axis}`) is a picture's too
+        let shading = code.iter().any(|t| t.is_cs("pgfuseshading"));
         let code = match first {
             Some(Token::Cs(n)) if &*n == "tikz" || &*n == "begin" => code,
-            Some(Token::Cs(n)) if &*n == "pgfuseshading" || &*n == "pgftext" => {
+            Some(Token::Cs(n)) if &*n == "pgfuseshading" || &*n == "pgftext" || shading => {
                 let mut v = tikra_tokens("\\begin{pgfpicture}");
                 v.extend(code);
                 v.extend(tikra_tokens("\\end{pgfpicture}"));
@@ -195,19 +198,62 @@ impl Engine {
 
     /// Opens the fading `name` placed by `t` in the current scope, closed with it.
     pub fn open_fading(&mut self, name: &str, t: Transform) {
-        match self.picture_fadings.get(name) {
-            Some(f) => {
-                let mask = f.mask(&t);
-                self.open_in_scope(mask);
+        if let Some(mask) = self.natural_fading(name, &t) {
+            self.open_in_scope(mask);
+        }
+    }
+
+    /// The `scope fading`s of a path statement, closed with it: each masks what the statement drew,
+    /// fitted to the path's box (`fit fading`, and a path with segments), or else at its natural size
+    /// where it was given. A statement that drew nothing hands them to the next one, as TeX's do.
+    pub fn close_path_fadings(&mut self, fadings: Vec<(String, usize, bool, Transform)>, settings: (Transform, bool)) {
+        let (fading_transform, fit_now) = settings;
+        for (name, start, fit, t) in fadings.into_iter().rev() {
+            let start = start.min(self.canvas.items.len());
+            // the settings the whole statement gave, after the fading's own key
+            let fit = fit && fit_now;
+            let t = t.compose(&fading_transform);
+            if start == self.canvas.items.len() {
+                self.carried_fadings.push((name, fit, t));
+                continue;
             }
-            None => match self.fadings.get(name).cloned() {
-                Some(mut sh) => {
-                    let (crate::canvas::Shading::Axial { transform, .. } | crate::canvas::Shading::Radial { transform, .. }) = &mut sh;
-                    *transform = t.compose(transform);
-                    self.open_in_scope(Item::Fade { mask: sh });
+            let mask = match self.st.path_box.filter(|_| fit) {
+                Some((lo, hi)) => {
+                    let segs = [Segment::MoveTo(lo), Segment::LineTo(Point::new(hi.x, lo.y)), Segment::LineTo(hi), Segment::LineTo(Point::new(lo.x, hi.y)), Segment::Close];
+                    if self.picture_fadings.contains_key(&name) {
+                        self.picture_fading_for(&name, &segs, true)
+                    } else {
+                        self.fading_for(&name, &segs).map(|mask| Item::Fade { mask })
+                    }
                 }
-                None => self.warn(format!("fading '{name}' not supported: drawn without it")),
-            },
+                None => self.natural_fading(&name, &t),
+            };
+            if let Some(mask) = mask {
+                self.canvas.items.insert(start, mask);
+                self.canvas.items.push(Item::End);
+            }
+        }
+    }
+
+    /// A fading at its natural size, centered at the origin of `t`.
+    fn natural_fading(&mut self, name: &str, t: &Transform) -> Option<Item> {
+        if let Some(f) = self.picture_fadings.get(name) {
+            return Some(f.mask(t));
+        }
+        let k = 2.0 * 2.54 / 72.0;
+        if let Some(mask) = super::output::library_fading(name, &t.compose(&Transform::scaling(k, k))) {
+            return Some(Item::Fade { mask });
+        }
+        match self.fadings.get(name).cloned() {
+            Some(mut sh) => {
+                let (crate::canvas::Shading::Axial { transform, .. } | crate::canvas::Shading::Radial { transform, .. }) = &mut sh;
+                *transform = t.compose(transform);
+                Some(Item::Fade { mask: sh })
+            }
+            None => {
+                self.warn(format!("fading '{name}' not supported: drawn without it"));
+                None
+            }
         }
     }
 
@@ -218,7 +264,7 @@ impl Engine {
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
         let t = if fit { f.fit(lo, hi) } else { self.st.transform };
-        let t = t.compose(&Transform::rotation(self.st.fading_angle));
+        let t = t.compose(&self.st.fading_transform);
         Some(f.mask(&t))
     }
 }

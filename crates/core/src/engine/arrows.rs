@@ -162,6 +162,38 @@ enum Old {
     Implies,
     /// the circuits' `direction ee`, as long as its `length` (`\pgfsetarrowoptions`)
     DirectionEe,
+    /// one the document declared with `\pgfarrowsdeclare`: its place among them
+    User(u16),
+}
+
+/// A tip the document declared with `\pgfarrowsdeclare{start}{end}{extents}{code}`: its names and
+/// what its code drew (pt, the tip pointing right with its origin where the line ends).
+#[derive(Debug, Clone)]
+pub struct DeclaredTip {
+    pub names: (String, String),
+    pub left: f64,
+    pub right: f64,
+    /// each path, whether it is filled and stroked, and its line width
+    pub paths: Vec<(Vec<Segment>, bool, bool, f64)>,
+}
+
+thread_local! {
+    /// The tips the document declared, for the figure being drawn.
+    static DECLARED: std::cell::RefCell<Vec<DeclaredTip>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Forgets the tips declared for another figure.
+pub fn clear_declared() {
+    DECLARED.with(|d| d.borrow_mut().clear());
+}
+
+/// Keeps a tip the document declared (a later one of a name wins).
+pub fn declare_tip(tip: DeclaredTip) {
+    DECLARED.with(|d| d.borrow_mut().push(tip));
+}
+
+fn declared(name: &str) -> Option<Kind> {
+    DECLARED.with(|d| d.borrow().iter().rposition(|t| t.names.0 == name || t.names.1 == name)).map(|i| Kind::Old(Old::User(i as u16)))
 }
 
 fn code(name: &str) -> Option<Kind> {
@@ -192,6 +224,7 @@ fn code(name: &str) -> Option<Kind> {
         "Fast Round" => FastRound,
         "Rays" => Rays,
         "_" => Underscore,
+        name if declared(name).is_some() => return declared(name),
         "stealth" => Old(self::Old::Stealth),
         "to" => Old(self::Old::To),
         "to reversed" => Old(self::Old::ToReversed),
@@ -1537,6 +1570,12 @@ fn direction_ee(d: f64, lw: Widths) -> Geometry {
 /// ends at 0 and they have no hull, so they leave the bounding box alone.
 fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
     use Old::*;
+    if let User(i) = o {
+        let tip = DECLARED.with(|d| d.borrow().get(i as usize).cloned());
+        let Some(tip) = tip else { return Geometry { tip: 0.0, back: 0.0, line: 0.0, visual_tip: 0.0, visual_back: 0.0, hull: Vec::new(), shapes: Vec::new() } };
+        let shapes = tip.paths.into_iter().map(|(segs, fill, stroke, width)| Shape { segs, fill, stroke, width, cap: None, join: None }).collect();
+        return Geometry { tip: tip.right, back: tip.left, line: 0.0, visual_tip: tip.right, visual_back: tip.left, hull: Vec::new(), shapes };
+    }
     let t = lw.line;
     let mut p = Pen::default();
     let mut shapes = Vec::new();
@@ -1790,7 +1829,7 @@ fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
             (-1.36 * a - 0.5 * b, 2.06 * a + 0.5 * b)
         }
         // drawn by `direction_ee`, with its length
-        DirectionEe => (0.0, 0.0),
+        DirectionEe | User(_) => (0.0, 0.0),
     };
     Geometry { tip, back, line: 0.0, visual_tip: tip, visual_back: back, hull: Vec::new(), shapes }
 }
@@ -2015,6 +2054,31 @@ impl Curvilinear {
         let bcd = bc.lerp(cd, t);
         [abc.lerp(bcd, t), bcd, cd, d]
     }
+}
+
+/// A path of a tip: its segments, whether it is filled, and its stroke's caps and joins if stroked.
+pub type TipPath = (Vec<Segment>, bool, Option<(Cap, Join)>);
+
+/// The tip `spec` as `\pgfarrowdraw` draws it with lines `line_width` wide (cm), its end at the
+/// origin pointing right: its total length (cm) and its paths, each with whether it is filled and
+/// its stroke's caps and joins if it is stroked. None for an unknown tip.
+pub fn tip_shapes(spec: &str, line_width: f64) -> Option<(f64, Vec<TipPath>)> {
+    let mut warn = Vec::new();
+    let e = EndTips::new(&mut Plain, spec, false, &UserTips::default(), Widths { line: line_width / PT, inner: 0.0 }, 0.0, &mut warn);
+    if !warn.is_empty() || e.is_empty() {
+        return None;
+    }
+    let stroke = Stroke { color: Color::BLACK, width: line_width, dash: None, cap: Cap::Butt, join: Join::Miter, miter_limit: 10.0, opacity: 1.0 };
+    let mut items = Vec::new();
+    e.draw(Point::default(), Point::new(-1.0, 0.0), &stroke, 1.0, &mut items);
+    let paths = items
+        .into_iter()
+        .filter_map(|i| match i {
+            Item::Path { segments, fill, stroke } => Some((segments, fill.is_some(), stroke.map(|s| (s.cap, s.join)))),
+            _ => None,
+        })
+        .collect();
+    Some((e.total * PT, paths))
 }
 
 /// Draws the tip `spec` at `p`, pointing along `d`, for a caller without an engine (the pgfplots

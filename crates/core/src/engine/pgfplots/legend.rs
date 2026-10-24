@@ -27,6 +27,10 @@ impl Cell {
 }
 
 pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
+    // `legend to name`: kept for a `\ref` (that a single run of LaTeX leaves as ??), not drawn
+    if !keys::value(e, "/pgfplots/legend to name").is_empty() {
+        return Ok(());
+    }
     let mut entries: Vec<LegendEntry> = axis.legend.clone();
     if entries.is_empty() {
         if let Some(list) = keys::value_tokens(&*e, "/pgfplots/legend entries") {
@@ -50,6 +54,13 @@ pub fn legend(e: &mut Engine, axis: &Axis, f: &Frame) -> Result<(), Error> {
         e.st.mode = Default::default();
         e.st.pending = Transform::default();
         e.st.node = Default::default();
+        // `legend style={legend pos=…}`: pgfplots applies the legend keys of the style directly,
+        // and what they add to the legend style takes effect at once
+        let mut direct = String::from("/pgfplots/legend style/.code={\\pgfkeysalso{#1}}");
+        for key in ["legend pos", "area legend", "legend cell align", "legend plot pos", "transpose legend", "reverse legend", "legend image code", "legend image post style"] {
+            direct.push_str(&format!(",/tikz/{key}/.code={{\\pgfkeysalso{{/pgfplots/{key}={{#1}}}}}}"));
+        }
+        e.process_keys(toks(&direct), None)?;
         e.process_keys(toks("/pgfplots/every axis legend"), Some("/tikz"))?;
         // `legend style={legend columns=-1}` is set by the style
         let columns = keys::number(e, "/pgfplots/legend columns").unwrap_or(1.0) as i64;
@@ -266,11 +277,12 @@ fn image(e: &mut Engine, spec: &[Token]) -> Result<(), Error> {
                 e.use_path(segs, "legend")?;
             }
             if let Some(mark) = e.st.plot_mark.clone() {
+                // the plot's mark size, not one of `every mark` (as for the plot's marks)
+                let size = e.st.mark_size;
                 e.st.mode = Default::default();
                 e.st.pending = Transform::default();
                 e.process_keys(toks("every mark"), Some("/tikz"))?;
                 let local = e.st.pending;
-                let size = keys::length(e, "/tikz/mark size").unwrap_or(2.0 * PT);
                 visual::draw_mark_set(e, &mark, size, &local, std::iter::once(pts[1]))?;
             }
         }
@@ -307,8 +319,11 @@ fn text_cell(e: &mut Engine, entry: &LegendEntry) -> Result<Cell, Error> {
     })
 }
 
-/// `legend entries={a,b,{c,d}}`.
+/// `legend entries={a,b,{c,d}}`; `{0,...,20}` as `\foreach` reads it.
 fn split(list: &[Token]) -> Vec<LegendEntry> {
+    if tex::tokens_to_string(list).contains("...") {
+        return super::super::foreach_items(list).into_iter().map(|v| LegendEntry { options: Vec::new(), text: tex::strip_outer_braces(v) }).collect();
+    }
     let mut out = Vec::new();
     let mut cur = Vec::new();
     let mut depth = 0usize;
@@ -327,7 +342,8 @@ fn split(list: &[Token]) -> Vec<LegendEntry> {
     out.push(cur);
     out.into_iter()
         .map(|v| {
-            let (options, text) = super::split_options(crate::keys::trim(&v).to_vec());
+            // `{[text width=25pt]Neg. Sign:}`: the braces of the list item go first
+            let (options, text) = super::split_options(tex::strip_outer_braces(crate::keys::trim(&v).to_vec()));
             LegendEntry { options, text: tex::strip_outer_braces(text) }
         })
         .collect()

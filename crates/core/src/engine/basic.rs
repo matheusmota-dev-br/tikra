@@ -95,6 +95,39 @@ enum B {
     UsePlotMark,
     PlotMarkSize,
     DeclarePlotMark,
+    Triangle,
+    ArrowFrame,
+    LineAtTime,
+    CurveAtTime,
+    ArcAxesAtTime,
+    Invert,
+    Adjustments,
+    LowLevel,
+    LowLevelObj,
+    LowLevelSync,
+    NonlinearFlatness,
+    QMoveTo,
+    QLineTo,
+    QCurveTo,
+    QCircle,
+    ArcTo,
+    ArcToPrecomputed,
+    DeclareFunctional,
+    ShadeColorToRgb,
+    GetPath,
+    SetPath,
+    IntersectionOfPaths,
+    SetKeys,
+    DecToBase,
+    ToDigitList,
+    InnerLineWidth,
+    InnerStrokeColor,
+    Baseline,
+    BaselineLater,
+    BaselineNow,
+    Svg,
+    DeclarePlotHandler,
+    UsePlotHandler,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -196,7 +229,102 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfuseplotmark", B::UsePlotMark),
     ("pgfsetplotmarksize", B::PlotMarkSize),
     ("pgfdeclareplotmark", B::DeclarePlotMark),
+    ("pgftransformtriangle", B::Triangle),
+    ("pgftransformarrow", B::ArrowFrame),
+    ("pgftransformlineattime", B::LineAtTime),
+    ("pgftransformcurveattime", B::CurveAtTime),
+    ("pgftransformarcaxesattime", B::ArcAxesAtTime),
+    ("pgftransforminvert", B::Invert),
+    ("pgftransformationadjustments", B::Adjustments),
+    ("pgflowlevel", B::LowLevel),
+    ("pgflowlevelobj", B::LowLevelObj),
+    ("pgflowlevelsynccm", B::LowLevelSync),
+    ("pgfsettransformnonlinearflatness", B::NonlinearFlatness),
+    ("pgfpathqmoveto", B::QMoveTo),
+    ("pgfpathqlineto", B::QLineTo),
+    ("pgfpathqcurveto", B::QCurveTo),
+    ("pgfpathqcircle", B::QCircle),
+    ("pgfpatharcto", B::ArcTo),
+    ("pgfpatharctoprecomputed", B::ArcToPrecomputed),
+    ("pgfdeclarefunctionalshading", B::DeclareFunctional),
+    ("pgfshadecolortorgb", B::ShadeColorToRgb),
+    ("pgfgetpath", B::GetPath),
+    ("pgfsetpath", B::SetPath),
+    ("pgfintersectionofpaths", B::IntersectionOfPaths),
+    ("setkeys", B::SetKeys),
+    ("pgfmathdectobase", B::DecToBase),
+    ("pgfmathtodigitlist", B::ToDigitList),
+    ("pgfsetinnerlinewidth", B::InnerLineWidth),
+    ("pgfsetinnerstrokecolor", B::InnerStrokeColor),
+    ("pgfsetbaseline", B::Baseline),
+    ("pgfsetbaselinepointlater", B::BaselineLater),
+    ("pgfsetbaselinepointnow", B::BaselineNow),
+    ("pgfpathsvg", B::Svg),
+    ("pgfdeclareplothandler", B::DeclarePlotHandler),
+    ("tikra@plothandler", B::UsePlotHandler),
 ];
+
+/// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
+/// transformation adjustments before they are computed, and `pgflowlevelscope`. The animations of the
+/// system and basic layers take their arguments and do nothing: a still picture shows what they
+/// animate in its base state.
+pub const DEFINITIONS: &str = r"
+\newif\ifpgfslopedattime \newif\ifpgfallowupsidedownattime \newif\ifpgfresetnontranslationattime
+\def\pgfhorizontaltransformationadjustment{1}\def\pgfverticaltransformationadjustment{1}
+\newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
+\def\pgfidrefnextuse#1#2{\def#1{}}\def\pgfidrefprevuse#1#2{\def#1{}}
+\def\pgfsetblendmode#1{\tikzset{blend mode={#1}}}
+\def\tikzdeclarecoordinatesystem#1#2{\expandafter\def\csname tikra@cs@#1\endcsname##1{#2}}
+\def\define@key#1#2{\expandafter\def\csname KV@#1@#2\endcsname##1}
+\def\pgfmathsetbasenumberlength#1{\def\pgfmathbasenumberlength{#1}}\def\pgfmathbasenumberlength{1}
+% pgfmath's commands of one function: \pgfmathresult is its value
+\def\pgfmathsin#1{\pgfmathparse{sin(#1)}}
+\def\pgfmathcos#1{\pgfmathparse{cos(#1)}}
+\def\pgfmathtan#1{\pgfmathparse{tan(#1)}}
+\def\pgfmathsqrt#1{\pgfmathparse{sqrt(#1)}}
+\def\pgfmathabs#1{\pgfmathparse{abs(#1)}}
+\def\pgfmathneg#1{\pgfmathparse{neg(#1)}}
+\def\pgfmathround#1{\pgfmathparse{round(#1)}}
+\def\pgfmathfloor#1{\pgfmathparse{floor(#1)}}
+\def\pgfmathceil#1{\pgfmathparse{ceil(#1)}}
+\def\pgfmathexp#1{\pgfmathparse{exp(#1)}}
+\def\pgfmathln#1{\pgfmathparse{ln(#1)}}
+\def\pgfmathdeg#1{\pgfmathparse{deg(#1)}}
+\def\pgfmathrad#1{\pgfmathparse{rad(#1)}}
+\def\pgfmathint#1{\pgfmathparse{int(#1)}}
+\def\pgfmathfrac#1{\pgfmathparse{frac(#1)}}
+\def\pgfmathasin#1{\pgfmathparse{asin(#1)}}
+\def\pgfmathacos#1{\pgfmathparse{acos(#1)}}
+\def\pgfmathatan#1{\pgfmathparse{atan(#1)}}
+\def\pgfmathadd#1#2{\pgfmathparse{(#1)+(#2)}}
+\def\pgfmathsubtract#1#2{\pgfmathparse{(#1)-(#2)}}
+\def\pgfmathmultiply#1#2{\pgfmathparse{(#1)*(#2)}}
+\def\pgfmathdivide#1#2{\pgfmathparse{(#1)/(#2)}}
+\def\pgfmathmax#1#2{\pgfmathparse{max(#1,#2)}}
+\def\pgfmathmin#1#2{\pgfmathparse{min(#1,#2)}}
+\def\pgfmathmod#1#2{\pgfmathparse{mod(#1,#2)}}
+\def\pgfmathveclen#1#2{\pgfmathparse{veclen(#1,#2)}}
+\def\pgfmathpow#1#2{\pgfmathparse{pow(#1,#2)}}
+\def\pgfmathatan2#1#2{\pgfmathparse{atan2(#1,#2)}}
+\def\pgfmathreciprocal#1{\pgfmathparse{1/(#1)}}
+\def\breakforeach{\gdef\tikra@foreach@break{1}}
+\def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
+\def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
+\def\pgfsysanimkeyrestartalways{}\def\pgfsysanimkeyrestartnever{}\def\pgfsysanimkeyrestartwhennotactive{}
+\def\pgfsysanimkeyrepeat#1{}\def\pgfsysanimkeyrepeatindefinite{}\def\pgfsysanimkeyrepeatdur#1{}
+\def\pgfsysanimkeyfreezeatend{}\def\pgfsysanimkeyremoveatend{}\def\pgfsysanimkeytime#1#2#3#4#5{}
+\def\pgfsysanimkeybase{}\def\pgfsysanimkeysnapshotstart#1{}\def\pgfsysanimkeyoffset#1#2{}
+\def\pgfsysanimkeysyncbegin#1#2#3#4{}\def\pgfsysanimkeysyncend#1#2#3#4{}
+\def\pgfsysanimkeyevent#1#2#3#4#5{}\def\pgfsysanimkeyrepeatevent#1#2#3#4#5{}
+\def\pgfsysanimkeyaccesskey#1#2#3{}\def\pgfsysanimkeyaccumulate{}\def\pgfsysanimkeynoaccumulate{}
+\def\pgfsysanimkeywhom#1#2{}\def\pgfsysanimkeyrotatealong{}\def\pgfsysanimkeynorotatealong{}
+\def\pgfsysanimkeymovealong#1{}\def\pgfsysanimkeytipmarkers#1#2{}\def\pgfsysanimkeycanvastransform#1#2{}
+\def\pgfsysanimvalcurrent{}\def\pgfsysanimvalnone{}\def\pgfsysanimvaltext#1{}\def\pgfsysanimvalscalar#1{}
+\def\pgfsysanimvaldimension#1{}\def\pgfsysanimvalcolor#1{}\def\pgfsysanimvalcolorrgb#1#2#3{}
+\def\pgfsysanimvalcolorcmyk#1#2#3#4{}\def\pgfsysanimvalcolorcmy#1#2#3{}\def\pgfsysanimvalcolorgray#1{}
+\def\pgfsysanimvalpath#1{}\def\pgfsysanimvaltranslate#1#2{}\def\pgfsysanimvalscale#1#2{}
+\def\pgfsysanimvalviewbox#1#2#3#4{}\def\pgfsysanimvaldash#1#2{}
+";
 
 /// The basic layer's plot handlers, by command, as TikZ's `plot` names them.
 const PLOT_HANDLERS: &[(&str, &str)] = &[
@@ -248,20 +376,30 @@ const POINTS: &[&str] = &[
     "pgfpointshapeborder",
     "pgfpointintersectionoflines",
     "pgfpointtransformed",
+    "pgfpointarcaxesattime",
+    "pgfpointintersectionsolution",
+    "pgfplotspointaxisxy",
+    "pgfplotspointaxisxyz",
+    "pgfplotspointaxisdirectionxy",
+    "pgfplotspointaxisdirectionxyz",
 ];
 
 pub fn define(e: &mut Engine) {
     for (i, (name, _)) in COMMANDS.iter().enumerate() {
         e.tex.define(name, Meaning::Native(BASE + i as u16));
     }
-    // points are read by the commands that take them; on their own they do nothing
-    for name in POINTS {
-        e.tex.define(name, Meaning::Prim(tex::Prim::Relax));
+    // points are read by the commands that take them; on their own they put the point in
+    // `\pgf@x` and `\pgf@y`
+    for (i, name) in POINTS.iter().enumerate() {
+        e.tex.define(name, Meaning::Native(POINT_BASE + i as u16));
     }
 }
 
+/// Where the points' ids start, as statements.
+const POINT_BASE: u16 = 700;
+
 pub fn is_basic(id: u16) -> bool {
-    (BASE..BASE + COMMANDS.len() as u16).contains(&id)
+    (BASE..BASE + COMMANDS.len() as u16).contains(&id) || (POINT_BASE..POINT_BASE + POINTS.len() as u16).contains(&id)
 }
 
 /// The basic layer's path being built, in canvas coordinates.
@@ -270,6 +408,8 @@ pub struct PgfPath {
     pub segments: Vec<Segment>,
     pub last: Option<Point>,
     pub start: Option<Point>,
+    /// built by the quick commands only (`\pgfpathqmoveto`…): it does not make the picture larger
+    pub quick: bool,
 }
 
 impl Engine {
@@ -345,6 +485,24 @@ impl Engine {
                 let z = arg(self)?;
                 let (x, y, z) = (self.number_of(x)?, self.number_of(y)?, self.number_of(z)?);
                 self.st.x.scale(x).plus(self.st.y.scale(y)).plus(self.st.z.scale(z))
+            }
+            // pgfplots: a point of the axis being drawn (`axis cs`), or a direction in it
+            "pgfplotspointaxisxy" | "pgfplotspointaxisxyz" | "pgfplotspointaxisdirectionxy" | "pgfplotspointaxisdirectionxyz" => {
+                let n = if name.ends_with("xyz") { 3 } else { 2 };
+                let mut v = [0.0; 3];
+                for x in v.iter_mut().take(n) {
+                    let a = arg(self)?;
+                    *x = self.number_of(a)?;
+                }
+                let Some(f) = self.frame.clone() else { return Err(Error::Figure(format!("\\{name} outside an axis"))) };
+                let inverse = self.st.transform.inverse();
+                if name.contains("direction") {
+                    let d = (0..n).fold(Point::default(), |p, a| p.plus(f.e[a].scale(v[a])));
+                    inverse.apply(d).minus(inverse.apply(Point::default()))
+                } else {
+                    let l = [f.logical(0, v[0]), f.logical(1, v[1]), if n == 3 { f.logical(2, v[2]) } else { f.min[2] }];
+                    inverse.apply(f.at(l))
+                }
             }
             "pgfpointpolarxy" => {
                 let a = arg(self)?;
@@ -448,6 +606,15 @@ impl Engine {
                 let t = ((p[2].x - p[0].x) * s.y - (p[2].y - p[0].y) * s.x) / den;
                 p[0].plus(r.scale(t))
             }
+            "pgfpointarcaxesattime" => self.arc_axes_at_time()?.0,
+            "pgfpointintersectionsolution" => {
+                // the solution (counted from 1) in the current coordinate system
+                let k = arg(self)?;
+                let k = self.number_of(k)?;
+                let p = (k >= 1.0).then(|| self.pgf_solutions.get(k as usize - 1).copied()).flatten();
+                let p = p.ok_or_else(|| Error::Figure(format!("no intersection {k}")))?;
+                self.st.transform.inverse().apply(p)
+            }
             "pgfpointtransformed" => {
                 let p = arg(self)?;
                 let p = self.point_of(p)?;
@@ -458,6 +625,7 @@ impl Engine {
     }
 
     pub fn pgf_add(&mut self, s: Segment) {
+        self.pgf_path.quick = false;
         let p = match s {
             Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(p),
             Segment::Close => self.pgf_path.start,
@@ -481,7 +649,10 @@ impl Engine {
     /// Uses the basic layer's path with `actions` (`fill`, `stroke`, `draw`, `clip`, `discard`…).
     fn pgf_use(&mut self, actions: &str) -> Result<(), Error> {
         let segs = std::mem::take(&mut self.pgf_path.segments);
+        let quick = std::mem::take(&mut self.pgf_path.quick);
         self.pgf_path = PgfPath::default();
+        let frozen = self.canvas_frozen;
+        self.canvas_frozen |= quick;
         self.begin_group();
         self.st.mode = Mode::default();
         for a in actions.split(',').map(str::trim) {
@@ -499,6 +670,9 @@ impl Engine {
         // the clip outlives this group: it belongs to the pgf scope around
         let r = self.use_path(segs, "\\pgfusepath");
         self.end_group();
+        if quick {
+            self.canvas_frozen = frozen;
+        }
         r
     }
 
@@ -513,6 +687,15 @@ impl Engine {
     }
 
     pub fn basic_command(&mut self, id: u16) -> Result<(), Error> {
+        if id >= POINT_BASE {
+            // a point on its own: into `\pgf@x`, `\pgf@y` (pt), in the current coordinate system
+            let Some(name) = POINTS.get((id - POINT_BASE) as usize) else { return Ok(()) };
+            self.tex.back(Token::cs(name));
+            let p = self.point_here(0)?;
+            self.tex.dimens.insert(4050, (p.x / crate::PT * 65536.0).round() as i64);
+            self.tex.dimens.insert(4051, (p.y / crate::PT * 65536.0).round() as i64);
+            return Ok(());
+        }
         let Some(&(_, cmd)) = COMMANDS.get((id - BASE) as usize) else { return Ok(()) };
         let t = self.st.transform;
         match cmd {
@@ -608,11 +791,15 @@ impl Engine {
                 let mut step = (1.0, 1.0);
                 if let Some(o) = self.optional()? {
                     for item in crate::keys::split_list(&o) {
-                        let v = item.value.map(|v| self.length_of(v)).transpose()?;
-                        match (item.key.as_str(), v) {
-                            ("step", Some(_)) => {}
-                            ("stepx", Some(v)) => step.0 = v,
-                            ("stepy", Some(v)) => step.1 = v,
+                        let Some(v) = item.value else { continue };
+                        match item.key.as_str() {
+                            // a point: its x and y
+                            "step" => {
+                                let p = self.point_of(v)?;
+                                step = (p.x.abs(), p.y.abs());
+                            }
+                            "stepx" => step.0 = self.length_of(v)?,
+                            "stepy" => step.1 = self.length_of(v)?,
                             _ => {}
                         }
                     }
@@ -700,8 +887,12 @@ impl Engine {
                 match self.color(&c) {
                     Some(c) => match cmd {
                         B::StrokeColor => self.st.draw_color = Some(c),
-                        B::FillColor => self.st.fill_color = Some(c),
+                        B::FillColor => {
+                            self.st.fill_color = Some(c);
+                            self.st.fill_pattern = false;
+                        }
                         _ => {
+                            self.st.fill_pattern = false;
                             self.st.color = c;
                             self.st.draw_color = None;
                             self.st.fill_color = None;
@@ -838,7 +1029,8 @@ impl Engine {
                     (y, "") => y.to_string(),
                     (y, x) => format!("{y} {x}"),
                 };
-                let place = t.apply(at);
+                // under a nonlinear transformation, the text goes where its point goes
+                let place = if self.st.nonlinear.is_empty() { t.apply(at) } else { self.nonlinear_point(t.apply(at))? };
                 // a shading as the text: its box, placed by the anchor (its baseline is its bottom)
                 let words: Vec<&Token> = text.iter().filter(|x| !x.is_space()).collect();
                 if let [Token::Cs(cmd), ..] = words[..] {
@@ -864,7 +1056,10 @@ impl Engine {
                         }
                     }
                 }
-                let options = tikra_tokens(&format!("shape=rectangle,inner sep=0pt,outer sep=0pt,anchor={anchor},rotate={rotate}"));
+                // the text is scaled and turned by the transformation in force, as pgf boxes it
+                let linear = t.a != 1.0 || t.b != 0.0 || t.c != 0.0 || t.d != 1.0;
+                let shape = if linear { ",transform shape" } else { "" };
+                let options = tikra_tokens(&format!("shape=rectangle,inner sep=0pt,outer sep=0pt,anchor={anchor},rotate={rotate}{shape}"));
                 let items = self.node(NodeSpec { options, name: None, at: Some(place), text, place: OnPath::Point(place), point: place, coordinate: false, default_pos: None })?;
                 self.canvas.items.extend(items);
             }
@@ -877,7 +1072,8 @@ impl Engine {
                 let name = self.argument_string()?;
                 let usage = self.argument()?;
                 let usage = tex::tokens_to_string(&usage);
-                let mut opts = format!("shape={shape},anchor={anchor}");
+                // pgf's nodes are in the whole transformation, not only its shift
+                let mut opts = format!("shape={shape},anchor={anchor},transform shape");
                 if usage.contains("stroke") || usage.contains("draw") {
                     opts.push_str(",draw");
                 }
@@ -983,12 +1179,345 @@ impl Engine {
                 let code = self.argument()?;
                 self.plot_marks_declared.insert(name.trim().to_string(), code);
             }
+            B::Triangle => {
+                // the origin goes to the first point, (1pt,0pt) to the second, (0pt,1pt) to the third
+                let o = self.point_arg()?;
+                let x = self.point_arg()?;
+                let y = self.point_arg()?;
+                let (x, y) = (x.minus(o).scale(1.0 / PT), y.minus(o).scale(1.0 / PT));
+                self.st.transform = t.compose(&Transform { a: x.x, b: x.y, c: y.x, d: y.y, e: o.x, f: o.y });
+            }
+            B::ArrowFrame => {
+                // at the end point, the x axis pointing away from the start
+                let from = self.point_arg()?;
+                let to = self.point_arg()?;
+                let d = to.minus(from);
+                let d = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+                self.st.transform = t.compose(&Transform { a: d.x, b: d.y, c: -d.y, d: d.x, e: to.x, f: to.y });
+            }
+            B::LineAtTime => {
+                let time = self.argument()?;
+                let time = self.number_of(time)?;
+                let p = self.point_arg()?;
+                let q = self.point_arg()?;
+                self.transform_at_time(p.lerp(q, time), q.minus(p));
+            }
+            B::CurveAtTime => {
+                let time = self.argument()?;
+                let s = self.number_of(time)?;
+                let mut c = [Point::default(); 4];
+                for p in &mut c {
+                    *p = self.point_arg()?;
+                }
+                let u = 1.0 - s;
+                let at = c[0].scale(u * u * u).plus(c[1].scale(3.0 * u * u * s)).plus(c[2].scale(3.0 * u * s * s)).plus(c[3].scale(s * s * s));
+                let tangent = c[1].minus(c[0]).scale(u * u).plus(c[2].minus(c[1]).scale(2.0 * u * s)).plus(c[3].minus(c[2]).scale(s * s));
+                self.transform_at_time(at, tangent);
+            }
+            B::ArcAxesAtTime => {
+                let (at, tangent) = self.arc_axes_at_time()?;
+                self.transform_at_time(at, tangent);
+            }
+            B::Invert => self.st.transform = t.inverse(),
+            B::Adjustments => {
+                // how much a horizontal and a vertical length shrink to come out at their size
+                let h = 1.0 / t.linear(Point::new(1.0, 0.0)).norm().max(1e-12);
+                let v = 1.0 / t.linear(Point::new(0.0, 1.0)).norm().max(1e-12);
+                for (name, value) in [("pgfhorizontaltransformationadjustment", h), ("pgfverticaltransformationadjustment", v)] {
+                    self.tex.set_meaning(&Token::cs(name), super::macro_tokens(tikra_tokens(&format!("{value}"))), false);
+                }
+            }
+            B::LowLevel => {
+                let code = self.argument()?;
+                self.low_level(code)?;
+            }
+            B::LowLevelObj => {
+                let code = self.argument()?;
+                let body = self.argument()?;
+                self.begin_group();
+                self.begin_scope();
+                let r = self.low_level(code).and_then(|()| self.run_tokens(body));
+                self.end_scope();
+                self.end_group();
+                r?;
+            }
+            B::LowLevelSync => {
+                // the coordinate transformation moves to the canvas, line widths and all
+                self.open_in_scope(crate::canvas::Item::Transform { transform: t });
+                self.st.transform = Transform::default();
+            }
+            B::NonlinearFlatness => {
+                let _ = self.argument()?;
+            }
+            B::QMoveTo | B::QLineTo | B::QCurveTo | B::QCircle => {
+                // the quick commands take canvas lengths, untransformed; a path of them only does
+                // not make the picture larger
+                let quick = self.pgf_path.segments.is_empty() || self.pgf_path.quick;
+                self.quick_path(cmd)?;
+                self.pgf_path.quick = quick;
+            }
+            B::ArcTo => {
+                // {x radius}{y radius}{rotation}{large arc}{counterclockwise}{target}, as SVG's arc
+                let rx = self.argument()?;
+                let ry = self.argument()?;
+                let rot = self.argument()?;
+                let large = self.argument()?;
+                let ccw = self.argument()?;
+                let (rx, ry, rot) = (self.length_of(rx)?.abs(), self.length_of(ry)?.abs(), self.number_of(rot)?);
+                let (large, ccw) = (self.number_of(large)? != 0.0, self.number_of(ccw)? != 0.0);
+                let to = self.point_arg()?;
+                let from = self.last_local();
+                for s in super::path::svg_arc_segments(from.scale(1.0 / PT), to.scale(1.0 / PT), rx / PT, ry / PT, rot, large, ccw, &t) {
+                    self.pgf_add(s);
+                }
+                self.pgf_path.last = Some(t.apply(to));
+            }
+            B::DeclareFunctional => self.declare_functional_shading()?,
+            // the picture's baseline: a height, a point's (evaluated now or when the picture ends)
+            B::DeclarePlotHandler => {
+                // \pgfdeclareplothandler{\macro}{#1…}{point=code}: \macro{args} makes it the
+                // plot handler, the code run at each point
+                let name = self.argument()?;
+                let params = self.argument()?;
+                let options = self.argument()?;
+                let Some(Token::Cs(name)) = name.into_iter().find(|t| matches!(t, Token::Cs(_))) else { return Ok(()) };
+                let n = params.iter().filter(|t| matches!(t, Token::Char(_, tex::Cat::Param))).count();
+                let mut point = String::new();
+                for item in crate::keys::split_list(&options) {
+                    if item.key.trim() == "point" {
+                        point = tex::tokens_to_string(&item.value.unwrap_or_default());
+                    }
+                }
+                self.plot_handlers.insert(name.to_string(), point);
+                let args: String = (1..=n).map(|k| format!("{{#{k}}}")).collect();
+                let params: String = (1..=n).map(|k| format!("#{k}")).collect();
+                self.run_tokens(tikra_tokens(&format!("\\def\\{name}{params}{{\\tikra@plothandler{{{name}}}{{{args}}}}}")))?;
+            }
+            B::UsePlotHandler => {
+                let name = self.argument_string()?;
+                let args = self.argument()?;
+                self.st.basic_plot = (format!("custom:{name}"), args);
+            }
+            B::Svg => {
+                let data = self.argument_string()?;
+                for s in super::path::svg_path(self, &data, self.pgf_path.last) {
+                    self.pgf_add(s);
+                }
+            }
+            B::Baseline => {
+                let v = self.argument_string()?;
+                self.st.baseline = Some(v);
+            }
+            B::BaselineLater => {
+                let p = self.argument()?;
+                self.st.baseline = Some(format!("tikra@point:{}", tex::tokens_to_string(&p)));
+            }
+            B::BaselineNow => {
+                let p = self.point_arg()?;
+                self.st.baseline = Some(format!("{}pt", t.apply(p).y / PT));
+            }
+            B::InnerLineWidth => {
+                let v = self.argument()?;
+                self.st.inner_line.0 = self.length_of(v)?;
+            }
+            B::InnerStrokeColor => {
+                let c = self.argument_string()?;
+                match self.color(&c) {
+                    Some(c) => self.st.inner_line.1 = Some(c),
+                    None => self.warn(format!("unknown color '{c}'")),
+                }
+            }
+            B::DecToBase => {
+                // \pgfmathdectobase{\macro}{number}{base}: its digits, padded with zeros to
+                // \pgfmathbasenumberlength
+                let target = self.argument()?;
+                let n = self.argument()?;
+                let base = self.argument()?;
+                let (n, base) = (self.number_of(n)? as i64, (self.number_of(base)? as u32).clamp(2, 36));
+                let mut digits = Vec::new();
+                let mut m = n.unsigned_abs();
+                while m > 0 || digits.is_empty() {
+                    digits.push(char::from_digit((m % u64::from(base)) as u32, base).unwrap_or('0'));
+                    m /= u64::from(base);
+                }
+                let length = self.tex.expand_to_string(tikra_tokens("\\pgfmathbasenumberlength")).ok().and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(1);
+                while digits.len() < length {
+                    digits.push('0');
+                }
+                let s: String = digits.iter().rev().collect();
+                if let Some(name) = target.iter().find(|t| matches!(t, Token::Cs(_))) {
+                    self.tex.set_meaning(name, super::macro_from(&s), false);
+                }
+            }
+            B::ToDigitList => {
+                // \pgfmathtodigitlist{\macro}{number}: its digits as a list
+                let target = self.argument()?;
+                let n = self.argument_string()?;
+                let list = n.trim().chars().map(String::from).collect::<Vec<_>>().join(",");
+                if let Some(name) = target.iter().find(|t| matches!(t, Token::Cs(_))) {
+                    self.tex.set_meaning(name, super::macro_from(&list), false);
+                }
+            }
+            B::SetKeys => {
+                // keyval's \setkeys{family}{key=value,…}: the code \define@key gave each key
+                let family = self.argument_string()?;
+                let list = self.argument()?;
+                for item in crate::keys::split_list(&list) {
+                    let mut code = vec![Token::cs(&format!("KV@{family}@{}", item.key.trim()))];
+                    code.push(Token::Char('{', tex::Cat::Begin));
+                    code.extend(item.value.unwrap_or_default());
+                    code.push(Token::Char('}', tex::Cat::End));
+                    self.run_tokens(code)?;
+                }
+            }
+            B::GetPath | B::SetPath => {
+                // \pgfgetpath\macro keeps the path being built under the macro's name;
+                // \pgfsetpath\macro makes it the path being built again
+                let m = self.argument()?;
+                let name = m.iter().find_map(|t| if let Token::Cs(n) = t { Some(n.to_string()) } else { None }).unwrap_or_default();
+                if cmd == B::GetPath {
+                    self.saved_paths.insert(format!("pgf@{name}"), self.pgf_path.segments.clone());
+                } else if let Some(segs) = m
+                    .iter()
+                    .find(|t| matches!(t, Token::Cs(_)))
+                    .and_then(|t| super::pgfplots::fillbetween::softpath_of(self, t))
+                    .or_else(|| self.saved_paths.get(&format!("pgf@{name}")).cloned())
+                {
+                    self.pgf_path = PgfPath::default();
+                    for s in segs {
+                        self.pgf_add(s);
+                    }
+                }
+            }
+            B::IntersectionOfPaths => {
+                // each code builds a path (what it draws is drawn); where the two paths cross
+                let mut paths = Vec::new();
+                for _ in 0..2 {
+                    let code = self.argument()?;
+                    self.begin_group();
+                    self.begin_scope();
+                    self.pgf_path = PgfPath::default();
+                    let r = self.run_tokens(code);
+                    paths.push(std::mem::take(&mut self.pgf_path.segments));
+                    self.pgf_path = PgfPath::default();
+                    self.end_scope();
+                    self.end_group();
+                    r?;
+                }
+                self.pgf_solutions = super::intersections::intersections(&paths[0], &paths[1]);
+                // kept for `\pgfcomputeintersectionsegments`
+                for (k, p) in paths.iter().enumerate() {
+                    self.saved_paths.insert(format!("@intersection path {}", k + 1), p.clone());
+                }
+                let n = self.pgf_solutions.len();
+                self.tex.set_meaning(&Token::cs("pgfintersectionsolutions"), super::macro_tokens(tikra_tokens(&n.to_string())), false);
+            }
+            B::ShadeColorToRgb => self.shade_color_to_rgb()?,
+            B::ArcToPrecomputed => {
+                // {center}{start angle}{end angle}{end point}{x radius}{y radius}{the radii's ratios}: the
+                // arc of the axis-parallel ellipse
+                let c = self.point_arg()?;
+                let a0 = self.argument()?;
+                let a1 = self.argument()?;
+                let (a0, a1) = (self.number_of(a0)?, self.number_of(a1)?);
+                let end = self.point_arg()?;
+                let rx = self.argument()?;
+                let ry = self.argument()?;
+                let (rx, ry) = (self.length_of(rx)?, self.length_of(ry)?);
+                let _ = self.argument()?;
+                let _ = self.argument()?;
+                for s in super::path::arc_segments(t.apply(c), rx, ry, a0, a1, &t) {
+                    self.pgf_add(s);
+                }
+                self.pgf_path.last = Some(t.apply(end));
+            }
         }
         Ok(())
     }
 }
 
 impl Engine {
+    /// `\pgfpathqmoveto{x}{y}`, `\pgfpathqlineto`, `\pgfpathqcurveto` (six lengths) and
+    /// `\pgfpathqcircle{radius}`: canvas lengths, untransformed.
+    fn quick_path(&mut self, cmd: B) -> Result<(), Error> {
+        match cmd {
+            B::QMoveTo | B::QLineTo => {
+                let x = self.argument()?;
+                let y = self.argument()?;
+                let p = Point::new(self.length_of(x)?, self.length_of(y)?);
+                self.pgf_add(if cmd == B::QMoveTo { Segment::MoveTo(p) } else { Segment::LineTo(p) });
+            }
+            B::QCurveTo => {
+                let mut v = [0.0; 6];
+                for k in &mut v {
+                    let a = self.argument()?;
+                    *k = self.length_of(a)?;
+                }
+                self.pgf_add(Segment::CurveTo(Point::new(v[0], v[1]), Point::new(v[2], v[3]), Point::new(v[4], v[5])));
+            }
+            _ => {
+                let r = self.argument()?;
+                let r = self.length_of(r)?;
+                self.pgf_add(Segment::MoveTo(Point::new(r, 0.0)));
+                for s in super::path::arc_segments(Point::default(), r, r, 0.0, 360.0, &Transform::default()) {
+                    self.pgf_add(s);
+                }
+                self.pgf_add(Segment::Close);
+            }
+        }
+        Ok(())
+    }
+
+    /// `\pgfpointarcaxesattime{time}{center}{0° axis}{90° axis}{start}{end}`: the point of the arc at
+    /// that time, and the direction the arc goes there.
+    fn arc_axes_at_time(&mut self) -> Result<(Point, Point), Error> {
+        let time = self.argument()?;
+        let time = self.number_of(time)?;
+        let c = self.point_arg()?;
+        let x = self.point_arg()?;
+        let y = self.point_arg()?;
+        let a0 = self.argument()?;
+        let a1 = self.argument()?;
+        let (a0, a1) = (self.number_of(a0)?, self.number_of(a1)?);
+        let (s, co) = (a0 + (a1 - a0) * time).to_radians().sin_cos();
+        let tangent = y.scale(co).minus(x.scale(s));
+        let tangent = if a0 > a1 { tangent.scale(-1.0) } else { tangent };
+        Ok((c.plus(x.scale(co)).plus(y.scale(s)), tangent))
+    }
+
+    /// The coordinate system of a point on a line or curve: shifted there; with `\pgfslopedattimetrue`
+    /// turned along `tangent` (kept upright unless `\pgfallowupsidedownattimetrue`); with
+    /// `\pgfresetnontranslationattimetrue` without the rotations and scalings before.
+    fn transform_at_time(&mut self, at: Point, tangent: Point) {
+        let on = |e: &Engine, name: &str| e.tex.meaning_of(name) == Meaning::Prim(tex::Prim::Iftrue);
+        let mut t = self.st.transform.compose(&Transform::translation(at.x, at.y));
+        if on(self, "ifpgfresetnontranslationattime") {
+            t = Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, ..t };
+        }
+        if on(self, "ifpgfslopedattime") {
+            let mut d = tangent;
+            if !on(self, "ifpgfallowupsidedownattime") && d.x < 0.0 {
+                d = d.scale(-1.0);
+            }
+            let d = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
+            t = t.compose(&Transform { a: d.x, b: d.y, c: -d.y, d: d.x, e: 0.0, f: 0.0 });
+        }
+        self.st.transform = t;
+    }
+
+    /// `\pgflowlevel{code}`: the transformation the code makes (from none) applies to the canvas, up
+    /// to the end of the scope, line widths and text included.
+    fn low_level(&mut self, code: Vec<Token>) -> Result<(), Error> {
+        self.begin_group();
+        self.st.transform = Transform::default();
+        let r = self.run_tokens(code);
+        let t = self.st.transform;
+        self.end_group();
+        r?;
+        self.open_in_scope(crate::canvas::Item::Transform { transform: t });
+        Ok(())
+    }
+
     /// A multipart node's text from the boxes `\setbox\pgfnodepart<name>box=\hbox{…}` filled: the
     /// text part first, then the others with `\nodepart{name}`.
     fn node_part_boxes(&mut self) -> Vec<Token> {
@@ -1026,6 +1555,20 @@ impl Engine {
                 v.extend(tikra_tokens("\\pgfplotstreamend"));
                 if let Some(m) = code.iter().find(|t| matches!(t, Token::Cs(_))) {
                     self.tex.set_meaning(m, super::macro_tokens(v), true);
+                }
+            }
+            h if h.starts_with("custom:") => {
+                // a declared handler: its code at each point, `##1` the point, `#k` its arguments
+                let code = self.plot_handlers.get(&h["custom:".len()..]).cloned().unwrap_or_default();
+                let inv = self.st.transform.inverse();
+                let params = super::options::split_arguments(&self.st.basic_plot.1, 9);
+                for p in points {
+                    let q = inv.apply(p);
+                    let mut text = code.replace("##1", &format!("\\pgfqpoint{{{}pt}}{{{}pt}}", q.x / PT, q.y / PT));
+                    for (k, a) in params.iter().enumerate() {
+                        text = text.replace(&format!("#{}", k + 1), &tex::tokens_to_string(a));
+                    }
+                    self.run_tokens(tikra_tokens(&text))?;
                 }
             }
             h if h == "mark" || h.starts_with("mark listed:") => {

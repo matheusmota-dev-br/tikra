@@ -37,6 +37,8 @@ struct MidNode {
     name: Option<String>,
     text: Vec<Token>,
     coordinate: bool,
+    /// a pic (`to … pic {type} (b)`), placed as a node is
+    pic: bool,
 }
 
 struct Builder {
@@ -56,6 +58,8 @@ struct Builder {
     close_after: bool,
     /// the node just made: a `to` or `edge` right after it starts there (`\tikz@to@use@last@fig@name`)
     to_start: Option<Coord>,
+    /// the current point where each `{` of the path opened, for `current point is local`
+    groups: Vec<Option<Coord>>,
 }
 
 impl Builder {
@@ -95,7 +99,14 @@ pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     e.st.mode = Mode::default();
     e.st.pending = crate::scene::Transform::default();
     reset_path_settings(e);
+    // a `scope fading` of a path that drew nothing fades the next one
+    let carried = std::mem::take(&mut e.carried_fadings);
+    e.path_fadings.push(carried.into_iter().map(|(name, fit, t)| (name, e.canvas.items.len(), fit, t)).collect());
+    e.path_fading_settings.push((e.st.fading_transform, e.st.fit_fading));
     let r = statement_in_group(e, defaults, &outer);
+    let fadings = e.path_fadings.pop().unwrap_or_default();
+    let settings = e.path_fading_settings.pop().unwrap_or((crate::scene::Transform::default(), true));
+    e.close_path_fadings(fadings, settings);
     e.end_group();
     r
 }
@@ -200,6 +211,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        groups: Vec::new(),
     };
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
@@ -213,6 +225,12 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     if let Some(name) = e.st.name_path.take() {
         e.named_paths.insert(name, segs.clone());
     }
+    let behind = std::mem::take(&mut e.behind_path);
+    e.canvas.items.extend(behind);
+    // `current path bounding box`, and what a `scope fading` of the path is fitted to
+    let mut bounds = crate::canvas::Canvas::default();
+    bounds.include_path(&segs);
+    e.st.path_box = bounds.min.zip(bounds.max);
     e.finish_path(segs, outer, "path")?;
     for (segs, options, items) in std::mem::take(&mut b.edges) {
         edge_path(e, segs, options)?;
@@ -296,7 +314,7 @@ fn target(e: &mut Engine, b: &mut Builder, depth: Option<usize>, what: &str) -> 
         Some(Token::Char('c', Cat::Letter)) => {
             let w = word(e, 'c');
             if w != "cycle" {
-                e.tex.push_tokens(tex::string_tokens(&w));
+                e.tex.push_tokens(word_tokens(&w));
                 return Err(Error::Figure(format!("{what} without a point")));
             }
             b.close_after = true;
@@ -402,10 +420,20 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         return skip_rest(e, depth);
                     }
                 }
-                let w = match next(e, depth)? {
+                let mut w = match next(e, depth)? {
                     Some(Token::Char(c, Cat::Letter)) => word(e, c),
                     _ => String::new(),
                 };
+                // `.. coordinate (bc) controls …`: nodes on the curve, before its controls
+                while w == "node" || w == "coordinate" {
+                    let coordinate = w == "coordinate";
+                    let (options, name, _, text) = read_node(e, depth, coordinate)?;
+                    b.mid_nodes.push(MidNode { options, name, text, coordinate, pic: false });
+                    w = match next(e, depth)? {
+                        Some(Token::Char(c, Cat::Letter)) => word(e, c),
+                        _ => String::new(),
+                    };
+                }
                 if w != "controls" {
                     e.warn("'..' without 'controls'");
                     return skip_rest(e, depth);
@@ -439,6 +467,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         None => break,
                     }
                 }
+                // nodes before the end point go on the curve
+                let mids = read_mid_nodes(e, depth)?;
+                b.mid_nodes.extend(mids);
                 let r = target(e, b, depth, "controls")?;
                 if let Some(o) = c2_offset {
                     c2 = r.p.plus(o);
@@ -458,8 +489,21 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     e.st.apply_pending();
                 }
             }
-            Token::Char(_, Cat::Begin) => e.begin_group(),
-            Token::Char(_, Cat::End) => e.end_group(),
+            Token::Char(_, Cat::Begin) => {
+                e.begin_group();
+                e.st.current_point_local = false;
+                b.groups.push(b.current.clone());
+            }
+            Token::Char(_, Cat::End) => {
+                // `current point is local`: the path goes on from where the group began
+                let local = e.st.current_point_local;
+                e.end_group();
+                if let Some(c) = b.groups.pop() {
+                    if local {
+                        b.current = c;
+                    }
+                }
+            }
             Token::Char(c, Cat::Letter) => {
                 let w = word(e, *c);
                 match w.as_str() {
@@ -481,20 +525,26 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 _ => Vec::new(),
                             };
                             let mut labels = Vec::new();
-                            while let Some(Token::Char('n', Cat::Letter)) = peek(e, depth)? {
+                            // the nodes and coordinates on the edge
+                            while let Some(Token::Char(c @ ('n' | 'c'), Cat::Letter)) = peek(e, depth)? {
                                 let _ = next(e, depth)?;
-                                let w = word(e, 'n');
-                                if w != "node" {
-                                    e.tex.push_tokens(tex::string_tokens(&w));
+                                let w = word(e, c);
+                                if w != "node" && w != "coordinate" {
+                                    e.tex.push_tokens(word_tokens(&w));
                                     break;
                                 }
-                                let (options, _, _, text) = read_node(e, depth, false)?;
-                                labels.extend(tikra_tokens("node["));
+                                let (options, name, _, text) = read_node(e, depth, w == "coordinate")?;
+                                labels.extend(tikra_tokens(&format!("{w}[")));
                                 labels.extend(options);
                                 labels.extend(tikra_tokens("]"));
-                                labels.push(Token::Char('{', Cat::Begin));
-                                labels.extend(text);
-                                labels.push(Token::Char('}', Cat::End));
+                                if let Some(n) = name {
+                                    labels.extend(tikra_tokens(&format!("({n})")));
+                                }
+                                if w == "node" {
+                                    labels.push(Token::Char('{', Cat::Begin));
+                                    labels.extend(text);
+                                    labels.push(Token::Char('}', Cat::End));
+                                }
                             }
                             e.st.tree_edge = Some((o, labels));
                             e.tree_edge_out = e.st.tree_edge.clone();
@@ -508,7 +558,13 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             pending_op = Some("to".into());
                         }
                     }
-                    "node" | "coordinate" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
+                    "node" | "coordinate" | "pic" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
+                    // `node also [label=…] (a)`: more options for a node that exists
+                    "node" if peek_words(e, depth, &["also"])? => {
+                        let (options, name, _, _) = read_node(e, depth, true)?;
+                        let items = e.late_options(name.as_deref().unwrap_or_default(), options)?;
+                        b.node_items.extend(items);
+                    }
                     "node" | "coordinate" => {
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate)?;
@@ -532,12 +588,19 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             let after = std::mem::take(&mut e.after_node_path);
                             e.tex.push_tokens(after);
                         } else {
-                            b.mid_nodes.push(MidNode { options, name, text, coordinate });
+                            b.mid_nodes.push(MidNode { options, name, text, coordinate, pic: false });
                         }
                     }
                     "cycle" => {
                         if let Some(p0) = b.subpath_start {
-                            if pending_op.take().is_some() {
+                            if let Some(op) = pending_op.take() {
+                                // `-| cycle`: by the corner, then closed
+                                if op == "-|" || op == "|-" {
+                                    let a = b.point();
+                                    let corner = if op == "-|" { Point::new(p0.x, a.y) } else { Point::new(a.x, p0.y) };
+                                    b.segs.push(Segment::LineTo(corner));
+                                    b.current = Some(Coord { p: corner, node: None });
+                                }
                                 let from = b.point();
                                 b.segs.push(Segment::Close);
                                 b.last = Some(OnPath::Segment(from, None, p0));
@@ -547,20 +610,13 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         }
                     }
                     "rectangle" => {
-                        let r = target(e, b, depth, "rectangle")?;
-                        let a = b.point();
-                        let t = e.st.transform;
-                        let inv = t.inverse();
-                        let (la, lb) = (inv.apply(a), inv.apply(r.p));
-                        b.segs.push(Segment::MoveTo(a));
-                        // in the order of `\tikz@rectB`: first to (a.x, b.y)
-                        for k in [Point::new(la.x, lb.y), lb, Point::new(lb.x, la.y)] {
-                            b.segs.push(Segment::LineTo(t.apply(k)));
+                        // `rectangle node {…} (b)`: the corner comes after the nodes
+                        if matches!(peek(e, depth)?, Some(Token::Char('n', Cat::Letter))) {
+                            pending_op = Some("rectangle".into());
+                            continue;
                         }
-                        b.segs.push(Segment::Close);
-                        b.subpath_start = Some(a);
-                        b.last = Some(OnPath::Segment(a, None, r.p));
-                        b.current = Some(Coord { p: r.p, node: None });
+                        let r = target(e, b, depth, "rectangle")?;
+                        rectangle_to(e, b, r);
                         pending_op = None;
                         place_mid_nodes(e, b, Some(0.5))?;
                     }
@@ -585,8 +641,15 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "in" => {}
                     "pic" => {
                         let (options, name, at, content) = read_node(e, depth, false)?;
-                        let at = at.unwrap_or_else(|| b.point());
-                        e.pic(super::pics::PicSpec { options, name, at, content })?;
+                        if at.is_none() && pending_op.is_some() {
+                            // between an operation and its target: placed on the segment
+                            b.mid_nodes.push(MidNode { options, name, text: content, coordinate: false, pic: true });
+                        } else {
+                            // after a segment, `pos` places it on it as a node
+                            let place = if at.is_none() { Some((b.last.unwrap_or(OnPath::Point(b.point())), None)) } else { None };
+                            let at = at.unwrap_or_else(|| b.point());
+                            e.pic(super::pics::PicSpec { options, name, at, content, place })?;
+                        }
                     }
                     "graph" => e.graph()?,
                     "child" => {
@@ -625,7 +688,14 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                     None => Vec::new(),
                 };
-                e.run_tokens(code)?;
+                // a path the code builds on the basic layer (`\pgfsetpathandBB`) becomes the path
+                let outer = std::mem::take(&mut e.pgf_path);
+                let r = e.run_tokens(code);
+                let built = std::mem::replace(&mut e.pgf_path, outer);
+                r?;
+                if !built.segments.is_empty() {
+                    b.segs = built.segments;
+                }
             }
             Token::Cs(name) if matches!(e.tex.meaning(&t), Meaning::Native(_)) && matches!(&**name, "node" | "coordinate") => {
                 // `\node` inside a path reads as `node`
@@ -641,6 +711,11 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
 }
 
 /// Whether the next words are `words` (read if so, left if not).
+/// A word read too far, as the letters it was read as.
+fn word_tokens(w: &str) -> Vec<Token> {
+    w.chars().map(|c| Token::Char(c, Cat::Letter)).collect()
+}
+
 fn peek_words(e: &mut Engine, depth: Option<usize>, words: &[&str]) -> Result<bool, Error> {
     let mut read: Vec<Token> = Vec::new();
     for w in words {
@@ -659,7 +734,9 @@ fn peek_words(e: &mut Engine, depth: Option<usize>, words: &[&str]) -> Result<bo
         }
         let Token::Char(c, _) = first else { unreachable!() };
         let got = word(e, c);
-        read.extend(tex::string_tokens(&format!("{got} ")));
+        // given back as they were read: letters (a word that is not the one may be `at`)
+        read.extend(word_tokens(&got));
+        read.push(Token::Char(' ', Cat::Space));
         if got != *w {
             e.tex.push_tokens(read);
             return Ok(false);
@@ -742,20 +819,49 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
         Some("-|") | Some("|-") => {
             let a = b.point();
             let corner = if op.as_deref() == Some("-|") { Point::new(r.p.x, a.y) } else { Point::new(a.x, r.p.y) };
-            let start = a;
             line_to(e, b, Coord { p: corner, node: None });
+            // the legs from and to the nodes' borders
+            let start = match b.last {
+                Some(OnPath::Segment(p, _, _)) => p,
+                _ => a,
+            };
             line_to(e, b, r.clone());
+            let end = match b.last {
+                Some(OnPath::Segment(_, _, p)) => p,
+                _ => b.point(),
+            };
             // pos runs along both legs: 0.5, the default, is the corner
-            b.last = Some(OnPath::Corner(start, corner, b.point()));
+            b.last = Some(OnPath::Corner(start, corner, end));
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("to") => to(e, b, to_opts, r)?,
+        Some("rectangle") => {
+            rectangle_to(e, b, r);
+            place_mid_nodes(e, b, Some(0.5))?;
+        }
         _ => {
             b.move_to(r);
             place_mid_nodes(e, b, Some(0.5))?;
         }
     }
     Ok(())
+}
+
+/// A rectangle from the current point to the corner `r`.
+fn rectangle_to(e: &mut Engine, b: &mut Builder, r: Coord) {
+    let a = b.point();
+    let t = e.st.transform;
+    let inv = t.inverse();
+    let (la, lb) = (inv.apply(a), inv.apply(r.p));
+    b.segs.push(Segment::MoveTo(a));
+    // in the order of `\tikz@rectB`: first to (a.x, b.y)
+    for k in [Point::new(la.x, lb.y), lb, Point::new(lb.x, la.y)] {
+        b.segs.push(Segment::LineTo(t.apply(k)));
+    }
+    b.segs.push(Segment::Close);
+    b.subpath_start = Some(a);
+    b.last = Some(OnPath::Segment(a, None, r.p));
+    b.current = Some(Coord { p: r.p, node: None });
 }
 
 /// A line to `r`, stopping at the border of the nodes on both ends.
@@ -769,8 +875,17 @@ fn line_to(e: &mut Engine, b: &mut Builder, r: Coord) {
     if let Some(n) = a.node.as_ref().and_then(|n| e.nodes.get(n)) {
         let target = r.node.as_ref().and_then(|m| e.nodes.get(m)).map_or(r.p, |m| m.center());
         pa = n.border_toward(target);
-        if let Some(Segment::MoveTo(m)) = b.segs.last_mut() {
-            *m = pa;
+        // the move to a node waits for the border it leaves from: after a line that ended on
+        // the node, a new subpath starts there (a coordinate is a point, its path goes on)
+        if n.shape == "coordinate" {
+            if let Some(Segment::MoveTo(m)) = b.segs.last_mut() {
+                *m = pa;
+            }
+        } else {
+            match b.segs.last_mut() {
+                Some(Segment::MoveTo(m)) => *m = pa,
+                _ => b.segs.push(Segment::MoveTo(pa)),
+            }
         }
     }
     if let Some(n) = r.node.as_ref().and_then(|n| e.nodes.get(n)) {
@@ -791,9 +906,12 @@ fn curve_to(e: &mut Engine, b: &mut Builder, c1: Point, c2: Point, r: Coord) {
         b.segs.push(Segment::MoveTo(a));
     }
     if let Some(n) = b.current.as_ref().and_then(|c| c.node.as_ref()).and_then(|n| e.nodes.get(n)) {
+        // from the node's border toward the first control: a new piece if the path came to the
+        // node (`(a) to (b) .. controls … .. (b)`)
         let pa = n.border_toward(c1);
-        if let Some(Segment::MoveTo(m)) = b.segs.last_mut() {
-            *m = pa;
+        match b.segs.last_mut() {
+            Some(Segment::MoveTo(m)) => *m = pa,
+            _ => b.segs.push(Segment::MoveTo(pa)),
         }
     }
     let mut pb = r.p;
@@ -976,7 +1094,7 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
         e.process_keys(tikra_tokens("every to/.try"), Some("/tikz"))?;
         e.process_keys(opts, Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
-            b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+            b.mid_nodes.push(MidNode { options, name: None, text, coordinate: false, pic: false });
         }
         to_path(e, b, r)?;
         place_mid_nodes(e, b, Some(0.5))?;
@@ -1001,6 +1119,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        groups: Vec::new(),
     };
     if let Some(c) = b.to_start.clone().or_else(|| saved_current.clone()) {
         sub.move_to(c);
@@ -1014,7 +1133,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         e.process_keys(tikra_tokens("every edge/.try"), Some("/tikz"))?;
         e.process_keys(opts.clone(), Some("/tikz"))?;
         for (text, options) in std::mem::take(&mut e.st.quoted) {
-            sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false });
+            sub.mid_nodes.push(MidNode { options, name: None, text, coordinate: false, pic: false });
         }
         // options that start the to path are the edge path's own, as TikZ runs it in `\path[…]`
         if let Some(leading) = e.st.to.path.as_deref().and_then(leading_options) {
@@ -1056,12 +1175,12 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
         let Some(Token::Char(c, _)) = next(e, depth)? else { break };
         let w = word(e, c);
         if w != "node" && w != "coordinate" {
-            e.tex.push_tokens(tex::string_tokens(&w));
+            e.tex.push_tokens(word_tokens(&w));
             break;
         }
         let coordinate = w == "coordinate";
         let (options, name, _, text) = read_node(e, depth, coordinate)?;
-        v.push(MidNode { options, name, text, coordinate });
+        v.push(MidNode { options, name, text, coordinate, pic: false });
     }
     Ok(v)
 }
@@ -1069,6 +1188,10 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
 fn place_mid_nodes(e: &mut Engine, b: &mut Builder, default_pos: Option<f64>) -> Result<(), Error> {
     for m in std::mem::take(&mut b.mid_nodes) {
         let place = b.last.unwrap_or(OnPath::Point(b.point()));
+        if m.pic {
+            e.pic(super::pics::PicSpec { options: m.options, name: m.name, at: b.point(), content: m.text, place: Some((place, default_pos)) })?;
+            continue;
+        }
         let items = e.node(NodeSpec { options: m.options, name: m.name, at: None, text: m.text, place, point: b.point(), coordinate: m.coordinate, default_pos })?;
         b.node_items.extend(items);
     }
@@ -1083,13 +1206,28 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
     let mut at = None;
     loop {
         match next(e, depth)? {
+            // options after a coordinate's name are the path's (`\coordinate (root) [grow cyclic] child …`)
+            Some(t) if t.is_char('[') && coordinate && name.is_some() => {
+                e.tex.back(t);
+                break;
+            }
             Some(t) if t.is_char('[') => {
                 if !options.is_empty() {
                     options.push(Token::other(','));
                 }
                 options.extend(e.tex.read_until_char(']', false)?);
+                // with its contents in the options, the node ends there
+                if crate::keys::split_list(&options).iter().any(|i| i.key == "node contents" || i.key == "pic type") {
+                    break;
+                }
             }
-            Some(t) if t.is_char('(') => {
+            // a second point after the name is the path's next (`coordinate (a) (1,0)`)
+            Some(t) if t.is_char('(') && name.is_some() => {
+                e.tex.back(t);
+                break;
+            }
+            // a second `(…)` is the path's next point (`coordinate (a) (1,0)`)
+            Some(t) if t.is_char('(') && name.is_none() => {
                 let n = read_coordinate_tokens(e)?;
                 name = Some(e.tex.expand_to_string(n)?.trim().to_string());
             }
@@ -1121,6 +1259,26 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                 let text = e.tex.read_group_body()?;
                 return Ok((options, name, at, text));
             }
+            // `\node\bgroup text\egroup` (as `execute at begin cell` writes it)
+            Some(t) if t.is_cs("bgroup") && !coordinate => {
+                let mut text = Vec::new();
+                let mut depth = 0usize;
+                loop {
+                    match e.tex.get_token() {
+                        None => break,
+                        Some(t) if t.is_cs("egroup") && depth == 0 => break,
+                        Some(t) => {
+                            if t.is_cs("bgroup") || matches!(t, Token::Char(_, Cat::Begin)) {
+                                depth += 1;
+                            } else if t.is_cs("egroup") || matches!(t, Token::Char(_, Cat::End)) {
+                                depth = depth.saturating_sub(1);
+                            }
+                            text.push(t);
+                        }
+                    }
+                }
+                return Ok((options, name, at, text));
+            }
             Some(t) => {
                 e.tex.back(t);
                 break;
@@ -1128,8 +1286,8 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
             None => break,
         }
     }
-    // `node contents=…` stands for the text, which is then not given
-    if let Some(v) = crate::keys::split_list(&options).into_iter().find(|i| i.key == "node contents").and_then(|i| i.value) {
+    // `node contents=…` (`pic type=…` for a pic) stands for the text, which is then not given
+    if let Some(v) = crate::keys::split_list(&options).into_iter().find(|i| i.key == "node contents" || i.key == "pic type").and_then(|i| i.value) {
         return Ok((options, name, at, tex::strip_outer_braces(v)));
     }
     if !coordinate {
@@ -1145,9 +1303,11 @@ fn coordinate_point(e: &mut Engine) -> Result<Point, Error> {
 /// `circle (r)`, `circle (rx and ry)`, `circle[radius=…]`, `ellipse[x radius=…, y radius=…]`.
 fn circle(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
     e.begin_group();
-    let res = (|| -> Result<(f64, f64), Error> {
+    let res = (|| -> Result<(f64, f64, Option<Point>, crate::scene::Transform), Error> {
         // `circle[options]`, or the old `circle (radius)`: a point after the options is the next one
         let mut options = false;
+        e.st.node.at = None;
+        let before = e.st.pending;
         if let Some(t) = peek(e, depth)? {
             if t.is_char('[') {
                 let _ = next(e, depth)?;
@@ -1171,12 +1331,14 @@ fn circle(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), E
                 }
             }
         }
-        Ok((rx, ry))
+        Ok((rx, ry, e.st.node.at.take(), before.inverse().compose(&e.st.pending)))
     })();
     e.end_group();
-    let (rx, ry) = res?;
-    let t = e.st.transform;
-    let center = b.point();
+    let (rx, ry, at, turn) = res?;
+    // `at=(c)` centers it elsewhere; the options' transformations (`rotate=30`) turn it about its
+    // center
+    let t = e.st.transform.compose(&turn);
+    let center = at.unwrap_or_else(|| b.point());
     let mut v = arc_segments(center, rx, ry, 0.0, 360.0, &t);
     v.insert(0, Segment::MoveTo(center.plus(t.linear(Point::new(rx, 0.0)))));
     v.push(Segment::Close);
@@ -1263,137 +1425,169 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
             _ => return Err(Error::Figure("svg without a {path}".into())),
         };
         let text = e.tex.expand_to_string(data)?;
-        let t = e.st.transform;
-        // local pt to the canvas
-        let to = |p: Point| t.apply(p.scale(crate::PT));
-        let from = |c: Point| t.inverse().apply(c).scale(1.0 / crate::PT);
-        let mut last = from(b.point());
-        let mut start = last;
-        let mut prev_control: Option<Point> = None;
-        let mut prev_quad: Option<Point> = None;
-        // the numbers and command letters of the data
-        let mut tokens: Vec<String> = Vec::new();
-        let mut cur = String::new();
-        for c in text.chars() {
-            let starts_number = c == '-' && !cur.is_empty() && !cur.ends_with(['e', 'E']);
-            if c.is_ascii_alphabetic() && c != 'e' && c != 'E' || c.is_whitespace() || c == ',' || starts_number {
-                if !cur.is_empty() {
-                    tokens.push(std::mem::take(&mut cur));
-                }
-                if c.is_ascii_alphabetic() {
-                    tokens.push(c.to_string());
-                } else if c == '-' {
-                    cur.push(c);
-                }
-            } else {
-                cur.push(c);
-            }
-        }
-        if !cur.is_empty() {
-            tokens.push(cur);
-        }
-        let mut i = 0;
-        let mut cmd = 'M';
-        let num = |i: &mut usize| -> Option<f64> {
-            let v = tokens.get(*i)?.parse().ok()?;
-            *i += 1;
-            Some(v)
-        };
-        while i < tokens.len() {
-            if let Some(c) = tokens[i].chars().next().filter(|c| c.is_ascii_alphabetic()) {
-                cmd = c;
-                i += 1;
-                if c == 'Z' || c == 'z' {
-                    b.segs.push(Segment::Close);
-                    last = start;
-                    b.current = Some(Coord { p: to(last), node: None });
-                    continue;
-                }
-            }
-            let rel = cmd.is_ascii_lowercase();
-            let base = if rel { last } else { Point::default() };
-            let pt = |i: &mut usize| -> Option<Point> { Some(Point::new(num(i)?, num(i)?).plus(base)) };
-            let before = i;
-            match cmd.to_ascii_uppercase() {
-                'M' => {
-                    let Some(p) = pt(&mut i) else { break };
-                    b.move_to(Coord { p: to(p), node: None });
-                    (last, start) = (p, p);
-                    // more pairs after a moveto are lines
-                    cmd = if rel { 'l' } else { 'L' };
-                }
-                'L' => {
-                    let Some(p) = pt(&mut i) else { break };
-                    b.segs.push(Segment::LineTo(to(p)));
-                    last = p;
-                }
-                'H' => {
-                    let Some(x) = num(&mut i) else { break };
-                    last = Point::new(if rel { last.x + x } else { x }, last.y);
-                    b.segs.push(Segment::LineTo(to(last)));
-                }
-                'V' => {
-                    let Some(y) = num(&mut i) else { break };
-                    last = Point::new(last.x, if rel { last.y + y } else { y });
-                    b.segs.push(Segment::LineTo(to(last)));
-                }
-                'C' | 'S' => {
-                    let c1 = if cmd.eq_ignore_ascii_case(&'S') {
-                        prev_control.map_or(last, |c| last.scale(2.0).minus(c))
-                    } else {
-                        let Some(c) = pt(&mut i) else { break };
-                        c
-                    };
-                    let (Some(c2), Some(p)) = (pt(&mut i), pt(&mut i)) else { break };
-                    b.segs.push(Segment::CurveTo(to(c1), to(c2), to(p)));
-                    prev_control = Some(c2);
-                    last = p;
-                }
-                'Q' | 'T' => {
-                    let q = if cmd.eq_ignore_ascii_case(&'T') {
-                        prev_quad.map_or(last, |c| last.scale(2.0).minus(c))
-                    } else {
-                        let Some(c) = pt(&mut i) else { break };
-                        c
-                    };
-                    let Some(p) = pt(&mut i) else { break };
-                    b.segs.push(Segment::CurveTo(to(last.lerp(q, 2.0 / 3.0)), to(p.lerp(q, 2.0 / 3.0)), to(p)));
-                    prev_quad = Some(q);
-                    last = p;
-                }
-                'A' => {
-                    let (Some(rx), Some(ry), Some(phi), Some(large), Some(sweep)) = (num(&mut i), num(&mut i), num(&mut i), num(&mut i), num(&mut i)) else { break };
-                    let Some(p) = pt(&mut i) else { break };
-                    // with y up, pgf turns the other way for the same sweep flag
-                    svg_arc(b, last, p, rx.abs(), ry.abs(), phi, large != 0.0, sweep == 0.0, &t);
-                    last = p;
-                }
-                _ => break,
-            }
-            if !matches!(cmd.to_ascii_uppercase(), 'C' | 'S') {
-                prev_control = None;
-            }
-            if !matches!(cmd.to_ascii_uppercase(), 'Q' | 'T') {
-                prev_quad = None;
-            }
-            if i == before {
-                break;
-            }
-            b.current = Some(Coord { p: to(last), node: None });
-            b.last = Some(OnPath::Point(to(last)));
-        }
+        svg_data(e, b, &text);
         Ok(())
     })();
     e.end_group();
     r
 }
 
+/// The path data of SVG (`M 0 0 l 20 0 …`, in pt) onto the path being built.
+fn svg_data(e: &Engine, b: &mut Builder, text: &str) {
+    let t = e.st.transform;
+    // local pt to the canvas
+    let to = |p: Point| t.apply(p.scale(crate::PT));
+    let from = |c: Point| t.inverse().apply(c).scale(1.0 / crate::PT);
+    let mut last = from(b.point());
+    let mut start = last;
+    let mut prev_control: Option<Point> = None;
+    let mut prev_quad: Option<Point> = None;
+    // the numbers and command letters of the data
+    let mut tokens: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for c in text.chars() {
+        let starts_number = c == '-' && !cur.is_empty() && !cur.ends_with(['e', 'E']);
+        if c.is_ascii_alphabetic() && c != 'e' && c != 'E' || c.is_whitespace() || c == ',' || starts_number {
+            if !cur.is_empty() {
+                tokens.push(std::mem::take(&mut cur));
+            }
+            if c.is_ascii_alphabetic() {
+                tokens.push(c.to_string());
+            } else if c == '-' {
+                cur.push(c);
+            }
+        } else {
+            cur.push(c);
+        }
+    }
+    if !cur.is_empty() {
+        tokens.push(cur);
+    }
+    let mut i = 0;
+    let mut cmd = 'M';
+    let num = |i: &mut usize| -> Option<f64> {
+        let v = tokens.get(*i)?.parse().ok()?;
+        *i += 1;
+        Some(v)
+    };
+    while i < tokens.len() {
+        if let Some(c) = tokens[i].chars().next().filter(|c| c.is_ascii_alphabetic()) {
+            cmd = c;
+            i += 1;
+            if c == 'Z' || c == 'z' {
+                b.segs.push(Segment::Close);
+                last = start;
+                b.current = Some(Coord { p: to(last), node: None });
+                continue;
+            }
+        }
+        let rel = cmd.is_ascii_lowercase();
+        let base = if rel { last } else { Point::default() };
+        let pt = |i: &mut usize| -> Option<Point> { Some(Point::new(num(i)?, num(i)?).plus(base)) };
+        let before = i;
+        match cmd.to_ascii_uppercase() {
+            'M' => {
+                let Some(p) = pt(&mut i) else { break };
+                b.move_to(Coord { p: to(p), node: None });
+                (last, start) = (p, p);
+                // more pairs after a moveto are lines
+                cmd = if rel { 'l' } else { 'L' };
+            }
+            'L' => {
+                let Some(p) = pt(&mut i) else { break };
+                b.segs.push(Segment::LineTo(to(p)));
+                last = p;
+            }
+            'H' => {
+                let Some(x) = num(&mut i) else { break };
+                last = Point::new(if rel { last.x + x } else { x }, last.y);
+                b.segs.push(Segment::LineTo(to(last)));
+            }
+            'V' => {
+                let Some(y) = num(&mut i) else { break };
+                last = Point::new(last.x, if rel { last.y + y } else { y });
+                b.segs.push(Segment::LineTo(to(last)));
+            }
+            'C' | 'S' => {
+                let c1 = if cmd.eq_ignore_ascii_case(&'S') {
+                    prev_control.map_or(last, |c| last.scale(2.0).minus(c))
+                } else {
+                    let Some(c) = pt(&mut i) else { break };
+                    c
+                };
+                let (Some(c2), Some(p)) = (pt(&mut i), pt(&mut i)) else { break };
+                b.segs.push(Segment::CurveTo(to(c1), to(c2), to(p)));
+                prev_control = Some(c2);
+                last = p;
+            }
+            'Q' | 'T' => {
+                let q = if cmd.eq_ignore_ascii_case(&'T') {
+                    prev_quad.map_or(last, |c| last.scale(2.0).minus(c))
+                } else {
+                    let Some(c) = pt(&mut i) else { break };
+                    c
+                };
+                let Some(p) = pt(&mut i) else { break };
+                b.segs.push(Segment::CurveTo(to(last.lerp(q, 2.0 / 3.0)), to(p.lerp(q, 2.0 / 3.0)), to(p)));
+                prev_quad = Some(q);
+                last = p;
+            }
+            'A' => {
+                let (Some(rx), Some(ry), Some(phi), Some(large), Some(sweep)) = (num(&mut i), num(&mut i), num(&mut i), num(&mut i), num(&mut i)) else { break };
+                let Some(p) = pt(&mut i) else { break };
+                // with y up, pgf turns the other way for the same sweep flag
+                svg_arc(b, last, p, rx.abs(), ry.abs(), phi, large != 0.0, sweep == 0.0, &t);
+                last = p;
+            }
+            _ => break,
+        }
+        if !matches!(cmd.to_ascii_uppercase(), 'C' | 'S') {
+            prev_control = None;
+        }
+        if !matches!(cmd.to_ascii_uppercase(), 'Q' | 'T') {
+            prev_quad = None;
+        }
+        if i == before {
+            break;
+        }
+        b.current = Some(Coord { p: to(last), node: None });
+        b.last = Some(OnPath::Point(to(last)));
+    }
+}
+
+/// The basic layer's `\pgfpathsvg{data}`: the segments of SVG path data (in pt, transformed as the
+/// basic layer's points are), from `from` (the canvas point the path is at, if any).
+pub fn svg_path(e: &Engine, text: &str, from: Option<Point>) -> Vec<Segment> {
+    let mut b = Builder {
+        segs: Vec::new(),
+        current: from.map(|p| Coord { p, node: None }),
+        subpath_start: from,
+        last: None,
+        node_items: Vec::new(),
+        mid_nodes: Vec::new(),
+        edges: Vec::new(),
+        relative_base: None,
+        origin: e.st.transform.apply(Point::default()),
+        close_after: false,
+        to_start: None,
+        groups: Vec::new(),
+    };
+    svg_data(e, &mut b, text);
+    b.segs
+}
+
 /// An SVG elliptical arc from `a` to `p` (local pt), as curves on the canvas (SVG's appendix F.6.5).
 #[allow(clippy::too_many_arguments)]
-fn svg_arc(b: &mut Builder, a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) {
+fn svg_arc(b: &mut Builder, a: Point, p: Point, rx: f64, ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) {
+    b.segs.extend(svg_arc_segments(a, p, rx, ry, phi, large, sweep, t));
+}
+
+/// The curves of an SVG elliptical arc from `a` to `p` (local pt) on the canvas; `sweep` turns it
+/// counterclockwise. A radius of zero or no distance makes it a line.
+#[allow(clippy::too_many_arguments)]
+pub fn svg_arc_segments(a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f64, large: bool, sweep: bool, t: &crate::scene::Transform) -> Vec<Segment> {
     if rx < 1e-12 || ry < 1e-12 || a.minus(p).norm() < 1e-12 {
-        b.segs.push(Segment::LineTo(t.apply(p.scale(crate::PT))));
-        return;
+        return vec![Segment::LineTo(t.apply(p.scale(crate::PT)))];
     }
     let (s, c) = phi.to_radians().sin_cos();
     let d = a.minus(p).scale(0.5);
@@ -1426,7 +1620,7 @@ fn svg_arc(b: &mut Builder, a: Point, p: Point, mut rx: f64, mut ry: f64, phi: f
         .compose(&crate::scene::Transform::scaling(crate::PT, crate::PT))
         .compose(&crate::scene::Transform::translation(center.x, center.y))
         .compose(&crate::scene::Transform::rotation(phi));
-    b.segs.extend(crate::canvas::transform_segments(&local, &m));
+    crate::canvas::transform_segments(&local, &m)
 }
 
 /// `arc (start:end:radius)`, `arc (start:end:rx and ry)`, `arc[start angle=…, end angle=…, radius=…]`.
@@ -1505,16 +1699,22 @@ fn arc(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Erro
     let segs = arc_segments(center, rx, ry, a0, a1, &t);
     let (s1, c1) = a1.to_radians().sin_cos();
     let end = center.plus(t.linear(Point::new(rx * c1, ry * s1)));
-    if let Some(Segment::CurveTo(c1p, c2p, _)) = segs.first() {
-        b.last = Some(OnPath::Segment(p, Some((*c1p, *c2p)), end));
+    if !segs.is_empty() {
+        b.last = Some(OnPath::Arc { center, x: t.linear(Point::new(rx, 0.0)), y: t.linear(Point::new(0.0, ry)), from: a0, to: a1 });
     }
     b.segs.extend(segs);
     b.current = Some(Coord { p: end, node: None });
+    // a `+(…)` after it is from the arc's end
+    b.relative_base = None;
     Ok(())
 }
 
 /// Multiples of `step` between `start` and `end`. None if the step is unusable.
 fn ticks(start: f64, end: f64, step: f64) -> Option<Vec<f64>> {
+    // a step of zero: no lines that way (`ystep=0`)
+    if step == 0.0 {
+        return Some(Vec::new());
+    }
     if !(step > 0.0 && step.is_finite() && start.is_finite() && end.is_finite()) {
         return None;
     }
@@ -1540,6 +1740,9 @@ fn grid(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Err
     })();
     e.end_group();
     let step = res?;
+    if step == (0.0, 0.0) {
+        e.warn("grid: step 0 × 0 draws no lines");
+    }
     let r = target(e, b, depth, "grid")?;
     let t = e.st.transform;
     let inv = t.inverse();
@@ -1824,12 +2027,26 @@ pub fn plot_segments(e: &mut Engine, points: &[Point]) -> Result<Vec<Segment>, E
 
 /// `parabola (b)`, `parabola bend (c) (b)`, `parabola[bend at end] (b)`.
 fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
-    let mut bend_at_end = false;
+    // `bend pos=f`: a relative bend is from the point that far from the start to the end (the
+    // start by default); `parabola height=h`: the bend is h above the middle; `bend at end`
+    let (mut factor, mut height, mut bend_at_end) = (0.0, None, false);
     if let Some(t) = peek(e, depth)? {
         if t.is_char('[') {
             let _ = next(e, depth)?;
             let o = e.tex.read_until_char(']', false)?;
-            bend_at_end = tex::tokens_to_string(&o).contains("bend at end");
+            for item in crate::keys::split_list(&o) {
+                let value = item.value.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+                match item.key.as_str() {
+                    "bend at end" => bend_at_end = true,
+                    "bend at start" => factor = 0.0,
+                    "bend pos" => factor = e.number(&value)?,
+                    "parabola height" => {
+                        factor = 0.5;
+                        height = Some(e.length(&value)?);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
     let mut bend = None;
@@ -1837,7 +2054,8 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
         let _ = next(e, depth)?;
         let w = word(e, 'b');
         if w == "bend" {
-            bend = Some(target(e, b, depth, "parabola bend")?.p);
+            let relative = matches!(peek(e, depth)?, Some(t) if t.is_char('+'));
+            bend = Some((target(e, b, depth, "parabola bend")?.p, relative));
         }
     }
     let r = target(e, b, depth, "parabola")?;
@@ -1845,6 +2063,12 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
     if b.current.is_none() {
         b.segs.push(Segment::MoveTo(a));
     }
+    let saved = a.lerp(r.p, factor);
+    let bend = match bend {
+        Some((p, true)) => Some(p.minus(a).plus(saved)),
+        Some((p, false)) => Some(p),
+        None => height.map(|h| saved.plus(Point::new(0.0, h))),
+    };
     // \pgfpathparabola: to the bend with its vertex there, then on to the end with its vertex at the bend
     let (bend_vector, end_vector) = match bend {
         Some(v) => (v.minus(a), r.p.minus(v)),
@@ -1939,22 +2163,23 @@ fn let_macro(e: &mut Engine, letter: &str) -> Result<(), Error> {
 
 /// `\foreach` inside a path: its body is more path operations.
 fn path_foreach(e: &mut Engine, b: &mut Builder) -> Result<(), Error> {
-    let (names, list) = foreach_header(e)?;
+    let (names, list, options) = foreach_header(e)?;
     let body = match e.tex.next_nonspace() {
         Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
         Some(t) => vec![t],
         None => Vec::new(),
     };
-    foreach_run(e, b, names, list, body)
+    foreach_run(e, b, names, list, options, body)
 }
 
 /// `\x/\y in {list}` of a `foreach` (the word already read): the variables and the list.
-fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>), Error> {
+fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>, super::ForeachOptions), Error> {
     let mut vars: Vec<Token> = Vec::new();
+    let mut opts: Vec<Token> = Vec::new();
     loop {
         let Some(t) = e.tex.get_token() else { return Err(Error::Figure("\\foreach without 'in'".into())) };
         if t.is_char('[') {
-            let _ = e.tex.read_until_char(']', false)?;
+            opts.extend(e.tex.read_until_char(']', false)?);
             continue;
         }
         if t.is_char('i') {
@@ -1973,17 +2198,39 @@ fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>), Error> {
         Some(t) => vec![t],
         None => Vec::new(),
     };
-    Ok((names, e.tex.expand_fully(list_tokens)?))
+    Ok((names, e.tex.expand_fully(list_tokens)?, super::foreach_options(&opts)))
 }
 
 /// `node foreach \x in {list} [options] at (…) {text}`: the node once for each item.
 fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error> {
-    let (names, list) = foreach_header(e)?;
+    let (names, list, options) = foreach_header(e)?;
     // the rest of the node as it is written, up to its text
     let mut spec = tikra_tokens(&format!("{kind} "));
+    // the letters of the last word, spaces after it skipped
+    let last_word = |spec: &[Token]| -> String {
+        let s: Vec<char> =
+            spec.iter().rev().skip_while(|t| matches!(t, Token::Char(_, Cat::Space))).map_while(|t| if let Token::Char(c, Cat::Letter) = t { Some(*c) } else { None }).collect();
+        s.into_iter().rev().collect()
+    };
+    // inside another `foreach \y in {list}` (the nodes for each pair), before its `in`
+    let mut header = false;
     while let Some(t) = e.tex.get_token() {
+        if !matches!(t, Token::Char(_, Cat::Letter)) {
+            match last_word(&spec).as_str() {
+                "foreach" => header = true,
+                "in" => header = false,
+                _ => {}
+            }
+        }
         match &t {
-            Token::Char(_, Cat::Begin) if kind == "node" => {
+            Token::Cs(_) | Token::Char('/', _) if header => spec.push(t),
+            Token::Char(_, Cat::Begin) if last_word(&spec) == "in" => {
+                header = false;
+                spec.push(t);
+                spec.extend(e.tex.read_group_body()?);
+                spec.push(Token::Char('}', Cat::End));
+            }
+            Token::Char(_, Cat::Begin) if kind != "coordinate" => {
                 spec.push(t);
                 spec.extend(e.tex.read_group_body()?);
                 spec.push(Token::Char('}', Cat::End));
@@ -2002,22 +2249,25 @@ fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error
             }
         }
     }
-    foreach_run(e, b, names, list, spec)
+    foreach_run(e, b, names, list, options, spec)
 }
 
 /// The path operations `body` once for each item of `list`, with the variables set.
-fn foreach_run(e: &mut Engine, b: &mut Builder, names: Vec<Token>, list: Vec<Token>, body: Vec<Token>) -> Result<(), Error> {
-    for item in super::foreach_items(&list) {
+fn foreach_run(e: &mut Engine, b: &mut Builder, names: Vec<Token>, list: Vec<Token>, options: super::ForeachOptions, body: Vec<Token>) -> Result<(), Error> {
+    let mut memory = options.initial_memory();
+    for (k, item) in super::foreach_items(&list).into_iter().enumerate() {
         e.begin_group();
         let parts: Vec<Vec<Token>> = item.split(|t| t.is_char('/')).map(|p| keys::trim(p).to_vec()).collect();
         for (i, n) in names.iter().enumerate() {
             let v = parts.get(i).or(parts.last()).cloned().unwrap_or_default();
             e.tex.set_meaning(n, super::macro_tokens(v), false);
         }
+        e.foreach_iteration(&options, k, &memory)?;
         let depth = e.tex.depth();
         e.tex.push_frame(body.clone());
         let r = operations(e, b, Some(depth));
         e.tex.drain_to(depth);
+        e.foreach_remember(&options, &mut memory);
         // the path's settings stay; only the loop variables end with the iteration
         let st = e.st.clone();
         e.end_group();

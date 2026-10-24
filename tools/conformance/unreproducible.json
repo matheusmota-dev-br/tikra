@@ -1,0 +1,88 @@
+{
+  "about": "Figures that \"our 100%\" leaves out (see the README), each checked by eye. random, external and date are left out whatever tikra draws; antialiasing counts as done while tikra's figure stays at least close.",
+  "random": {
+    "about": "random numbers without \\pgfmathsetseed: TeX draws other numbers on every run",
+    "ids": [
+      "tikz/pgfmanual-en-math-commands:62",
+      "tikz/pgfmanual-en-math-commands:86",
+      "pgfplots/pgfplots.libs.statistics:1078",
+      "pgfplots/pgfplots.reference.2dplots:1870",
+      "pgfplots/pgfplots.reference.axisdescription:1799",
+      "pgfplots/pgfplots.reference.axisdescription:3016",
+      "pgfplots/pgfplots.reference.axisdescription:3500",
+      "pgfplots/pgfplots.reference.gridoptions-axiscoordinates:414",
+      "pgfplots/pgfplots.reference.specifyrange:124"
+    ]
+  },
+  "external": {
+    "about": "an image file or an external program (gnuplot) that the document does not contain",
+    "ids": [
+      "tikz/pgfmanual-en-base-images:142",
+      "tikz/pgfmanual-en-base-images:197",
+      "tikz/pgfmanual-en-base-images:255",
+      "tikz/pgfmanual-en-base-plots:338"
+    ]
+  },
+  "date": {
+    "about": "the date of the day TeX ran (\\year, \\month, \\day): the reference shows another day",
+    "ids": [
+      "tikz/pgfmanual-en-library-calendar:888",
+      "tikz/pgfmanual-en-library-calendar:913",
+      "tikz/pgfmanual-en-library-calendar:961",
+      "tikz/pgfmanual-en-library-folding:21"
+    ]
+  },
+  "antialiasing": {
+    "about": "the same drawing, in the same places and colors: only how Ghostscript (which renders TeX's PDF) and tikra put a line or a fill on the pixels differs (thin help lines, which the comparison widens to a whole pixel, soft edges of fadings and shadings)",
+    "ids": [
+      "tikz/pgfmanual-en-base-actions:63",
+      "tikz/pgfmanual-en-base-actions:77",
+      "tikz/pgfmanual-en-dv-stylesheets:1120",
+      "tikz/pgfmanual-en-dv-stylesheets:1160",
+      "tikz/pgfmanual-en-library-circuits:271",
+      "tikz/pgfmanual-en-library-circuits:2109",
+      "tikz/pgfmanual-en-library-decorations:519",
+      "tikz/pgfmanual-en-library-decorations:2008",
+      "tikz/pgfmanual-en-library-fit:95",
+      "tikz/pgfmanual-en-library-lsystems:45",
+      "tikz/pgfmanual-en-library-math:251",
+      "tikz/pgfmanual-en-library-matrices:126",
+      "tikz/pgfmanual-en-library-patterns:498",
+      "tikz/pgfmanual-en-library-shapes:1690",
+      "tikz/pgfmanual-en-tikz-actions:739",
+      "tikz/pgfmanual-en-tikz-arrows:2405",
+      "tikz/pgfmanual-en-tikz-coordinates:975",
+      "tikz/pgfmanual-en-tikz-transparency:733",
+      "pgfplots/pgfplots.libs.fillbetween:1225",
+      "pgfplots/pgfplots.libs.smithchart:622",
+      "pgfplots/pgfplots.reference.3dplots:1144",
+      "tikz/pgfmanual-en-base-animations:71",
+      "tikz/pgfmanual-en-base-nodes:178",
+      "tikz/pgfmanual-en-base-nodes:455",
+      "tikz/pgfmanual-en-base-paths:358",
+      "tikz/pgfmanual-en-base-paths:730",
+      "tikz/pgfmanual-en-base-points:30",
+      "tikz/pgfmanual-en-base-points:54",
+      "tikz/pgfmanual-en-base-points:246",
+      "tikz/pgfmanual-en-base-points:259",
+      "tikz/pgfmanual-en-base-points:272",
+      "tikz/pgfmanual-en-base-points:296",
+      "tikz/pgfmanual-en-base-quick:68",
+      "tikz/pgfmanual-en-base-quick:105",
+      "tikz/pgfmanual-en-base-shadings:290",
+      "tikz/pgfmanual-en-base-transformations:254",
+      "tikz/pgfmanual-en-base-transformations:274",
+      "tikz/pgfmanual-en-base-transformations:283",
+      "tikz/pgfmanual-en-base-transformations:315",
+      "tikz/pgfmanual-en-base-transformations:571",
+      "tikz/pgfmanual-en-base-transformations:657",
+      "tikz/pgfmanual-en-base-transformations:673",
+      "tikz/pgfmanual-en-base-transformations:689",
+      "tikz/pgfmanual-en-base-transformations:955",
+      "tikz/pgfmanual-en-base-transparency:121",
+      "tikz/pgfmanual-en-base-transparency:209",
+      "tikz/pgfmanual-en-base-transparency:221",
+      "tikz/pgfmanual-en-base-transparency:360"
+    ]
+  }
+}

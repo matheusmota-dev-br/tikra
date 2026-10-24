@@ -7,6 +7,10 @@
 //!
 //! `pattern=name` (or `pattern={Lines[angle=45]}`) and `\pgfsetfillpattern{name}{color}` fill with
 //! them, the tile repeated from the page's origin, the tiling turned by its tile transformation.
+//!
+//! A pattern with variables (the basic layer's `[\size,/tikz/radius]`, TikZ's `parameters` and
+//! `defaults`) is drawn when it is used, with the values they have there: TikZ's from its defaults
+//! and the options after its name (`mystars[points=7]`), under `/pgf/pattern keys`.
 
 use crate::canvas::{Canvas, Fill, Item, Paint, Stroke, TileItems};
 use crate::color::Color;
@@ -25,59 +29,127 @@ pub struct UserPattern {
     size: Point,
     transform: Transform,
     colored: bool,
+    /// a pattern with variables, drawn where it is used
+    lazy: Option<std::rc::Rc<LazyPattern>>,
+}
+
+/// What a pattern with variables is drawn from: its corner, tile size and code as written, its tile
+/// transformation's options and its default keys.
+#[derive(Debug)]
+struct LazyPattern {
+    origin: Vec<Token>,
+    size: Vec<Token>,
+    code: Vec<Token>,
+    tile_options: Vec<Token>,
+    defaults: Vec<Token>,
+    /// TikZ's (points as `(x,y)`) or the basic layer's (`\pgfpoint{x}{y}`)
+    tikz: bool,
+}
+
+impl UserPattern {
+    fn lazy(p: LazyPattern, colored: bool) -> UserPattern {
+        UserPattern { items: Vec::new(), origin: Point::default(), size: Point::new(PT, PT), transform: Transform::default(), colored, lazy: Some(std::rc::Rc::new(p)) }
+    }
 }
 
 impl Engine {
     /// `\pgfdeclarepatternformonly` (`colored` false) and `\pgfdeclarepatterninherentlycolored`.
     pub fn declare_pattern(&mut self, colored: bool) -> Result<(), Error> {
-        let _ = self.optional()?;
+        let vars = self.optional()?.filter(|v| v.iter().any(|t| !t.is_space()));
         let name = self.argument_string()?;
+        if vars.is_some() {
+            let origin = self.argument()?;
+            let _upper_right = self.argument()?;
+            let size = self.argument()?;
+            let code = self.argument()?;
+            let lazy = LazyPattern { origin, size, code, tile_options: Vec::new(), defaults: Vec::new(), tikz: false };
+            self.user_patterns.insert(name.trim().to_string(), UserPattern::lazy(lazy, colored));
+            return Ok(());
+        }
         let origin = self.point_arg()?;
         let _upper_right = self.point_arg()?;
         let size = self.point_arg()?;
         let code = self.argument()?;
         let items = self.draw_tile(code)?;
-        self.user_patterns.insert(name.trim().to_string(), UserPattern { items, origin, size, transform: Transform::default(), colored });
+        self.user_patterns.insert(name.trim().to_string(), UserPattern { items, origin, size, transform: Transform::default(), colored, lazy: None });
         Ok(())
     }
 
-    /// `\tikzdeclarepattern{name=…, type=colored|uncolored, bottom left=…, top right=…, tile size=…,
-    /// tile transformation=…, code=…}`.
-    pub fn tikz_declare_pattern(&mut self) -> Result<(), Error> {
+    /// `\tikzdeclarepattern{name=…, type=colored|uncolored, bottom left=…, top right=…, bounding
+    /// box={(a) and (b)}, tile size=…, tile transformation=…, parameters=…, defaults=…, code=…}`,
+    /// and the basic layer's `\pgfdeclarepattern{…}` (`tikz` false), with the same keys: its points
+    /// `\pgfpoint{x}{y}`, its tile transformation basic-layer code (`\pgftransformrotate{…}`).
+    pub fn tikz_declare_pattern(&mut self, tikz: bool) -> Result<(), Error> {
         let spec = self.argument()?;
-        let (mut name, mut colored, mut origin, mut size, mut code) = (String::new(), false, Point::default(), Point::new(PT, PT), Vec::new());
-        let mut tile_options = Vec::new();
-        let point = |e: &mut Engine, v: Vec<Token>| -> Result<Point, Error> {
-            let text = e.math_string(v)?;
-            let t = text.trim().trim_start_matches('(').trim_end_matches(')').to_string();
-            Ok(e.coordinate(&t)?.p)
-        };
+        let (mut name, mut colored, mut lazy) = (String::new(), false, false);
+        let mut p = LazyPattern { origin: Vec::new(), size: Vec::new(), code: Vec::new(), tile_options: Vec::new(), defaults: Vec::new(), tikz };
         for item in crate::keys::split_list(&spec) {
             let v = item.value.clone().unwrap_or_default();
             match item.key.as_str() {
                 "name" => name = self.tex.expand_to_string(v)?.trim().to_string(),
                 "type" => colored = self.tex.expand_to_string(v)?.trim() == "colored",
-                "bottom left" => origin = point(self, v)?,
-                "tile size" => size = point(self, v)?,
-                "tile transformation" => tile_options = v,
-                "code" => code = v,
+                "bottom left" => p.origin = v,
+                // `(a) and (b)`: the lower left corner first
+                "bounding box" => {
+                    let text = crate::tex::tokens_to_string(&v);
+                    let first = text.split(" and ").next().unwrap_or("").trim().to_string();
+                    p.origin = super::tikra_tokens(&first);
+                }
+                "tile size" => p.size = v,
+                "tile transformation" => p.tile_options = v,
+                "code" => p.code = v,
+                "parameters" => lazy = true,
+                "defaults" => {
+                    p.defaults = v;
+                    lazy = true;
+                }
                 _ => {}
             }
         }
-        let items = self.draw_tile(code)?;
-        self.begin_group();
-        self.st.transform = Transform::default();
-        self.st.pending = Transform::default();
-        let r = self.process_keys(tile_options, Some("/tikz"));
-        let transform = self.st.pending;
-        self.end_group();
-        r?;
-        self.user_patterns.insert(name, UserPattern { items, origin, size, transform, colored });
+        let pattern = UserPattern::lazy(p, colored);
+        let pattern = if lazy { pattern } else { self.instantiate(&pattern, "")? };
+        self.user_patterns.insert(name, pattern);
         Ok(())
     }
 
-    /// What `code` draws, as one tile: in a picture of its own, its coordinates kept.
-    fn draw_tile(&mut self, code: Vec<Token>) -> Result<Vec<Item>, Error> {
+    /// A pattern drawn from what it was declared with, the options after its name applied first.
+    fn instantiate(&mut self, p: &UserPattern, options: &str) -> Result<UserPattern, Error> {
+        let Some(lazy) = p.lazy.clone() else { return Ok(p.clone()) };
+        self.begin_group();
+        let r = (|| {
+            self.process_keys(lazy.defaults.clone(), Some("/pgf/pattern keys"))?;
+            self.process_keys(super::tikra_tokens(options), Some("/pgf/pattern keys"))?;
+            let point = |e: &mut Engine, v: &[Token], default: Point| -> Result<Point, Error> {
+                if v.iter().all(|t| t.is_space()) {
+                    return Ok(default);
+                }
+                if !lazy.tikz {
+                    return e.point_of(v.to_vec());
+                }
+                let text = e.math_string(v.to_vec())?;
+                let t = text.trim().trim_start_matches('(').trim_end_matches(')').to_string();
+                Ok(e.coordinate(&t)?.p)
+            };
+            let origin = point(self, &lazy.origin, Point::default())?;
+            let size = point(self, &lazy.size, Point::new(PT, PT))?;
+            let items = self.draw_tile(lazy.code.clone())?;
+            self.st.transform = Transform::default();
+            self.st.pending = Transform::default();
+            let transform = if lazy.tikz {
+                self.process_keys(lazy.tile_options.clone(), Some("/tikz"))?;
+                self.st.pending
+            } else {
+                self.run_tokens(lazy.tile_options.clone())?;
+                self.st.transform
+            };
+            Ok(UserPattern { items, origin, size, transform, colored: p.colored, lazy: None })
+        })();
+        self.end_group();
+        r
+    }
+
+    /// What `code` draws, as one tile (or an arrow tip): in a picture of its own, its coordinates kept.
+    pub(super) fn draw_tile(&mut self, code: Vec<Token>) -> Result<Vec<Item>, Error> {
         let saved_canvas = std::mem::take(&mut self.canvas);
         let saved_depth = std::mem::replace(&mut self.picture_depth, 1);
         let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
@@ -98,8 +170,18 @@ impl Engine {
     /// (`Lines[angle=45]`).
     pub fn pattern_paint(&mut self, name: &str, color: Color) -> Option<Paint> {
         let name = name.trim();
-        let p = match self.user_patterns.get(name) {
-            Some(p) => p.clone(),
+        let (base, options) = match name.split_once('[') {
+            Some((b, o)) => (b.trim(), o.trim_end().trim_end_matches(']')),
+            None => (name, ""),
+        };
+        let p = match self.user_patterns.get(base).cloned() {
+            Some(p) => match self.instantiate(&p, options) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.warn(format!("pattern '{base}': {e}"));
+                    return None;
+                }
+            },
             None => self.meta_pattern(name)?,
         };
         let mut items = p.items;
@@ -177,7 +259,7 @@ impl Engine {
             }
         };
         let transform = Transform::translation(xs, ys).compose(&Transform::rotation(angle));
-        Some(UserPattern { items, origin: p(-h, -h), size: p(d, d), transform, colored: false })
+        Some(UserPattern { items, origin: p(-h, -h), size: p(d, d), transform, colored: false, lazy: None })
     }
 
     /// `\pgfsetfillpattern{name}{color}`: the basic layer's fills from here on use the pattern.
@@ -188,6 +270,39 @@ impl Engine {
         self.st.pattern_name = Some(name.trim().to_string());
         self.st.pattern_color = Some(c);
         self.st.fill_pattern = true;
+        Ok(())
+    }
+}
+
+impl Engine {
+    /// `\pgfarrowsdeclare{start}{end}{extents}{code}`: a tip of the old kind, its extents as
+    /// `\pgfarrowsleftextend{…}` and `\pgfarrowsrightextend{…}` give them and its drawing as the
+    /// code makes it, with the line width of the moment.
+    pub fn arrows_declare(&mut self) -> Result<(), Error> {
+        let start = self.argument_string()?;
+        let end = self.argument_string()?;
+        let extents = self.argument()?;
+        let code = self.argument()?;
+        let text = crate::tex::tokens_to_string(&extents);
+        let extent = |e: &mut Engine, name: &str| -> Result<f64, Error> {
+            let Some(rest) = text.split(&format!("\\{name}")).nth(1) else { return Ok(0.0) };
+            let arg = rest.trim_start().strip_prefix('{').and_then(|r| r.split_once('}')).map_or("0pt", |(a, _)| a);
+            Ok(e.length(arg)? / PT)
+        };
+        let (left, right) = (extent(self, "pgfarrowsleftextend")?, extent(self, "pgfarrowsrightextend")?);
+        let items = self.draw_tile(code)?;
+        let to_pt = Transform::scaling(1.0 / PT, 1.0 / PT);
+        let paths = items
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Path { segments, fill, stroke } => {
+                    let segs = crate::canvas::transform_segments(&segments, &to_pt);
+                    Some((segs, fill.is_some(), stroke.is_some(), stroke.map_or(0.0, |s| s.width / PT)))
+                }
+                _ => None,
+            })
+            .collect();
+        super::arrows::declare_tip(super::arrows::DeclaredTip { names: (start.trim().to_string(), end.trim().to_string()), left, right, paths });
         Ok(())
     }
 }

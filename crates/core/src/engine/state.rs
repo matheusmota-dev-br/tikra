@@ -66,6 +66,8 @@ pub struct Mode {
     pub shade: bool,
     /// `use as bounding box`
     pub bounding_box: bool,
+    /// `path fading`: the path is faded (by the fading named last)
+    pub fade: bool,
     /// `path picture={…}`: drawn inside the path, clipped to it
     pub picture: Option<Vec<Token>>,
 }
@@ -83,6 +85,8 @@ pub struct GState {
     pub y: Point,
     pub z: Point,
     pub mode: Mode,
+    /// `overlay`: what is drawn does not grow the picture's bounding box.
+    pub overlay: bool,
 
     /// The current color (`color=`, a color name): stroke, fill and text unless they are set apart.
     pub color: Color,
@@ -172,6 +176,8 @@ pub struct GState {
     /// `edge from parent[options] node{…}` read in a child: options and label nodes
     pub tree_edge: Option<(Vec<crate::tex::Token>, Vec<crate::tex::Token>)>,
     pub name_prefix: String,
+    /// `\pgfpositionnodelater`: the nodes made are kept to be placed by `\pgfpositionnodenow`
+    pub position_later: bool,
     /// what the options of the matrix being read say about its cells
     pub matrix: super::matrix::MatrixSettings,
     /// shadings: which one (`axis`, `radial`, `ball`), its angle and its colors
@@ -185,13 +191,15 @@ pub struct GState {
     pub radial_outer: Color,
     /// `path fading=`: the fading's name; `transparency group` for the scope being opened
     pub path_fading: Option<String>,
-    /// `fading angle`: the path fading turned in the path's box.
-    pub fading_angle: f64,
+    /// `fading transform` (and `fading angle`): the path fading transformed in the path's box.
+    pub fading_transform: Transform,
     /// `handle active characters in code` (and `… in nodes`): active characters in options and
     /// coordinates read as the characters they are
     pub active_in_code: bool,
     pub active_in_nodes: bool,
     pub transparency_group: bool,
+    /// `blend mode`: how what is drawn mixes with what is under it (SVG's name), if not normally
+    pub blend: Option<String>,
     /// trees: the level being grown, the distances, the direction and the anchors
     pub tree_level: usize,
     pub level_distance: f64,
@@ -230,6 +238,13 @@ pub struct GState {
     pub allow_upside_down: bool,
     /// `make snapshot of`: the time (s) the animations are shown at
     pub snapshot: Option<f64>,
+    /// `current point is local`: a group of the path leaves the current point where it found it
+    pub current_point_local: bool,
+    /// `trig format=rad`: the angles of polar coordinates are in radians
+    pub trig_rad: bool,
+    /// `\pgfsetinnerlinewidth` and `\pgfsetinnerstrokecolor`: a second, inner line over each
+    /// stroke (cm; white unless a color is set)
+    pub inner_line: (f64, Option<crate::color::Color>),
     /// `fit fading`: a path fading fitted to the path's box
     pub fit_fading: bool,
     /// `\pgfsetfillpattern`: the basic layer's fills use the pattern
@@ -254,6 +269,7 @@ impl Default for GState {
             key_path: "/".into(),
             transform: Transform::default(),
             pending: Transform::default(),
+            overlay: false,
             x: Point::new(1.0, 0.0),
             y: Point::new(0.0, 1.0),
             z: Point::new(-0.3851, -0.3851),
@@ -321,6 +337,9 @@ impl Default for GState {
             trim_left: None,
             allow_upside_down: false,
             snapshot: None,
+            current_point_local: false,
+            trig_rad: false,
+            inner_line: (0.0, None),
             fit_fading: true,
             fill_pattern: false,
             save_path: None,
@@ -330,10 +349,11 @@ impl Default for GState {
             trim_right: None,
             matrix: Default::default(),
             path_fading: None,
-            fading_angle: 0.0,
+            fading_transform: Transform::default(),
             active_in_code: false,
             active_in_nodes: false,
             transparency_group: false,
+            blend: None,
             shading: "axis".into(),
             shade_angle: 0.0,
             axis_top: Color { r: 0.5, g: 0.5, b: 0.5 },
@@ -363,6 +383,7 @@ impl Default for GState {
             quotes_in_pic: false,
             tree_edge: None,
             name_prefix: String::new(),
+            position_later: false,
             at_begin_scope: Vec::new(),
             at_end_scope: Vec::new(),
             at_begin_picture: Vec::new(),

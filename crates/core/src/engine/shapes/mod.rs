@@ -171,6 +171,10 @@ pub enum Usage {
     /// stroked as the node's lines are, whether the node is drawn or not (`\pgfusepath{stroke}` in
     /// a shape's code)
     Stroke,
+    /// filled in the color of the node's lines (an arrow tip the shape draws)
+    LineFill,
+    /// stroked as the node's lines are, with these caps and joins (an arrow tip the shape draws)
+    TipStroke(crate::canvas::Cap, crate::canvas::Join),
 }
 
 #[derive(Debug, Clone)]

@@ -60,7 +60,7 @@ impl Table {
         let lines: Vec<&str> = lines.into_iter().skip(skip).collect();
         let split = |l: &str| -> Vec<String> {
             match sep {
-                ColSep::Space => l.split_whitespace().map(clean_cell).collect(),
+                ColSep::Space => split_space(l).into_iter().map(clean_cell).collect(),
                 ColSep::Char(c) => l.split(c).map(clean_cell).collect(),
             }
         };
@@ -92,6 +92,34 @@ impl Table {
     pub fn cell(&self, row: usize, col: usize) -> Option<&str> {
         self.rows.get(row).and_then(|r| r.get(col)).map(|s| s.as_str())
     }
+}
+
+/// Cells separated by white space; a `{…}` group is one cell, spaces and all (`{Palo Alto}`).
+fn split_space(l: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut start = None;
+    for (i, c) in l.char_indices() {
+        match c {
+            '{' => {
+                depth += 1;
+                start.get_or_insert(i);
+            }
+            '}' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() && depth == 0 => {
+                if let Some(s) = start.take() {
+                    out.push(&l[s..i]);
+                }
+            }
+            _ => {
+                start.get_or_insert(i);
+            }
+        }
+    }
+    if let Some(s) = start {
+        out.push(&l[s..]);
+    }
+    out
 }
 
 fn clean_cell(s: &str) -> String {

@@ -68,6 +68,13 @@ impl Engine {
     /// The local (untransformed) vector of `(x,y)` or `(x,y,z)` with the current unit vectors.
     fn xyz(&mut self, parts: &[String]) -> Result<Point, Error> {
         let axes = [self.st.x, self.st.y, self.st.z];
+        // TikZ evaluates the components once to see whether they have units, then again: random
+        // numbers are drawn twice, and the second ones kept
+        if parts.iter().any(|s| s.contains("rand") || s.contains("rnd")) {
+            for s in parts.iter().take(3) {
+                crate::expr::eval_length(strip_braces(s), &self.vars())?;
+            }
+        }
         let mut p = Point::default();
         for (k, s) in parts.iter().enumerate().take(3) {
             let (v, unit) = crate::expr::eval_length(strip_braces(s), &self.vars())?;
@@ -91,7 +98,8 @@ impl Engine {
 
     /// Reads a coordinate's text (macros already expanded) as a canvas point.
     pub fn coordinate(&mut self, inner: &str) -> Result<Coord, Error> {
-        let t = inner.trim();
+        // `({$(A)!.5!(B)$} -| C)`: a coordinate in braces is that coordinate
+        let t = strip_braces(inner.trim()).trim();
         // ([options] point): the options transform this point only
         if let Some(rest) = t.strip_prefix('[') {
             let Some(end) = closing_bracket(t) else { return Err(Error::Figure(format!("unmatched bracket in ({t})"))) };
@@ -144,6 +152,13 @@ impl Engine {
         }
         let commas = split_commas(t);
         let colon = top_level(t, ':');
+        // `(\pgfkeysvalueof{/pgfplots/xmin},0)` with xmin unset: an empty part of a plain point in an axis
+        if colon.is_none() && !t.contains(['(', '{', '[']) && t.split(',').any(|p| p.trim().is_empty()) && t.split(',').count() > 1 {
+            let parts: Vec<String> = t.split(',').map(|p| p.trim().to_string()).collect();
+            if let Some(p) = self.pgfplots_plain(&parts) {
+                return Ok(Coord { p: p?, node: None });
+            }
+        }
         if commas.len() == 1 && colon.is_none() {
             // a node: name, name.anchor, name.angle
             let (name, anchor) = match t.split_once('.') {
@@ -161,7 +176,12 @@ impl Engine {
             }
             if let Some(node) = self.lookup_node(name).as_ref() {
                 return Ok(match anchor {
-                    Some(a) => Coord { p: node.anchor(a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None },
+                    Some(a) => {
+                        // a logic gate's anchors as `logic gate anchors use bounding box` is now
+                        let gatebox = format!("@gatebox={} {a}", self.tex.meaning_of("iftikra@gatebox") == self.tex.meaning_of("iftrue"));
+                        let p = node.anchor(&gatebox).or_else(|| node.anchor(a));
+                        Coord { p: p.ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None }
+                    }
                     None => Coord { p: node.center(), node: Some(name.to_string()) },
                 });
             }
@@ -179,6 +199,7 @@ impl Engine {
                 "north west" => 135.0,
                 "south east" => -45.0,
                 "south west" => -135.0,
+                a if self.st.trig_rad => self.number(a)?.to_degrees(),
                 a => self.number(a)?,
             };
             let r = t[c + 1..].trim();
@@ -245,6 +266,44 @@ impl Engine {
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
             }
             "visualization" => Ok(Coord { p: self.visualization_cs(args)?, node: None }),
+            "intersection" => {
+                // `first line={(A)--(B)}, second line={(C)--(D)}`
+                let (Some(a), Some(b)) = (get("first line"), get("second line")) else {
+                    return Err(Error::Figure("intersection cs: only lines are supported".into()));
+                };
+                Ok(Coord { p: self.line_intersection(&format!("{a} and {b}"))?, node: None })
+            }
+            "barycentric" => {
+                // the nodes' centers, weighted
+                let (mut sum, mut weight) = (Point::default(), 0.0);
+                for (name, w) in &items {
+                    let w = self.number(w)?;
+                    let node = self.nodes.get(name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
+                    sum = sum.plus(node.center().scale(w));
+                    weight += w;
+                }
+                if weight.abs() < 1e-12 {
+                    return Err(Error::Figure("barycentric cs: the weights add up to zero".into()));
+                }
+                Ok(Coord { p: sum.scale(1.0 / weight), node: None })
+            }
+            "tangent" => {
+                // where a line from the point touches the node's circle (its east anchor gives the
+                // radius); `solution=2` is the other side
+                let name = get("node").unwrap_or_default();
+                let node = self.nodes.get(&name).cloned().ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
+                let point = get("point").unwrap_or_default();
+                let point = self.coordinate(point.trim().trim_start_matches('(').trim_end_matches(')'))?.p;
+                let c = node.center();
+                let r = node.anchor("east").map_or(0.0, |e| e.minus(c).norm());
+                let d = point.minus(c);
+                let mut angle = (r / d.norm().max(1e-12)).clamp(-1.0, 1.0).acos().to_degrees();
+                if get("solution").and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(1) > 1 {
+                    angle = -angle;
+                }
+                let dir = d.scale(1.0 / d.norm().max(1e-12));
+                Ok(Coord { p: c.plus(Transform::rotation(angle).apply(dir.scale(r))), node: None })
+            }
             "node" => {
                 let name = get("name").unwrap_or_default();
                 let node = self.nodes.get(&name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
@@ -254,6 +313,28 @@ impl Engine {
                     _ => return Ok(Coord { p: node.center(), node: Some(name) }),
                 };
                 Ok(Coord { p, node: None })
+            }
+            other if matches!(self.tex.meaning_of(&format!("tikra@cs@{other}")), tex::Meaning::Macro(_)) => {
+                // \tikzdeclarecoordinatesystem{name}{code}: the code runs with the options as #1,
+                // and its last point (a pgf point) is the coordinate
+                let tex::Meaning::Macro(m) = self.tex.meaning_of(&format!("tikra@cs@{other}")) else { unreachable!() };
+                let body = tex::substitute(&m.body, &[super::tikra_tokens(args)]);
+                let at = body.iter().rposition(|t| matches!(t, tex::Token::Cs(n) if n.starts_with("pgfpoint") || n.starts_with("pgfqpoint")));
+                let at = at.ok_or_else(|| Error::Figure(format!("coordinate system '{other}' gives no point")))?;
+                // the point is the last one at the top level
+                let mut depth = 0i32;
+                let mut start = at;
+                for (k, t) in body.iter().enumerate() {
+                    match t {
+                        tex::Token::Char(_, tex::Cat::Begin) => depth += 1,
+                        tex::Token::Char(_, tex::Cat::End) => depth -= 1,
+                        tex::Token::Cs(n) if depth == 0 && (n.starts_with("pgfpoint") || n.starts_with("pgfqpoint")) => start = k,
+                        _ => {}
+                    }
+                }
+                self.run_tokens(body[..start].to_vec())?;
+                let p = self.point_of(body[start..].to_vec())?;
+                Ok(Coord { p: self.st.transform.apply(p), node: None })
             }
             other => match self.pgfplots_cs(other, args) {
                 Some(r) => r,
@@ -351,13 +432,14 @@ impl Engine {
                     i += 1 + t_end + 1 + (after.chars().count() - target_text.chars().count()) + consumed.chars().count();
                 }
                 _ => {
-                    // a factor: 0.5*(A), {\x}*(A)
+                    // a factor: 0.5*(A), {\x}*(A), cos(0)*sin(90)*(A): up to the `*` before a point
                     let start = i;
                     let mut depth = 0;
-                    while i < c.len() && (depth > 0 || (c[i] != '*' && c[i] != '(')) {
+                    let before_point = |i: usize| c[i] == '*' && c[i + 1..].iter().find(|x| **x != ' ') == Some(&'(');
+                    while i < c.len() && (depth > 0 || !before_point(i)) {
                         match c[i] {
-                            '{' => depth += 1,
-                            '}' => depth -= 1,
+                            '{' | '(' => depth += 1,
+                            '}' | ')' => depth -= 1,
                             _ => {}
                         }
                         i += 1;
