@@ -148,6 +148,62 @@ impl Num {
     }
 }
 
+/// A decimal `n * 10^p` read as a TeX dimension, in sp: the whole part times 2^16 plus the first
+/// 17 digits of the fraction rounded as TeX's `round_decimals` does.
+fn dimen_sp(n: i128, p: i32) -> i128 {
+    let n = n.abs();
+    if p >= 0 {
+        return n * 10i128.pow(p as u32) * UNITY;
+    }
+    let k = (-p) as u32;
+    if k > 30 {
+        return 0;
+    }
+    let d = 10i128.pow(k);
+    let (whole, frac) = (n / d, n % d);
+    let digits: Vec<i128> = (0..k).map(|i| frac / 10i128.pow(k - 1 - i) % 10).take(17).collect();
+    let mut a = 0;
+    for &dig in digits.iter().rev() {
+        a = (a + dig * 2 * UNITY) / 10;
+    }
+    whole * UNITY + (a + 1) / 2
+}
+
+/// `\pgfmathfloatsqrt@`: the mantissa scaled to [1000, 10000) is read as a dimension and given to
+/// pgfmath's digit-by-digit square root, which cuts after five decimals; an odd power of ten
+/// multiplies that by sqrt(10) or sqrt(0.1) as dimensions multiply (`3.16228` resp. `0.31622`
+/// times it). So sqrt(1) is 0.999985 and sqrt(0.25) is exactly 0.5.
+pub fn sqrt(v: f64) -> f64 {
+    if v.is_nan() || v < 0.0 {
+        return f64::NAN;
+    }
+    if v == 0.0 || v.is_infinite() {
+        return v;
+    }
+    // the fpu's numbers keep about nine digits (1 - 1e-12 is 1 to it)
+    let Some(num) = format!("{v:.8e}").parse().ok().and_then(Num::from_f64) else { return v.sqrt() };
+    let e = num.exponent() - 3;
+    let x = Num::printed(dimen_sp(num.n, num.p - e), 0);
+    // the digits of x in pairs from its whole part: floor(sqrt(x * 10^10)) / 10^5
+    let big = x.n * 10i128.pow((x.p + 10).max(0) as u32);
+    let mut root = (big as f64).sqrt() as i128;
+    while root * root > big {
+        root -= 1;
+    }
+    while (root + 1) * (root + 1) <= big {
+        root += 1;
+    }
+    let r = if e % 2 != 0 {
+        let sp = dimen_sp(root, -5);
+        let (whole, fraction) = if e > 0 { (3, 10635) } else { (0, 20724) };
+        Num::printed(whole * sp + sp * fraction / UNITY, 0)
+    } else {
+        Num { n: root, p: -5 }.trimmed()
+    };
+    // `\divide` cuts toward zero
+    Num { n: r.n, p: r.p + e / 2 }.value()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +225,35 @@ mod tests {
         assert_near(n(10.0).over(n(24.0)), 0.41666);
         assert_near(n(5.0).over(n(24.0)), 0.208333);
         assert_near(n(-4.58334).plus(n(5.0)), 0.41666);
+    }
+
+    #[test]
+    fn square_roots_as_pgf() {
+        // \pgfmathparse{sqrt(…)} with /pgf/fpu, as pdflatex prints them
+        for (x, r) in [
+            (1.0, 9.99985e-1),
+            (0.99723, 9.98614e-1),
+            (2.0, 1.414192),
+            (0.25, 0.5),
+            (3.0, 1.732025),
+            (10.0, 3.162277),
+            (0.1, 3.162277e-1),
+            (0.001, 3.162277e-2),
+            (123.456, 1.11109e1),
+            (9.99, 3.160649),
+            (0.0001, 9.99985e-3),
+            (7.0, 2.645712),
+            (1e-5, 3.162277e-3),
+            (0.75, 8.660254e-1),
+            (0.36, 0.6),
+            (12345.0, 1.1110803e2),
+            (0.84, 9.165151e-1),
+            (0.96, 9.797958e-1),
+            (0.0025, 5.0e-2),
+            (0.9375, 9.682458e-1),
+            (1.0 - 1e-14, 9.99985e-1),
+        ] {
+            assert!((sqrt(x) - r).abs() < 1e-12 * r, "sqrt({x}) = {} != {r}", sqrt(x));
+        }
     }
 }
