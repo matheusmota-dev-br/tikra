@@ -195,13 +195,73 @@ fn three_d_axis_and_surface() {
     assert!(w.is_empty(), "{w:?}");
     // as TeX: x -4, -2, 0, 2, 4 (the longer axis on paper); y -5, 0, 5; z -20, 0, 20
     assert_eq!(texts(&c), 11);
-    // 25 × 25 samples: 24 × 24 patches
-    assert_eq!(filled(&c).len(), 24 * 24);
+    // 25 × 25 samples: 24 × 24 patches, each shaded as two triangles
+    assert_eq!(filled(&c).len(), 2 * 24 * 24);
     // 3d box=complete draws the edges in front too: more lines than the background box alone
     let strokes = |c: &Canvas| c.items.iter().filter(|i| matches!(i, Item::Path { fill: None, stroke: Some(_), .. })).count();
     let (c2, w) = axis("3d box=complete", r"\addplot3[surf,shader=interp] {x*y};");
     assert!(w.is_empty(), "{w:?}");
     assert!(strokes(&c2) > strokes(&c), "{} {}", strokes(&c2), strokes(&c));
+}
+
+/// The gray of an axial shading at canvas point `p` (its stops interpolated, padded at the ends).
+fn shading_gray(paint: &Paint, p: tikra::scene::Point) -> f64 {
+    let Paint::Shading(tikra::canvas::Shading::Axial { transform, stops }) = paint else { panic!("{paint:?}") };
+    let t = (transform.inverse().apply(p).y + 50.0) / 100.0;
+    let at = |k: usize| (stops[k].0, stops[k].1.r);
+    if t <= at(0).0 {
+        return at(0).1;
+    }
+    for k in 1..stops.len() {
+        let ((a, ca), (b, cb)) = (at(k - 1), at(k));
+        if t <= b {
+            return ca + (cb - ca) * (t - a) / (b - a).max(1e-12);
+        }
+    }
+    at(stops.len() - 1).1
+}
+
+#[test]
+fn interp_shades_each_triangle_smoothly() {
+    // a cell of a surface is shaded as two triangles (a lattice shading), its color linear in the
+    // point meta between the corners: a gradient on each triangle, however small, not one color
+    let body = r"\addplot3[surf,shader=interp,samples=3,domain=0:1,y domain=0:1] {x+2*y};";
+    let (c, w) = axis("colormap/blackwhite", body);
+    assert!(w.is_empty(), "{w:?}");
+    let tris: Vec<(&Vec<Segment>, &Paint)> =
+        c.items.iter().filter_map(|i| if let Item::Path { segments, fill: Some(f), .. } = i { Some((segments, &f.paint)) } else { None }).collect();
+    assert_eq!(tris.len(), 2 * 2 * 2);
+    // at each corner, the gray of its meta: z = x + 2y in 0, 0.5, … 3, grays in steps of 1/6
+    let mut grays = Vec::new();
+    for (segs, paint) in &tris {
+        assert!(matches!(paint, Paint::Shading(_)), "{paint:?}");
+        for s in segs.iter() {
+            if let Segment::MoveTo(p) | Segment::LineTo(p) = s {
+                grays.push(shading_gray(paint, *p));
+            }
+        }
+    }
+    for g in &grays {
+        assert!((g * 6.0 - (g * 6.0).round()).abs() < 1e-6, "{g} {grays:?}");
+    }
+    assert!(grays.iter().any(|g| g.abs() < 1e-6) && grays.iter().any(|g| (g - 1.0).abs() < 1e-6), "{grays:?}");
+    // drawn without antialiasing, as viewers draw shadings: no seams between the triangles
+    assert!(c.items.iter().any(|i| matches!(i, Item::Crisp)));
+    let svg = tikra::convert(&format!("\\begin{{tikzpicture}}\\begin{{axis}}[colormap/blackwhite] {body} \\end{{axis}}\\end{{tikzpicture}}")).unwrap().svg;
+    assert!(svg.contains(r#"shape-rendering="crispEdges""#));
+    // `faceted interp`: the same shading, each patch's edges on top (antialiased, out of the group)
+    let (c, _) = axis("colormap/blackwhite", &body.replace("shader=interp", "shader=faceted interp"));
+    let kinds: Vec<char> = c
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Path { fill: Some(_), .. } => Some('s'),
+            Item::Path { fill: None, stroke: Some(_), segments } if segments.len() == 5 => Some('e'),
+            _ => None,
+        })
+        .collect();
+    let s: String = kinds.into_iter().filter(|k| *k == 's' || *k == 'e').collect();
+    assert!(s.contains("sse") && s.matches('e').count() >= 4, "{s}");
 }
 
 #[test]

@@ -125,6 +125,9 @@ pub enum Item {
     FadePicture {
         items: Vec<Item>,
     },
+    /// What follows, up to the matching `End`, is drawn without antialiasing, as PDF viewers
+    /// draw a mesh shading: triangles side by side leave no seam of what is under them.
+    Crisp,
     End,
 }
 
@@ -214,7 +217,7 @@ impl Item {
             // the items inside move too: the transformation moves with them
             Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.translate(d)),
-            Item::Group { .. } | Item::Blend { .. } | Item::End => {}
+            Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End => {}
         }
     }
 
@@ -242,7 +245,7 @@ impl Item {
             // a transformed group inside: the outer transformation around it
             Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.transform(t)),
-            Item::Group { .. } | Item::Blend { .. } | Item::End => {}
+            Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End => {}
         }
     }
 }
