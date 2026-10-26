@@ -141,6 +141,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
         super::contour::draw_filled(e, p, pts, f)?;
         return Ok(None);
     }
+    if let Some(g) = &p.graphics {
+        super::graphics::draw(e, g, pts, f);
+        return Ok(None);
+    }
     // one dimensional patches of one color are a single path (`supports global path`), which
     // `\closedcycle` closes down to the zero level
     if let Some(mut segs) = super::mesh::global_path(e, p, pts, f) {

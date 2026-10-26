@@ -128,6 +128,12 @@ pub enum Item {
     /// What follows, up to the matching `End`, is drawn without antialiasing, as PDF viewers
     /// draw a mesh shading: triangles side by side leave no seam of what is under them.
     Crisp,
+    /// A PNG image: `place` takes its unit square (the lower left corner at the origin, the upper
+    /// right at (1, 1)) to the canvas.
+    Image {
+        png: std::rc::Rc<Vec<u8>>,
+        place: Transform,
+    },
     End,
 }
 
@@ -212,7 +218,7 @@ impl Item {
                 }
             }
             Item::Clip { segments, .. } => *segments = transform_segments(segments, &t),
-            Item::Text { place, .. } => *place = t.compose(place),
+            Item::Text { place, .. } | Item::Image { place, .. } => *place = t.compose(place),
             Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             // the items inside move too: the transformation moves with them
             Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
@@ -240,7 +246,7 @@ impl Item {
                 }
             }
             Item::Clip { segments, .. } => *segments = transform_segments(segments, t),
-            Item::Text { place, .. } => *place = t.compose(place),
+            Item::Text { place, .. } | Item::Image { place, .. } => *place = t.compose(place),
             Item::Fade { mask: Shading::Axial { transform, .. } | Shading::Radial { transform, .. } } => *transform = t.compose(transform),
             // a transformed group inside: the outer transformation around it
             Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),

@@ -361,3 +361,63 @@ fn a_scaled_picture_scales_its_axis_text_and_all() {
     let scale = |c: &Canvas| c.items.iter().find_map(|i| if let Item::Text { place, .. } = i { Some(place.d) } else { None }).unwrap();
     assert!((scale(&c) - scale(&axis("title=T", r"\addplot coordinates {(0,0) (1,1)};").0) / 2.0).abs() < 1e-9);
 }
+
+/// A PNG of `w` × `h` pixels (72 dpi: as many pt) in one color, in a folder of its own that tikra
+/// reads files from.
+fn png_file(name: &str, w: u32, h: u32, color: &str) -> std::path::PathBuf {
+    let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}pt" height="{h}pt" viewBox="0 0 {w} {h}"><rect width="{w}" height="{h}" fill="{color}"/></svg>"#);
+    let png = tikra::png(&svg, 72.0, false).unwrap();
+    let dir = std::env::temp_dir().join(format!("tikra-graphics-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(name), png).unwrap();
+    // `.` too: other tests read (or refuse) files there
+    std::env::set_var("TIKRA_INPUT_DIR", format!("{}:.", dir.display()));
+    dir
+}
+
+fn image(c: &Canvas) -> tikra::scene::Transform {
+    let places: Vec<_> = c.items.iter().filter_map(|i| if let Item::Image { place, .. } = i { Some(*place) } else { None }).collect();
+    assert_eq!(places.len(), 1);
+    places[0]
+}
+
+#[test]
+fn addplot_graphics_places_a_png() {
+    png_file("g2.png", 40, 20, "red");
+    // 2d: the image fills xmin..xmax × ymin..ymax, which are the limits
+    let (c, w) = axis("scale only axis, width=4cm, height=2cm, enlargelimits=false, hide axis", r"\addplot graphics[xmin=0, xmax=2, ymin=0, ymax=1] {g2.png};");
+    assert!(w.is_empty(), "{w:?}");
+    let t = image(&c);
+    assert!((t.a - 4.0).abs() < 1e-6 && (t.d - 2.0).abs() < 1e-6 && t.b == 0.0 && t.c == 0.0, "{t:?}");
+    // the SVG embeds it, and the PNG shows it
+    let r = tikra::convert(r"\begin{tikzpicture}\begin{axis}[hide axis] \addplot graphics[xmin=0, xmax=2, ymin=0, ymax=1] {g2.png}; \end{axis}\end{tikzpicture}").unwrap();
+    assert!(r.svg.contains(r#"href="data:image/png;base64,iVBORw0KGgo"#), "{}", r.svg);
+    let png = resvg::tiny_skia::Pixmap::decode_png(&tikra::png(&r.svg, 72.0, true).unwrap()).unwrap();
+    let red = png.pixels().iter().filter(|p| p.red() > 200 && p.green() < 50 && p.blue() < 50).count();
+    assert!(red > png.pixels().len() / 2, "{red} of {}", png.pixels().len());
+
+    // 3d: four points with their image coordinates (pt) set the view; the image is placed by the
+    // first two, and the others land where the image has them: (0,0,1) at (10,60)
+    png_file("g3.png", 100, 100, "blue");
+    let points = "points={(0,0,0) => (10,10) (1,0,0) => (70,25) (0,1,0) => (-10,35) (0,0,1) => (10,60)}";
+    let (c, w) = axis("hide axis", &format!(r"\addplot3 graphics[{points}] {{g3.png}}; \addplot3[only marks, mark=*] coordinates {{(0,0,1)}};"));
+    assert!(w.is_empty(), "{w:?}");
+    let t = image(&c);
+    let marks = filled(&c);
+    assert_eq!(marks.len(), 1);
+    let mut b = Canvas::default();
+    b.include_path(marks[0]);
+    let center = tikra::scene::Point::new((b.min.unwrap().x + b.max.unwrap().x) / 2.0, (b.min.unwrap().y + b.max.unwrap().y) / 2.0);
+    // the image is 100 px at 72 dpi: 100.375pt
+    let n = 100.0 * 72.27 / 72.0;
+    let want = t.apply(tikra::scene::Point::new(10.0 / n, 60.0 / n));
+    assert!((want.x - center.x).abs() < 0.01 && (want.y - center.y).abs() < 0.01, "{want:?} {center:?}");
+
+    // a missing file and a PDF are reported
+    let (_, w) = axis("", r"\addplot graphics[xmin=0, xmax=1, ymin=0, ymax=1] {no-such-image.png};");
+    assert!(w.iter().any(|x| x.contains("not found")), "{w:?}");
+    let dir = png_file("g2.png", 40, 20, "red");
+    std::fs::write(dir.join("doc.pdf"), "%PDF-1.4").unwrap();
+    let (_, w) = axis("", r"\addplot graphics[xmin=0, xmax=1, ymin=0, ymax=1] {doc};");
+    assert!(w.iter().any(|x| x.contains("not a PNG")), "{w:?}");
+}

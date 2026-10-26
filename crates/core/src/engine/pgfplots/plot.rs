@@ -99,6 +99,8 @@ pub struct Plot {
     pub deps: Vec<Vec<(String, String)>>,
     /// The formula it was sampled from (`\addplot {x^2}`), for the figure's description.
     pub expression: String,
+    /// `\addplot graphics`: the image and where it goes.
+    pub graphics: Option<Box<super::graphics::Graphics>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -426,7 +428,8 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
                     }
                     plot.fill_between = Some(e.optional()?.unwrap_or_default());
                 }
-                "gnuplot" | "shell" | "graphics" | "function" => {
+                "graphics" => super::graphics::survey(e, plot, three_d)?,
+                "gnuplot" | "shell" | "function" => {
                     let _ = e.optional()?;
                     let _ = e.argument()?;
                     e.warn(format!("\\addplot {w} not supported: it needs an external program or file"));
