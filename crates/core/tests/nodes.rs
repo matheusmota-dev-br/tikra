@@ -365,3 +365,15 @@ fn a_rectangle_callout_finds_its_angle_anchors_as_pgf_does() {
     let (a, east) = (point(body, "s.60"), point(body, "s.east"));
     assert!((a.x - east.x).abs() < 1e-6 && a.y > east.y, "{a:?} {east:?}");
 }
+
+#[test]
+fn a_snapshot_animates_the_picture_with_its_text() {
+    // `myself: = {…}` with several attributes; the rotation turns the canvas, text included
+    let c = canvas(
+        r#"\begin{scope}[make snapshot of=1s, animate = { myself: = { :rotate = { 0s = "0", 2s = "90" }, :line width = { 0s = "0mm", 4s = "4mm" } }}] \node [draw] {Node}; \end{scope}"#,
+    );
+    let turned = c.items.iter().any(|i| matches!(i, tikra::canvas::Item::Transform { transform: t } if (t.b.atan2(t.a).to_degrees() - 45.0).abs() < 1e-6));
+    assert!(turned && !texts(&c).is_empty());
+    let width = paths(&c).iter().find_map(|d| d.stroke.as_ref().map(|s| s.width)).unwrap();
+    assert!((width - 0.1).abs() < 1e-6, "{width}");
+}
