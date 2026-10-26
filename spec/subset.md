@@ -27,11 +27,14 @@ A figure becomes a **scene**: paths (straight segments, cubic curves, closings) 
 
 ## Out, for now
 
-`\matrix`, `\pic`, `\graph`, `shade` with a gradient (becomes a solid fill), `transform shape`, the `mindmap`, `trees`, `circuits`, `3d` libraries, `tikz-cd`, `\chemfig`. They become warnings.
+They become warnings, and the rest of the figure is drawn.
+
+- **Files and programs outside the document**: `\includegraphics` and `\pgfimage`, `\addplot graphics` with anything but a PNG (PDF, EPS, JPEG), and gnuplot (`plot function`, `raw gnuplot`) unless its `.table` file is there to read.
+- **Animations**: drawn as a snapshot at the time `make snapshot of` (or `\pgfsysanimsnapshot`) gives, for opacity, line width, colors and transformations; the system layer's animations of colors, paths and dashes, and those attached to a path, show their base state.
+- **Other packages**: `tikz-cd`, `\chemfig`.
 
 ## Known differences from TeX
 
-- Latin Modern (Computer Modern) from its math font: text italic is the math italic, and typewriter punctuation is the roman one at typewriter width; no sans-serif family (`\sffamily` is ignored).
-- No hyphenation: `text width` breaks only between words.
-- Font size is per node, not per span (`{\small …}` in the middle of the text applies to the whole node).
-- pgfplots ticks may use a different step (pgfplots' algorithm depends on the width).
+- Latin Modern (Computer Modern) from its math font: text italic is the math italic, and typewriter punctuation is the roman one at typewriter width.
+- Colors made in CMYK by xcolor (`yellow!80!black`) are converted to RGB as xcolor converts them; a PDF viewer, Ghostscript included, converts them through a color profile and shows them a little different.
+- The few figures of the manuals that still differ from TeX are listed in [issue #11](https://github.com/matheusmota-dev-br/tikra/issues/11); the comparison, figure by figure, is in [docs/conformance.md](../docs/conformance.md).
