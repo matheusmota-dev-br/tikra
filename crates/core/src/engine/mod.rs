@@ -405,11 +405,11 @@ pub struct Engine {
     pub local_boxes: Vec<(String, usize)>,
     /// The picture's size when each `pgfinterruptboundingbox` opened, restored when it closes.
     interrupted_boxes: Vec<(Option<Point>, Option<Point>)>,
-    /// For each path statement being read, its `scope fading`s: the fading, where in the items
-    /// what the statement draws begins, `fit fading`, and the transformation when it was given.
-    pub path_fadings: Vec<Vec<(String, usize, bool, Transform)>>,
-    /// The `scope fading`s of a path that drew nothing: the next path is faded.
-    pub carried_fadings: Vec<(String, bool, Transform)>,
+    /// For each path statement being read, its `scope fading`s.
+    pub path_fadings: Vec<Vec<fadings::PathFading>>,
+    /// The `scope fading`s of a path that drew nothing: the next path is faded, the fading fitted
+    /// to the box of the path that gave it (none: at its natural size).
+    pub carried_fadings: Vec<fadings::CarriedFading>,
     /// For each path statement being read, the `fading transform` and `fit fading` its options (and
     /// its nodes') set: what its `scope fading`s use.
     pub path_fading_settings: Vec<(Transform, bool)>,

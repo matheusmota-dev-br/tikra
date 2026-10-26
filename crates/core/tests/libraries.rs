@@ -229,3 +229,21 @@ fn insert_path_puts_operations_where_the_options_are() {
     let p = paths(r"\draw[insert path={-- (1,0)}] (0,0) [insert path={-- (1,1)}];");
     assert_eq!(p[0].len(), 3, "{p:?}");
 }
+
+#[test]
+fn scope_fading_of_an_empty_path_is_fitted_to_that_path() {
+    // pgf fits the fading to the path that gives it: the circle drawn next is faded as the
+    // rectangle would be
+    let mask = |body: &str| {
+        items(&format!(r"\usetikzlibrary{{fadings}}{body}"))
+            .into_iter()
+            .find_map(|i| match i {
+                Item::Fade { mask: tikra::canvas::Shading::Axial { transform, .. } } => Some(transform),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let carried = mask(r"\path[scope fading=south] (-2,-2) rectangle (2,2); \fill (0,1) circle (1);");
+    let own = mask(r"\fill[scope fading=south] (-2,-2) rectangle (2,2); \path (0,1) circle (1);");
+    assert_eq!(carried, own);
+}

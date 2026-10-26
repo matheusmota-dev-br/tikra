@@ -2095,7 +2095,7 @@ keyfn!(k_scope_fading, |e, v| {
     let t = e.st.transform.compose(&e.st.pending);
     let (start, fit) = (e.canvas.items.len(), e.st.fit_fading);
     if let Some(list) = e.path_fadings.last_mut() {
-        list.push((s, start, fit, t));
+        list.push((s, start, fit, t, None));
         return Ok(());
     }
     e.open_fading(&s, t);
