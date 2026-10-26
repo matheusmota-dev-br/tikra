@@ -88,3 +88,13 @@ fn png_rejects_invalid_svg_and_bad_dpi() {
     let e = tikra::png(&r.svg, 1e6, true).unwrap_err();
     assert!(e.to_string().contains("too large"), "{e}");
 }
+
+#[test]
+fn a_striped_pattern_has_no_seams_between_its_tiles() {
+    // horizontal stripes: along a row every pixel has the stripe's color, none lighter where tiles meet
+    let r = no_warnings(r"\tikz \fill[pattern=horizontal lines light blue] (0,0) rectangle (2,1);");
+    let png = tikra::png(&r.svg, 100.0, true).unwrap();
+    let image = resvg::tiny_skia::Pixmap::decode_png(&png).unwrap();
+    let row: Vec<u8> = (10..60).map(|x| image.pixel(x, 20).unwrap().red()).collect();
+    assert!(row.iter().all(|&v| v == row[0]), "{row:?}");
+}

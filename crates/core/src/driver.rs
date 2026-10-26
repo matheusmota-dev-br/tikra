@@ -232,9 +232,12 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
             (
                 s * 2.0,
                 format!(
-                    r##"<rect width="{}" height="{}" fill="#ffffff"/><rect y="{}" width="{}" height="{}" fill="{gray}"/><rect x="{}" width="{}" height="{}" fill="{gray}"/>"##,
-                    n(2.0 * s),
-                    n(2.0 * s),
+                    // the white beyond the tile, which clips it: no seam where two tiles meet
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#ffffff"/><rect y="{}" width="{}" height="{}" fill="{gray}"/><rect x="{}" width="{}" height="{}" fill="{gray}"/>"##,
+                    n(-2.0 * s),
+                    n(-2.0 * s),
+                    n(6.0 * s),
+                    n(6.0 * s),
                     n(s),
                     n(s),
                     n(s),
@@ -258,12 +261,15 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
             (
                 s,
                 format!(
-                    r#"<rect y="{}" width="{}" height="{}" fill="{}"/><rect width="{}" height="{}" fill="{}"/>"#,
+                    // the stripes run on beyond the tile's sides, which it clips: no seam between tiles
+                    r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/><rect x="{}" width="{}" height="{}" fill="{}"/>"#,
+                    n(-s),
                     n(2.0 * pt),
-                    n(s),
+                    n(3.0 * s),
                     n(2.0 * pt),
                     tint(base, a),
-                    n(s),
+                    n(-s),
+                    n(3.0 * s),
                     n(2.0 * pt),
                     tint(base, b)
                 ),
@@ -281,7 +287,7 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
             let s = 8.0 * pt;
             let dot = |x: f64, y: f64, c: &str| format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/>"#, n(x * pt), n((8.0 - y) * pt), n(pt));
             let (light, darker) = (tint(dark, 0.1), tint(dark, 0.7));
-            let body = format!(r#"<rect width="{}" height="{}" fill="{back}"/>"#, n(s), n(s))
+            let body = format!(r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{back}"/>"#, n(-s), n(-s), n(3.0 * s), n(3.0 * s))
                 + &dot(2.0, 1.75, &light)
                 + &dot(6.0, 5.75, &light)
                 + &dot(2.0, 2.25, &darker)
