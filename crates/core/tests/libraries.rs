@@ -229,3 +229,44 @@ fn insert_path_puts_operations_where_the_options_are() {
     let p = paths(r"\draw[insert path={-- (1,0)}] (0,0) [insert path={-- (1,1)}];");
     assert_eq!(p[0].len(), 3, "{p:?}");
 }
+
+#[test]
+fn scope_fading_of_an_empty_path_is_fitted_to_that_path() {
+    // pgf fits the fading to the path that gives it: the circle drawn next is faded as the
+    // rectangle would be
+    let mask = |body: &str| {
+        items(&format!(r"\usetikzlibrary{{fadings}}{body}"))
+            .into_iter()
+            .find_map(|i| match i {
+                Item::Fade { mask: tikra::canvas::Shading::Axial { transform, .. } } => Some(transform),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let carried = mask(r"\path[scope fading=south] (-2,-2) rectangle (2,2); \fill (0,1) circle (1);");
+    let own = mask(r"\fill[scope fading=south] (-2,-2) rectangle (2,2); \path (0,1) circle (1);");
+    assert_eq!(carried, own);
+}
+
+#[test]
+fn system_layer_animation_snapshot() {
+    // the timeline of \pgfsysanimkeytime/\pgfsysanimval… at the snapshot time, given to the node
+    // the id refers to; without a snapshot, the node keeps its base state
+    let fill_opacity = |snapshot: &str| {
+        let (canvas, warnings) = tikra::engine::run_document(&format!(
+            r"{snapshot}\tikz {{
+              \pgfidrefnextuse{{\objid}}{{node}}\pgfsysanimkeywhom{{\objid}}{{}}
+              \pgfsysanimkeytime{{0}}{{1}}{{1}}{{0}}{{0}}\pgfsysanimvalscalar{{1}}
+              \pgfsysanimkeytime{{2}}{{1}}{{1}}{{0}}{{0}}\pgfsysanimvalscalar{{0}}
+              \pgfsysanimate{{opacity}}
+              \node (node) [fill=blue!20, circle] {{Hi}};
+            }}"
+        ))
+        .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        canvas.items.iter().find_map(|i| if let Item::Path { fill: Some(f), .. } = i { Some(f.opacity) } else { None }).unwrap()
+    };
+    assert!((fill_opacity(r"\pgfsysanimsnapshot{0.5}") - 0.75).abs() < 1e-6);
+    assert!((fill_opacity(r"\pgfsysanimsnapshot{2}") - 0.0).abs() < 1e-6);
+    assert!((fill_opacity("") - 1.0).abs() < 1e-6);
+}

@@ -111,7 +111,7 @@ pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     reset_path_settings(e);
     // a `scope fading` of a path that drew nothing fades the next one
     let carried = std::mem::take(&mut e.carried_fadings);
-    e.path_fadings.push(carried.into_iter().map(|(name, fit, t)| (name, e.canvas.items.len(), fit, t)).collect());
+    e.path_fadings.push(carried.into_iter().map(|(name, fit, t)| (name, e.canvas.items.len(), fit.is_some(), t, fit)).collect());
     e.path_fading_settings.push((e.st.fading_transform, e.st.fit_fading));
     let r = statement_in_group(e, defaults, &outer);
     let fadings = e.path_fadings.pop().unwrap_or_default();
@@ -1425,9 +1425,9 @@ fn radii(e: &mut Engine) -> Result<(f64, f64), Error> {
             _ => Ok(None),
         }
     };
-    let r = get(e, "/tikz/radius")?;
-    let rx = get(e, "/tikz/x radius")?.or(r).unwrap_or(0.0);
-    let ry = get(e, "/tikz/y radius")?.or(r).unwrap_or(0.0);
+    // (`radius` sets both)
+    let rx = get(e, "/tikz/x radius")?.unwrap_or(0.0);
+    let ry = get(e, "/tikz/y radius")?.unwrap_or(0.0);
     Ok((rx, ry))
 }
 

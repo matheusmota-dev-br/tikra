@@ -285,3 +285,23 @@ fn double_tip() {
     let (s, e, _) = tips("<<-");
     assert_eq!((s.len(), e.len()), (2, 0), "two tips at the start");
 }
+
+#[test]
+fn radius_option_is_not_the_value_of_the_radius_key() {
+    // TikZ's `radius` is code setting `x radius` and `y radius`: a pattern variable
+    // `/tikz/radius` keeps the value `.initial` gave it, whatever `radius=` the path has
+    let body = r"\pgfdeclarepatternformonly[/tikz/radius]{rings}{\pgfpoint{-10pt}{-10pt}}{\pgfpoint{10pt}{10pt}}{\pgfpoint{20pt}{20pt}}
+      {\pgfpathcircle\pgfpointorigin{\pgfkeysvalueof{/tikz/radius}}\pgfusepath{stroke}}
+      \tikzset{radius/.initial=4pt}
+      \fill[pattern=rings, radius=2pt] (0,0) rectangle (1,1);";
+    let t = first_path(body);
+    let Paint::Tile { items, .. } = t.fill.unwrap().paint else { panic!("not a tile") };
+    let c = tikra::canvas::Canvas { items: items.0.to_vec(), ..Default::default() };
+    let ring = &paths(&c)[0];
+    let (lo, hi) = bounds(&ring.segments);
+    assert!(close(hi.x - lo.x, 8.0 * tikra::PT), "{lo:?} {hi:?}");
+    // and a circle's radius is still the option's
+    let t = first_path(r"\tikzset{radius/.initial=4pt}\draw (0,0) circle [radius=1];");
+    let (lo, hi) = bounds(&t.segments);
+    assert!(close(hi.x - lo.x, 2.0), "{lo:?} {hi:?}");
+}

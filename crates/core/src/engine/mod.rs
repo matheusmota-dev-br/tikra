@@ -393,6 +393,9 @@ pub struct Engine {
     pub last_node: Option<nodes::NodeInfo>,
     /// the shifts a node's animations move it by (canvas), which its picture's size makes room for
     pub anim_shifts: Vec<Point>,
+    /// The options the system layer's animations give, at the snapshot time, to the next object
+    /// with each name (`\pgfidrefnextuse`, `\pgfsysanimate`).
+    pub sys_animations: HashMap<String, Vec<Token>>,
     pub last_node_name: Option<String>,
     tree_count: usize,
     /// the chains of the chains library (global, as TikZ keeps their counts)
@@ -405,11 +408,11 @@ pub struct Engine {
     pub local_boxes: Vec<(String, usize)>,
     /// The picture's size when each `pgfinterruptboundingbox` opened, restored when it closes.
     interrupted_boxes: Vec<(Option<Point>, Option<Point>)>,
-    /// For each path statement being read, its `scope fading`s: the fading, where in the items
-    /// what the statement draws begins, `fit fading`, and the transformation when it was given.
-    pub path_fadings: Vec<Vec<(String, usize, bool, Transform)>>,
-    /// The `scope fading`s of a path that drew nothing: the next path is faded.
-    pub carried_fadings: Vec<(String, bool, Transform)>,
+    /// For each path statement being read, its `scope fading`s.
+    pub path_fadings: Vec<Vec<fadings::PathFading>>,
+    /// The `scope fading`s of a path that drew nothing: the next path is faded, the fading fitted
+    /// to the box of the path that gave it (none: at its natural size).
+    pub carried_fadings: Vec<fadings::CarriedFading>,
     /// For each path statement being read, the `fading transform` and `fit fading` its options (and
     /// its nodes') set: what its `scope fading`s use.
     pub path_fading_settings: Vec<(Transform, bool)>,
@@ -582,6 +585,7 @@ impl Clone for Engine {
             saved_paths: self.saved_paths.clone(),
             pgf_solutions: self.pgf_solutions.clone(),
             anim_shifts: Vec::new(),
+            sys_animations: HashMap::new(),
             user_patterns: self.user_patterns.clone(),
             user_shapes: self.user_shapes.clone(),
             later_node: None,
@@ -669,6 +673,7 @@ impl Engine {
             saved_paths: HashMap::new(),
             pgf_solutions: Vec::new(),
             anim_shifts: Vec::new(),
+            sys_animations: HashMap::new(),
             user_patterns: HashMap::new(),
             user_shapes: HashMap::new(),
             later_node: None,

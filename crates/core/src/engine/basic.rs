@@ -128,6 +128,7 @@ enum B {
     Svg,
     DeclarePlotHandler,
     UsePlotHandler,
+    SysAnimate,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -262,17 +263,20 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfpathsvg", B::Svg),
     ("pgfdeclareplothandler", B::DeclarePlotHandler),
     ("tikra@plothandler", B::UsePlotHandler),
+    ("tikra@sysanimate", B::SysAnimate),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
 /// transformation adjustments before they are computed, and `pgflowlevelscope`. The animations of the
-/// system and basic layers take their arguments and do nothing: a still picture shows what they
-/// animate in its base state.
+/// basic layer take their arguments and do nothing: a still picture shows what they animate in its
+/// base state. Those of the system layer do too, unless a snapshot is set (`\pgfsysanimsnapshot`):
+/// their keys make a timeline, which `\pgfsysanimate` turns into the attribute's value at the
+/// snapshot time, given to the object the id refers to.
 pub const DEFINITIONS: &str = r"
 \newif\ifpgfslopedattime \newif\ifpgfallowupsidedownattime \newif\ifpgfresetnontranslationattime
 \def\pgfhorizontaltransformationadjustment{1}\def\pgfverticaltransformationadjustment{1}
 \newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
-\def\pgfidrefnextuse#1#2{\def#1{}}\def\pgfidrefprevuse#1#2{\def#1{}}
+\def\pgfidrefnextuse#1#2{\def#1{#2}}\def\pgfidrefprevuse#1#2{\def#1{#2}}
 \def\pgfsetblendmode#1{\tikzset{blend mode={#1}}}
 \def\tikzdeclarecoordinatesystem#1#2{\expandafter\def\csname tikra@cs@#1\endcsname##1{#2}}
 \def\define@key#1#2{\expandafter\def\csname KV@#1@#2\endcsname##1}
@@ -309,18 +313,25 @@ pub const DEFINITIONS: &str = r"
 \def\pgfmathreciprocal#1{\pgfmathparse{1/(#1)}}
 \def\breakforeach{\gdef\tikra@foreach@break{1}}
 \def\pgfanimateattribute#1#2{}\def\pgfsnapshot#1{}\def\pgfsnapshotafter#1{}
-\def\pgfsysanimsnapshot#1{}\def\pgfsysanimsnapshotafter#1{}\def\pgfsysanimate#1{}
+\def\pgfsysanimsnapshot#1{\tikzset{make snapshot of={#1}}}\def\pgfsysanimsnapshotafter#1{\tikzset{make snapshot after={#1}}}
+\def\tikra@anim@spec{}\def\tikra@anim@whom{}\def\tikra@anim@time{0}
+\def\tikra@anim@add#1{\edef\tikra@anim@spec{\tikra@anim@spec#1,}}
+\def\tikra@anim@val#1{\tikra@anim@add{\tikra@anim@time={#1}}}
+\def\pgfsysanimate#1{\tikra@sysanimate{#1}{\tikra@anim@whom}{\tikra@anim@spec}\def\tikra@anim@spec{}}
+\def\pgfsysanimkeywhom#1#2{\edef\tikra@anim@whom{#1}}\def\pgfsysanimkeytime#1#2#3#4#5{\def\tikra@anim@time{#1}}
+\def\pgfsysanimkeyfreezeatend{\tikra@anim@add{freeze}}\def\pgfsysanimkeysnapshotstart#1{\tikra@anim@add{begin snapshot=#1}}
+\def\pgfsysanimvalscalar#1{\tikra@anim@val{#1}}\def\pgfsysanimvaldimension#1{\tikra@anim@val{#1}}
 \def\pgfsysanimkeyrestartalways{}\def\pgfsysanimkeyrestartnever{}\def\pgfsysanimkeyrestartwhennotactive{}
 \def\pgfsysanimkeyrepeat#1{}\def\pgfsysanimkeyrepeatindefinite{}\def\pgfsysanimkeyrepeatdur#1{}
-\def\pgfsysanimkeyfreezeatend{}\def\pgfsysanimkeyremoveatend{}\def\pgfsysanimkeytime#1#2#3#4#5{}
-\def\pgfsysanimkeybase{}\def\pgfsysanimkeysnapshotstart#1{}\def\pgfsysanimkeyoffset#1#2{}
+\def\pgfsysanimkeyremoveatend{}
+\def\pgfsysanimkeybase{\def\tikra@anim@time{base}}\def\pgfsysanimkeyoffset#1#2{}
 \def\pgfsysanimkeysyncbegin#1#2#3#4{}\def\pgfsysanimkeysyncend#1#2#3#4{}
 \def\pgfsysanimkeyevent#1#2#3#4#5{}\def\pgfsysanimkeyrepeatevent#1#2#3#4#5{}
 \def\pgfsysanimkeyaccesskey#1#2#3{}\def\pgfsysanimkeyaccumulate{}\def\pgfsysanimkeynoaccumulate{}
-\def\pgfsysanimkeywhom#1#2{}\def\pgfsysanimkeyrotatealong{}\def\pgfsysanimkeynorotatealong{}
+\def\pgfsysanimkeyrotatealong{}\def\pgfsysanimkeynorotatealong{}
 \def\pgfsysanimkeymovealong#1{}\def\pgfsysanimkeytipmarkers#1#2{}\def\pgfsysanimkeycanvastransform#1#2{}
-\def\pgfsysanimvalcurrent{}\def\pgfsysanimvalnone{}\def\pgfsysanimvaltext#1{}\def\pgfsysanimvalscalar#1{}
-\def\pgfsysanimvaldimension#1{}\def\pgfsysanimvalcolor#1{}\def\pgfsysanimvalcolorrgb#1#2#3{}
+\def\pgfsysanimvalcurrent{}\def\pgfsysanimvalnone{}\def\pgfsysanimvaltext#1{}
+\def\pgfsysanimvalcolor#1{}\def\pgfsysanimvalcolorrgb#1#2#3{}
 \def\pgfsysanimvalcolorcmyk#1#2#3#4{}\def\pgfsysanimvalcolorcmy#1#2#3{}\def\pgfsysanimvalcolorgray#1{}
 \def\pgfsysanimvalpath#1{}\def\pgfsysanimvaltranslate#1#2{}\def\pgfsysanimvalscale#1#2{}
 \def\pgfsysanimvalviewbox#1#2#3#4{}\def\pgfsysanimvaldash#1#2{}
@@ -1298,6 +1309,13 @@ impl Engine {
                 let name = self.argument_string()?;
                 let args = self.argument()?;
                 self.st.basic_plot = (format!("custom:{name}"), args);
+            }
+            B::SysAnimate => {
+                let attribute = self.argument_string()?;
+                let whom = self.argument_string()?;
+                // the timeline the keys made (a macro)
+                let spec = self.argument_string()?;
+                self.sys_animate(attribute.trim(), whom.trim(), tikra_tokens(&spec))?;
             }
             B::Svg => {
                 let data = self.argument_string()?;

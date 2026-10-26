@@ -11,6 +11,14 @@ use crate::Error;
 
 use super::{tikra_tokens, Engine};
 
+/// A `scope fading` of a path statement: its name, where in the items what the statement draws
+/// begins, `fit fading`, the transformation when it was given, and the box it is fitted to if known.
+pub type PathFading = (String, usize, bool, Transform, Option<(Point, Point)>);
+
+/// A `scope fading` carried to the next path: its name, the box it is fitted to (none: at its
+/// natural size), and its transformation.
+pub type CarriedFading = (String, Option<(Point, Point)>, Transform);
+
 /// A fading's picture: what it draws, and its box (the picture's center is the fading's).
 #[derive(Debug, Clone)]
 pub struct PictureFading {
@@ -205,19 +213,20 @@ impl Engine {
 
     /// The `scope fading`s of a path statement, closed with it: each masks what the statement drew,
     /// fitted to the path's box (`fit fading`, and a path with segments), or else at its natural size
-    /// where it was given. A statement that drew nothing hands them to the next one, as TeX's do.
-    pub fn close_path_fadings(&mut self, fadings: Vec<(String, usize, bool, Transform)>, settings: (Transform, bool)) {
+    /// where it was given. A statement that drew nothing hands them to the next one, as TeX's do,
+    /// fitted to its own path: pgf fits the fading when the path that gives it is done.
+    pub fn close_path_fadings(&mut self, fadings: Vec<PathFading>, settings: (Transform, bool)) {
         let (fading_transform, fit_now) = settings;
-        for (name, start, fit, t) in fadings.into_iter().rev() {
+        for (name, start, fit, t, fixed) in fadings.into_iter().rev() {
             let start = start.min(self.canvas.items.len());
             // the settings the whole statement gave, after the fading's own key
-            let fit = fit && fit_now;
             let t = t.compose(&fading_transform);
+            let fitted = fixed.or(self.st.path_box.filter(|_| fit && fit_now));
             if start == self.canvas.items.len() {
-                self.carried_fadings.push((name, fit, t));
+                self.carried_fadings.push((name, fitted, t));
                 continue;
             }
-            let mask = match self.st.path_box.filter(|_| fit) {
+            let mask = match fitted {
                 Some((lo, hi)) => {
                     let segs = [Segment::MoveTo(lo), Segment::LineTo(Point::new(hi.x, lo.y)), Segment::LineTo(hi), Segment::LineTo(Point::new(lo.x, hi.y)), Segment::Close];
                     if self.picture_fadings.contains_key(&name) {
