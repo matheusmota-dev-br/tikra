@@ -170,13 +170,9 @@ impl Frame {
     }
 
     /// `axis description cs`: (0,0) the lower left corner of the box as drawn, (1,1) the upper right
-    /// one (`\pgfplotspointdescriptionxy`).
+    /// one (`\pgfplotspointdescriptionxy`). pgfplots takes the corners of the bounding box of the
+    /// axis, so with skewed unit vectors (`x={(5pt,1pt)}`) these are not the axis' corners.
     pub fn desc(&self, x: f64, y: f64) -> Point {
-        if !self.three_d && !self.polar && !self.smith {
-            // the box as seen: a reversed axis does not turn it over
-            let flip = |r: f64, a: usize| if self.reversed[a] { 1.0 - r } else { r };
-            return self.rel([flip(x, 0), flip(y, 1), 0.0]);
-        }
         let (lo, hi) = self.bbox();
         Point::new(lo.x + x * (hi.x - lo.x), lo.y + y * (hi.y - lo.y))
     }
