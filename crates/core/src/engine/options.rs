@@ -2440,7 +2440,9 @@ const DEFINITIONS: &str = r"
   execute at end to/.code={\expandafter\def\expandafter\tikz@atend@to\expandafter{\tikz@atend@to#1}},
   style/.code={\pgfkeysalso{#1}},
   every shadow/.style={}, cap/.style={line cap=#1},
-  /tikz/radius/.initial=, /tikz/x radius/.initial=, /tikz/y radius/.initial=,
+  % as TikZ, `radius` is code setting both radii: \pgfkeysvalueof{/tikz/radius} is not it
+  /tikz/radius/.code={\pgfkeyssetvalue{/tikz/x radius}{#1}\pgfkeyssetvalue{/tikz/y radius}{#1}},
+  /tikz/x radius/.initial=, /tikz/y radius/.initial=,
   /tikz/start angle/.initial=, /tikz/end angle/.initial=, /tikz/delta angle/.initial=,
   /pgfplots/table/search path/.code={}, /pgfplots/compat/.code={},
   /tikz/pics/setup code/.initial=, /tikz/pics/code/.initial=, /tikz/pics/background code/.initial=,

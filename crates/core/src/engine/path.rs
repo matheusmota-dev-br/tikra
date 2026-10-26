@@ -1426,9 +1426,9 @@ fn radii(e: &mut Engine) -> Result<(f64, f64), Error> {
             _ => Ok(None),
         }
     };
-    let r = get(e, "/tikz/radius")?;
-    let rx = get(e, "/tikz/x radius")?.or(r).unwrap_or(0.0);
-    let ry = get(e, "/tikz/y radius")?.or(r).unwrap_or(0.0);
+    // (`radius` sets both)
+    let rx = get(e, "/tikz/x radius")?.unwrap_or(0.0);
+    let ry = get(e, "/tikz/y radius")?.unwrap_or(0.0);
     Ok((rx, ry))
 }
 
