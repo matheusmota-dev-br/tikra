@@ -1078,6 +1078,7 @@ impl Engine {
             in_pt: false,
             sans,
             trig_rad: self.st.trig_rad,
+            fpu: false,
         }
     }
 

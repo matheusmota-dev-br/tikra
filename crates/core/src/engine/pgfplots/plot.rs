@@ -671,6 +671,7 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
     let uniform_x = texts.first().is_some_and(|t| t.trim() == var);
     let xs = sample_points(e, "/pgfplots/domain", "/pgfplots/samples", xlog && uniform_x)?;
     let mut vars = e.vars();
+    vars.fpu = true;
     // `trig format plots`: the plot's expressions in radians (or degrees), whatever pgf's is
     match keys::value(e, "/pgfplots/trig format plots").trim() {
         "rad" => vars.trig_rad = true,

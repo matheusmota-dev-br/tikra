@@ -262,6 +262,16 @@ fn statistics_and_colorbar() {
 }
 
 #[test]
+fn expressions_use_the_exp_of_pgfs_fpu() {
+    // the sample at -0.00008 (25 samples of -5:5) has exp 1.00014 in pgf's fpu, not 0.99992:
+    // it stays in [1, 15], and the plot has 7 points (x 0 to 2.5), not 6
+    let (c, w) = canvas(r"\begin{semilogyaxis}[hide axis] \addplot[mark=none, restrict expr to domain={rawy}{1e0:1.5e1}] {exp(x)}; \end{semilogyaxis}");
+    assert!(w.is_empty(), "{w:?}");
+    let n: Vec<usize> = c.items.iter().filter_map(|i| if let Item::Path { segments, stroke: Some(_), .. } = i { Some(points(segments).len()) } else { None }).collect();
+    assert_eq!(n, vec![7]);
+}
+
+#[test]
 fn transformed_coordinates_in_basic_layer_points() {
     // `\pgfplotstransformcoordinatex` gives the units `\pgfqpointxy` takes in the axis (without
     // `pgfpoint substitution`): the circle is at (1,1) of the axis, as `axis cs:1,1` is
