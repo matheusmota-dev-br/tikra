@@ -94,6 +94,8 @@ enum C {
     /// the fillbetween library's commands on soft paths
     Softpath,
     Pgfplotstabletypeset,
+    /// `\pgfplotstransformcoordinatex{v}`: the value in the axis' transformed units
+    Transformcoordinate,
 }
 
 const COMMANDS: &[(&str, C)] = &[
@@ -118,6 +120,9 @@ const COMMANDS: &[(&str, C)] = &[
     ("pgfsetpathandBB", C::Softpath),
     ("pgfaddpathandBB", C::Softpath),
     ("pgfpathreplacefirstmoveto", C::Softpath),
+    ("pgfplotstransformcoordinatex", C::Transformcoordinate),
+    ("pgfplotstransformcoordinatey", C::Transformcoordinate),
+    ("pgfplotstransformcoordinatez", C::Transformcoordinate),
 ];
 
 /// The environments that are axes.
@@ -262,6 +267,7 @@ impl Engine {
                     | C::Tikzfillbetween
                     | C::Softpath
                     | C::Pgfplotstabletypeset
+                    | C::Transformcoordinate
             )
         {
             let rest = self.skip_statement()?;
@@ -332,6 +338,28 @@ impl Engine {
                 r
             }
             C::Softpath => fillbetween::soft_command(self, COMMANDS[(id - BASE) as usize].0),
+            C::Transformcoordinate => {
+                // the logarithm on a log axis, then the data scale transformation: what
+                // `\pgfqpointxy` takes in the axis' units (`\pgfplots@coord@trafo@x`)
+                let name = COMMANDS[(id - BASE) as usize].0;
+                let a = match name.as_bytes()[name.len() - 1] {
+                    b'x' => 0,
+                    b'y' => 1,
+                    _ => 2,
+                };
+                let arg = self.argument()?;
+                let text = self.tex.expand_to_string(arg)?;
+                let v = self.number(&text)?;
+                let t = match self.frame.clone() {
+                    Some(f) => {
+                        let (factor, shift) = draw::data_scale_trafo(self, &f, a);
+                        (f.logical(a, v) - shift) * factor
+                    }
+                    None => v,
+                };
+                self.tex.define_string("pgfmathresult", &super::pgf_number(t), false);
+                Ok(())
+            }
             C::Pgfplotsinvokeforeach => {
                 // \pgfplotsinvokeforeach{list}{code with #1}
                 let list = self.argument()?;

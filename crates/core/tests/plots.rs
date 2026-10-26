@@ -260,3 +260,22 @@ fn statistics_and_colorbar() {
     let (wd, _) = size(&c);
     assert!(wd > 260.0, "{wd}");
 }
+
+#[test]
+fn transformed_coordinates_in_basic_layer_points() {
+    // `\pgfplotstransformcoordinatex` gives the units `\pgfqpointxy` takes in the axis (without
+    // `pgfpoint substitution`): the circle is at (1,1) of the axis, as `axis cs:1,1` is
+    let (c, w) = axis(
+        "xmin=0.5, xmax=2, ymin=0.5, ymax=5",
+        r"\pgfplotsset{compat/pgfpoint substitution=1.3}
+        \pgfplotsextra{\pgfplotstransformcoordinatex{1}\let\xcoord=\pgfmathresult
+            \pgfplotstransformcoordinatey{1}\let\ycoord=\pgfmathresult
+            \pgfpathcircle{\pgfqpointxy{\xcoord}{\ycoord}}{5pt}\pgfusepath{fill}}
+        \fill (axis cs:1,1) circle[radius=5pt];",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let f = filled(&c);
+    assert_eq!(f.len(), 2);
+    let (a, b) = (bounds(f[0]), bounds(f[1]));
+    assert!(close_to((a.0.x, a.0.y), (b.0.x, b.0.y)) && close_to((a.1.x, a.1.y), (b.1.x, b.1.y)), "{a:?} {b:?}");
+}
