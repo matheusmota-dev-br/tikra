@@ -255,6 +255,23 @@ pub fn exp(v: f64) -> f64 {
     number(r).parse::<f64>().unwrap_or(f64::NAN) * 10f64.powi(k as i32)
 }
 
+/// `ln` as pgf's floating point unit computes it (`\pgfmathlog@float`): ln(M) + E·2.302585pt for
+/// v = M·10^E, in TeX dimensions (ln(M) is pgf's fixed point one, here exact to the sp). ln(1e5)
+/// is 11.51291.
+pub fn ln(v: f64) -> f64 {
+    if !(v.is_finite() && v > 0.0) {
+        return v.ln();
+    }
+    let e = v.log10().floor() as i32;
+    let (m, e) = match v / 10f64.powi(e) {
+        m if m >= 10.0 => (m / 10.0, e + 1),
+        m if m < 1.0 => (m * 10.0, e - 1),
+        m => (m, e),
+    };
+    let sp = (m.ln() * 65536.0).round() as i64 + scan_pt("2.302585") * e as i64;
+    number(sp).parse().unwrap_or(f64::NAN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

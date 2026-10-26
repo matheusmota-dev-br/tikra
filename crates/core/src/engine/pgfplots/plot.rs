@@ -603,6 +603,12 @@ fn sample_points(e: &mut Engine, domain_key: &str, samples_key: &str, log: bool)
         if let Some(v) = tex_samples(a, b, n) {
             return Ok(v);
         }
+    } else if a > 0.0 && b > 0.0 {
+        // on a log axis, the same loop between the fpu's logarithms of the ends: 1:100000 in 25
+        // samples ends at ln 11.51257, not 11.51291
+        if let Some(v) = tex_samples(super::fpu::ln(a), super::fpu::ln(b), n) {
+            return Ok(v.into_iter().map(f64::exp).collect());
+        }
     }
     let mut v = Vec::with_capacity(n);
     for k in 0..n {

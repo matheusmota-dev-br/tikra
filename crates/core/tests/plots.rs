@@ -272,6 +272,17 @@ fn expressions_use_the_exp_of_pgfs_fpu() {
 }
 
 #[test]
+fn log_ticks_as_pgfplots_computes_them() {
+    // 1:100000 in 25 samples ends at ln 11.51257 (pgfplots loops in the fpu's logarithms), so y
+    // goes down to ln 1.0007e-10; the ticks are computed in TeX dimensions with 1/ln 10 = 0.4343:
+    // the y limits, -25.3277 to 2.3026, are 3 decades apart per tick from -10.9997 decades, so the
+    // ticks are 10^-10, 10^-7, 10^-4, 10^-1 (four labels), not 10^-11 … 10^1 (five)
+    let (c, w) = canvas(r"\begin{loglogaxis}[small, enlarge x limits={abs=11}, xtick=\empty] \addplot+[domain=1:100000] {x^-2}; \end{loglogaxis}");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 4);
+}
+
+#[test]
 fn transformed_coordinates_in_basic_layer_points() {
     // `\pgfplotstransformcoordinatex` gives the units `\pgfqpointxy` takes in the axis (without
     // `pgfpoint substitution`): the circle is at (1,1) of the axis, as `axis cs:1,1` is
