@@ -80,8 +80,8 @@ Every example of the TikZ manual and of the pgfplots manual is drawn by pdflatex
 
 | | Figures | Drawn as TeX draws them |
 |---|---:|---:|
-| Every figure of the manuals | 2502 | 2354 (94.1%) |
-| Our 100%: the ones a converter can reproduce | 2486 | 2467 (99.2%) |
+| Every figure of the manuals | 2502 | 2360 (94.3%) |
+| Our 100%: the ones a converter can reproduce | 2486 | 2473 (99.5%) |
 
 "Our 100%" leaves out what no converter can reproduce (random numbers without a seed, image files, gnuplot, the day's date) and counts the figures that differ only by antialiasing (how Ghostscript and tikra put lines, letters and pattern tiles on the pixels) as drawn; the list is checked by eye ([unreproducible.json](https://github.com/matheusmota-dev-br/tikra/blob/main/tools/conformance/unreproducible.json)). tikra converts a figure in about half a millisecond, against about 0.7 s for pdflatex.
 

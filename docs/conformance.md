@@ -4,15 +4,15 @@ How far tikra is from TikZ itself: every example of the TikZ manual (pgf 3.1.11a
 manual (1.18.2), drawn by pdflatex (TeX Live 2025) and by tikra, and compared. How it works and how
 to run it: [tools/conformance](../tools/conformance/README.md).
 
-**2354 of 2502 figures (94.1%) match TeX**; 130 are close, 18 differ and 0 fail in tikra. 140 of the ones that do not match came out with no warning.
+**2360 of 2502 figures (94.3%) match TeX**; 125 are close, 17 differ and 0 fail in tikra. 134 of the ones that do not match came out with no warning.
 
-**Our 100%: 2467 of 2486 (99.2%)**. It leaves out the 16 figures no converter can reproduce (9 with random numbers TeX draws anew on every run, 3 with an image file or external program, 4 with the day's date), and counts as done 116 that differ only by antialiasing. The list, checked by eye: [unreproducible.json](../tools/conformance/unreproducible.json).
+**Our 100%: 2473 of 2486 (99.5%)**. It leaves out the 16 figures no converter can reproduce (9 with random numbers TeX draws anew on every run, 3 with an image file or external program, 4 with the day's date), and counts as done 116 that differ only by antialiasing. The list, checked by eye: [unreproducible.json](../tools/conformance/unreproducible.json).
 
 | | Figures | Match | Close | Different | Fails | Mean F1 |
 |---|---:|---:|---:|---:|---:|---:|
-| All | 2502 | 2354 (94.1%) | 130 (5.2%) | 18 (0.7%) | 0 (0.0%) | 0.98 |
-| TikZ manual | 1864 | 1731 (92.9%) | 119 (6.4%) | 14 (0.8%) | 0 (0.0%) | 0.98 |
-| pgfplots manual | 638 | 623 (97.6%) | 11 (1.7%) | 4 (0.6%) | 0 (0.0%) | 0.99 |
+| All | 2502 | 2360 (94.3%) | 125 (5.0%) | 17 (0.7%) | 0 (0.0%) | 0.98 |
+| TikZ manual | 1864 | 1735 (93.1%) | 116 (6.2%) | 13 (0.7%) | 0 (0.0%) | 0.98 |
+| pgfplots manual | 638 | 625 (98.0%) | 9 (1.4%) | 4 (0.6%) | 0 (0.0%) | 0.99 |
 
 *Match*: same shape (F1 ≥ 0.9 on the edges, with 0.5 mm of tolerance), no missing or extra piece, the same colors and size. *Close*: F1 ≥ 0.75.
 *Fails*: tikra returned an error, panicked or took more than 10 s. Mean F1 counts a failure as 0.
@@ -26,10 +26,10 @@ The same 192 figures (a fixed sample of the manuals), one at a time, on Darwin a
 | | Median per figure | p95 |
 |---|---:|---:|
 | pdflatex (texlive/texlive:latest) | 647 ms | 1031 ms |
-| tikra, TikZ to SVG | 0.82 ms | 6.31 ms |
+| tikra, TikZ to SVG | 0.90 ms | 8.41 ms |
 
-Median ratio: tikra is **838× faster**. pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user
-waits for; tikra's is the conversion inside a running process: the first figure of a process also builds the engine, 12.9 ms more.
+Median ratio: tikra is **813× faster**. pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user
+waits for; tikra's is the conversion inside a running process: the first figure of a process also builds the engine, 17.1 ms more.
 
 ## By chapter
 
@@ -37,7 +37,7 @@ Sorted by how many figures do not match, the work left.
 
 | Chapter | Figures | Match | Close | Different | Fails | Mean F1 |
 |---|---:|---:|---:|---:|---:|---:|
-| Shape Library <sub>tikz</sub> | 97 | 71 (73.2%) | 26 (26.8%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
+| Shape Library <sub>tikz</sub> | 97 | 72 (74.2%) | 25 (25.8%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
 | Transparency <sub>tikz</sub> | 47 | 30 (63.8%) | 13 (27.7%) | 4 (8.5%) | 0 (0.0%) | 0.90 |
 | Specifying Coordinates <sub>tikz</sub> | 68 | 56 (82.4%) | 12 (17.6%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
 | Coordinate, Canvas, and Nonlinear Transformations <sub>tikz</sub> | 38 | 29 (76.3%) | 9 (23.7%) | 0 (0.0%) | 0 (0.0%) | 0.93 |
@@ -45,13 +45,13 @@ Sorted by how many figures do not match, the work left.
 | Syntax for Path Specifications <sub>tikz</sub> | 52 | 47 (90.4%) | 5 (9.6%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Axes <sub>tikz</sub> | 78 | 74 (94.9%) | 4 (5.1%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Actions on Paths <sub>tikz</sub> | 72 | 68 (94.4%) | 4 (5.6%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
-| Axis Descriptions <sub>pgfplots</sub> | 77 | 73 (94.8%) | 3 (3.9%) | 1 (1.3%) | 0 (0.0%) | 0.99 |
 | Constructing Paths <sub>tikz</sub> | 26 | 23 (88.5%) | 3 (11.5%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
 | Decoration Library <sub>tikz</sub> | 81 | 78 (96.3%) | 3 (3.7%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
 | Pattern Library <sub>tikz</sub> | 8 | 5 (62.5%) | 3 (37.5%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Transformations <sub>tikz</sub> | 22 | 19 (86.4%) | 3 (13.6%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
 | Tutorial: A Picture for Karl's Students <sub>tikz</sub> | 46 | 43 (93.5%) | 3 (6.5%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Smith Charts <sub>pgfplots</sub> | 12 | 9 (75.0%) | 3 (25.0%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
+| Axis Descriptions <sub>pgfplots</sub> | 77 | 74 (96.1%) | 2 (2.6%) | 1 (1.3%) | 0 (0.0%) | 0.99 |
 | Using Paths <sub>tikz</sub> | 15 | 13 (86.7%) | 2 (13.3%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Declaring and Using Images <sub>tikz</sub> | 2 | 0 (0.0%) | 0 (0.0%) | 2 (100.0%) | 0 (0.0%) | 0.02 |
 | Nodes and Shapes <sub>tikz</sub> | 12 | 10 (83.3%) | 2 (16.7%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
@@ -62,30 +62,29 @@ Sorted by how many figures do not match, the work left.
 | Math Library <sub>tikz</sub> | 6 | 4 (66.7%) | 1 (16.7%) | 1 (16.7%) | 0 (0.0%) | 0.94 |
 | Matrix Library <sub>tikz</sub> | 14 | 12 (85.7%) | 2 (14.3%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Additional Mathematical Commands <sub>tikz</sub> | 3 | 1 (33.3%) | 0 (0.0%) | 2 (66.7%) | 0 (0.0%) | 0.33 |
-| Tutorial: A Lecture Map for Johannes <sub>tikz</sub> | 10 | 8 (80.0%) | 2 (20.0%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
-| Scaling Options <sub>pgfplots</sub> | 22 | 20 (90.9%) | 2 (9.1%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Animations <sub>tikz</sub> | 24 | 23 (95.8%) | 1 (4.2%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
-| Patterns <sub>tikz</sub> | 4 | 3 (75.0%) | 1 (25.0%) | 0 (0.0%) | 0 (0.0%) | 0.94 |
 | Creating Plots <sub>tikz</sub> | 7 | 6 (85.7%) | 0 (0.0%) | 1 (14.3%) | 0 (0.0%) | 0.96 |
 | Automata Drawing Library <sub>tikz</sub> | 8 | 7 (87.5%) | 1 (12.5%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Calendar Library <sub>tikz</sub> | 41 | 40 (97.6%) | 0 (0.0%) | 1 (2.4%) | 0 (0.0%) | 0.99 |
 | Fitting Library <sub>tikz</sub> | 4 | 3 (75.0%) | 1 (25.0%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
-| Animation System Layer <sub>tikz</sub> | 1 | 0 (0.0%) | 0 (0.0%) | 1 (100.0%) | 0 (0.0%) | 0.71 |
 | Arrows <sub>tikz</sub> | 104 | 103 (99.0%) | 1 (1.0%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Decorated Paths <sub>tikz</sub> | 31 | 30 (96.8%) | 1 (3.2%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Specifying Graphs <sub>tikz</sub> | 159 | 158 (99.4%) | 1 (0.6%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Matrices and Alignment <sub>tikz</sub> | 26 | 25 (96.2%) | 1 (3.8%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
+| Tutorial: A Lecture Map for Johannes <sub>tikz</sub> | 10 | 9 (90.0%) | 1 (10.0%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Tutorial: A Petri-Net for Hagen <sub>tikz</sub> | 28 | 27 (96.4%) | 1 (3.6%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Fill between <sub>pgfplots</sub> | 29 | 28 (96.6%) | 1 (3.4%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Statistics <sub>pgfplots</sub> | 26 | 25 (96.2%) | 0 (0.0%) | 1 (3.8%) | 0 (0.0%) | 0.99 |
 | Two Dimensional Plot Types <sub>pgfplots</sub> | 72 | 71 (98.6%) | 0 (0.0%) | 1 (1.4%) | 0 (0.0%) | 0.99 |
 | Alignment Options <sub>pgfplots</sub> | 8 | 7 (87.5%) | 1 (12.5%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Grid Options <sub>pgfplots</sub> | 18 | 17 (94.4%) | 0 (0.0%) | 1 (5.6%) | 0 (0.0%) | 0.97 |
+| Scaling Options <sub>pgfplots</sub> | 22 | 21 (95.5%) | 1 (4.5%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Specifying the Plotted Range <sub>pgfplots</sub> | 13 | 12 (92.3%) | 1 (7.7%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Decorations <sub>tikz</sub> | 10 | 10 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
 | Design Principles <sub>tikz</sub> | 7 | 7 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Layered Graphics <sub>tikz</sub> | 1 | 1 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Matrices <sub>tikz</sub> | 7 | 7 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
+| Patterns <sub>tikz</sub> | 4 | 4 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | pgfmanual-en-base-scopes <sub>tikz</sub> | 19 | 19 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
 | Shadings <sub>tikz</sub> | 6 | 6 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | pgfmanual-en-dv-examples <sub>tikz</sub> | 3 | 3 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.95 |
@@ -120,6 +119,7 @@ Sorted by how many figures do not match, the work left.
 | Date and Calendar Utility Macros <sub>tikz</sub> | 1 | 1 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Repeating Things: The Foreach Statement <sub>tikz</sub> | 13 | 13 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Key Management <sub>tikz</sub> | 5 | 5 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
+| Animation System Layer <sub>tikz</sub> | 1 | 1 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Pics: Small Pictures on Paths <sub>tikz</sub> | 14 | 14 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Plots of Functions <sub>tikz</sub> | 30 | 30 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | pgfmanual-en-tikz-scopes <sub>tikz</sub> | 13 | 13 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
@@ -179,15 +179,15 @@ Warnings, by how many figures they appear in (the varying part replaced by …):
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderellipse; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointintersectionofcircles; statement ignored` |
 | 1 | `\pgfqbox{\mybox}: the box is not drawn` |
-| 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
-| 1 | `unrecognized path fragment: …` |
-| 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
-| 1 | `\pgftransparencygroup not supported: … ignored` |
 | 1 | `\endpgftransparencygroup not supported: … ignored` |
+| 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
+| 1 | `unrecognized path fragment: …` |
+| 1 | `\pgftransparencygroup not supported: … ignored` |
 | 1 | `\pgfmathparse: expression: unexpected character: …` |
 | 1 | `E-REC-N column N: \rmoustache is not a delimiter; used the empty one` |
 | 1 | `E-REC-N column N: unsupported text command: \-; written as is` |
