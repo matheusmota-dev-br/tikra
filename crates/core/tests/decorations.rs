@@ -236,3 +236,10 @@ fn the_mindmap_library_sets_the_decoration_angle_to_20() {
     let top = ends(&paths(&items)[0]).iter().map(|p| p.y).fold(f64::MIN, f64::max);
     assert!((top - 0.4 * 20f64.to_radians().sin()).abs() < 1e-3, "{top}");
 }
+
+#[test]
+fn a_control_space_in_text_effects_is_a_space() {
+    // `\ ` at the end of the text: a blank, not a backslash that takes the closing brace with it
+    let (_, w) = picture(r"\path[decoration={text effects along path, text={ab!\ }}, decorate] (0,0) -- (3,0);");
+    assert!(w.is_empty(), "{w:?}");
+}
