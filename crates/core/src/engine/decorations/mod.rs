@@ -704,10 +704,10 @@ impl Engine {
             self.warn(format!("decoration '{name}' not supported: path drawn undecorated"));
             return Ok(segs.to_vec());
         }
-        if self.st.rounded > 0.0 {
+        if self.st.rounded != 0.0 || self.st.rounded_out != 0.0 {
             // the round corners of the path are made before it is decorated (`\pgfprocessround`)
-            let r = self.st.rounded;
-            return self.decorate_how(&super::output::round_corners(segs, r), existing, How::Tikz(name));
+            let rounded = super::output::round_corners(segs, self.st.rounded, self.st.rounded_out);
+            return self.decorate_how(&rounded, existing, How::Tikz(name));
         }
         self.decorate_how(segs, existing, How::Tikz(name))
     }

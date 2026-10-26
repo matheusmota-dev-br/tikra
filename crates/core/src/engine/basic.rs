@@ -947,7 +947,8 @@ impl Engine {
             }
             B::CornersArced => {
                 let p = self.point_arg()?;
-                self.st.rounded = p.x.abs().max(p.y.abs());
+                // the corner's arc starts p.x before it and ends p.y after it
+                (self.st.rounded, self.st.rounded_out) = (p.x, p.y);
             }
             B::Shift => {
                 let p = self.point_arg()?;

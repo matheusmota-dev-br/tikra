@@ -824,11 +824,13 @@ keyfn!(k_nonzero, |e, _v| {
 
 keyfn!(k_rounded, |e, v| {
     e.st.rounded = length(e, &v)?.unwrap_or(4.0 * PT);
+    e.st.rounded_out = e.st.rounded;
     Ok(())
 });
 
 keyfn!(k_sharp, |e, _v| {
     e.st.rounded = 0.0;
+    e.st.rounded_out = 0.0;
     Ok(())
 });
 

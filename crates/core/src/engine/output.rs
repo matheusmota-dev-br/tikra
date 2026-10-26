@@ -41,8 +41,8 @@ impl Engine {
         if !self.st.nonlinear.is_empty() {
             segs = self.nonlinear_path(&segs)?;
         }
-        if self.st.rounded > 0.0 {
-            segs = round_corners(&segs, self.st.rounded);
+        if self.st.rounded != 0.0 || self.st.rounded_out != 0.0 {
+            segs = round_corners(&segs, self.st.rounded, self.st.rounded_out);
         }
         let mode = self.st.mode.clone();
         // the bounding box grows as the path is built: before any shortening
@@ -446,73 +446,139 @@ fn proper(segs: &[Segment]) -> bool {
     points.iter().any(|p| Some(p) != points.first())
 }
 
-/// Rounded corners between straight segments.
-pub fn round_corners(segs: &[Segment], r: f64) -> Vec<Segment> {
-    let mut points: Vec<Vec<Point>> = Vec::new();
-    let mut closed: Vec<bool> = Vec::new();
+/// One piece of a subpath: a line or a curve to its end point.
+#[derive(Clone, Copy)]
+enum Piece {
+    Line(Point),
+    Curve(Point, Point, Point),
+}
+
+impl Piece {
+    fn end(self) -> Point {
+        match self {
+            Piece::Line(p) | Piece::Curve(_, _, p) => p,
+        }
+    }
+
+    fn with_end(self, p: Point) -> Piece {
+        match self {
+            Piece::Line(_) => Piece::Line(p),
+            Piece::Curve(a, b, _) => Piece::Curve(a, b, p),
+        }
+    }
+
+    /// The point the piece comes from into its end: its start, or its second control point.
+    fn into_end(self, start: Point) -> Point {
+        match self {
+            Piece::Line(_) => start,
+            Piece::Curve(_, b, _) => b,
+        }
+    }
+
+    /// The point the piece heads to from its start: its end, or its first control point.
+    fn out_of_start(self) -> Point {
+        match self {
+            Piece::Line(p) | Piece::Curve(p, _, _) => p,
+        }
+    }
+
+    fn segment(self) -> Segment {
+        match self {
+            Piece::Line(p) => Segment::LineTo(p),
+            Piece::Curve(a, b, p) => Segment::CurveTo(a, b, p),
+        }
+    }
+}
+
+/// The arc that replaces corner `v`, coming from `from` and going on to `to`, as pgf rounds it
+/// (`\pgfprocessround`): it starts `r_in` before the corner and ends `r_out` after it, with no regard
+/// for the length of the sides. None when there is no corner: a side of no length, or a joint
+/// where the path goes on straight (inside an arc, where pgf has no corner to round either).
+fn corner_arc(from: Point, v: Point, to: Point, r_in: f64, r_out: f64) -> Option<(Point, Point, Point, Point)> {
+    let (d1, d2) = (from.minus(v), to.minus(v));
+    let (n1, n2) = (d1.norm(), d2.norm());
+    if n1 < 1e-9 || n2 < 1e-9 {
+        return None;
+    }
+    let (u1, u2) = (d1.scale(1.0 / n1), d2.scale(1.0 / n2));
+    // straight on: the two directions opposite each other
+    if (u1.x * u2.y - u1.y * u2.x).abs() < 1e-6 && u1.x * u2.x + u1.y * u2.y < 0.0 {
+        return None;
+    }
+    let (a, b) = (v.plus(u1.scale(r_in)), v.plus(u2.scale(r_out)));
+    Some((a, a.lerp(v, 0.5522847), b.lerp(v, 0.5522847), b))
+}
+
+/// Rounded corners, as pgf makes them: at every corner where a line or a curve ends and another
+/// one (or the closing line) begins, an arc from `r_in` before the corner to `r_out` after it. A
+/// curve's corner is found along its control points, and the curve is cut to the arc's start.
+pub fn round_corners(segs: &[Segment], r_in: f64, r_out: f64) -> Vec<Segment> {
+    // the subpaths: start, pieces, closed
+    let mut subpaths: Vec<(Point, Vec<Piece>, bool)> = Vec::new();
     for s in segs {
-        match s {
-            Segment::MoveTo(p) => {
-                points.push(vec![*p]);
-                closed.push(false);
-            }
+        match *s {
+            Segment::MoveTo(p) => subpaths.push((p, Vec::new(), false)),
             Segment::LineTo(p) => {
-                if let Some(v) = points.last_mut() {
-                    v.push(*p);
+                if let Some(sp) = subpaths.last_mut() {
+                    sp.1.push(Piece::Line(p));
+                }
+            }
+            Segment::CurveTo(a, b, p) => {
+                if let Some(sp) = subpaths.last_mut() {
+                    sp.1.push(Piece::Curve(a, b, p));
                 }
             }
             Segment::Close => {
-                if let Some(f) = closed.last_mut() {
-                    *f = true;
+                if let Some(sp) = subpaths.last_mut() {
+                    sp.2 = true;
                 }
             }
-            Segment::CurveTo(..) => return segs.to_vec(),
         }
     }
     let mut out = Vec::new();
-    for (pts, is_closed) in points.iter().zip(closed) {
-        let mut p: Vec<Point> = pts.clone();
-        if is_closed && p.len() > 2 && p.first().map(|a| a.minus(*p.last().unwrap()).norm() <= 1e-9).unwrap_or(false) {
-            p.pop();
-        }
-        let n = p.len();
-        if n < 3 {
-            out.push(Segment::MoveTo(p[0]));
-            for q in &p[1..] {
-                out.push(Segment::LineTo(*q));
+    for (start, mut pieces, closed) in subpaths {
+        if closed {
+            // the closing line, unless the path is already back at its start
+            match pieces.last() {
+                Some(last) if last.end().minus(start).norm() > 1e-9 => pieces.push(Piece::Line(start)),
+                _ => {}
             }
-            if is_closed {
+        }
+        let n = pieces.len();
+        if n == 0 {
+            out.push(Segment::MoveTo(start));
+            if closed {
                 out.push(Segment::Close);
             }
             continue;
         }
-        let corner = |k: usize| -> (Point, Point, Point) {
-            let prev = p[(k + n - 1) % n];
-            let here = p[k];
-            let next = p[(k + 1) % n];
-            let d1 = prev.minus(here);
-            let d2 = next.minus(here);
-            let rr = r.min(d1.norm() / 2.0).min(d2.norm() / 2.0);
-            (here.plus(d1.scale(rr / d1.norm().max(1e-12))), here, here.plus(d2.scale(rr / d2.norm().max(1e-12))))
-        };
-        let indices: Vec<usize> = if is_closed { (0..n).collect() } else { (1..n - 1).collect() };
-        if is_closed {
-            out.push(Segment::MoveTo(corner(0).2));
-        } else {
-            out.push(Segment::MoveTo(p[0]));
+        let begin = |k: usize, pieces: &[Piece]| if k == 0 { start } else { pieces[k - 1].end() };
+        // the arc at the end of piece k, toward piece k + 1 (and for a closed path the last one
+        // toward the first)
+        let mut arcs: Vec<Option<(Point, Point, Point, Point)>> = vec![None; n];
+        for k in 0..n {
+            let next = if k + 1 < n {
+                pieces[k + 1]
+            } else if closed {
+                pieces[0]
+            } else {
+                continue;
+            };
+            arcs[k] = corner_arc(pieces[k].into_end(begin(k, &pieces)), pieces[k].end(), next.out_of_start(), r_in, r_out);
         }
-        for &k in indices.iter().skip(if is_closed { 1 } else { 0 }) {
-            let (a, v, b) = corner(k);
-            out.push(Segment::LineTo(a));
-            out.push(Segment::CurveTo(a.lerp(v, 0.5523), b.lerp(v, 0.5523), b));
+        let first = if closed { arcs[n - 1].map_or(start, |a| a.3) } else { start };
+        out.push(Segment::MoveTo(first));
+        for k in 0..n {
+            match arcs[k] {
+                Some((a, c1, c2, b)) => {
+                    out.push(pieces[k].with_end(a).segment());
+                    out.push(Segment::CurveTo(c1, c2, b));
+                }
+                None => out.push(pieces[k].segment()),
+            }
         }
-        if is_closed {
-            let (a, v, b) = corner(0);
-            out.push(Segment::LineTo(a));
-            out.push(Segment::CurveTo(a.lerp(v, 0.5523), b.lerp(v, 0.5523), b));
+        if closed {
             out.push(Segment::Close);
-        } else {
-            out.push(Segment::LineTo(p[n - 1]));
         }
     }
     out

@@ -798,8 +798,8 @@ impl Engine {
         let layer_items = |e: &mut Engine, layers: &[Layer], items: &mut Vec<Item>| -> Result<(), Error> {
             for p in g.paths.iter().filter(|p| layers.contains(&p.layer)) {
                 let mut segs = p.segments.clone();
-                if p.layer == Layer::Background && g.roundable && e.st.rounded > 0.0 {
-                    segs = super::output::round_corners(&segs, e.st.rounded);
+                if p.layer == Layer::Background && g.roundable && (e.st.rounded != 0.0 || e.st.rounded_out != 0.0) {
+                    segs = super::output::round_corners(&segs, e.st.rounded, e.st.rounded_out);
                 }
                 let segs = transform_segments(&segs, &t);
                 if matches!(p.usage, Usage::Node)

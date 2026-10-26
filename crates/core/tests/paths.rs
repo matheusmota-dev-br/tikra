@@ -279,7 +279,7 @@ fn rounded_corners() {
     assert_eq!(t.segments.len(), 2);
     let t = first_path(r"\draw[rounded corners] (0,0) -- (2,0) -- cycle;");
     assert!(matches!(t.segments.last(), Some(Segment::Close)));
-    // with a curve on the path, nothing changes
+    // with a curve on the path: the corner where the arc starts is rounded too, its inside is not
     let t = first_path(r"\draw[rounded corners] (0,0) -- (1,0) arc (0:90:1);");
     assert!(t.segments.iter().any(|s| matches!(s, Segment::CurveTo(..))));
     // sharp corners turns it off
@@ -457,4 +457,19 @@ fn translate_moves_every_kind_of_item() {
     assert!(
         matches!(&items[0], Item::Clip { segments: segs, .. } if matches!(segs[0], Segment::MoveTo(p) if moved(&p)) && matches!(segs[1], Segment::CurveTo(a, b, c) if [a, b, c].iter().all(moved)))
     );
+}
+
+#[test]
+fn corners_arced_as_pgf_rounds_them() {
+    // 10mm before each corner, 5mm after it, and the corner into a curve found along its first
+    // control point; the curve keeps its control points
+    let t = first_path(
+        r"\pgfsetcornersarced{\pgfpoint{10mm}{5mm}} \pgfpathmoveto{\pgfpointorigin} \pgfpathlineto{\pgfpoint{0cm}{2cm}}
+          \pgfpathlineto{\pgfpoint{3cm}{2cm}} \pgfpathcurveto{\pgfpoint{3cm}{0cm}}{\pgfpoint{2cm}{0cm}}{\pgfpoint{1cm}{0cm}} \pgfusepath{stroke}",
+    );
+    let p = points(&t.segments);
+    let expected = [(0.0, 0.0), (0.0, 1.0), (0.5, 2.0), (2.0, 2.0), (3.0, 1.5), (1.0, 0.0)];
+    for q in expected {
+        assert!(p.iter().any(|r| close_to(*r, q)), "{q:?} not in {p:?}");
+    }
 }
