@@ -1,11 +1,12 @@
 //! View boxes: the views library's `meet={(a) (b) at (c) (d)}` and `slice=…` scope options, and the
 //! basic layer's `\begin{pgfviewboxscope}{a}{b}{c}{d}{meet|slice}`. The box from `a` to `b` is
 //! scaled (the same along both axes) and shifted onto the box from `c` to `d`: with `meet` all of it
-//! fits, centered; with `slice` it fills the box, clipped to it. The picture's size takes the target
-//! box, not what is drawn in it. It is a canvas transformation: lines and text are scaled too.
+//! fits, centered; with `slice` it fills the box and overflows it (pgf's pdf output does not clip
+//! it). Neither the target box nor what is drawn in it counts in the picture's size, as in pgf. It
+//! is a canvas transformation: lines and text are scaled too.
 
 use crate::canvas::Item;
-use crate::scene::{Point, Segment, Transform};
+use crate::scene::{Point, Transform};
 use crate::Error;
 
 use super::Engine;
@@ -18,16 +19,7 @@ impl Engine {
         let (tw, th) = ((d.x - c.x).abs(), (d.y - c.y).abs());
         let s = if slice { (tw / vw).max(th / vh) } else { (tw / vw).min(th / vh) };
         let (vc, tc) = (a.lerp(b, 0.5), c.lerp(d, 0.5));
-        let corners = [Point::new(c.x, c.y), Point::new(d.x, c.y), Point::new(d.x, d.y), Point::new(c.x, d.y)].map(|p| t.apply(p));
-        if self.counts_for_size() {
-            corners.iter().for_each(|p| self.canvas.include(*p));
-        }
-        if slice {
-            let mut segs = vec![Segment::MoveTo(corners[0])];
-            segs.extend(corners[1..].iter().map(|p| Segment::LineTo(*p)));
-            segs.push(Segment::Close);
-            self.open_in_scope(Item::Clip { segments: segs, even_odd: false });
-        }
+        // pgf neither clips to the target box (`slice` overflows it) nor counts it in the picture's size
         // what is drawn inside does not make the picture larger
         if let Some(sc) = self.scopes.last_mut() {
             sc.clipped = true;

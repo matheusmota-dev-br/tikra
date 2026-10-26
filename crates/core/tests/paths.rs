@@ -473,3 +473,12 @@ fn corners_arced_as_pgf_rounds_them() {
         assert!(p.iter().any(|r| close_to(*r, q)), "{q:?} not in {p:?}");
     }
 }
+
+#[test]
+fn a_slice_overflows_its_box_and_leaves_the_size_alone() {
+    // as pgf's pdf output: no clip to the target box, and the picture is as large as the frame
+    let body = r"\draw (0,0) rectangle (2,2); \begin{scope}[slice={(0.5,0.5) (2.5,1.5) at (0,0) (2,2)}] \draw (0.5,0.5) rectangle (2.5,1.5); \end{scope}";
+    let (w, h) = size(body);
+    assert!(close(w, 2.0 + 0.4 * tikra::PT) && close(h, 2.0 + 0.4 * tikra::PT), "{w} {h}");
+    assert!(!canvas(body).items.iter().any(|i| matches!(i, Item::Clip { .. })));
+}
