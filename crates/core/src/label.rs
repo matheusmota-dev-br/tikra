@@ -1122,6 +1122,12 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let sc = font.contains("\\scshape");
     let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
     let mut stretch = design_width(10.0 * size, family(text, font, bold));
+    if sc {
+        // cmcsc10 is an extended design: its capitals are about 9% wider than cmr10's, so a word in
+        // small capitals is 1.079 times as wide as the label font sets it (59.17pt for
+        // "Complexity" in TeX against 54.83)
+        stretch *= 1.079;
+    }
     if all == Some("mathit") {
         // text italic (cmti) is narrower than the math italic it is drawn with: by 0.943 on the
         // lowercase letters of English text, weighted by how often they come

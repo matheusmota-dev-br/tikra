@@ -377,3 +377,11 @@ fn a_snapshot_animates_the_picture_with_its_text() {
     let width = paths(&c).iter().find_map(|d| d.stroke.as_ref().map(|s| s.width)).unwrap();
     assert!((width - 0.1).abs() < 1e-6, "{width}");
 }
+
+#[test]
+fn small_capitals_are_as_wide_as_cmcsc10_sets_them() {
+    // a word in \scshape is wider than in the label font (cmcsc10 is an extended design): in 2cm,
+    // "Complexity" no longer fits and is hyphenated, as in TeX
+    let (l, _) = label(r"\node[text width=2cm, align=center, font=\scshape, execute at begin node=\hskip0pt] {Measuring Complexity};");
+    assert_eq!(l.lines.len(), 3, "{}", l.lines.len());
+}
