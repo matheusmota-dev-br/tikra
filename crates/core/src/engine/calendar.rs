@@ -71,9 +71,10 @@ pub const DEFINITIONS: &str = r"
 \def\tikra@cal@dates{}\def\tikra@cal@width{1}
 \def\tikra@cal@xshift{3.5ex}\def\tikra@cal@yshift{3ex}
 \def\tikra@cal@monthxshift{9ex}\def\tikra@cal@monthyshift{9ex}
-\def\tikzdaycode{\node[name=\pgfcalendarsuggestedname,every day]{\tikzdaytext};}
-\def\tikzmonthcode{\node[every month]{\tikzmonthtext};}
-\def\tikzyearcode{\node[every year]{\tikzyeartext};}
+% each day, month and year is a node with its style and text; a day is named after its date
+\def\tikra@cal@node#1#2{\node[#2every #1]{\csname tikz#1text\endcsname};}
+\def\tikzdaycode{\tikra@cal@node{day}{name=\pgfcalendarsuggestedname,}}
+\def\tikzmonthcode{\tikra@cal@node{month}{}}\def\tikzyearcode{\tikra@cal@node{year}{}}
 \def\tikzdaytext{\%d-}\def\tikzmonthtext{\%mt}\def\tikzyeartext{\%y0}
 \tikzset{
   dates/.code={\def\tikra@cal@dates{#1}},

@@ -25,12 +25,11 @@ const BASE: &str = r"
 \pgfkeys{/pgf/every data/.style={/tikz/every data/.try,/tikz/data visualization/every data/.try},
   /data point/outlier/.initial=, /data point/outlier/.default=true}
 \tikzset{visualizer color/.code=\colorlet{visualizer color}{#1}, visualizer color=black}
-\tikzdatavisualizationset{
-  styling/.style=, style/.style={styling/.append style={#1}},
+\tikzdatavisualizationset{styling/.style=, style/.style={styling/.append style={#1}},
   @node styling/.initial=, node style/.style={/tikz/data visualization/@node styling/.append={,#1}},
   text colored/.style={node style={text=visualizer color}},
   low/.initial=0, high/.initial=0, padded/.style={low=padded min,high=padded max},
-  tick length/.style={low={-#1},high={#1}},
+  tick length/.style={high={#1},low={-#1}},
   common/.initial=, major/.initial=, minor/.initial=, subminor/.initial=, direction axis/.initial=,
   at/.code=\def\tikra@dv@at{#1}, also at/.code=\tikra@dv@append\tikra@dv@at{,#1},
   options at/.code=\tikra@dv@append\tikra@dv@atoptions{,{#1}},
@@ -38,11 +37,10 @@ const BASE: &str = r"
   at default ticks/.code=\tikra@dv@also\tikra@dv@defaultticks,
   at ticks/.code={\tikra@dv@also\tikra@dv@defaultticks\tikra@dv@also\tikra@dv@ticks},
   tick text at low/.is if=tikra@dv@low, tick text at high/.is if=tikra@dv@high,
-  no tick text/.style={tick text at low=false,tick text at high=false},
+  no tick text/.code={\tikra@dv@lowfalse\tikra@dv@highfalse},
   stack/.style={tick text even padding={#1}}, stack/.default=1em,
   stack'/.style={tick text odd padding={#1}}, stack'/.default=1em,
-  tick text padding/.style={tick text odd padding={#1},tick text even padding={#1}},
-  clean ticks/.style={node style={fill=white}},
+  tick text padding/.style={tick text even padding={#1},tick text odd padding={#1}}, clean ticks/.style={node style=fill=white},
   every ticks/.style={node style={font=\footnotesize,inner sep=1pt,outer sep=.1666em,rounded corners=1.5pt}},
   every data set label/.style={every ticks,node style={font=\small}},
   every axis label/.style={node style={font=\small}},
@@ -60,7 +58,7 @@ const BASE: &str = r"
   xyz axes/.style={x axis={#1},y axis={#1},z axis={#1}}, uvw axes/.style={u axis={#1},v axis={#1},w axis={#1}},
 }
 \tikzdatavisualizationset{axis options/.cd,
-  padding/.style={padding min={-#1},padding max={#1}},
+  padding/.style={padding max={#1},padding min={-#1}},
   length/.style={scaling=min at 0 and max at {#1}},
   power unit length/.style={scaling=1 at 0 and 10 at {#1}},
   linear steps/.style={tick placement strategy=linear},
@@ -73,8 +71,7 @@ const BASE: &str = r"
   half circle/.style={scaling=min at 0 and max at 180},
   quarter circle/.style={scaling=min at 0 and max at 90},
 }
-\tikzdatavisualizationset{visualizer options/.cd,
-  style/.style={/tikz/data visualization/visualizers/\tikra@dv@visualizer/styling/.append style={,#1}},
+\tikzdatavisualizationset{visualizer options/.cd, style/.style={/tikz/data visualization/visualizers/\tikra@dv@visualizer/styling/.append style={,#1}},
   label in legend options/.style={/tikz/data visualization/visualizers/\tikra@dv@visualizer/label in legend options/.append style={,#1}},
   attribute 1/.style={/data point/\tikra@dv@visualizer/attribute 1={#1}},
   attribute 2/.style={/data point/\tikra@dv@visualizer/attribute 2={#1}},
@@ -82,24 +79,23 @@ const BASE: &str = r"
 }
 \tikzdatavisualizationset{visualizer label options/.cd,
   text/.initial=, text'/.style={text={#1},node style=swap,tikra pin sign=-},
-  node style/.style={/tikz/data visualization/node style={#1}},
-  text colored/.style=/tikz/data visualization/text colored,
+  node style/.code={\pgfkeysalso{/tikz/data visualization/node style={#1}}},
+  text colored/.style={/tikz/data visualization/node style={text=visualizer color}},
   pin angle/.initial=, pin length/.initial=3ex, tikra pin/.initial=, tikra pin sign/.initial=,
 }
 \tikzdatavisualizationset{legend entry options/.cd,
   text/.initial=, legend/.initial=main legend, setup/.initial=,
-  node style/.style={/tikz/data visualization/node style={#1}},
+  node style/.code={\pgfkeysalso{/tikz/data visualization/node style={#1}}},
+  text colored/.style={/tikz/data visualization/node style={text=visualizer color}},
   visualizer in legend/.initial=, visualizer in legend styling/.initial=,
-  visualizer in legend style/.style={visualizer in legend styling/.append={,#1}},
-  text colored/.style=/tikz/data visualization/text colored,
+  visualizer in legend style/.style={/tikz/data visualization/legend entry options/visualizer in legend styling/.append={,#1}},
   text right/.style={node style={anchor=mid west,inner ysep=1pt,inner xsep=0pt,reset cm,xshift=.333em},visualizer in legend style={reset cm}},
   text left/.style={node style={anchor=mid east,inner ysep=1pt,inner xsep=0pt,reset cm,xshift=-.333em,align=right},visualizer in legend style={reset cm,xscale=-1}},
   text only/.style={node style={anchor=mid west,inner ysep=1pt,inner xsep=0pt,reset cm,text=visualizer color},/utils/exec=\tikra@dv@textonlytrue},
-  label in legend line coordinates/.initial=, label in legend mark coordinates/.initial=,
-  label in legend rectangle coordinates/.initial={(-1ex,-.5ex),(-1ex,0.968ex),(0ex,0.968ex),(0ex,-.5ex)},
-  default label in legend path/.style={zig zag label in legend line},
-  default label in legend closed path/.style={circular label in legend line},
-  default label in legend mark/.style={label in legend one mark},
+  label in legend line coordinates/.initial=, label in legend mark coordinates/.initial=, label in legend rectangle coordinates/.initial={(-1ex,-0.5ex),(-1ex,0.968ex),(0ex,0.968ex),(0ex,-0.5ex)},
+  % what a visualizer shows in a legend unless told: a zig zag line, a circle, one mark
+  default label in legend path/.style=zig zag label in legend line, default label in legend closed path/.style=circular label in legend line,
+  default label in legend mark/.style=label in legend one mark,
 }
 ";
 

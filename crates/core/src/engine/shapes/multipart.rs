@@ -186,9 +186,9 @@ fn per_part(list: &str, n: usize) -> Vec<String> {
 
 pub fn rectangle_split(input: &mut Input) -> Geometry {
     let n = input.number("/pgf/rectangle split parts", 4.0).trunc().clamp(1.0, 20.0) as usize;
-    let horizontal = input.keys.flag("pgfrectanglesplithorizontal");
-    let ignore_empty = input.keys.flag("pgfrectanglesplitignoreemptyparts");
-    let draw_splits = input.keys.flag("pgfrectanglesplitdrawsplits");
+    let horizontal = input.keys.flag("tikra@sh@splithoriz");
+    let ignore_empty = input.keys.flag("tikra@sh@splitskipempty");
+    let draw_splits = input.keys.flag("tikra@sh@splitlines");
     let ex = input.ex;
     let empty = BoxSize {
         wd: input.length("/pgf/rectangle split empty part width", ex),
@@ -358,7 +358,7 @@ pub fn rectangle_split(input: &mut Input) -> Geometry {
         }
     }
     // custom fills of the parts
-    if input.keys.flag("pgfrectanglesplitusecustomfill") {
+    if input.keys.flag("tikra@sh@splitfill") {
         let colors = per_part(&input.keys.text("/pgf/rectangle split part fill"), n);
         let rect = |a: Point, b: Point| vec![Segment::MoveTo(a), Segment::LineTo(pt(a.x, b.y)), Segment::LineTo(b), Segment::LineTo(pt(b.x, a.y)), Segment::Close];
         if horizontal {

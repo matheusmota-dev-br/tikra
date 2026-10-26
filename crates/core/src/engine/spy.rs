@@ -35,7 +35,7 @@ pub struct SpyScope {
 pub const DEFINITIONS: &str = r"
 \tikzset{
   spy scope/.style={execute at begin scope={\tikra@spybegin},execute at end scope={\tikra@spyend},
-    tikz@lib@spy@style/.style={#1},tikz@lib@reset@gs},
+    tikra@spy@style/.style={#1},tikra@spy@reset},
   spy using outlines/.style={spy scope={every spy on node/.style={very thin,draw},
     every spy in node/.style={thick,draw},#1}},
   spy using overlays/.style={spy scope={every spy on node/.style={fill,fill opacity=0.2,text opacity=1},
@@ -43,10 +43,10 @@ pub const DEFINITIONS: &str = r"
   spy scope/.default=, spy using outlines/.default=, spy using overlays/.default=,
   connect spies/.style={spy connection path={\draw[thin] (tikzspyonnode) -- (tikzspyinnode);}},
   size/.style={minimum size={#1}}, height/.style={minimum height={#1}}, width/.style={minimum width={#1}},
-  lens/.store in=\tikz@lib@spy@lens, lens=, magnification/.style={lens={scale={#1}}},
-  spy connection path/.store in=\tikz@lib@spy@path, spy connection path=,
-  tikz@lib@spy@style/.style={},
-  tikz@lib@reset@gs/.style={black,thin,solid,opaque,line cap=butt,line join=miter},
+  lens/.store in=\tikra@spy@lens, lens=, magnification/.style={lens={scale={#1}}},
+  spy connection path/.store in=\tikra@spy@path, spy connection path=,
+  tikra@spy@style/.style={},
+  tikra@spy@reset/.style={black,thin,solid,opaque,line cap=butt,line join=miter},
 }
 ";
 
@@ -108,13 +108,13 @@ impl Engine {
     }
 
     fn spy(&mut self, spy: &Spy, drawing: &[Item]) -> Result<(), Error> {
-        let mut options = tikra_tokens("tikz@lib@spy@style,");
+        let mut options = tikra_tokens("tikra@spy@style,");
         options.extend(spy.options.clone());
         self.process_keys(options, Some("/tikz"))?;
         // the lens, from the identity
         let saved = (self.st.transform, self.st.pending);
         (self.st.transform, self.st.pending) = (Transform::default(), Transform::default());
-        let r = self.process_keys(macro_body(self, "tikz@lib@spy@lens"), Some("/tikz"));
+        let r = self.process_keys(macro_body(self, "tikra@spy@lens"), Some("/tikz"));
         let lens = self.st.transform.compose(&self.st.pending);
         (self.st.transform, self.st.pending) = saved;
         r?;
@@ -150,7 +150,7 @@ impl Engine {
             picture.push(Item::End);
             self.insert_path_picture(first, &border, picture);
         }
-        let connection = macro_body(self, "tikz@lib@spy@path");
+        let connection = macro_body(self, "tikra@spy@path");
         self.run_tokens(connection)
     }
 

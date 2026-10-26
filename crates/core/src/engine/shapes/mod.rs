@@ -120,7 +120,7 @@ impl Input<'_> {
     /// `/pgf/shape border rotate`, rounded as the shapes without `shape border uses incircle` do:
     /// to a multiple of 90 in [0, 360).
     pub fn border_rotation(&mut self) -> (f64, bool) {
-        let incircle = self.keys.flag("pgfshapeborderusesincircle");
+        let incircle = self.keys.flag("tikra@sh@incircle");
         let r = self.number("/pgf/shape border rotate", 0.0);
         if incircle {
             (r, true)
@@ -372,20 +372,11 @@ pub const INITIAL: &[(&str, &str)] = &[
 ];
 
 pub const DEFINITIONS: &str = r"
-\newif\ifpgfshapeborderusesincircle
-\newif\ifpgf@lib@shapes@starouterradiususesratio
-\pgf@lib@shapes@starouterradiususesratiotrue
-\newif\ifpgf@lib@sh@trapeziumstretches
-\newif\ifpgf@lib@sh@trapeziumstretchesbody
-\newif\ifpgf@lib@sh@isosceslestrianglestretches
-\newif\ifpgfcylinderusescustomfill
-\newif\ifpgfcloudignoresaspect
-\newif\ifpgfrectanglesplithorizontal
-\newif\ifpgfrectanglesplitdrawsplits
-\pgfrectanglesplitdrawsplitstrue
-\newif\ifpgfrectanglesplitignoreemptyparts
-\newif\ifpgfrectanglesplitusecustomfill
-\newif\ifpgfcloudanchorsuseellipse
+\newif\iftikra@sh@incircle \newif\iftikra@sh@starratio \tikra@sh@starratiotrue
+\newif\iftikra@sh@trapstretch \newif\iftikra@sh@trapbody \newif\iftikra@sh@isostretch
+\newif\iftikra@sh@cloudnoaspect \newif\iftikra@sh@cloudellipse \newif\ifpgfcylinderusescustomfill
+\newif\iftikra@sh@splithoriz \newif\iftikra@sh@splitlines \tikra@sh@splitlinestrue
+\newif\iftikra@sh@splitskipempty \newif\iftikra@sh@splitfill
 \newif\iftikra@gatebox
 \pgfkeys{/pgf/logic gate anchors use bounding box/.is if=tikra@gatebox}
 \def\tikz@atbegin@node{}
@@ -397,31 +388,30 @@ pub const DEFINITIONS: &str = r"
 }
 \def\tikra@kiteangles#1and#2and#3\@@{\pgfkeys{/pgf/kite upper vertex angle={#1},/pgf/kite lower vertex angle={#2}}}
 \pgfkeys{/pgf/.cd,
-  shape border uses incircle/.is if=pgfshapeborderusesincircle,
-  star point height/.code={\pgfkeyssetvalue{/pgf/star point height}{#1}\pgf@lib@shapes@starouterradiususesratiofalse},
-  star point ratio/.code={\pgfkeyssetvalue{/pgf/star point ratio}{#1}\pgf@lib@shapes@starouterradiususesratiotrue},
+  shape border uses incircle/.is if=tikra@sh@incircle,
+  star point height/.code={\pgfkeyssetvalue{/pgf/star point height}{#1}\tikra@sh@starratiofalse},
+  star point ratio/.code={\pgfkeyssetvalue{/pgf/star point ratio}{#1}\tikra@sh@starratiotrue},
   star rotate/.style={/pgf/shape border rotate={#1}},
   regular polygon rotate/.style={/pgf/shape border rotate={#1}},
   trapezium angle/.style={/pgf/trapezium left angle={#1},/pgf/trapezium right angle={#1}},
-  trapezium stretches/.is if=pgf@lib@sh@trapeziumstretches,
-  trapezium stretches body/.is if=pgf@lib@sh@trapeziumstretchesbody,
-  isosceles triangle stretches/.is if=pgf@lib@sh@isosceslestrianglestretches,
+  trapezium stretches/.is if=tikra@sh@trapstretch,
+  trapezium stretches body/.is if=tikra@sh@trapbody,
+  isosceles triangle stretches/.is if=tikra@sh@isostretch, cylinder uses custom fill/.is if=pgfcylinderusescustomfill,
   kite vertex angles/.code={\tikra@kiteangles#1 and #1 and\@@},
-  cylinder uses custom fill/.is if=pgfcylinderusescustomfill,
   rounded rectangle left arc/.style={/pgf/rounded rectangle west arc={#1}},
   rounded rectangle right arc/.style={/pgf/rounded rectangle east arc={#1}},
   chamfered rectangle sep/.style={/pgf/chamfered rectangle xsep={#1},/pgf/chamfered rectangle ysep={#1}},
-  cloud ignores aspect/.is if=pgfcloudignoresaspect,
-  cloud anchors use ellipse/.is if=pgfcloudanchorsuseellipse,
+  cloud ignores aspect/.is if=tikra@sh@cloudnoaspect,
+  cloud anchors use ellipse/.is if=tikra@sh@cloudellipse,
   tape bend/.style={/pgf/tape bend top={#1},/pgf/tape bend bottom={#1}},
   arrow box arrows/.code={\pgfkeyssetvalue{/pgf/arrow box arrow list}{#1}},
   callout relative pointer/.code={\pgfkeyssetvalue{/pgf/callout pointer@relative}{#1}\pgfkeyssetvalue{/pgf/callout pointer@absolute}{}},
   callout absolute pointer/.code={\pgfkeyssetvalue{/pgf/callout pointer@absolute}{#1}},
-  rectangle split horizontal/.is if=pgfrectanglesplithorizontal,
-  rectangle split ignore empty parts/.is if=pgfrectanglesplitignoreemptyparts,
-  rectangle split part fill/.code={\pgfkeyssetvalue{/pgf/rectangle split part fill}{#1}\pgfrectanglesplitusecustomfilltrue},
-  rectangle split uses custom fill/.is if=pgfrectanglesplitusecustomfill,
-  rectangle split draw splits/.is if=pgfrectanglesplitdrawsplits,
+  rectangle split horizontal/.is if=tikra@sh@splithoriz,
+  rectangle split ignore empty parts/.is if=tikra@sh@splitskipempty,
+  rectangle split part fill/.code={\pgfkeyssetvalue{/pgf/rectangle split part fill}{#1}\tikra@sh@splitfilltrue},
+  rectangle split uses custom fill/.is if=tikra@sh@splitfill,
+  rectangle split draw splits/.is if=tikra@sh@splitlines,
   rectangle split allocate boxes/.code={},
   rectangle split every empty part/.code={},
 }
@@ -865,7 +855,7 @@ mod tests {
         let c1 = g.anchor("corner 1").unwrap();
         assert!(close(c1, a * FRAC_1_SQRT_2, a * FRAC_1_SQRT_2), "{c1:?}");
         assert!(g.anchor("side 4").is_some() && g.anchor("corner 5").is_none());
-        let mut k = TableKeys { flags: vec!["pgf@lib@shapes@starouterradiususesratio"], ..Default::default() };
+        let mut k = TableKeys { flags: vec!["tikra@sh@starratio"], ..Default::default() };
         let s = shape("star", 0.0, 0.0, 0.0, &mut k);
         let outer = s.anchor("outer point 1").unwrap().norm();
         let inner = s.anchor("inner point 1").unwrap().norm();

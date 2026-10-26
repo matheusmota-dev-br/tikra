@@ -1,7 +1,7 @@
-//! The keys of `/pgfplots`, defined the way `pgfplots.code.tex` defines them: styles are copied
-//! from it, values are `.initial` keys that the axis reads when it is drawn, and the keys whose
-//! code does work (`compat`, `axis x line`, `/pgf/number format/…`, the plot handlers) are native.
-//! The defaults are those of `compat=default`, as the pgfplots manual compiles.
+//! The keys of `/pgfplots`. The ones that only hold a value or a style are described by the tables
+//! below, with their defaults under `compat=default`, and turned into TeX once; the axis reads
+//! their values when it is drawn. The keys whose code does work
+//! (`compat`, `axis x line`, `/pgf/number format/…`, the plot handlers) are native.
 
 use crate::keys;
 use crate::tex::{self, Meaning, Token};
@@ -10,797 +10,1105 @@ use crate::Error;
 use super::super::{options::KeyFn, tikra_tokens, Engine, NATIVE_KEY_BASE};
 use super::number::{SciStyle, Style};
 
-/// pgfplots' own definitions (`\pgfkeys{…}` blocks of `pgfplots.code.tex`, trimmed to the keys
-/// that tikra draws, plus the values the native code reads).
-const DEFINITIONS: &str = r"
+/// Keys that hold a value, and the value each starts with.
+const VALUES: &[(&str, &str)] = &[
+    ("3d box", "background"),
+    ("/pgf/bar interval shift", "0.5"),
+    ("/pgf/bar interval width", "1"),
+    ("/pgf/bar shift", "0pt"),
+    ("/pgf/bar width", "10pt"),
+    ("/pgf/decoration/soft clip path", ""),
+    ("/tikz/@plot handler", ""),
+    ("/tikz/column sep", "0pt"),
+    ("/tikz/mark indices", ""),
+    ("/tikz/mark phase", "1"),
+    ("/tikz/mark repeat", "1"),
+    ("/tikz/mark size", "2pt"),
+    ("/tikz/row sep", "0pt"),
+    ("/tikz/text mark", "p"),
+    ("/tikz/text mark as node", "false"),
+    ("@axis type", "cart"),
+    ("@boxplot", ""),
+    ("@colorbar axis", "false"),
+    ("@colorbar line", "false"),
+    ("@colorbar orientation", "v"),
+    ("@colorbar sampled", ""),
+    ("@compat", "0"),
+    ("@contour format", "standard"),
+    ("@date coordinates in", ""),
+    ("@disabledatascaling", "false"),
+    ("@empty {a}ticklabels", "false"),
+    ("@hist", "false"),
+    ("@legend image", "line"),
+    ("@log fixed point", "false"),
+    ("@mesh", ""),
+    ("@nodes near coords", ""),
+    ("@patch", "false"),
+    ("@quiver", "false"),
+    ("@restrict expr", ""),
+    ("@restrict expr domain", ""),
+    ("@substitute pgfpoint", "false"),
+    ("@ticklabel strut", "false"),
+    ("@visualization depends on", ""),
+    ("@{a} line", "box"),
+    ("@{a} scale label off", "false"),
+    ("anchor", "south west"),
+    ("at", ""),
+    ("axis x discontinuity", "none"),
+    ("axis y discontinuity", "none"),
+    ("axis {a} line shift", ""),
+    ("bar direction", "auto"),
+    ("boxplot/average", ""),
+    ("boxplot/box extend", "0.8"),
+    ("boxplot/data", "y"),
+    ("boxplot/data value", ""),
+    ("boxplot/draw direction", "x"),
+    ("boxplot/draw position", r"1+\plotnumofactualtype"),
+    ("boxplot/draw relative anchor", "0.5"),
+    ("boxplot/estimator", "legacy"),
+    ("boxplot/lower quartile", "auto"),
+    ("boxplot/lower quartile off", "0.25"),
+    ("boxplot/lower whisker", "auto"),
+    ("boxplot/median", "auto"),
+    ("boxplot/sample size", "auto"),
+    ("boxplot/sample size max", ""),
+    ("boxplot/sample size min", ""),
+    ("boxplot/upper quartile", "auto"),
+    ("boxplot/upper quartile off", "0.75"),
+    ("boxplot/upper whisker", "auto"),
+    ("boxplot/variable width min target", "0.2"),
+    ("boxplot/whisker extend", r"\pgfkeysvalueof{/pgfplots/boxplot/box extend}*0.8"),
+    ("boxplot/whisker range", "1.5"),
+    ("clip mode", "global"),
+    ("colorbar pos*", ""),
+    ("colorbar to name", ""),
+    ("colorbar/width", "0.5cm"),
+    ("colormap access", "map"),
+    ("colormap name", "hot"),
+    ("compat", "default"),
+    ("contour/draw color", "mapped color"),
+    ("contour/fill color", "mapped color"),
+    ("contour/label distance", "70pt"),
+    ("contour/levels", ""),
+    ("contour/levels from colormap", ""),
+    ("contour/number", "5"),
+    ("cycle list name", "color"),
+    ("cycle list shift", ""),
+    ("data cs", "cart"),
+    ("date ZERO", ""),
+    ("domain", ""),
+    ("error bars/@x mode", "fixed"),
+    ("error bars/@x value", "0"),
+    ("error bars/@y mode", "fixed"),
+    ("error bars/@y value", "0"),
+    ("error bars/error mark", "-"),
+    ("error bars/error mark options", "rotate=90"),
+    ("error bars/x dir", "none"),
+    ("error bars/y dir", "none"),
+    ("every axis title shift", "6pt"),
+    ("execute at begin axis", ""),
+    ("execute at begin plot", ""),
+    ("execute at begin plot visualization", ""),
+    ("execute at end axis", ""),
+    ("execute at end plot", ""),
+    ("execute at end plot visualization", ""),
+    ("extra x tick label", ""),
+    ("extra x tick labels", ""),
+    ("extra y tick label", ""),
+    ("extra y tick labels", ""),
+    ("extra {a} ticks", ""),
+    ("faceted color", "mapped color!80!black"),
+    ("filter discard warning", "true"),
+    ("group/columns", "1"),
+    ("group/group name", "group"),
+    ("group/horizontal sep", "1cm"),
+    ("group/rows", "1"),
+    ("group/vertical sep", "1cm"),
+    ("group/xlabels at", "all"),
+    ("group/xticklabels at", "all"),
+    ("group/ylabels at", "all"),
+    ("group/yticklabels at", "all"),
+    ("height", ""),
+    ("hist/@symbolic coords", ""),
+    ("hist/bins", "10"),
+    ("hist/data", "y"),
+    ("hist/data max", ""),
+    ("hist/data min", ""),
+    ("hist/data value", ""),
+    ("late options", ""),
+    ("legend columns", "1"),
+    ("legend entries", ""),
+    ("legend plot pos", "left"),
+    ("legend to name", ""),
+    ("log basis {a}", ""),
+    ("major tick length", "0.15cm"),
+    ("mark layer", ""),
+    ("mark list fill", ".!80!black"),
+    ("max space between ticks", "35"),
+    ("mesh input", "lattice"),
+    ("mesh/check", "error"),
+    ("mesh/color input", "colormap"),
+    ("mesh/cols", ""),
+    ("mesh/interior colormap name", ""),
+    ("mesh/interior colormap thresh", "0"),
+    ("mesh/ordering", "x varies"),
+    ("mesh/rows", ""),
+    ("minor tick length", "0.1cm"),
+    ("minor {a} tick num", "0"),
+    ("minor {a}tick", ""),
+    ("name", ""),
+    ("near ticklabel align", "center"),
+    ("nodes near coords align", "auto"),
+    ("nodes near coords bar offset", "0.5"),
+    ("on layer", ""),
+    ("parametric/var 1d", "t"),
+    ("parent axis height", "6cm"),
+    ("parent axis width", "6cm"),
+    ("patch refines", "0"),
+    ("patch table", ""),
+    ("patch table with individual point meta", ""),
+    ("patch table with point meta", ""),
+    ("patch type", ""),
+    ("plot box ratio", "1 1 1"),
+    ("plot graphics/includegraphics", ""),
+    ("plot graphics/points", ""),
+    ("plot graphics/snap z", "0.02"),
+    ("plot graphics/squeeze tol", "2pt"),
+    ("plot graphics/src", ""),
+    ("plot graphics/{a}max", ""),
+    ("plot graphics/{a}min", ""),
+    ("point meta", ""),
+    ("point meta max", ""),
+    ("point meta min", ""),
+    ("point meta rel", "axis wide"),
+    ("quiver/arrow color", ""),
+    ("quiver/scale arrows", "1"),
+    ("quiver/u", ""),
+    ("quiver/v", ""),
+    ("quiver/w", ""),
+    ("restrict x to domain", ""),
+    ("restrict x to domain*", ""),
+    ("restrict y to domain", ""),
+    ("restrict y to domain*", ""),
+    ("samples", ""),
+    ("samples at", ""),
+    ("samples y", ""),
+    ("scale mode", "auto"),
+    ("scale ticks above exponent", "3"),
+    ("scale ticks below exponent", "-1"),
+    ("scale uniformly strategy", "auto"),
+    ("scaled {a} ticks", "true"),
+    ("scatter", "false"),
+    ("scatter/classes", ""),
+    ("scatter/use mapped color", "draw=mapped color!80!black,fill=mapped color"),
+    ("shader", "faceted"),
+    ("stack dir", "plus"),
+    ("stack negative", "on previous"),
+    ("stack plots", "false"),
+    ("symbolic {a} coords", ""),
+    ("table/@search path", "."),
+    ("table/col sep", "space"),
+    ("table/columns", ""),
+    ("table/comment chars", ""),
+    ("table/create col/linear regression/variance format", "log"),
+    ("table/format", "auto"),
+    ("table/header", "true"),
+    ("table/ignore chars", ""),
+    ("table/meta", ""),
+    ("table/meta expr", ""),
+    ("table/meta index", ""),
+    ("table/row sep", "newline"),
+    ("table/skip first n", "0"),
+    ("table/tie end {a}", ""),
+    ("table/tie end {a} index", ""),
+    ("table/trim cells", "false"),
+    ("table/x error", ""),
+    ("table/x error expr", ""),
+    ("table/x error index", ""),
+    ("table/x error minus", ""),
+    ("table/x error minus expr", ""),
+    ("table/x error plus", ""),
+    ("table/x error plus expr", ""),
+    ("table/y error", ""),
+    ("table/y error expr", ""),
+    ("table/y error index", ""),
+    ("table/y error minus", ""),
+    ("table/y error minus expr", ""),
+    ("table/y error minus index", ""),
+    ("table/y error plus", ""),
+    ("table/y error plus expr", ""),
+    ("table/y error plus index", ""),
+    ("table/{a}", ""),
+    ("table/{a} expr", ""),
+    ("table/{a} index", ""),
+    ("ternary start {a}", ""),
+    ("tick scale binop", r"\cdot"),
+    ("tieline/each nth tie", ""),
+    ("title", ""),
+    ("trig format plots", "default"),
+    ("try min ticks", "4"),
+    ("try min ticks log", "3"),
+    ("unbounded coords", "discard"),
+    ("unit vector ratio", ""),
+    ("unit vector ratio axis", ""),
+    ("variable y", "y"),
+    ("vertex count", ""),
+    ("view/az", "25"),
+    ("view/el", "30"),
+    ("width", ""),
+    ("xgrid each nth passes y", ""),
+    ("xgrid each nth passes y start", "0"),
+    ("xgrid stop at y", ""),
+    ("xticklabel shift", ""),
+    ("xtickmax", ""),
+    ("xtickmin", ""),
+    ("y domain", ""),
+    ("ygrid each nth passes x", ""),
+    ("ygrid each nth passes x start", "0"),
+    ("ygrid stop at x", ""),
+    ("yticklabel shift", ""),
+    ("ytickmax", ""),
+    ("ytickmin", ""),
+    ("z buffer", "default"),
+    ("{a}", ""),
+    ("{a} dir", "normal"),
+    ("{a} post scale", ""),
+    ("{a} unit", ""),
+    ("{a} unit prefix", ""),
+    ("{a}label", ""),
+    ("{a}label shift", "0pt"),
+    ("{a}max", ""),
+    ("{a}min", ""),
+    ("{a}mode", "linear"),
+    ("{a}tick", ""),
+    ("{a}tick align", "inside"),
+    ("{a}tick distance", ""),
+    ("{a}tick pos", "both"),
+    ("{a}ticklabel", ""),
+    ("{a}ticklabel pos", "default"),
+    ("{a}ticklabels", ""),
+    ("{a}tickten", ""),
+];
+
+/// Keys that are on or off: how each starts; given alone, a switch turns on.
+const SWITCHES: &[(&str, &str)] = &[
+    ("axis on top", "false"),
+    ("boxplot/ensure mark", "false"),
+    ("boxplot/variable width", "false"),
+    ("change {a} base", "false"),
+    ("clip", "true"),
+    ("clip marker paths", "false"),
+    ("colorbar", "false"),
+    ("contour/filled", "false"),
+    ("contour/labels", "true"),
+    ("enlarge {a} limits", "auto"),
+    ("forget plot", "false"),
+    ("group/shared labels", "false"),
+    ("hide {a} axis", "false"),
+    ("hist/cumulative", "false"),
+    ("hist/density", "false"),
+    ("hist/intervals", "true"),
+    ("is smithchart cs", "false"),
+    ("log identify minor tick positions", "false"),
+    ("patch to triangles", "false"),
+    ("patch type sampling", "false"),
+    ("plot graphics/auto adjust axis", "true"),
+    ("plot graphics/debug", ""),
+    ("quiver/update limits", "true"),
+    ("reverse legend", "false"),
+    ("reverse stacked plots", "true"),
+    ("scale only axis", "false"),
+    ("separate axis lines", "false"),
+    ("show origin", "false"),
+    ("smithchart mirrored", "false"),
+    ("stacked ignores zero", "false"),
+    ("ternary limits relative", "true"),
+    ("transpose legend", "false"),
+    ("unit rescale keep size", "unless limits declared"),
+    ("use units", "true"),
+    ("x tick label as interval", "false"),
+    ("y tick label as interval", "false"),
+    ("{a}majorgrids", "false"),
+    ("{a}majorticks", "true"),
+    ("{a}minorgrids", "false"),
+    ("{a}minorticks", "true"),
+];
+
+/// Styles that start empty, for documents to fill.
+const HOOKS: &[&str] = &[
+    "/tikz/every cell",
+    "/tikz/every mark",
+    "/tikz/fill between/every even segment",
+    "/tikz/fill between/every last segment",
+    "/tikz/fill between/every odd segment",
+    "/tikz/fill between/every segment",
+    "/tikz/text mark style",
+    "axis background",
+    "boxplot/every box",
+    "boxplot/every median",
+    "boxplot/every whisker",
+    "contour/every contour plot",
+    "default smithchart xtick",
+    "default smithchart xytick",
+    "default smithchart ytick",
+    "every 3d box foreground",
+    "every axis",
+    "every axis label",
+    "every axis plot",
+    "every axis plot except legend",
+    "every axis plot no 0",
+    "every axis plot post",
+    "every axis post",
+    "every axis {a} grid",
+    "every boxed {a} axis",
+    "every boxplot",
+    "every forget plot",
+    "every inner {a} axis line",
+    "every legend image post",
+    "every linear axis",
+    "every loglog axis",
+    "every major grid",
+    "every major tick",
+    "every major {a} grid",
+    "every major {a} tick",
+    "every mesh",
+    "every minor grid",
+    "every minor tick",
+    "every minor {a} grid",
+    "every minor {a} tick",
+    "every node near coord",
+    "every outer {a} axis line",
+    "every semilogx axis",
+    "every semilogy axis",
+    "every tick label",
+    "every {a} tick",
+    "every {a} tick label",
+    "group/every plot",
+    "quiver/every arrow",
+    "quiver/quiver legend",
+    "tieline/every curve",
+    "tieline/every tieline",
+];
+
+/// Keys that add their options to a style (`legend style` to `every axis legend`).
+const ADDS_TO: &[(&str, &str)] = &[
+    ("/tikz/cells", "/tikz/every cell"),
+    ("/tikz/nodes", "/tikz/every node"),
+    ("3d box foreground style", "every 3d box foreground"),
+    ("axis background style", "axis background"),
+    ("axis plot except legend style", "every axis plot except legend"),
+    ("colorbar sampled line style", "every colorbar sampled line"),
+    ("colorbar style", "every colorbar"),
+    ("contour/contour label style", "contour/every contour label"),
+    ("error bars/error bar style", "every error bar"),
+    ("extra x tick style", "every extra x tick"),
+    ("extra y tick style", "every extra y tick"),
+    ("forget plot style", "every forget plot"),
+    ("grid style", "every axis grid"),
+    ("legend image post style", "every legend image post"),
+    ("legend style", "every axis legend"),
+    ("major grid style", "every major grid"),
+    ("major tick style", "every major tick"),
+    ("major x grid style", "every major x grid"),
+    ("major x tick style", "every major x tick"),
+    ("major y grid style", "every major y grid"),
+    ("major y tick style", "every major y tick"),
+    ("minor grid style", "every minor grid"),
+    ("minor tick style", "every minor tick"),
+    ("minor x grid style", "every minor x grid"),
+    ("minor x tick style", "every minor x tick"),
+    ("minor y grid style", "every minor y grid"),
+    ("minor y tick style", "every minor y tick"),
+    ("node near coord style", "every node near coord"),
+    ("node near coords style", "every node near coord"),
+    ("nodes near coords style", "every node near coord"),
+    ("polar labels style", "polar labels"),
+    ("tick label style", "every tick label"),
+    ("tick style", "every tick"),
+    ("tieline/curve style", "tieline/every curve"),
+    ("tieline/tieline style", "tieline/every tieline"),
+    ("title style", "every axis title"),
+    ("x grid style", "every axis x grid"),
+    ("x tick scale label style", "every x tick scale label"),
+    ("x tick style", "every x tick"),
+    ("y grid style", "every axis y grid"),
+    ("y tick scale label style", "every y tick scale label"),
+    ("y tick style", "every y tick"),
+    ("{a} label style", "every axis {a} label"),
+    ("{a} tick label style", "every {a} tick label"),
+];
+
+/// Keys that tikra accepts and leaves without effect.
+const IGNORED: &[&str] = &[
+    "/tikz/pos segment",
+    "after end axis",
+    "alias",
+    "before end axis",
+    "boxplot/data filter",
+    "cell picture",
+    "colorbar source",
+    "extra description",
+    "filter point",
+    "hist/data filter",
+    "lua backend",
+    "lua debug",
+    "pre filter",
+    "quiver/after arrow",
+    "quiver/before arrow",
+    "quiver/u filter",
+    "quiver/v filter",
+    "quiver/w filter",
+    "scatter/@post marker code",
+    "set layers",
+    "{a} filter",
+];
+
+/// Keys that store a fixed value (`#1`: their own) where the drawing reads it.
+const SETS: &[(&str, &str, &str)] = &[
+    ("area legend", "@legend image", "area"),
+    ("colorbar horizontal/lowlevel", "@colorbar orientation", "h"),
+    ("colorbar vertical/lowlevel", "@colorbar orientation", "v"),
+    ("contour prepared format", "@contour format", "#1"),
+    ("disabledatascaling", "@disabledatascaling", "true"),
+    ("empty legend", "@legend image", "empty"),
+    ("error bars/x explicit", "error bars/@x mode", "explicit"),
+    ("error bars/x explicit relative", "error bars/@x mode", "explicit relative"),
+    ("error bars/y explicit", "error bars/@y mode", "explicit"),
+    ("error bars/y explicit relative", "error bars/@y mode", "explicit relative"),
+    ("legend image code", "@legend image", "line"),
+    ("legend image with text", "@legend image", "empty"),
+    ("line legend", "@legend image", "line"),
+    ("log ticks with fixed point", "@log fixed point", "true"),
+    ("mesh legend", "@legend image", "line"),
+    ("polar comb", "/tikz/@plot handler", "polar comb"),
+    ("quiver/u value", "quiver/u", "#1"),
+    ("quiver/v value", "quiver/v", "#1"),
+    ("quiver/w value", "quiver/w", "#1"),
+    ("single xbar legend", "@legend image", "single xbar"),
+    ("single ybar legend", "@legend image", "single ybar"),
+    ("table/search path", "table/@search path", "#1"),
+    ("xbar interval legend", "@legend image", "xbar interval"),
+    ("xbar legend", "@legend image", "xbar"),
+    ("ybar interval legend", "@legend image", "ybar interval"),
+    ("ybar legend", "@legend image", "ybar"),
+];
+
+/// Keys that pass their value to several keys.
+const SPREADS: &[(&str, &[&str])] = &[
+    ("axis line shift", &["axis x line shift", "axis y line shift", "axis z line shift"]),
+    ("axis line style", &["inner axis line style", "outer axis line style"]),
+    ("axis lines", &["axis x line", "axis y line", "axis z line"]),
+    ("axis lines*", &["axis x line*", "axis y line*", "axis z line*"]),
+    ("enlargelimits", &["enlarge x limits", "enlarge y limits", "enlarge z limits"]),
+    ("hide axis", &["hide x axis", "hide y axis", "hide z axis"]),
+    ("hist/symbolic coords", &["hist/@symbolic coords", "symbolic x coords"]),
+    ("inner axis line style", &["every inner x axis line/.append style", "every inner y axis line/.append style", "every inner z axis line/.append style"]),
+    ("label shift", &["xlabel shift", "ylabel shift", "zlabel shift"]),
+    ("label style", &["every axis x label/.append style", "every axis y label/.append style", "every axis z label/.append style"]),
+    ("max", &["xmax", "ymax", "zmax"]),
+    ("min", &["xmin", "ymin", "zmin"]),
+    ("minor tick", &["minor xtick", "minor ytick", "minor ztick"]),
+    ("minor tick num", &["minor x tick num", "minor y tick num", "minor z tick num"]),
+    ("outer axis line style", &["every outer x axis line/.append style", "every outer y axis line/.append style", "every outer z axis line/.append style"]),
+    ("scale", &["x post scale", "y post scale", "z post scale"]),
+    ("scaled ticks", &["scaled x ticks", "scaled y ticks", "scaled z ticks"]),
+    ("tick align", &["xtick align", "ytick align", "ztick align"]),
+    ("ticklabel pos", &["xticklabel pos", "yticklabel pos", "zticklabel pos"]),
+    ("ticklabel shift", &["xticklabel shift", "yticklabel shift", "zticklabel shift"]),
+    ("tickpos", &["xtick pos", "ytick pos", "ztick pos"]),
+    ("x axis line style", &["every outer x axis line/.append style", "every inner x axis line/.append style"]),
+    ("y axis line style", &["every outer y axis line/.append style", "every inner y axis line/.append style"]),
+    ("z axis line style", &["every outer z axis line/.append style", "every inner z axis line/.append style"]),
+];
+
+/// Other names of a key, or keys that hand their value to another key (`bar width` to
+/// `/pgf/bar width`).
+const ALIASES: &[(&str, &str)] = &[
+    ("/tikz/bar interval shift", "/pgf/bar interval shift"),
+    ("/tikz/bar interval width", "/pgf/bar interval width"),
+    ("/tikz/bar shift", "/pgf/bar shift"),
+    ("/tikz/bar width", "/pgf/bar width"),
+    ("/tikz/legend cell align", "legend cell align"),
+    ("/tikz/legend columns", "legend columns"),
+    ("/tikz/legend plot pos", "legend plot pos"),
+    ("bar interval shift", "/pgf/bar interval shift"),
+    ("bar interval width", "/pgf/bar interval width"),
+    ("bar shift", "/pgf/bar shift"),
+    ("bar width", "/pgf/bar width"),
+    ("domain y", "y domain"),
+    ("legend reversed", "reverse legend"),
+    ("legend transposed", "transpose legend"),
+    ("log base {b}", "log basis {b}"),
+    ("scatter src", "point meta"),
+    ("ternary relative limits", "ternary limits relative"),
+    ("tick pos", "tickpos"),
+    ("ticklabel style", "tick label style"),
+    ("ticklabelpos", "ticklabel pos"),
+    ("subtickwidth", "minor tick length"),
+    ("tickwidth", "major tick length"),
+    ("variable", "/tikz/variable"),
+    ("view/h", "view/az"),
+    ("view/v", "view/el"),
+    ("{a}label style", "{a} label style"),
+    ("{a}ticklabel style", "{a} tick label style"),
+];
+
+/// The value a key takes when it is given alone (switches aside).
+const DEFAULTS: &[(&str, &str)] = &[
+    ("3d box", "complete"),
+    ("axis equal", "true"),
+    ("axis equal image", "true"),
+    ("bar shift auto", "2pt"),
+    ("colorbar sampled", "surf,mark=none,shader=flat"),
+    ("colorbar sampled line", "scatter,only marks"),
+    ("enlargelimits", "true"),
+    ("grid", "major"),
+    ("hide axis", "true"),
+    ("legend reversed", "true"),
+    ("legend transposed", "true"),
+    ("nodes near coords", r"\pgfmathprintnumber\pgfplotspointmeta"),
+    ("nodes near coords*", r"\pgfmathprintnumber\pgfplotspointmeta"),
+    ("quiver/colored", "mapped color"),
+    ("{b}bar", "2pt"),
+    ("{b}bar interval", "1"),
+    ("{b}bar interval stacked", "plus"),
+    ("{b}bar stacked", "plus"),
+];
+
+/// Keys whose value is one of a few names, each its own key below them.
+const CHOICES: &[&str] = &["axis equal", "axis equal image", "grid", "legend cell align", "legend pos", "ticks"];
+
+/// Styles: what each key turns on. Unqualified keys in them are pgfplots keys.
+const STYLES: &[(&str, &str)] = &[
+    ("/pgf/decoration/soft clip", "/pgf/decoration/name=soft clip"),
+    ("/tikz/mark options", "/tikz/every mark/.style={#1}"),
+    ("/tikz/trim axis left", "/pgfplots/trim axis left"),
+    ("/tikz/trim axis right", "/pgfplots/trim axis right"),
+    ("area cycle list", "bar cycle list"),
+    ("area style", "area cycle list, area legend, axis on top"),
+    ("axis equal image/false", "/pgfplots/unit vector ratio="),
+    ("axis equal image/true", "/pgfplots/unit vector ratio=1 1 1, /pgfplots/unit rescale keep size=false"),
+    ("axis equal/false", "/pgfplots/unit vector ratio="),
+    ("axis equal/true", "/pgfplots/unit vector ratio=1 1 1, /pgfplots/unit rescale keep size=true"),
+    ("bar shift auto", r"/pgf/bar shift={-0.5*(\numplotsofactualtype*\pgfplotbarwidth + (\numplotsofactualtype-1)*(#1)) + (.5+\plotnumofactualtype)*\pgfplotbarwidth + \plotnumofactualtype*(#1)}"),
+    ("boxplot/every average", "/tikz/mark=diamond*"),
+    ("colorbar as legend", "/pgfplots/colorbar sampled={surf, shader=flat corner}"),
+    ("colorbar as palette", "/pgfplots/colorbar sampled={surf, shader=flat corner}"),
+    ("contour prepared filled", "/pgfplots/contour prepared={draw color=mapped color!80!black, labels=false, filled}"),
+    ("contour/every contour label", r"inner sep=2pt, font=\scriptsize, every node/.style={mapped color!50!black, fill=white}, /pgf/number format/relative*={\pgfplotspointmetarangeexponent}"),
+    ("contour/every filled contour plot", "/pgfplots/area legend"),
+    ("contour/labels over line", "/pgfplots/contour/every contour label/.append style={every node/.append style={fill=none, anchor=base, yshift=1pt}}"),
+    ("date coordinates in", r"/pgfplots/@date coordinates in={#1}, /pgfplots/#1ticklabel={\tick}, /pgfplots/scaled #1 ticks=false"),
+    ("every 3d description", "/pgfplots/every axis x label/.style={at={(ticklabel cs:0.5)}, anchor=near ticklabel}, /pgfplots/every axis y label/.style={at={(ticklabel cs:0.5)}, anchor=near ticklabel}, /pgfplots/every x tick scale label/.style={at={(xticklabel cs:0.95,5pt)}, anchor=near xticklabel, inner sep=0pt}, /pgfplots/every y tick scale label/.style={at={(yticklabel cs:0.95,5pt)}, anchor=near yticklabel, inner sep=0pt}, /pgfplots/try min ticks=3"),
+    ("every 3d view {0}{90}", "/pgfplots/xlabel near ticks, /pgfplots/ylabel near ticks, /pgfplots/axis on top=true"),
+    ("every axis grid", "thin, black!25"),
+    ("every axis legend", "cells={anchor=center}, inner xsep=3pt, inner ysep=2pt, nodes={inner sep=2pt, text depth=0.15em}, anchor=north east, shape=rectangle, fill=white, draw=black, at={(0.98,0.98)}"),
+    ("every axis title", r"at={(0.5,1)}, above, yshift=\pgfkeysvalueof{/pgfplots/every axis title shift}"),
+    ("every axis z label", "at={(ticklabel cs:0.5)}, rotate=90, anchor=near ticklabel"),
+    ("every colorbar global", "axis on top, title=, xlabel=, ylabel=, zlabel=, legend entries=, grid=none, enlargelimits=false, scale only axis, xtick=, xticklabel=, ytick=, yticklabel=, zmin=, zmax="),
+    ("every colorbar sampled line", "help lines"),
+    ("every error bar", "thin"),
+    ("every extra {a} tick", "/pgfplots/log identify minor tick positions=true"),
+    ("every fill between plot", "/pgfplots/area legend, /tikz/fill"),
+    ("every non boxed {a} axis", "{a}tick align=center, enlarge {a} limits=false, {a} axis line style={-stealth}"),
+    ("every patch", "miter limit=1"),
+    ("every polar axis", r"grid=major, xtick pos=right, ytick pos=right, every axis title shift=1.2\baselineskip, legend style={anchor=center}, /pgfplots/polar labels"),
+    ("every tick", "very thin, gray"),
+    ("every z tick scale label", "at={(zticklabel* cs:1.2,-0.3em)}, anchor=near zticklabel, inner sep=0pt"),
+    ("extra tick style", "every extra x tick/.append style={#1}, every extra y tick/.append style={#1}, every extra z tick/.append style={#1}"),
+    ("footnotesize", r"width=5cm, height=, legend style={font=\footnotesize}, tick label style={font=\footnotesize}, label style={font=\small}, title style={font=\small}, every axis title shift=0pt, max space between ticks=15, every mark/.append style={mark size=8}, major tick length=0.1cm, minor tick length=0.066cm"),
+    ("group/empty plot", "/pgfplots/hide axis=true"),
+    ("hist/handler", "/tikz/ybar interval"),
+    ("matrix plot", "/pgfplots/late options={/pgfplots/y dir=reverse, /pgfplots/axis on top}, /pgfplots/matrix plot*"),
+    ("matrix plot*", "/pgfplots/surf, /pgfplots/mesh input=image, /pgfplots/shader=flat corner, /pgfplots/z buffer=none"),
+    ("no marks", "/pgfplots/no markers"),
+    ("no markers", "/pgfplots/every axis plot post/.append style={mark=none}"),
+    ("normalsize", "/pgfplots/width=240pt, /pgfplots/height=207pt, /pgfplots/max space between ticks=35"),
+    ("only marks scatter", "/pgfplots/scatter, /tikz/only marks"),
+    ("polar labels", "every axis x label/.style={at={(rel axis cs:0,0.5)}, anchor=north}, every axis y label/.style={at={(0.2,0.85)}, anchor=center}"),
+    ("small", r"width=6.5cm, height=, tick label style={font=\footnotesize}, label style={font=\small}, max space between ticks=25"),
+    ("tiny", r"width=4cm, height=, legend style={font=\tiny}, tick label style={font=\tiny}, label style={font=\tiny}, title style={font=\footnotesize}, every axis title shift=0pt, max space between ticks=12, every mark/.append style={mark size=6}, major tick length=0.1cm, minor tick length=0.066cm, every legend image post/.append style={scale=0.8}"),
+    ("trim axis left", "/tikz/trim left={(current axis.south west)}"),
+    ("trim axis right", "/tikz/trim right={(current axis.south east)}"),
+    ("typeset ticklabels with strut", "/pgfplots/@ticklabel strut=true"),
+    ("unit vector ratio*", "/pgfplots/unit vector ratio={#1}, /pgfplots/unit rescale keep size=false"),
+    ("xlabel absolute", "/pgfplots/every axis x label/.style={at={(0.5,0)}, below, yshift=-15pt}, /pgfplots/every x tick scale label/.style={at={(1,0)}, yshift=-2em, left, inner sep=0pt}"),
+    ("xlabel near ticks", "/pgfplots/every axis x label/.style={at={(ticklabel cs:0.5)}, anchor=near ticklabel}, /pgfplots/every x tick scale label/.style={at={(xticklabel cs:0.9,5pt)}, anchor=near xticklabel, inner sep=0pt}"),
+    ("xticklabel in circle", "xtick align=inside, xticklabel style={rotate=90, anchor=south west}"),
+    ("ylabel absolute", "/pgfplots/every axis y label/.style={at={(0,0.5)}, xshift=-35pt, rotate=90}, /pgfplots/every y tick scale label/.style={at={(0,1)}, above right, inner sep=0pt, yshift=0.3em}"),
+    ("ylabel near ticks", "/pgfplots/every axis y label/.style={at={(ticklabel cs:0.5)}, rotate=90, anchor=near ticklabel}, /pgfplots/every y tick scale label/.style={at={(yticklabel* cs:1.03,-0.3em)}, /pgfplots/near ticklabel align=outside, anchor=near yticklabel opposite, inner sep=0pt}"),
+    ("xbar", "bar direction=x, bar cycle list, ytick align=outside, /pgfplots/xbar legend, /pgfplots/set point meta if empty=x, /pgfplots/bar shift auto={#1}, /tikz/xbar"),
+    ("ybar", "bar direction=y, bar cycle list, xtick align=outside, ybar legend, /pgfplots/bar shift auto={#1}, /tikz/ybar"),
+    ("{b}bar interval", r"bar direction={b}, bar cycle list, {o} tick label as interval, {o}majorgrids, {o}tick align=outside, {o}tick=data, {b}bar interval legend, bar interval width={#1/\numplotsofactualtype}, bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype}, /tikz/{b}bar interval"),
+    ("{b}bar interval stacked", "bar direction={b}, bar cycle list, single {b}bar legend, stack plots={b}, stack dir=#1, /tikz/{b}bar interval"),
+    ("{b}bar stacked", "bar direction={b}, bar cycle list, single {b}bar legend, stack plots={b}, stack dir=#1, /tikz/{b}bar"),
+    ("{b}ticklabel interval boundaries", r"{b} tick label as interval, {b}ticklabel={$\pgfmathprintnumber{\tick}$ -- $\pgfmathprintnumber{\nexttick}$}"),
+];
+
+/// The ternary, smith chart and colorbar styles, longer than a line.
+const LONG_STYLES: &[(&str, &str)] = &[
+    (
+        "every ternary axis",
+        r"grid=major, /pgfplots/tick align=outside, xticklabel style={anchor=west},
+        /pgfplots/every 3d description/.style={}, every axis title shift=15pt,
+        every axis x label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+        every axis y label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+        every axis z label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
+        every x tick scale label/.style={inner sep=0pt, anchor=near xticklabel, at={(xticklabel cs:0.95,5pt)}},
+        every y tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
+        every z tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
+        every axis legend/.style={shape=rectangle, draw=black, fill=white, anchor=north west, at={(1.03,1.03)},
+            cells={anchor=center}, inner xsep=3pt, inner ysep=2pt, nodes={inner sep=2pt, text depth=0.15em}}",
+    ),
+    (
+        "every smithchart axis",
+        r"xmin=0, xmax=16000, ymin=-16000, ymax=16000, grid=both, scaled ticks=false,
+        xtick align=center, ytick align=center, major tick style={draw=black},
+        legend style={anchor=center}, every axis title shift=1.2\baselineskip",
+    ),
+    // the ticks by the chart's size: few below 14cm, many below 20cm, dense beyond
+    (
+        "few smithchart ticks*",
+        "default smithchart xtick/.style={xtick={0.2,0.5,1,2,5}},
+        default smithchart ytick/.style={ytick={0,0.2,0.5,1,2,5,-0.2,-0.5,-1,-2,-5}},
+        default smithchart xytick/.style={xgrid each nth passes y={2}, ygrid each nth passes x={2}}",
+    ),
+    ("few smithchart ticks", "/pgfplots/few smithchart ticks*"),
+    (
+        "many smithchart ticks*",
+        "default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,1,1.5,2,3,4,5,10,20},
+            minor xtick={0.6,0.7,0.8,0.9,1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
+        default smithchart ytick/.style={
+            ytick={0,0.1,0.2,...,1,1.5,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.5,-2,-3,-4,-5,-10,-20},
+            minor ytick={1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
+                -1.1,-1.2,-1.3,-1.4,-1.6,-1.7,-1.8,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
+        default smithchart xytick/.style={xgrid each nth passes y={1,2,4,5,10,20}, ygrid each nth passes x={1,2,3,5,10:3,20:3}}",
+    ),
+    ("many smithchart ticks", "many smithchart ticks*, every axis title shift=6pt, yticklabel in circle, show origin=true"),
+    (
+        "dense smithchart ticks*",
+        "default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20},
+            minor xtick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
+                0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.52,0.55,0.65,0.75,0.85,0.95,
+                1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
+        default smithchart ytick/.style={
+            ytick={0,0.1,0.2,...,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.2,-1.4,-1.6,-1.8,-2,-3,-4,-5,-10,-20},
+            minor ytick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
+                0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.55,0.65,0.75,0.85,0.95,
+                1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
+                -0.01,-0.02,-0.03,-0.04,-0.05,-0.06,-0.07,-0.08,-0.09,-0.11,-0.12,-0.13,-0.14,-0.15,-0.16,-0.17,-0.18,-0.19,
+                -0.22,-0.24,-0.26,-0.28,-0.32,-0.34,-0.36,-0.38,-0.42,-0.44,-0.46,-0.48,-0.55,-0.65,-0.75,-0.85,-0.95,
+                -1.1,-1.3,-1.5,-1.7,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
+        default smithchart xytick/.style={
+            xgrid each nth passes y={0.2 if < 0.2001,0.5 if < 0.50001,1 if < 1.001,2,4,5,10,20},
+            ygrid each nth passes x={0.2 if < 0.2001,0.52 if < 0.52001,1 if < 1.001,2,3,5,10:3,20:3}}",
+    ),
+    (
+        "dense smithchart ticks",
+        "yticklabel in circle, every axis title shift=6pt,
+        dense smithchart ticks*, show origin=true, every major grid/.style={black!60}",
+    ),
+    // a colorbar is an axis of its own, beside its parent
+    (
+        "colorbar right",
+        r"/pgfplots/colorbar=true, /pgfplots/colorbar pos*=r, /pgfplots/colorbar shift/.style={xshift=0.3cm},
+        /pgfplots/every colorbar/.style={/pgfplots/every colorbar global, at={(parent axis.right of north east)}, anchor=north west,
+            xmin=0, xmax=1, ymin=\pgfkeysvalueof{/pgfplots/point meta min}, ymax=\pgfkeysvalueof{/pgfplots/point meta max},
+            height=\pgfkeysvalueof{/pgfplots/parent axis height}, width=\pgfkeysvalueof{/pgfplots/colorbar/width},
+            xtick=\empty, yticklabel pos=right, colorbar vertical/lowlevel}",
+    ),
+    (
+        "colorbar left",
+        "/pgfplots/colorbar right, /pgfplots/colorbar pos*=l, /pgfplots/colorbar shift/.style={xshift=-0.3cm},
+        /pgfplots/every colorbar/.append style={at={(parent axis.left of north west)}, anchor=north east, yticklabel pos=left}",
+    ),
+    (
+        "colorbar horizontal",
+        r"/pgfplots/colorbar=true, /pgfplots/colorbar pos*=b, /pgfplots/colorbar shift/.style={yshift=-0.3cm},
+        /pgfplots/every colorbar/.style={/pgfplots/every colorbar global, at={(parent axis.below south west)}, anchor=north west,
+            ymin=0, ymax=1, xmin=\pgfkeysvalueof{/pgfplots/point meta min}, xmax=\pgfkeysvalueof{/pgfplots/point meta max},
+            width=\pgfkeysvalueof{/pgfplots/parent axis width}, height=\pgfkeysvalueof{/pgfplots/colorbar/width},
+            xticklabel pos=left, ytick=\empty, colorbar horizontal/lowlevel}",
+    ),
+];
+
+/// Keys that run TeX code; `#1` is their value.
+const CODES: &[(&str, &str)] = &[
+    ("/pgf/number format/fixed relative", r"\pgfkeysalso{/pgf/number format/@fixed relative}"),
+    ("@boxplot macros", r"\def\pgfplotsboxplotvalue##1{\pgfkeysvalueof{/pgfplots/boxplot/##1}}\let\boxplotvalue=\pgfplotsboxplotvalue"),
+    ("colorbar sampled", r"\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}\pgfkeyssetvalue{/pgfplots/@colorbar line}{false}"),
+    ("colorbar sampled line", r"\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}\pgfkeyssetvalue{/pgfplots/@colorbar line}{true}"),
+    ("error bars/{b} fixed", r"\pgfkeyssetvalue{/pgfplots/error bars/@{b} mode}{fixed}\pgfkeyssetvalue{/pgfplots/error bars/@{b} value}{#1}"),
+    ("error bars/{b} fixed relative", r"\pgfkeyssetvalue{/pgfplots/error bars/@{b} mode}{fixed relative}\pgfkeyssetvalue{/pgfplots/error bars/@{b} value}{#1}"),
+    ("group/{b} descriptions at", r"\pgfkeyssetvalue{/pgfplots/group/{b}labels at}{#1}\pgfkeyssetvalue{/pgfplots/group/{b}ticklabels at}{#1}"),
+    ("nodes near coords", r"\pgfkeyssetvalue{/pgfplots/@nodes near coords}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}"),
+    ("nodes near coords*", r"\pgfkeyssetvalue{/pgfplots/@nodes near coords}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}"),
+    ("quiver/colored", r"\pgfkeyssetvalue{/pgfplots/quiver/arrow color}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}"),
+    ("scatter/@pre marker code", r"\def\tikra@scatter@usemapped{1}"),
+];
+
+/// Keys of two values (`view={az}{el}`): styles, then code.
+const STYLES_2: &[(&str, &str)] = &[
+    ("skip coords between index", r"/pgfplots/x filter/.append code={\ifnum\coordindex<#1 \else\ifnum\coordindex<#2 \def\pgfmathresult{}\fi\fi}"),
+    ("view", "/pgfplots/view/az={#1}, /pgfplots/view/el={#2}"),
+];
+const CODES_2: &[(&str, &str)] = &[
+    ("colormap", r"\tikra@colormap{#1}{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}\pgfkeysalso{/pgfplots/@colormap defined={#1}}"),
+    ("mesh/interior colormap", r"\tikra@colormap{#1}{#2}\pgfkeyssetvalue{/pgfplots/mesh/interior colormap name}{#1}"),
+    (
+        "restrict expr to domain",
+        r"\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}\pgfkeysalso{/pgfplots/unbounded coords=jump}",
+    ),
+    ("restrict expr to domain*", r"\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}"),
+];
+
+/// Where `legend pos` puts the legend: the point of the axis, and the legend's anchor there.
+const LEGEND_POS: &[(&str, &str, &str)] = &[
+    ("north east", "0.97,0.97", "north east"),
+    ("north west", "0.03,0.97", "north west"),
+    ("outer north east", "1.03,1", "north west"),
+    ("south east", "0.97,0.03", "south east"),
+    ("south west", "0.03,0.03", "south west"),
+];
+
+/// `legend cell align`: the anchor of the cells for each choice.
+const LEGEND_CELL_ALIGN: &[(&str, &str)] = &[("center", "center"), ("left", "west"), ("right", "east")];
+
+/// `ticks=…` and `grid=…`: whether each choice turns on the major and the minor ones, on every axis.
+const MAJOR_MINOR: &[(&str, bool, bool)] = &[("both", true, true), ("major", true, false), ("minor", false, true), ("none", false, false)];
+
+/// The y tick labels of a smith chart, along the circle: (key, tick align, the labels' anchor,
+/// their anchor when upside down).
+const CIRCLE_LABELS: &[(&str, &str, &str, &str)] = &[
+    ("yticklabel around circle", "center", "south east", "south west"),
+    ("yticklabel around circle*", "center", "north east", "north west"),
+    ("yticklabel in circle", "inside", "south west", "north east"),
+];
+
+/// Where `cycle list` and its variants keep the list they are given.
+const CYCLE_LIST_KEYS: &[(&str, &str)] =
+    &[("cycle list", "@internal@"), ("cycle multi list", "@multi@"), ("cycle multiindex list", "@multiindex@"), ("cycle multiindex* list", "@multiindex*@")];
+
+/// A cycle list entry: the line's options, whether it is densely dashed, the mark's options
+/// (solid, in a dashed line) and the mark.
+type Entry = (&'static str, bool, &'static str, &'static str);
+
+/// The predefined cycle lists (pgfplots manual, "Cycle Lists"): each plot of an axis takes the
+/// next entry.
+const CYCLE_LISTS: &[(&str, &[Entry])] = &[
+    (
+        "color",
+        &[
+            ("blue", false, "fill=blue!80!black", "*"),
+            ("red", false, "fill=red!80!black", "square*"),
+            ("brown!60!black", false, "fill=brown!80!black", "otimes*"),
+            ("black", false, "", "star"),
+            ("blue", false, "fill=blue!80!black", "diamond*"),
+            ("red", true, "solid,fill=red!80!black", "*"),
+            ("brown!60!black", true, "solid,fill=brown!80!black", "square*"),
+            ("black", true, "solid,fill=gray", "otimes*"),
+            ("blue", true, "solid", "star"),
+            ("red", true, "solid,fill=red!80!black", "diamond*"),
+        ],
+    ),
+    (
+        "exotic",
+        &[
+            ("teal", false, "fill=teal!80!black", "*"),
+            ("orange", false, "fill=orange!80!black", "square*"),
+            ("cyan!60!black", false, "fill=cyan!80!black", "otimes*"),
+            ("red!70!white", false, "", "star"),
+            ("lime!80!black", false, "fill=lime", "diamond*"),
+            ("red", true, "solid,fill=red!80!black", "*"),
+            ("yellow!60!black", true, "solid,fill=yellow!80!black", "square*"),
+            ("black", false, "solid,fill=gray", "otimes*"),
+            ("blue", true, "solid", "star"),
+            ("red", true, "solid,fill=red!80!black", "diamond*"),
+        ],
+    ),
+    (
+        "black white",
+        &[
+            ("", false, "fill=gray", "*"),
+            ("", false, "fill=gray", "square*"),
+            ("", false, "fill=gray", "otimes*"),
+            ("", false, "", "star"),
+            ("", false, "fill=gray", "diamond*"),
+            ("", true, "solid,fill=gray", "*"),
+            ("", true, "solid,fill=gray", "square*"),
+            ("", true, "solid,fill=gray", "otimes*"),
+            ("", true, "solid", "star"),
+            ("", true, "solid,fill=gray", "diamond*"),
+        ],
+    ),
+    (
+        "mark list",
+        &[
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "square*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "triangle*"),
+            ("", false, "solid", "star"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "diamond*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill!40", "otimes*"),
+            ("", false, "solid", "|"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "pentagon*"),
+            ("", false, "solid", "text,text mark=p"),
+            ("", false, "solid", "text,text mark=a"),
+        ],
+    ),
+    (
+        "mark list*",
+        &[
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "square*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "triangle*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "halfsquare*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "pentagon*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "halfcircle*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill,rotate=180", "halfdiamond*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill!40", "otimes*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "diamond*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "halfsquare right*"),
+            ("", false, r"solid,fill=\pgfplotsmarklistfill", "halfsquare left*"),
+        ],
+    ),
+];
+
+/// Cycle lists of line styles or colors alone, one option per plot.
+const PLAIN_CYCLE_LISTS: &[(&str, &[&str])] = &[
+    ("color list", &["red", "blue", "black", "yellow", "brown", "teal", "orange", "violet", "cyan", "green!70!black", "magenta", "gray"]),
+    ("linestyles", &["solid", "dashed", "dotted"]),
+    ("linestyles*", &["solid", "dashed", "dotted", "dashdotted", "dashdotdotted"]),
+];
+
+/// The bars of `bar cycle list`: (line color, fill color).
+const BAR_CYCLE: &[(&str, &str)] =
+    &[("blue", "blue!30!white"), ("red", "red!30!white"), ("brown!60!black", "brown!30!white"), ("black", "gray"), ("violet!80!black", "violet"), ("green", "green!80!black")];
+
+/// The predefined colormaps (pgfplots manual, "Color maps"), in the colormap syntax.
+const COLORMAPS: &[(&str, &str)] = &[
+    ("bluered", "rgb255(0cm)=(0,0,180); rgb255(1cm)=(0,255,255); rgb255(2cm)=(100,255,0); rgb255(3cm)=(255,255,0); rgb255(4cm)=(255,0,0); rgb255(5cm)=(128,0,0)"),
+    ("blackwhite", "gray(0cm)=(0); gray(1cm)=(1)"),
+    ("cool", "rgb255(0cm)=(255,255,255); rgb255(1cm)=(0,128,255); rgb255(2cm)=(255,0,255)"),
+    ("greenyellow", "rgb255(0cm)=(0,128,0); rgb255(1cm)=(255,255,0)"),
+    ("hot", "color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)"),
+    ("hot2", "[1cm]rgb255(0cm)=(0,0,0) rgb255(3cm)=(255,0,0) rgb255(6cm)=(255,255,0) rgb255(8cm)=(255,255,255)"),
+    ("jet", "rgb255(0cm)=(0,0,128) rgb255(1cm)=(0,0,255) rgb255(3cm)=(0,255,255) rgb255(5cm)=(255,255,0) rgb255(7cm)=(255,0,0) rgb255(8cm)=(128,0,0)"),
+    ("redyellow", "rgb255(0cm)=(255,0,0); rgb255(1cm)=(255,255,0)"),
+    ("violet", "rgb255=(25,25,122) color=(white) rgb255=(238,140,238)"),
+];
+
+/// matplotlib's viridis and plasma, sampled: the rgb of each stop.
+const SAMPLED_COLORMAPS: &[(&str, &[&str])] = &[
+    (
+        "plasma",
+        &[
+            "0.050383,0.029803,0.527975",
+            "0.171574,0.019706,0.580806",
+            "0.261183,0.013308,0.617911",
+            "0.35015,0.004382,0.646298",
+            "0.429719,0.000831,0.659425",
+            "0.512206,0.018833,0.655209",
+            "0.584391,0.068579,0.632812",
+            "0.65558,0.129725,0.592317",
+            "0.714883,0.187299,0.546338",
+            "0.771958,0.249237,0.494813",
+            "0.819651,0.306812,0.448306",
+            "0.866078,0.36966,0.400126",
+            "0.904601,0.429797,0.356329",
+            "0.940313,0.497642,0.309197",
+            "0.966798,0.564396,0.265118",
+            "0.986345,0.640969,0.217948",
+            "0.994324,0.716681,0.177208",
+            "0.989587,0.803205,0.146529",
+            "0.970533,0.887896,0.145919",
+            "0.940015,0.975158,0.131326",
+        ],
+    ),
+    (
+        "viridis",
+        &[
+            "0.267,0.00487,0.32942",
+            "0.28192,0.08966,0.41241",
+            "0.28026,0.1657,0.4765",
+            "0.26366,0.23763,0.51877",
+            "0.23744,0.3052,0.54192",
+            "0.20862,0.36775,0.55267",
+            "0.18225,0.42618,0.55711",
+            "0.1592,0.48224,0.55807",
+            "0.13777,0.53749,0.5549",
+            "0.12115,0.59274,0.54465",
+            "0.12808,0.64775,0.5235",
+            "0.18065,0.7014,0.48819",
+            "0.27415,0.75198,0.4366",
+            "0.39517,0.79747,0.36775",
+            "0.53561,0.83578,0.2819",
+            "0.68895,0.86545,0.18272",
+            "0.84557,0.88733,0.0997",
+            "0.99324,0.90616,0.14394",
+        ],
+    ),
+];
+
+/// Macros that pgfplots documents, and the values the axis code reads before any axis sets them.
+const PRELUDE: &str = r"
 \def\pgfplotscreateplotcyclelist#1#2{\expandafter\def\csname pgfk@/pgfplots/@cycle lists/#1\endcsname{#2}}
 \let\pgfcreateplotcyclelist\pgfplotscreateplotcyclelist
 \def\pgfkeyslet#1#2{\expandafter\let\csname pgfk@#1\endcsname#2}
+\def\tikra@colormap#1#2{\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}}
 \def\axisdefaultwidth{240pt}\def\axisdefaultheight{207pt}
 \def\pgfplotsmarklistfill{.!80!black}
 \def\numplots{0}\def\numplotsofactualtype{1}\def\plotnumofactualtype{0}\def\plotnum{0}
 \def\pgfplotbarwidth{10pt}\def\pgfplotbarshift{0pt}
 \def\pgfplotscolormaplastindexof#1{\csname pgfpl@cm@#1@last\endcsname}
-\pgfplotscreateplotcyclelist{color}{%
-	blue,every mark/.append style={fill=blue!80!black},mark=*\\%
-	red,every mark/.append style={fill=red!80!black},mark=square*\\%
-	brown!60!black,every mark/.append style={fill=brown!80!black},mark=otimes*\\%
-	black,mark=star\\%
-	blue,every mark/.append style={fill=blue!80!black},mark=diamond*\\%
-	red,densely dashed,every mark/.append style={solid,fill=red!80!black},mark=*\\%
-	brown!60!black,densely dashed,every mark/.append style={solid,fill=brown!80!black},mark=square*\\%
-	black,densely dashed,every mark/.append style={solid,fill=gray},mark=otimes*\\%
-	blue,densely dashed,mark=star,every mark/.append style=solid\\%
-	red,densely dashed,every mark/.append style={solid,fill=red!80!black},mark=diamond*\\%
-}
-\pgfplotscreateplotcyclelist{black white}{%
-	every mark/.append style={fill=gray},mark=*\\%
-	every mark/.append style={fill=gray},mark=square*\\%
-	every mark/.append style={fill=gray},mark=otimes*\\%
-	mark=star\\%
-	every mark/.append style={fill=gray},mark=diamond*\\%
-	densely dashed,every mark/.append style={solid,fill=gray},mark=*\\%
-	densely dashed,every mark/.append style={solid,fill=gray},mark=square*\\%
-	densely dashed,every mark/.append style={solid,fill=gray},mark=otimes*\\%
-	densely dashed,every mark/.append style={solid},mark=star\\%
-	densely dashed,every mark/.append style={solid,fill=gray},mark=diamond*\\%
-}
-\pgfplotscreateplotcyclelist{linestyles}{solid,dashed,dotted}
-\pgfplotscreateplotcyclelist{linestyles*}{solid,dashed,dotted,dashdotted,dashdotdotted}
-\pgfplotscreateplotcyclelist{color list}{red,blue,black,yellow,brown,teal,orange,violet,cyan,green!70!black,magenta,gray}
-\pgfplotscreateplotcyclelist{mark list}{%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=square*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=triangle*\\%
-	every mark/.append style={solid},mark=star\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=diamond*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill!40},mark=otimes*\\%
-	every mark/.append style={solid},mark=|\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=pentagon*\\%
-	every mark/.append style={solid},mark=text,text mark=p\\%
-	every mark/.append style={solid},mark=text,text mark=a\\%
-}
-\pgfplotscreateplotcyclelist{mark list*}{%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=square*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=triangle*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=halfsquare*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=pentagon*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=halfcircle*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill,rotate=180},mark=halfdiamond*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill!40},mark=otimes*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=diamond*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=halfsquare right*\\%
-	every mark/.append style={solid,fill=\pgfplotsmarklistfill},mark=halfsquare left*\\%
-}
-\pgfplotscreateplotcyclelist{exotic}{%
-	teal,every mark/.append style={fill=teal!80!black},mark=*\\%
-	orange,every mark/.append style={fill=orange!80!black},mark=square*\\%
-	cyan!60!black,every mark/.append style={fill=cyan!80!black},mark=otimes*\\%
-	red!70!white,mark=star\\%
-	lime!80!black,every mark/.append style={fill=lime},mark=diamond*\\%
-	red,densely dashed,every mark/.append style={solid,fill=red!80!black},mark=*\\%
-	yellow!60!black,densely dashed,every mark/.append style={solid,fill=yellow!80!black},mark=square*\\%
-	black,every mark/.append style={solid,fill=gray},mark=otimes*\\%
-	blue,densely dashed,mark=star,every mark/.append style=solid\\%
-	red,densely dashed,every mark/.append style={solid,fill=red!80!black},mark=diamond*\\%
-}
-\pgfkeys{
-	/tikz/dashdotted/.style={dash pattern=on 3pt off 2pt on \the\pgflinewidth off 2pt},
-	/tikz/densely dashdotted/.style={dash pattern=on 3pt off 1pt on \the\pgflinewidth off 1pt},
-	/tikz/loosely dashdotted/.style={dash pattern=on 3pt off 4pt on \the\pgflinewidth off 4pt},
-	/tikz/dashdotdotted/.style={dash pattern=on 3pt off 2pt on \the\pgflinewidth off 2pt on \the\pgflinewidth off 2pt},
-	/tikz/densely dashdotdotted/.style={dash pattern=on 3pt off 1pt on \the\pgflinewidth off 1pt on \the\pgflinewidth off 1pt},
-	/tikz/loosely dashdotdotted/.style={dash pattern=on 3pt off 4pt on \the\pgflinewidth off 4pt on \the\pgflinewidth off 4pt},
-	/tikz/every mark/.style={},
-	/tikz/mark options/.style={/tikz/every mark/.style={#1}},
-	/tikz/mark size/.initial=2pt,
-	/tikz/mark repeat/.initial=1, /tikz/mark phase/.initial=1, /tikz/mark indices/.initial=,
-	/tikz/text mark/.initial=p, /tikz/text mark style/.style={}, /tikz/text mark as node/.initial=false,
-	/tikz/nodes/.style={/tikz/every node/.append style={#1}},
-	/tikz/every cell/.style={}, /tikz/cells/.style={/tikz/every cell/.append style={#1}},
-	/tikz/column sep/.initial=0pt, /tikz/row sep/.initial=0pt,
-	/tikz/@plot handler/.initial=,
-	/pgf/bar width/.initial=10pt, /pgf/bar shift/.initial=0pt,
-	/pgf/bar interval width/.initial=1, /pgf/bar interval shift/.initial=0.5,
-	/tikz/bar width/.forward to=/pgf/bar width, /tikz/bar shift/.forward to=/pgf/bar shift,
-	/tikz/bar interval width/.forward to=/pgf/bar interval width,
-	/tikz/bar interval shift/.forward to=/pgf/bar interval shift,
-	/pgf/number format/.cd,
-	/pgf/number format/fixed relative/.code={\pgfkeysalso{/pgf/number format/@fixed relative}},
-	/pgfplots/.cd,
-	/pgfplots/.search also={/tikz},
-	/pgfplots/every axis/.style={}, /pgfplots/every axis post/.style={},
-	/pgfplots/every semilogx axis/.style={}, /pgfplots/every semilogy axis/.style={},
-	/pgfplots/every loglog axis/.style={}, /pgfplots/every linear axis/.style={},
-	/pgfplots/every axis plot/.style={}, /pgfplots/every axis plot post/.style={},
-	/pgfplots/every axis plot except legend/.style={},
-	/pgfplots/axis plot except legend style/.style={/pgfplots/every axis plot except legend/.append style={#1}},
-	/pgfplots/every forget plot/.style={},
-	/pgfplots/forget plot style/.style={/pgfplots/every forget plot/.append style={#1}},
-	/pgfplots/forget plot/.initial=false, /pgfplots/forget plot/.default=true,
-	/pgfplots/no marks/.style={/pgfplots/no markers},
-	/pgfplots/no markers/.style={/pgfplots/every axis plot post/.append style={mark=none}},
-	/pgfplots/every axis label/.style={},
-	/pgfplots/xlabel near ticks/.style={%
-		/pgfplots/every axis x label/.style={at={(ticklabel cs:0.5)},anchor=near ticklabel},%
-		/pgfplots/every x tick scale label/.style={at={(xticklabel cs:0.9,5pt)},anchor=near xticklabel,inner sep=0pt},
-	},%
-	/pgfplots/xlabel absolute/.style={%
-		/pgfplots/every axis x label/.style={at={(0.5,0)},below,yshift=-15pt},%
-		/pgfplots/every x tick scale label/.style={at={(1,0)},yshift=-2em,left,inner sep=0pt},
-	},%
-	/pgfplots/ylabel near ticks/.style={%
-		/pgfplots/every axis y label/.style={at={(ticklabel cs:0.5)},rotate=90,anchor=near ticklabel},%
-		/pgfplots/every y tick scale label/.style={at={(yticklabel* cs:1.03,-0.3em)},/pgfplots/near ticklabel align=outside,anchor=near yticklabel opposite,inner sep=0pt},
-	},%
-	/pgfplots/ylabel absolute/.style={%
-		/pgfplots/every axis y label/.style={at={(0,0.5)},xshift=-35pt,rotate=90},
-		/pgfplots/every y tick scale label/.style={at={(0,1)},above right,inner sep=0pt,yshift=0.3em},
-	},%
-	/pgfplots/every axis z label/.style={at={(ticklabel cs:0.5)},rotate=90, anchor=near ticklabel},
-	/pgfplots/every z tick scale label/.style={at={(zticklabel* cs:1.2,-0.3em)},anchor=near zticklabel,inner sep=0pt},
-	/pgfplots/near ticklabel align/.initial=center,
-	/pgfplots/every axis title shift/.initial=6pt,
-	/pgfplots/every axis title/.style={at={(0.5,1)},above,yshift=\pgfkeysvalueof{/pgfplots/every axis title shift}},
-	/pgfplots/every tick/.style={very thin,gray},
-	/pgfplots/every inner x axis line/.style={}, /pgfplots/every inner y axis line/.style={},
-	/pgfplots/every inner z axis line/.style={}, /pgfplots/every outer x axis line/.style={},
-	/pgfplots/every outer y axis line/.style={}, /pgfplots/every outer z axis line/.style={},
-	/pgfplots/x axis line style/.style={/pgfplots/every outer x axis line/.append style={#1},/pgfplots/every inner x axis line/.append style={#1}},
-	/pgfplots/y axis line style/.style={/pgfplots/every outer y axis line/.append style={#1},/pgfplots/every inner y axis line/.append style={#1}},
-	/pgfplots/z axis line style/.style={/pgfplots/every outer z axis line/.append style={#1},/pgfplots/every inner z axis line/.append style={#1}},
-	/pgfplots/outer axis line style/.style={/pgfplots/every outer x axis line/.append style={#1},/pgfplots/every outer y axis line/.append style={#1},/pgfplots/every outer z axis line/.append style={#1}},
-	/pgfplots/inner axis line style/.style={/pgfplots/every inner x axis line/.append style={#1},/pgfplots/every inner y axis line/.append style={#1},/pgfplots/every inner z axis line/.append style={#1}},
-	/pgfplots/axis line style/.style={/pgfplots/inner axis line style={#1},/pgfplots/outer axis line style={#1}},
-	/pgfplots/separate axis lines/.initial=false, /pgfplots/separate axis lines/.default=true,
-	/pgfplots/every minor tick/.style={}, /pgfplots/every major tick/.style={},
-	/pgfplots/every x tick/.style={}, /pgfplots/every minor x tick/.style={}, /pgfplots/every major x tick/.style={},
-	/pgfplots/every y tick/.style={}, /pgfplots/every minor y tick/.style={}, /pgfplots/every major y tick/.style={},
-	/pgfplots/every z tick/.style={}, /pgfplots/every minor z tick/.style={}, /pgfplots/every major z tick/.style={},
-	/pgfplots/every axis grid/.style={thin,black!25},
-	/pgfplots/every minor grid/.style={}, /pgfplots/every major grid/.style={},
-	/pgfplots/every axis x grid/.style={}, /pgfplots/every minor x grid/.style={}, /pgfplots/every major x grid/.style={},
-	/pgfplots/every axis y grid/.style={}, /pgfplots/every minor y grid/.style={}, /pgfplots/every major y grid/.style={},
-	/pgfplots/every axis z grid/.style={}, /pgfplots/every minor z grid/.style={}, /pgfplots/every major z grid/.style={},
-	/pgfplots/every tick label/.style={}, /pgfplots/every x tick label/.style={},
-	/pgfplots/every y tick label/.style={}, /pgfplots/every z tick label/.style={},
-	/pgfplots/log identify minor tick positions/.initial=false, /pgfplots/log identify minor tick positions/.default=true,
-	/pgfplots/every extra x tick/.style={/pgfplots/log identify minor tick positions=true},
-	/pgfplots/every extra y tick/.style={/pgfplots/log identify minor tick positions=true},
-	/pgfplots/every extra z tick/.style={/pgfplots/log identify minor tick positions=true},
-	/pgfplots/xtickten/.initial=, /pgfplots/ytickten/.initial=, /pgfplots/ztickten/.initial=,
-	/pgfplots/extra x tick style/.code={\pgfkeysalso{/pgfplots/every extra x tick/.append style={#1}}},
-	/pgfplots/extra y tick style/.code={\pgfkeysalso{/pgfplots/every extra y tick/.append style={#1}}},
-	/pgfplots/extra tick style/.code={\pgfkeysalso{/pgfplots/every extra x tick/.append style={#1},/pgfplots/every extra y tick/.append style={#1},/pgfplots/every extra z tick/.append style={#1}}},
-	/pgfplots/every axis legend/.style={%
-		cells={anchor=center},
-		inner xsep=3pt,inner ysep=2pt,nodes={inner sep=2pt,text depth=0.15em},
-		anchor=north east,%
-		shape=rectangle,%
-		fill=white,%
-		draw=black,
-		at={(0.98,0.98)},
-	},
-	/pgfplots/legend style/.code={\pgfkeysalso{/pgfplots/every axis legend/.append style={#1}}},
-	/pgfplots/legend entries/.initial=,
-	/pgfplots/legend to name/.initial=,
-	/pgfplots/legend pos/.is choice,
-	/pgfplots/legend pos/south west/.style={/pgfplots/legend style={at={(0.03,0.03)},anchor=south west}},
-	/pgfplots/legend pos/south east/.style={/pgfplots/legend style={at={(0.97,0.03)},anchor=south east}},
-	/pgfplots/legend pos/north west/.style={/pgfplots/legend style={at={(0.03,0.97)},anchor=north west}},
-	/pgfplots/legend pos/north east/.style={/pgfplots/legend style={at={(0.97,0.97)},anchor=north east}},
-	/pgfplots/legend pos/outer north east/.style={/pgfplots/legend style={at={(1.03,1)},anchor=north west}},
-	/pgfplots/legend cell align/.is choice,
-	/pgfplots/legend cell align/left/.style={/pgfplots/legend style={cells={anchor=west}}},
-	/pgfplots/legend cell align/right/.style={/pgfplots/legend style={cells={anchor=east}}},
-	/pgfplots/legend cell align/center/.style={/pgfplots/legend style={cells={anchor=center}}},
-	/pgfplots/legend columns/.initial=1,
-	/pgfplots/legend plot pos/.initial=left,
-	/pgfplots/reverse legend/.initial=false, /pgfplots/reverse legend/.default=true,
-	/pgfplots/transpose legend/.initial=false, /pgfplots/transpose legend/.default=true,
-	/pgfplots/legend reversed/.style={/pgfplots/reverse legend=#1}, /pgfplots/legend reversed/.default=true,
-	/pgfplots/legend transposed/.style={/pgfplots/transpose legend=#1}, /pgfplots/legend transposed/.default=true,
-	/pgfplots/every legend image post/.style={},
-	/pgfplots/legend image post style/.style={/pgfplots/every legend image post/.append style={#1}},
-	/pgfplots/@legend image/.initial=line,
-	/pgfplots/line legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
-	/pgfplots/area legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{area}},
-	/pgfplots/every fill between plot/.style={/pgfplots/area legend,/tikz/fill},
-	/pgfplots/empty legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{empty}},
-	/pgfplots/ybar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{ybar}},
-	/pgfplots/xbar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{xbar}},
-	/pgfplots/single ybar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{single ybar}},
-	/pgfplots/single xbar legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{single xbar}},
-	/pgfplots/ybar interval legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{ybar interval}},
-	/pgfplots/xbar interval legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{xbar interval}},
-	/pgfplots/legend image code/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
-	/pgfplots/legend image with text/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{empty}},
-	/pgfplots/title/.initial=, /pgfplots/xlabel/.initial=, /pgfplots/ylabel/.initial=, /pgfplots/zlabel/.initial=,
-	/pgfplots/use units/.initial=true, /pgfplots/use units/.default=true,
-	/pgfplots/x unit/.initial=, /pgfplots/y unit/.initial=, /pgfplots/z unit/.initial=,
-	/pgfplots/x unit prefix/.initial=, /pgfplots/y unit prefix/.initial=, /pgfplots/z unit prefix/.initial=,
-	/pgfplots/change x base/.initial=false, /pgfplots/change x base/.default=true,
-	/pgfplots/change y base/.initial=false, /pgfplots/change y base/.default=true,
-	/pgfplots/change z base/.initial=false, /pgfplots/change z base/.default=true,
-	/pgfplots/@x scale label off/.initial=false, /pgfplots/@y scale label off/.initial=false, /pgfplots/@z scale label off/.initial=false,
-	/pgfplots/xlabel shift/.initial=0pt, /pgfplots/ylabel shift/.initial=0pt, /pgfplots/zlabel shift/.initial=0pt,
-	/pgfplots/label shift/.style={/pgfplots/xlabel shift={#1},/pgfplots/ylabel shift={#1},/pgfplots/zlabel shift={#1}},
-	/pgfplots/extra description/.code=,
-	/pgfplots/label style/.style={/pgfplots/every axis x label/.append style={#1},/pgfplots/every axis y label/.append style={#1},/pgfplots/every axis z label/.append style={#1}},
-	/pgfplots/x label style/.code={\pgfkeysalso{/pgfplots/every axis x label/.append style={#1}}},
-	/pgfplots/y label style/.code={\pgfkeysalso{/pgfplots/every axis y label/.append style={#1}}},
-	/pgfplots/z label style/.code={\pgfkeysalso{/pgfplots/every axis z label/.append style={#1}}},
-	/pgfplots/xlabel style/.style={/pgfplots/x label style={#1}},
-	/pgfplots/ylabel style/.style={/pgfplots/y label style={#1}},
-	/pgfplots/zlabel style/.style={/pgfplots/z label style={#1}},
-	/pgfplots/title style/.code={\pgfkeysalso{/pgfplots/every axis title/.append style={#1}}},
-	/pgfplots/tick label style/.code={\pgfkeysalso{/pgfplots/every tick label/.append style={#1}}},
-	/pgfplots/ticklabel style/.style={/pgfplots/tick label style={#1}},
-	/pgfplots/x tick label style/.code={\pgfkeysalso{/pgfplots/every x tick label/.append style={#1}}},
-	/pgfplots/y tick label style/.code={\pgfkeysalso{/pgfplots/every y tick label/.append style={#1}}},
-	/pgfplots/z tick label style/.code={\pgfkeysalso{/pgfplots/every z tick label/.append style={#1}}},
-	/pgfplots/xticklabel style/.style={/pgfplots/x tick label style={#1}},
-	/pgfplots/yticklabel style/.style={/pgfplots/y tick label style={#1}},
-	/pgfplots/zticklabel style/.style={/pgfplots/z tick label style={#1}},
-	/pgfplots/x tick scale label style/.code={\pgfkeysalso{/pgfplots/every x tick scale label/.append style={#1}}},
-	/pgfplots/y tick scale label style/.code={\pgfkeysalso{/pgfplots/every y tick scale label/.append style={#1}}},
-	/pgfplots/tick style/.code={\pgfkeysalso{/pgfplots/every tick/.append style={#1}}},
-	/pgfplots/minor tick style/.code={\pgfkeysalso{/pgfplots/every minor tick/.append style={#1}}},
-	/pgfplots/major tick style/.code={\pgfkeysalso{/pgfplots/every major tick/.append style={#1}}},
-	/pgfplots/x tick style/.code={\pgfkeysalso{/pgfplots/every x tick/.append style={#1}}},
-	/pgfplots/y tick style/.code={\pgfkeysalso{/pgfplots/every y tick/.append style={#1}}},
-	/pgfplots/minor x tick style/.code={\pgfkeysalso{/pgfplots/every minor x tick/.append style={#1}}},
-	/pgfplots/minor y tick style/.code={\pgfkeysalso{/pgfplots/every minor y tick/.append style={#1}}},
-	/pgfplots/major x tick style/.code={\pgfkeysalso{/pgfplots/every major x tick/.append style={#1}}},
-	/pgfplots/major y tick style/.code={\pgfkeysalso{/pgfplots/every major y tick/.append style={#1}}},
-	/pgfplots/grid style/.code={\pgfkeysalso{/pgfplots/every axis grid/.append style={#1}}},
-	/pgfplots/minor grid style/.code={\pgfkeysalso{/pgfplots/every minor grid/.append style={#1}}},
-	/pgfplots/major grid style/.code={\pgfkeysalso{/pgfplots/every major grid/.append style={#1}}},
-	/pgfplots/x grid style/.code={\pgfkeysalso{/pgfplots/every axis x grid/.append style={#1}}},
-	/pgfplots/y grid style/.code={\pgfkeysalso{/pgfplots/every axis y grid/.append style={#1}}},
-	/pgfplots/minor x grid style/.code={\pgfkeysalso{/pgfplots/every minor x grid/.append style={#1}}},
-	/pgfplots/minor y grid style/.code={\pgfkeysalso{/pgfplots/every minor y grid/.append style={#1}}},
-	/pgfplots/major x grid style/.code={\pgfkeysalso{/pgfplots/every major x grid/.append style={#1}}},
-	/pgfplots/major y grid style/.code={\pgfkeysalso{/pgfplots/every major y grid/.append style={#1}}},
-	/pgfplots/every error bar/.style={thin},
-	/pgfplots/error bars/error bar style/.code={\pgfkeysalso{/pgfplots/every error bar/.append style={#1}}},
-	/pgfplots/error bars/error mark/.initial=-,
-	/pgfplots/error bars/error mark options/.initial={rotate=90},
-	/pgfplots/error bars/x dir/.initial=none, /pgfplots/error bars/y dir/.initial=none,
-	/pgfplots/error bars/x explicit/.code={\pgfkeyssetvalue{/pgfplots/error bars/@x mode}{explicit}},
-	/pgfplots/error bars/y explicit/.code={\pgfkeyssetvalue{/pgfplots/error bars/@y mode}{explicit}},
-	/pgfplots/error bars/x explicit relative/.code={\pgfkeyssetvalue{/pgfplots/error bars/@x mode}{explicit relative}},
-	/pgfplots/error bars/y explicit relative/.code={\pgfkeyssetvalue{/pgfplots/error bars/@y mode}{explicit relative}},
-	/pgfplots/error bars/x fixed/.code={\pgfkeyssetvalue{/pgfplots/error bars/@x mode}{fixed}\pgfkeyssetvalue{/pgfplots/error bars/@x value}{#1}},
-	/pgfplots/error bars/y fixed/.code={\pgfkeyssetvalue{/pgfplots/error bars/@y mode}{fixed}\pgfkeyssetvalue{/pgfplots/error bars/@y value}{#1}},
-	/pgfplots/error bars/x fixed relative/.code={\pgfkeyssetvalue{/pgfplots/error bars/@x mode}{fixed relative}\pgfkeyssetvalue{/pgfplots/error bars/@x value}{#1}},
-	/pgfplots/error bars/y fixed relative/.code={\pgfkeyssetvalue{/pgfplots/error bars/@y mode}{fixed relative}\pgfkeyssetvalue{/pgfplots/error bars/@y value}{#1}},
-	/pgfplots/error bars/@x mode/.initial=fixed, /pgfplots/error bars/@y mode/.initial=fixed,
-	/pgfplots/error bars/@x value/.initial=0, /pgfplots/error bars/@y value/.initial=0,
-	/pgfplots/error bars/.cd,
-	/pgfplots/.cd,
-	/pgfplots/xticklabel/.initial=, /pgfplots/yticklabel/.initial=, /pgfplots/zticklabel/.initial=,
-	/pgfplots/xticklabels/.initial=, /pgfplots/yticklabels/.initial=, /pgfplots/zticklabels/.initial=,
-	/pgfplots/x tick label as interval/.initial=false, /pgfplots/x tick label as interval/.default=true,
-	/pgfplots/y tick label as interval/.initial=false, /pgfplots/y tick label as interval/.default=true,
-	/pgfplots/extra x tick label/.initial=, /pgfplots/extra y tick label/.initial=,
-	/pgfplots/extra x tick labels/.initial=, /pgfplots/extra y tick labels/.initial=,
-	/pgfplots/xtick/.initial=, /pgfplots/ytick/.initial=, /pgfplots/ztick/.initial=,
-	/pgfplots/extra x ticks/.initial=, /pgfplots/extra y ticks/.initial=, /pgfplots/extra z ticks/.initial=,
-	/pgfplots/tick scale binop/.initial=\cdot,
-	/pgfplots/scaled x ticks/.initial=true, /pgfplots/scaled y ticks/.initial=true, /pgfplots/scaled z ticks/.initial=true,
-	/pgfplots/scaled ticks/.style={/pgfplots/scaled x ticks=#1,/pgfplots/scaled y ticks=#1,/pgfplots/scaled z ticks=#1},
-	/pgfplots/scale ticks above exponent/.initial=3, /pgfplots/scale ticks below exponent/.initial=-1,
-	/pgfplots/minor x tick num/.initial=0, /pgfplots/minor y tick num/.initial=0, /pgfplots/minor z tick num/.initial=0,
-	/pgfplots/minor tick num/.style={/pgfplots/minor x tick num=#1,/pgfplots/minor y tick num=#1,/pgfplots/minor z tick num=#1},
-	/pgfplots/minor xtick/.initial=, /pgfplots/minor ytick/.initial=, /pgfplots/minor ztick/.initial=,
-	/pgfplots/minor tick/.style={/pgfplots/minor xtick={#1},/pgfplots/minor ytick={#1},/pgfplots/minor ztick={#1}},
-	/pgfplots/minor tick length/.initial=0.1cm, /pgfplots/major tick length/.initial=0.15cm,
-	/pgfplots/subtickwidth/.style={/pgfplots/minor tick length={#1}}, /pgfplots/tickwidth/.style={/pgfplots/major tick length={#1}},
-	/pgfplots/xtick distance/.initial=, /pgfplots/ytick distance/.initial=, /pgfplots/ztick distance/.initial=,
-	/pgfplots/max space between ticks/.initial=35, /pgfplots/try min ticks/.initial=4, /pgfplots/try min ticks log/.initial=3,
-	/pgfplots/log basis x/.initial=, /pgfplots/log basis y/.initial=, /pgfplots/log basis z/.initial=,
-	/pgfplots/log base x/.style={/pgfplots/log basis x={#1}}, /pgfplots/log base y/.style={/pgfplots/log basis y={#1}},
-	/pgfplots/log ticks with fixed point/.code={\pgfkeyssetvalue{/pgfplots/@log fixed point}{true}},
-	/pgfplots/@log fixed point/.initial=false,
-	/pgfplots/xtick pos/.initial=both, /pgfplots/ytick pos/.initial=both, /pgfplots/ztick pos/.initial=both,
-	/pgfplots/tickpos/.style={/pgfplots/xtick pos={#1},/pgfplots/ytick pos={#1},/pgfplots/ztick pos={#1}},
-	/pgfplots/tick pos/.style={/pgfplots/tickpos={#1}},
-	/pgfplots/xticklabel pos/.initial=default, /pgfplots/yticklabel pos/.initial=default, /pgfplots/zticklabel pos/.initial=default,
-	/pgfplots/ticklabel pos/.style={/pgfplots/xticklabel pos={#1},/pgfplots/yticklabel pos={#1},/pgfplots/zticklabel pos={#1}},
-	/pgfplots/ticklabelpos/.style={/pgfplots/ticklabel pos={#1}},
-	/pgfplots/xticklabel shift/.initial=, /pgfplots/yticklabel shift/.initial=,
-	/pgfplots/ticklabel shift/.style={/pgfplots/xticklabel shift={#1},/pgfplots/yticklabel shift={#1},/pgfplots/zticklabel shift={#1}},
-	/pgfplots/xtick align/.initial=inside, /pgfplots/ytick align/.initial=inside, /pgfplots/ztick align/.initial=inside,
-	/pgfplots/tick align/.style={/pgfplots/xtick align=#1,/pgfplots/ytick align=#1,/pgfplots/ztick align=#1},
-	/pgfplots/anchor/.initial=south west,
-	/pgfplots/at/.initial=,
-	/pgfplots/name/.initial=,
-	/pgfplots/alias/.code=,
-	/pgfplots/ticks/.is choice,
-	/pgfplots/ticks/none/.style={xmajorticks=false,ymajorticks=false,zmajorticks=false,xminorticks=false,yminorticks=false,zminorticks=false},
-	/pgfplots/ticks/major/.style={xmajorticks=true,ymajorticks=true,zmajorticks=true,xminorticks=false,yminorticks=false,zminorticks=false},
-	/pgfplots/ticks/minor/.style={xmajorticks=false,ymajorticks=false,zmajorticks=false,xminorticks=true,yminorticks=true,zminorticks=true},
-	/pgfplots/ticks/both/.style={xmajorticks=true,ymajorticks=true,zmajorticks=true,xminorticks=true,yminorticks=true,zminorticks=true},
-	/pgfplots/grid/.is choice, /pgfplots/grid/.default=major,
-	/pgfplots/grid/none/.style={xmajorgrids=false,ymajorgrids=false,zmajorgrids=false,xminorgrids=false,yminorgrids=false,zminorgrids=false},
-	/pgfplots/grid/major/.style={xmajorgrids=true,ymajorgrids=true,zmajorgrids=true,xminorgrids=false,yminorgrids=false,zminorgrids=false},
-	/pgfplots/grid/minor/.style={xmajorgrids=false,ymajorgrids=false,zmajorgrids=false,xminorgrids=true,yminorgrids=true,zminorgrids=true},
-	/pgfplots/grid/both/.style={xmajorgrids=true,ymajorgrids=true,zmajorgrids=true,xminorgrids=true,yminorgrids=true,zminorgrids=true},
-	/pgfplots/xminorticks/.initial=true, /pgfplots/xmajorticks/.initial=true,
-	/pgfplots/yminorticks/.initial=true, /pgfplots/ymajorticks/.initial=true,
-	/pgfplots/zminorticks/.initial=true, /pgfplots/zmajorticks/.initial=true,
-	/pgfplots/xminorgrids/.initial=false, /pgfplots/xmajorgrids/.initial=false,
-	/pgfplots/yminorgrids/.initial=false, /pgfplots/ymajorgrids/.initial=false,
-	/pgfplots/zminorgrids/.initial=false, /pgfplots/zmajorgrids/.initial=false,
-	/pgfplots/xminorticks/.default=true, /pgfplots/xmajorticks/.default=true,
-	/pgfplots/yminorticks/.default=true, /pgfplots/ymajorticks/.default=true,
-	/pgfplots/zminorticks/.default=true, /pgfplots/zmajorticks/.default=true,
-	/pgfplots/xminorgrids/.default=true, /pgfplots/xmajorgrids/.default=true,
-	/pgfplots/yminorgrids/.default=true, /pgfplots/ymajorgrids/.default=true,
-	/pgfplots/zminorgrids/.default=true, /pgfplots/zmajorgrids/.default=true,
-	/pgfplots/hide x axis/.initial=false, /pgfplots/hide x axis/.default=true,
-	/pgfplots/hide y axis/.initial=false, /pgfplots/hide y axis/.default=true,
-	/pgfplots/hide z axis/.initial=false, /pgfplots/hide z axis/.default=true,
-	/pgfplots/hide axis/.style={/pgfplots/hide x axis=#1,/pgfplots/hide y axis=#1,/pgfplots/hide z axis=#1},
-	/pgfplots/hide axis/.default=true,
-	/pgfplots/axis on top/.initial=false, /pgfplots/axis on top/.default=true,
-	/pgfplots/clip/.initial=true, /pgfplots/clip/.default=true,
-	/pgfplots/clip mode/.initial=global,
-	/pgfplots/clip marker paths/.initial=false, /pgfplots/clip marker paths/.default=true,
-	/pgfplots/axis background/.style={},
-	/pgfplots/axis background style/.style={/pgfplots/axis background/.append style={#1}},
-	/pgfplots/every non boxed x axis/.style={xtick align=center,enlarge x limits=false,x axis line style={-stealth}},
-	/pgfplots/every non boxed y axis/.style={ytick align=center,enlarge y limits=false,y axis line style={-stealth}},
-	/pgfplots/every non boxed z axis/.style={ztick align=center,enlarge z limits=false,z axis line style={-stealth}},
-	/pgfplots/every boxed x axis/.style={}, /pgfplots/every boxed y axis/.style={}, /pgfplots/every boxed z axis/.style={},
-	/pgfplots/axis x line shift/.initial=, /pgfplots/axis y line shift/.initial=, /pgfplots/axis z line shift/.initial=,
-	/pgfplots/axis line shift/.style={/pgfplots/axis x line shift={#1},/pgfplots/axis y line shift={#1},/pgfplots/axis z line shift={#1}},
-	/pgfplots/@x line/.initial=box, /pgfplots/@y line/.initial=box, /pgfplots/@z line/.initial=box,
-	/pgfplots/axis lines/.style={axis x line=#1,axis y line=#1,axis z line=#1},
-	/pgfplots/axis lines*/.style={axis x line*=#1,axis y line*=#1,axis z line*=#1},
-	/pgfplots/axis x discontinuity/.initial=none, /pgfplots/axis y discontinuity/.initial=none,
-	/pgfplots/scale only axis/.initial=false, /pgfplots/scale only axis/.default=true,
-	/pgfplots/width/.initial=, /pgfplots/height/.initial=,
-	/pgfplots/x/.initial=, /pgfplots/y/.initial=, /pgfplots/z/.initial=,
-	/pgfplots/xmin/.initial=, /pgfplots/xmax/.initial=, /pgfplots/ymin/.initial=, /pgfplots/ymax/.initial=,
-	/pgfplots/zmin/.initial=, /pgfplots/zmax/.initial=,
-	/pgfplots/min/.style={xmin={#1},ymin={#1},zmin={#1}}, /pgfplots/max/.style={xmax={#1},ymax={#1},zmax={#1}},
-	/pgfplots/xtickmin/.initial=, /pgfplots/xtickmax/.initial=, /pgfplots/ytickmin/.initial=, /pgfplots/ytickmax/.initial=,
-	/pgfplots/enlarge x limits/.initial=auto, /pgfplots/enlarge x limits/.default=true,
-	/pgfplots/enlarge y limits/.initial=auto, /pgfplots/enlarge y limits/.default=true,
-	/pgfplots/enlarge z limits/.initial=auto, /pgfplots/enlarge z limits/.default=true,
-	/pgfplots/enlargelimits/.style={/pgfplots/enlarge x limits={#1},/pgfplots/enlarge y limits={#1},/pgfplots/enlarge z limits={#1}},
-	/pgfplots/enlargelimits/.default=true,
-	/pgfplots/x dir/.initial=normal, /pgfplots/y dir/.initial=normal, /pgfplots/z dir/.initial=normal,
-	/pgfplots/x post scale/.initial=, /pgfplots/y post scale/.initial=, /pgfplots/z post scale/.initial=,
-	/pgfplots/scale/.style={/pgfplots/x post scale={#1},/pgfplots/y post scale={#1},/pgfplots/z post scale={#1}},
-	/pgfplots/unit vector ratio/.initial=, /pgfplots/unit vector ratio axis/.initial=,
-	/pgfplots/scale mode/.initial=auto, /pgfplots/scale uniformly strategy/.initial=auto,
-	/pgfplots/unit vector ratio*/.style={/pgfplots/unit vector ratio={#1},/pgfplots/unit rescale keep size=false},
-	/pgfplots/unit rescale keep size/.initial=unless limits declared, /pgfplots/unit rescale keep size/.default=true,
-	/pgfplots/axis equal/.is choice, /pgfplots/axis equal/.default=true,
-	/pgfplots/axis equal/true/.style={/pgfplots/unit vector ratio=1 1 1,/pgfplots/unit rescale keep size=true},
-	/pgfplots/axis equal/false/.style={/pgfplots/unit vector ratio=},
-	/pgfplots/axis equal image/.is choice, /pgfplots/axis equal image/.default=true,
-	/pgfplots/axis equal image/true/.style={/pgfplots/unit vector ratio=1 1 1,/pgfplots/unit rescale keep size=false},
-	/pgfplots/axis equal image/false/.style={/pgfplots/unit vector ratio=},
-	/pgfplots/xmode/.initial=linear, /pgfplots/ymode/.initial=linear, /pgfplots/zmode/.initial=linear,
-	/pgfplots/view/az/.initial=25, /pgfplots/view/el/.initial=30,
-	/pgfplots/view/.style 2 args={/pgfplots/view/az={#1},/pgfplots/view/el={#2}},
-	/pgfplots/view/h/.style={/pgfplots/view/az={#1}}, /pgfplots/view/v/.style={/pgfplots/view/el={#1}},
-	/pgfplots/plot box ratio/.initial=1 1 1,
-	/pgfplots/every 3d description/.style={%
-		/pgfplots/every axis x label/.style={at={(ticklabel cs:0.5)},anchor=near ticklabel},%
-		/pgfplots/every axis y label/.style={at={(ticklabel cs:0.5)},anchor=near ticklabel},%
-		/pgfplots/every x tick scale label/.style={at={(xticklabel cs:0.95,5pt)},anchor=near xticklabel,inner sep=0pt},
-		/pgfplots/every y tick scale label/.style={at={(yticklabel cs:0.95,5pt)},anchor=near yticklabel,inner sep=0pt},
-		/pgfplots/try min ticks=3,%
-	},%
-	/pgfplots/every 3d view {0}{90}/.style={/pgfplots/xlabel near ticks,/pgfplots/ylabel near ticks,/pgfplots/axis on top=true},
-	/pgfplots/3d box/.initial=background, /pgfplots/3d box/.default=complete,
-	/pgfplots/every 3d box foreground/.style={},
-	/pgfplots/3d box foreground style/.style={/pgfplots/every 3d box foreground/.append style={#1}},
-	/pgfplots/cycle list name/.initial=color,
-	/pgfplots/cycle multi list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multi@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multi@}},
-	/pgfplots/cycle multiindex list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multiindex@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multiindex@}},
-	/pgfplots/cycle multiindex* list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@multiindex*@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@multiindex*@}},
-	/pgfplots/cycle list/.code={\expandafter\def\csname pgfk@/pgfplots/@cycle lists/@internal@\endcsname{#1}\pgfkeyssetvalue{/pgfplots/cycle list name}{@internal@}},
-	/pgfplots/cycle list shift/.initial=,
-	/pgfplots/mark list fill/.initial=.!80!black,
-	/pgfplots/bar cycle list/.style={/pgfplots/cycle list={%
-		{blue,fill=blue!30!white,mark=none},%
-		{red,fill=red!30!white,mark=none},%
-		{brown!60!black,fill=brown!30!white,mark=none},%
-		{black,fill=gray,mark=none},%
-		{violet!80!black,fill=violet,mark=none},%
-		{green,fill=green!80!black,mark=none}%
-		}
-	},
-	/pgfplots/area cycle list/.style={bar cycle list},
-	/pgfplots/area style/.style={area cycle list,area legend,axis on top},
-	/pgfplots/domain/.initial=, /pgfplots/y domain/.initial=,
-	/pgfplots/domain y/.style={/pgfplots/y domain={#1}},
-	/pgfplots/samples at/.initial=, /pgfplots/samples/.initial=, /pgfplots/samples y/.initial=,
-	/pgfplots/variable/.code={\pgfkeysalso{/tikz/variable={#1}}},
-	/pgfplots/variable y/.initial=y,
-	/pgfplots/parametric/var 1d/.initial=t,
-	/pgfplots/stack plots/.initial=false, /pgfplots/stack dir/.initial=plus,
-	/pgfplots/reverse stacked plots/.initial=true, /pgfplots/reverse stacked plots/.default=true,
-	/pgfplots/stacked ignores zero/.initial=false, /pgfplots/stacked ignores zero/.default=true,
-	/pgfplots/stack negative/.initial=on previous,
-	/pgfplots/bar direction/.initial=auto,
-	/pgfplots/bar width/.code={\pgfkeysalso{/pgf/bar width={#1}}},
-	/pgfplots/bar shift/.code={\pgfkeysalso{/pgf/bar shift={#1}}},
-	/pgfplots/bar shift auto/.style={%
-		/pgf/bar shift={-0.5*(\numplotsofactualtype*\pgfplotbarwidth + (\numplotsofactualtype-1)*(#1)) + (.5+\plotnumofactualtype)*\pgfplotbarwidth + \plotnumofactualtype*(#1)},%
-	},
-	/pgfplots/bar shift auto/.default={2pt},
-	/pgfplots/ybar/.style={bar direction=y,bar cycle list,xtick align=outside,ybar legend,/pgfplots/bar shift auto={#1},/tikz/ybar},
-	/pgfplots/ybar/.default=2pt,
-	/pgfplots/xbar/.style={bar direction=x,bar cycle list,ytick align=outside,/pgfplots/xbar legend,/pgfplots/set point meta if empty=x,/pgfplots/bar shift auto={#1},/tikz/xbar},
-	/pgfplots/xbar/.default=2pt,
-	/pgfplots/ybar interval/.style={bar direction=y,bar cycle list,x tick label as interval,xmajorgrids,xtick align=outside,xtick=data,ybar interval legend,
-		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/ybar interval},
-	/pgfplots/ybar interval/.default=1,
-	/pgfplots/contour/draw color/.initial=mapped color, /pgfplots/contour/fill color/.initial=mapped color,
-	/pgfplots/contour/label distance/.initial=70pt,
-	/pgfplots/contour/labels/.initial=true, /pgfplots/contour/labels/.default=true,
-	/pgfplots/contour/filled/.initial=false, /pgfplots/contour/filled/.default=true,
-	/pgfplots/contour/number/.initial=5, /pgfplots/contour/levels/.initial=,
-	/pgfplots/contour/levels from colormap/.initial=,
-	/pgfplots/contour/every filled contour plot/.style={/pgfplots/area legend},
-	/pgfplots/contour/every contour plot/.style={},
-	/pgfplots/contour/every contour label/.style={inner sep=2pt, font=\scriptsize,
-		every node/.style={mapped color!50!black, fill=white},
-		/pgf/number format/relative*={\pgfplotspointmetarangeexponent}},
-	/pgfplots/contour/labels over line/.style={/pgfplots/contour/every contour label/.append style={
-		every node/.append style={fill=none, anchor=base, yshift=1pt}}},
-	/pgfplots/contour/contour label style/.style={/pgfplots/contour/every contour label/.append style={#1}},
-	/pgfplots/@contour format/.initial=standard,
-	/pgfplots/contour prepared format/.code={\pgfkeyssetvalue{/pgfplots/@contour format}{#1}},
-	/pgfplots/contour prepared filled/.style={/pgfplots/contour prepared={draw color=mapped color!80!black, labels=false, filled}},
-	/pgfplots/@quiver/.initial=false,
-	/pgfplots/quiver/u/.initial=, /pgfplots/quiver/v/.initial=, /pgfplots/quiver/w/.initial=,
-	/pgfplots/quiver/scale arrows/.initial=1, /pgfplots/quiver/every arrow/.style={},
-	/pgfplots/quiver/update limits/.initial=true, /pgfplots/quiver/update limits/.default=true,
-	/pgfplots/quiver/arrow color/.initial=,
-	/pgfplots/quiver/colored/.code={\pgfkeyssetvalue{/pgfplots/quiver/arrow color}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}},
-	/pgfplots/quiver/colored/.default=mapped color,
-	/pgfplots/quiver/u value/.code={\pgfkeyssetvalue{/pgfplots/quiver/u}{#1}},
-	/pgfplots/quiver/v value/.code={\pgfkeyssetvalue{/pgfplots/quiver/v}{#1}},
-	/pgfplots/quiver/w value/.code={\pgfkeyssetvalue{/pgfplots/quiver/w}{#1}},
-	/pgfplots/quiver/before arrow/.code=, /pgfplots/quiver/after arrow/.code=,
-	/pgfplots/quiver/u filter/.code=, /pgfplots/quiver/v filter/.code=, /pgfplots/quiver/w filter/.code=,
-	/pgfplots/quiver/quiver legend/.style={},
-	/pgfplots/@hist/.initial=false, /pgfplots/@boxplot/.initial=,
-	/pgfplots/every boxplot/.style={},
-	/pgfplots/boxplot/data/.initial=y, /pgfplots/boxplot/data value/.initial=, /pgfplots/boxplot/data filter/.code=,
-	/pgfplots/boxplot/median/.initial=auto, /pgfplots/boxplot/lower quartile/.initial=auto,
-	/pgfplots/boxplot/upper quartile/.initial=auto, /pgfplots/boxplot/lower whisker/.initial=auto,
-	/pgfplots/boxplot/upper whisker/.initial=auto, /pgfplots/boxplot/average/.initial=,
-	/pgfplots/boxplot/ensure mark/.initial=false, /pgfplots/boxplot/ensure mark/.default=true,
-	/pgfplots/boxplot/estimator/.initial=legacy,
-	/pgfplots/boxplot/lower quartile off/.initial=0.25, /pgfplots/boxplot/upper quartile off/.initial=0.75,
-	/pgfplots/boxplot/whisker range/.initial=1.5,
-	/pgfplots/boxplot/whisker extend/.initial=\pgfkeysvalueof{/pgfplots/boxplot/box extend}*0.8,
-	/pgfplots/boxplot/box extend/.initial=0.8, /pgfplots/boxplot/draw direction/.initial=x,
-	/pgfplots/boxplot/variable width/.initial=false, /pgfplots/boxplot/variable width/.default=true,
-	/pgfplots/boxplot/sample size/.initial=auto, /pgfplots/boxplot/sample size min/.initial=,
-	/pgfplots/boxplot/sample size max/.initial=, /pgfplots/boxplot/variable width min target/.initial=0.2,
-	/pgfplots/boxplot/draw position/.initial=1+\plotnumofactualtype,
-	/pgfplots/boxplot/draw relative anchor/.initial=0.5,
-	/pgfplots/boxplot/every whisker/.style={}, /pgfplots/boxplot/every box/.style={},
-	/pgfplots/boxplot/every median/.style={}, /pgfplots/boxplot/every average/.style={/tikz/mark=diamond*},
-	/pgfplots/@boxplot macros/.code={\def\pgfplotsboxplotvalue##1{\pgfkeysvalueof{/pgfplots/boxplot/##1}}\let\boxplotvalue=\pgfplotsboxplotvalue},
-	/pgfplots/@boxplot macros,
-	/pgfplots/hist/data/.initial=y, /pgfplots/hist/data value/.initial=,
-	/pgfplots/hist/data min/.initial=, /pgfplots/hist/data max/.initial=, /pgfplots/hist/bins/.initial=10,
-	/pgfplots/hist/intervals/.initial=true, /pgfplots/hist/intervals/.default=true,
-	/pgfplots/hist/cumulative/.initial=false, /pgfplots/hist/cumulative/.default=true,
-	/pgfplots/hist/density/.initial=false, /pgfplots/hist/density/.default=true,
-	/pgfplots/hist/handler/.style={/tikz/ybar interval},
-	/pgfplots/hist/data filter/.code=,
-	/pgfplots/hist/@symbolic coords/.initial=,
-	/pgfplots/trim axis left/.style={/tikz/trim left={(current axis.south west)}}, /pgfplots/trim axis right/.style={/tikz/trim right={(current axis.south east)}},
-	/tikz/trim axis left/.style={/pgfplots/trim axis left}, /tikz/trim axis right/.style={/pgfplots/trim axis right},
-	/pgfplots/scatter/@pre marker code/.code={\def\tikra@scatter@usemapped{1}}, /pgfplots/scatter/@post marker code/.code={},
-	/pgf/decoration/soft clip/.style={/pgf/decoration/name=soft clip}, /pgf/decoration/soft clip path/.initial=,
-	/pgfplots/@date coordinates in/.initial=, /pgfplots/date ZERO/.initial=,
-	/pgfplots/date coordinates in/.style={/pgfplots/@date coordinates in={#1},/pgfplots/#1ticklabel={\tick},/pgfplots/scaled #1 ticks=false},
-	/pgfplots/hist/symbolic coords/.style={/pgfplots/hist/@symbolic coords={#1},/pgfplots/symbolic x coords={#1}},
-	/pgfplots/xbar interval/.style={bar direction=x,bar cycle list,y tick label as interval,ytick=data,ymajorgrids,ytick align=outside,xbar interval legend,
-		bar interval width={#1/\numplotsofactualtype},bar interval shift={(\plotnumofactualtype+0.5)/\numplotsofactualtype},/tikz/xbar interval},
-	/pgfplots/xbar interval/.default=1,
-	/pgfplots/bar interval width/.code={\pgfkeysalso{/pgf/bar interval width={#1}}},
-	/pgfplots/bar interval shift/.code={\pgfkeysalso{/pgf/bar interval shift={#1}}},
-	/pgfplots/xbar stacked/.style={bar direction=x,bar cycle list,single xbar legend,stack plots=x,stack dir=#1,/tikz/xbar},
-	/pgfplots/xbar stacked/.default=plus,
-	/pgfplots/ybar stacked/.style={bar direction=y,bar cycle list,single ybar legend,stack plots=y,stack dir=#1,/tikz/ybar},
-	/pgfplots/ybar stacked/.default=plus,
-	/pgfplots/ybar interval stacked/.style={bar direction=y,bar cycle list,single ybar legend,stack plots=y,stack dir=#1,/tikz/ybar interval},
-	/pgfplots/ybar interval stacked/.default=plus,
-	/pgfplots/xbar interval stacked/.style={bar direction=x,bar cycle list,single xbar legend,stack plots=x,stack dir=#1,/tikz/xbar interval},
-	/pgfplots/xbar interval stacked/.default=plus,
-	/pgfplots/xticklabel interval boundaries/.style={x tick label as interval,xticklabel={$\pgfmathprintnumber{\tick}$ -- $\pgfmathprintnumber{\nexttick}$}},
-	/pgfplots/yticklabel interval boundaries/.style={y tick label as interval,yticklabel={$\pgfmathprintnumber{\tick}$ -- $\pgfmathprintnumber{\nexttick}$}},
-	/pgfplots/unbounded coords/.initial=discard,
-	/pgfplots/filter discard warning/.initial=true,
-	/pgfplots/restrict x to domain/.initial=, /pgfplots/restrict y to domain/.initial=,
-	/pgfplots/restrict x to domain*/.initial=, /pgfplots/restrict y to domain*/.initial=,
-	/pgfplots/x filter/.code=, /pgfplots/y filter/.code=, /pgfplots/z filter/.code=, /pgfplots/pre filter/.code=, /pgfplots/filter point/.code=,
-	/pgfplots/@restrict expr/.initial=, /pgfplots/@restrict expr domain/.initial=,
-	/pgfplots/@visualization depends on/.initial=,
-	/tikz/pos segment/.code=,
-	/pgfplots/@ticklabel strut/.initial=false, /pgfplots/typeset ticklabels with strut/.style={/pgfplots/@ticklabel strut=true},
-	/pgfplots/table/create col/linear regression/variance format/.initial=log,
-	/pgfplots/restrict expr to domain/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}\pgfkeysalso{/pgfplots/unbounded coords=jump}},
-	/pgfplots/restrict expr to domain*/.code 2 args={\pgfkeyssetvalue{/pgfplots/@restrict expr}{#1}\pgfkeyssetvalue{/pgfplots/@restrict expr domain}{#2}},
-	/pgfplots/skip coords between index/.style 2 args={/pgfplots/x filter/.append code={\ifnum\coordindex<#1 \else\ifnum\coordindex<#2 \def\pgfmathresult{}\fi\fi}},
-	/pgfplots/point meta/.initial=, /pgfplots/point meta min/.initial=, /pgfplots/point meta max/.initial=,
-	/pgfplots/every node near coord/.style={},
-	/pgfplots/nodes near coords style/.style={/pgfplots/every node near coord/.append style={#1}},
-	/pgfplots/node near coords style/.style={/pgfplots/every node near coord/.append style={#1}},
-	/pgfplots/node near coord style/.style={/pgfplots/every node near coord/.append style={#1}},
-	/pgfplots/nodes near coords align/.initial=auto,
-	/pgfplots/@nodes near coords/.initial=,
-	/pgfplots/nodes near coords/.code={\pgfkeyssetvalue{/pgfplots/@nodes near coords}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}},
-	/pgfplots/nodes near coords/.default={\pgfmathprintnumber\pgfplotspointmeta},
-	/pgfplots/nodes near coords*/.code={\pgfkeyssetvalue{/pgfplots/@nodes near coords}{#1}\pgfkeysalso{/pgfplots/set point meta if empty=f(x)}},
-	/pgfplots/nodes near coords*/.default={\pgfmathprintnumber\pgfplotspointmeta},
-	/pgfplots/nodes near coords bar offset/.initial=0.5,
-	/pgfplots/execute at begin axis/.initial=, /pgfplots/execute at end axis/.initial=,
-	/pgfplots/execute at begin plot/.initial=, /pgfplots/execute at end plot/.initial=,
-	/pgfplots/execute at begin plot visualization/.initial=, /pgfplots/execute at end plot visualization/.initial=,
-	/pgfplots/before end axis/.code=, /pgfplots/after end axis/.code=,
-	/pgfplots/trig format plots/.initial=default,
-	/pgfplots/set layers/.code=, /pgfplots/on layer/.initial=, /pgfplots/mark layer/.initial=,
-	/pgfplots/cell picture/.code=, /pgfplots/lua backend/.code=, /pgfplots/lua debug/.code=,
-	/pgfplots/disabledatascaling/.code={\pgfkeyssetvalue{/pgfplots/@disabledatascaling}{true}}, /pgfplots/@disabledatascaling/.initial=false, /pgfplots/data cs/.initial=cart,
-	/pgfplots/colorbar/.initial=false, /pgfplots/colorbar/.default=true,
-	/pgfplots/colormap name/.initial=hot,
-	/pgfplots/legend image post style/.style={/pgfplots/every legend image post/.append style={#1}},
-	/pgfplots/every axis plot no 0/.style={},
-	/pgfplots/table/x/.initial=, /pgfplots/table/y/.initial=, /pgfplots/table/z/.initial=,
-	/pgfplots/table/x index/.initial=, /pgfplots/table/y index/.initial=, /pgfplots/table/z index/.initial=,
-	/pgfplots/table/x expr/.initial=, /pgfplots/table/y expr/.initial=, /pgfplots/table/z expr/.initial=,
-	/pgfplots/table/meta/.initial=, /pgfplots/table/meta index/.initial=, /pgfplots/table/meta expr/.initial=,
-	/pgfplots/table/x error/.initial=, /pgfplots/table/y error/.initial=,
-	/pgfplots/table/x error index/.initial=, /pgfplots/table/y error index/.initial=,
-	/pgfplots/table/x error plus/.initial=, /pgfplots/table/y error plus/.initial=,
-	/pgfplots/table/x error minus/.initial=, /pgfplots/table/y error minus/.initial=,
-	/pgfplots/table/y error plus index/.initial=, /pgfplots/table/y error minus index/.initial=,
-	/pgfplots/table/col sep/.initial=space, /pgfplots/table/row sep/.initial=newline,
-	/pgfplots/table/header/.initial=true, /pgfplots/table/skip first n/.initial=0,
-	/pgfplots/table/format/.initial=auto, /pgfplots/table/ignore chars/.initial=,
-	/pgfplots/table/comment chars/.initial=,
-	/pgfplots/table/@search path/.initial=., /pgfplots/table/search path/.code={\pgfkeyssetvalue{/pgfplots/table/@search path}{#1}},
-	/pgfplots/table/trim cells/.initial=false,
-	/pgfplots/table/x error expr/.initial=, /pgfplots/table/y error expr/.initial=,
-	/pgfplots/table/x error plus expr/.initial=, /pgfplots/table/y error plus expr/.initial=,
-	/pgfplots/table/x error minus expr/.initial=, /pgfplots/table/y error minus expr/.initial=,
-	/pgfplots/table/columns/.initial=,
-	/pgfplots/plot graphics/src/.initial=, /pgfplots/plot graphics/includegraphics/.initial=,
-	/pgfplots/plot graphics/xmin/.initial=, /pgfplots/plot graphics/xmax/.initial=,
-	/pgfplots/plot graphics/ymin/.initial=, /pgfplots/plot graphics/ymax/.initial=,
-	/pgfplots/plot graphics/zmin/.initial=, /pgfplots/plot graphics/zmax/.initial=,
-	/pgfplots/plot graphics/points/.initial=,
-	/pgfplots/plot graphics/auto adjust axis/.initial=true, /pgfplots/plot graphics/auto adjust axis/.default=true,
-	/pgfplots/plot graphics/snap z/.initial=0.02,
-	/pgfplots/plot graphics/debug/.initial=, /pgfplots/plot graphics/debug/.default=true,
-	/pgfplots/plot graphics/squeeze tol/.initial=2pt,
-	/pgfplots/small/.style={width=6.5cm,height=,tick label style={font=\footnotesize},label style={font=\small},max space between ticks=25},
-	/pgfplots/footnotesize/.style={width=5cm,height=,legend style={font=\footnotesize},tick label style={font=\footnotesize},label style={font=\small},title style={font=\small},every axis title shift=0pt,max space between ticks=15,every mark/.append style={mark size=8},major tick length=0.1cm,minor tick length=0.066cm},
-	/pgfplots/tiny/.style={width=4cm,height=,legend style={font=\tiny},tick label style={font=\tiny},label style={font=\tiny},title style={font=\footnotesize},every axis title shift=0pt,max space between ticks=12,every mark/.append style={mark size=6},major tick length=0.1cm,minor tick length=0.066cm,every legend image post/.append style={scale=0.8}},
-	/pgfplots/normalsize/.style={/pgfplots/width=240pt,/pgfplots/height=207pt,/pgfplots/max space between ticks=35},
-	/pgfplots/compat/.initial=default,
-	/pgfplots/@compat/.initial=0,
-	/pgfplots/@substitute pgfpoint/.initial=false,
-	/pgfplots/xlabel absolute, /pgfplots/ylabel absolute,
-	/pgfplots/group/horizontal sep/.initial=1cm, /pgfplots/group/vertical sep/.initial=1cm,
-	/pgfplots/group/columns/.initial=1, /pgfplots/group/rows/.initial=1,
-	/pgfplots/group/every plot/.style={}, /pgfplots/group/group name/.initial=group,
-	/pgfplots/group/shared labels/.initial=false, /pgfplots/group/shared labels/.default=true,
-	/pgfplots/group/xticklabels at/.initial=all, /pgfplots/group/yticklabels at/.initial=all,
-	/pgfplots/group/xlabels at/.initial=all, /pgfplots/group/ylabels at/.initial=all,
-	/pgfplots/group/x descriptions at/.code={\pgfkeyssetvalue{/pgfplots/group/xlabels at}{#1}\pgfkeyssetvalue{/pgfplots/group/xticklabels at}{#1}},
-	/pgfplots/group/y descriptions at/.code={\pgfkeyssetvalue{/pgfplots/group/ylabels at}{#1}\pgfkeyssetvalue{/pgfplots/group/yticklabels at}{#1}},
-	/pgfplots/group/empty plot/.style={/pgfplots/hide axis=true},
-	/pgfplots/@empty xticklabels/.initial=false, /pgfplots/@empty yticklabels/.initial=false,
-	/pgfplots/@empty zticklabels/.initial=false,
-	/pgfplots/colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/colormap name}{#1}\pgfkeysalso{/pgfplots/@colormap defined={#1}}},
-	/pgfplots/colormap access/.initial=map,
-	/pgfplots/colormap/hot/.style={/pgfplots/colormap={hot}{color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)}},
-	/pgfplots/colormap/viridis/.style={/pgfplots/colormap={viridis}{rgb=(0.267,0.00487,0.32942) rgb=(0.28192,0.08966,0.41241) rgb=(0.28026,0.1657,0.4765) rgb=(0.26366,0.23763,0.51877) rgb=(0.23744,0.3052,0.54192) rgb=(0.20862,0.36775,0.55267) rgb=(0.18225,0.42618,0.55711) rgb=(0.1592,0.48224,0.55807) rgb=(0.13777,0.53749,0.5549) rgb=(0.12115,0.59274,0.54465) rgb=(0.12808,0.64775,0.5235) rgb=(0.18065,0.7014,0.48819) rgb=(0.27415,0.75198,0.4366) rgb=(0.39517,0.79747,0.36775) rgb=(0.53561,0.83578,0.2819) rgb=(0.68895,0.86545,0.18272) rgb=(0.84557,0.88733,0.0997) rgb=(0.99324,0.90616,0.14394)}},
-	/pgfplots/colormap/plasma/.style={/pgfplots/colormap={plasma}{rgb=(0.050383, 0.029803, 0.527975) rgb=(0.171574, 0.019706, 0.580806) rgb=(0.261183, 0.013308, 0.617911) rgb=(0.35015, 0.004382, 0.646298) rgb=(0.429719, 0.000831, 0.659425) rgb=(0.512206, 0.018833, 0.655209) rgb=(0.584391, 0.068579, 0.632812) rgb=(0.65558, 0.129725, 0.592317) rgb=(0.714883, 0.187299, 0.546338) rgb=(0.771958, 0.249237, 0.494813) rgb=(0.819651, 0.306812, 0.448306) rgb=(0.866078, 0.36966, 0.400126) rgb=(0.904601, 0.429797, 0.356329) rgb=(0.940313, 0.497642, 0.309197) rgb=(0.966798, 0.564396, 0.265118) rgb=(0.986345, 0.640969, 0.217948) rgb=(0.994324, 0.716681, 0.177208) rgb=(0.989587, 0.803205, 0.146529) rgb=(0.970533, 0.887896, 0.145919) rgb=(0.940015, 0.975158, 0.131326)}},
-	/pgfplots/colormap/hot2/.style={/pgfplots/colormap={hot2}{[1cm]rgb255(0cm)=(0,0,0) rgb255(3cm)=(255,0,0) rgb255(6cm)=(255,255,0) rgb255(8cm)=(255,255,255)}},
-	/pgfplots/colormap/bluered/.style={/pgfplots/colormap={bluered}{rgb255(0cm)=(0,0,180); rgb255(1cm)=(0,255,255); rgb255(2cm)=(100,255,0); rgb255(3cm)=(255,255,0); rgb255(4cm)=(255,0,0); rgb255(5cm)=(128,0,0)}},
-	/pgfplots/colormap/cool/.style={/pgfplots/colormap={cool}{rgb255(0cm)=(255,255,255); rgb255(1cm)=(0,128,255); rgb255(2cm)=(255,0,255)}},
-	/pgfplots/colormap/greenyellow/.style={/pgfplots/colormap={greenyellow}{rgb255(0cm)=(0,128,0); rgb255(1cm)=(255,255,0)}},
-	/pgfplots/colormap/redyellow/.style={/pgfplots/colormap={redyellow}{rgb255(0cm)=(255,0,0); rgb255(1cm)=(255,255,0)}},
-	/pgfplots/colormap/blackwhite/.style={/pgfplots/colormap={blackwhite}{gray(0cm)=(0); gray(1cm)=(1)}},
-	/pgfplots/colormap/violet/.style={/pgfplots/colormap={violet}{rgb255=(25,25,122) color=(white) rgb255=(238,140,238)}},
-	/pgfplots/colormap/jet/.style={/pgfplots/colormap={jet}{rgb255(0cm)=(0,0,128) rgb255(1cm)=(0,0,255) rgb255(3cm)=(0,255,255) rgb255(5cm)=(255,255,0) rgb255(7cm)=(255,0,0) rgb255(8cm)=(128,0,0)}},
-	/pgfplots/colormap/viridis, /pgfplots/colormap/hot,
-	/pgfplots/@mesh/.initial=, /pgfplots/@patch/.initial=false,
-	/pgfplots/every mesh/.style={}, /pgfplots/every patch/.style={miter limit=1},
-	/pgfplots/mesh legend/.code={\pgfkeyssetvalue{/pgfplots/@legend image}{line}},
-	/pgfplots/shader/.initial=faceted, /pgfplots/faceted color/.initial=mapped color!80!black,
-	/pgfplots/z buffer/.initial=default,
-	/pgfplots/mesh input/.initial=lattice, /pgfplots/patch type/.initial=,
-	/pgfplots/patch refines/.initial=0, /pgfplots/vertex count/.initial=, /pgfplots/patch table/.initial=, /pgfplots/patch table with point meta/.initial=,
-	/pgfplots/patch table with individual point meta/.initial=, /pgfplots/patch to triangles/.initial=false, /pgfplots/patch to triangles/.default=true,
-	/pgfplots/patch type sampling/.initial=false, /pgfplots/patch type sampling/.default=true,
-	/pgfplots/mesh/rows/.initial=, /pgfplots/mesh/cols/.initial=,
-	/pgfplots/mesh/ordering/.initial=x varies, /pgfplots/mesh/color input/.initial=colormap,
-	/pgfplots/mesh/check/.initial=error,
-	/pgfplots/mesh/interior colormap name/.initial=, /pgfplots/mesh/interior colormap thresh/.initial=0,
-	/pgfplots/mesh/interior colormap/.code 2 args={\expandafter\def\csname pgfk@/pgfplots/@colormaps/#1\endcsname{#2}\pgfkeyssetvalue{/pgfplots/mesh/interior colormap name}{#1}},
-	/pgfplots/late options/.initial=,
-	/pgfplots/symbolic x coords/.initial=, /pgfplots/symbolic y coords/.initial=, /pgfplots/symbolic z coords/.initial=,
-	/pgfplots/@axis type/.initial=cart, /pgfplots/data cs/.initial=cart,
-	/pgfplots/every polar axis/.style={grid=major, xtick pos=right, ytick pos=right,
-		every axis title shift=1.2\baselineskip, legend style={anchor=center}, /pgfplots/polar labels},
-	/pgfplots/polar labels/.style={
-		every axis x label/.style={at={(rel axis cs:0,0.5)}, anchor=north},
-		every axis y label/.style={at={(0.2,0.85)}, anchor=center},
-	},
-	/pgfplots/polar labels style/.style={/pgfplots/polar labels/.append style={#1}},
-	/pgfplots/xticklabel in circle/.style={xtick align=inside, xticklabel style={rotate=90, anchor=south west}},
-	% ternary axes: limits and labels relative to the ranges (in percent) unless turned off
-	/pgfplots/ternary limits relative/.initial=true, /pgfplots/ternary limits relative/.default=true,
-	/pgfplots/ternary relative limits/.style={/pgfplots/ternary limits relative={#1}},
-	/pgfplots/ternary start x/.initial=, /pgfplots/ternary start y/.initial=, /pgfplots/ternary start z/.initial=,
-	/pgfplots/every ternary axis/.style={
-		grid=major, /pgfplots/tick align=outside, xticklabel style={anchor=west},
-		/pgfplots/every 3d description/.style={},
-		every axis title shift=15pt,
-		every axis x label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
-		every axis y label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
-		every axis z label/.style={anchor=near ticklabel, at={(ticklabel cs:0.5)}},
-		every x tick scale label/.style={inner sep=0pt, anchor=near xticklabel, at={(xticklabel cs:0.95,5pt)}},
-		every y tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
-		every z tick scale label/.style={inner sep=0pt, anchor=near yticklabel, at={(yticklabel cs:0.95,5pt)}},
-		every axis legend/.style={shape=rectangle, draw=black, fill=white, anchor=north west, at={(1.03,1.03)},
-			cells={anchor=center}, inner xsep=3pt, inner ysep=2pt, nodes={inner sep=2pt, text depth=0.15em}},
-	},
-	% smith charts: where grid lines stop, the input's plane, the ring at the center
-	/pgfplots/xgrid each nth passes y/.initial=, /pgfplots/xgrid each nth passes y start/.initial=0,
-	/pgfplots/ygrid each nth passes x/.initial=, /pgfplots/ygrid each nth passes x start/.initial=0,
-	/pgfplots/xgrid stop at y/.initial=, /pgfplots/ygrid stop at x/.initial=,
-	/pgfplots/smithchart mirrored/.initial=false, /pgfplots/smithchart mirrored/.default=true,
-	/pgfplots/is smithchart cs/.initial=false, /pgfplots/is smithchart cs/.default=true,
-	/pgfplots/show origin/.initial=false, /pgfplots/show origin/.default=true,
-	/pgfplots/every smithchart axis/.style={
-		xmin=0, xmax=16000, ymin=-16000, ymax=16000, grid=both, scaled ticks=false,
-		xtick align=center, ytick align=center, major tick style={draw=black},
-		legend style={anchor=center}, every axis title shift=1.2\baselineskip,
-	},
-	% the ticks by the chart's size: few below 14cm, many below 20cm, dense beyond
-	/pgfplots/default smithchart xtick/.style={}, /pgfplots/default smithchart ytick/.style={},
-	/pgfplots/default smithchart xytick/.style={},
-	/pgfplots/few smithchart ticks*/.style={
-		default smithchart xtick/.style={xtick={0.2,0.5,1,2,5}},
-		default smithchart ytick/.style={ytick={0,0.2,0.5,1,2,5,-0.2,-0.5,-1,-2,-5}},
-		default smithchart xytick/.style={xgrid each nth passes y={2}, ygrid each nth passes x={2}},
-	},
-	/pgfplots/few smithchart ticks/.style={/pgfplots/few smithchart ticks*},
-	/pgfplots/many smithchart ticks*/.style={
-		default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,1,1.5,2,3,4,5,10,20},
-			minor xtick={0.6,0.7,0.8,0.9,1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
-		default smithchart ytick/.style={
-			ytick={0,0.1,0.2,...,1,1.5,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.5,-2,-3,-4,-5,-10,-20},
-			minor ytick={1.1,1.2,1.3,1.4,1.6,1.7,1.8,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
-				-1.1,-1.2,-1.3,-1.4,-1.6,-1.7,-1.8,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
-		default smithchart xytick/.style={xgrid each nth passes y={1,2,4,5,10,20}, ygrid each nth passes x={1,2,3,5,10:3,20:3}},
-	},
-	/pgfplots/many smithchart ticks/.style={many smithchart ticks*, every axis title shift=6pt, yticklabel in circle, show origin=true},
-	/pgfplots/dense smithchart ticks*/.style={
-		default smithchart xtick/.style={xtick={0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20},
-			minor xtick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
-				0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.52,0.55,0.65,0.75,0.85,0.95,
-				1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50}},
-		default smithchart ytick/.style={
-			ytick={0,0.1,0.2,...,1,1.2,1.4,1.6,1.8,2,3,4,5,10,20,-0.1,-0.2,...,-1,-1.2,-1.4,-1.6,-1.8,-2,-3,-4,-5,-10,-20},
-			minor ytick={0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,
-				0.22,0.24,0.26,0.28,0.32,0.34,0.36,0.38,0.42,0.44,0.46,0.48,0.55,0.65,0.75,0.85,0.95,
-				1.1,1.3,1.5,1.7,1.9,2.2,2.4,2.6,2.8,3.2,3.4,3.6,3.8,4.5,6,7,8,9,50,
-				-0.01,-0.02,-0.03,-0.04,-0.05,-0.06,-0.07,-0.08,-0.09,-0.11,-0.12,-0.13,-0.14,-0.15,-0.16,-0.17,-0.18,-0.19,
-				-0.22,-0.24,-0.26,-0.28,-0.32,-0.34,-0.36,-0.38,-0.42,-0.44,-0.46,-0.48,-0.55,-0.65,-0.75,-0.85,-0.95,
-				-1.1,-1.3,-1.5,-1.7,-1.9,-2.2,-2.4,-2.6,-2.8,-3.2,-3.4,-3.6,-3.8,-4.5,-6,-7,-8,-9,-50}},
-		default smithchart xytick/.style={
-			xgrid each nth passes y={0.2 if < 0.2001,0.5 if < 0.50001,1 if < 1.001,2,4,5,10,20},
-			ygrid each nth passes x={0.2 if < 0.2001,0.52 if < 0.52001,1 if < 1.001,2,3,5,10:3,20:3}},
-	},
-	/pgfplots/dense smithchart ticks/.style={yticklabel in circle, every axis title shift=6pt,
-		dense smithchart ticks*, show origin=true, every major grid/.style={black!60}},
-	% y tick labels along the circle, inside or around it
-	/pgfplots/yticklabel in circle/.style={ytick align=inside, yticklabel style={rotate=90,
-		sloped like y axis={execute for upside down={\tikzset{anchor=north east}}, reset nontranslations=false}, anchor=south west}},
-	/pgfplots/yticklabel around circle/.style={ytick align=center, yticklabel style={rotate=90,
-		sloped like y axis={execute for upside down={\tikzset{anchor=south west}}, reset nontranslations=false}, anchor=south east}},
-	/pgfplots/yticklabel around circle*/.style={ytick align=center, yticklabel style={rotate=90,
-		sloped like y axis={execute for upside down={\tikzset{anchor=north west}}, reset nontranslations=false}, anchor=north east}},
-	% fill between: the styles of its segments
-	/tikz/fill between/every segment/.style={}, /tikz/fill between/every last segment/.style={},
-	/tikz/fill between/every odd segment/.style={}, /tikz/fill between/every even segment/.style={},
-	/tikz/fill between/.search also={/pgfplots,/tikz},
-	% tieline plots: each table row has a point and its tie's other end
-	/pgfplots/tieline/every tieline/.style={}, /pgfplots/tieline/every curve/.style={},
-	/pgfplots/tieline/tieline style/.style={/pgfplots/tieline/every tieline/.append style={#1}},
-	/pgfplots/tieline/curve style/.style={/pgfplots/tieline/every curve/.append style={#1}},
-	/pgfplots/tieline/each nth tie/.initial=,
-	/pgfplots/table/tie end x/.initial=, /pgfplots/table/tie end y/.initial=, /pgfplots/table/tie end z/.initial=,
-	/pgfplots/table/tie end x index/.initial=, /pgfplots/table/tie end y index/.initial=, /pgfplots/table/tie end z index/.initial=,
-	/pgfplots/polar comb/.code={\pgfkeyssetvalue{/tikz/@plot handler}{polar comb}},
-	/pgfplots/matrix plot/.style={/pgfplots/late options={/pgfplots/y dir=reverse,/pgfplots/axis on top},/pgfplots/matrix plot*},
-	/pgfplots/matrix plot*/.style={/pgfplots/surf,/pgfplots/mesh input=image,/pgfplots/shader=flat corner,/pgfplots/z buffer=none},
-	/pgfplots/scatter/.initial=false,
-	/pgfplots/scatter src/.code={\pgfkeysalso{/pgfplots/point meta={#1}}},
-	/pgfplots/scatter/use mapped color/.initial={draw=mapped color!80!black,fill=mapped color},
-	/pgfplots/scatter/classes/.initial=,
-	/pgfplots/only marks scatter/.style={/pgfplots/scatter,/tikz/only marks},
-	/pgfplots/point meta rel/.initial=axis wide,
-	/pgfplots/colorbar to name/.initial=, /pgfplots/colorbar pos*/.initial=,
-	/pgfplots/parent axis width/.initial=6cm, /pgfplots/parent axis height/.initial=6cm,
-	/pgfplots/@colorbar axis/.initial=false, /pgfplots/@colorbar orientation/.initial=v, /pgfplots/@colorbar sampled/.initial=,
-	/pgfplots/colorbar vertical/lowlevel/.code={\pgfkeyssetvalue{/pgfplots/@colorbar orientation}{v}},
-	/pgfplots/colorbar horizontal/lowlevel/.code={\pgfkeyssetvalue{/pgfplots/@colorbar orientation}{h}},
-	/pgfplots/every colorbar global/.style={
-		axis on top, title=, xlabel=, ylabel=, zlabel=, legend entries=, grid=none,
-		enlargelimits=false, scale only axis, xtick=, xticklabel=, ytick=, yticklabel=, zmin=, zmax=,
-	},
-	/pgfplots/colorbar right/.style={%
-		/pgfplots/colorbar=true, /pgfplots/colorbar pos*=r,
-		/pgfplots/colorbar shift/.style={xshift=0.3cm},
-		/pgfplots/every colorbar/.style={%
-			/pgfplots/every colorbar global,
-			at={(parent axis.right of north east)}, anchor=north west,
-			xmin=0, xmax=1,
-			ymin=\pgfkeysvalueof{/pgfplots/point meta min}, ymax=\pgfkeysvalueof{/pgfplots/point meta max},
-			height=\pgfkeysvalueof{/pgfplots/parent axis height}, width=\pgfkeysvalueof{/pgfplots/colorbar/width},
-			xtick=\empty, yticklabel pos=right,
-			colorbar vertical/lowlevel,
-		}%
-	},%
-	/pgfplots/colorbar left/.style={%
-		/pgfplots/colorbar right, /pgfplots/colorbar pos*=l,
-		/pgfplots/colorbar shift/.style={xshift=-0.3cm},
-		/pgfplots/every colorbar/.append style={at={(parent axis.left of north west)}, anchor=north east, yticklabel pos=left},
-	},%
-	/pgfplots/colorbar horizontal/.style={%
-		/pgfplots/colorbar=true, /pgfplots/colorbar pos*=b,
-		/pgfplots/colorbar shift/.style={yshift=-0.3cm},
-		/pgfplots/every colorbar/.style={%
-			/pgfplots/every colorbar global,
-			at={(parent axis.below south west)}, anchor=north west,
-			ymin=0, ymax=1,
-			xmin=\pgfkeysvalueof{/pgfplots/point meta min}, xmax=\pgfkeysvalueof{/pgfplots/point meta max},
-			width=\pgfkeysvalueof{/pgfplots/parent axis width}, height=\pgfkeysvalueof{/pgfplots/colorbar/width},
-			xticklabel pos=left, ytick=\empty,
-			colorbar horizontal/lowlevel,
-		}%
-	},%
-	/pgfplots/colorbar right,
-	/pgfplots/colorbar=false,
-	/pgfplots/colorbar style/.style={/pgfplots/every colorbar/.append style={#1}},
-	/pgfplots/colorbar/width/.initial=0.5cm,
-	/pgfplots/colorbar sampled/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}\pgfkeyssetvalue{/pgfplots/@colorbar line}{false}},
-	/pgfplots/colorbar sampled/.default={surf,mark=none,shader=flat},
-	/pgfplots/colorbar sampled line/.code={\pgfkeysalso{/pgfplots/colorbar=true}\pgfkeyssetvalue{/pgfplots/@colorbar sampled}{#1}\pgfkeyssetvalue{/pgfplots/@colorbar line}{true}},
-	/pgfplots/@colorbar line/.initial=false,
-	/pgfplots/colorbar sampled line/.default={scatter,only marks},
-	/pgfplots/colorbar as palette/.style={/pgfplots/colorbar sampled={surf,shader=flat corner}},
-	/pgfplots/colorbar as legend/.style={/pgfplots/colorbar sampled={surf,shader=flat corner}},
-	/pgfplots/every colorbar sampled line/.style={help lines},
-	/pgfplots/colorbar sampled line style/.style={/pgfplots/every colorbar sampled line/.append style={#1}},
-	/pgfplots/colorbar source/.code=,
-	/tikz/legend columns/.style={/pgfplots/legend columns={#1}},
-	/tikz/legend cell align/.style={/pgfplots/legend cell align={#1}},
-	/tikz/legend plot pos/.style={/pgfplots/legend plot pos={#1}},
-}
+\pgfkeys{/pgfplots/.search also={/tikz}, /tikz/fill between/.search also={/pgfplots,/tikz}}
 ";
+
+/// What the definitions set up, once they are all made: the default colormap, the colorbar and
+/// the labels' places.
+const SETUP: &str = r"
+\pgfplotsset{@boxplot macros, xlabel absolute, ylabel absolute, colormap/viridis, colormap/hot, colorbar right, colorbar=false}
+";
+
+/// A key's full path: the tables name pgfplots keys without their `/pgfplots/`.
+fn full(name: &str) -> String {
+    if name.starts_with('/') {
+        name.to_string()
+    } else {
+        format!("/pgfplots/{name}")
+    }
+}
+
+/// The lines a table line stands for: `{a}` is each of x, y and z; `{b}` is x and y, with `{o}`
+/// the other of the two.
+fn axes<const N: usize>(parts: [&str; N]) -> Vec<[String; N]> {
+    let with = |pairs: &[(&str, &str)]| parts.map(|p| pairs.iter().fold(p.to_string(), |p, (from, to)| p.replace(from, to)));
+    if parts.iter().any(|p| p.contains("{a}")) {
+        ["x", "y", "z"].iter().map(|a| with(&[("{a}", a)])).collect()
+    } else if parts.iter().any(|p| p.contains("{b}")) {
+        [("x", "y"), ("y", "x")].iter().map(|(b, o)| with(&[("{b}", b), ("{o}", o)])).collect()
+    } else {
+        vec![parts.map(str::to_string)]
+    }
+}
+
+/// One definition, `name/handler={value}`, onto the text.
+fn put(s: &mut String, name: &str, handler: &str, value: &str) {
+    s.push_str(&format!("{}/{handler}={{{value}}},\n", full(name)));
+}
+
+/// The pgfplots keys as TeX, built once from the tables.
+fn definitions() -> &'static str {
+    static TEXT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TEXT.get_or_init(|| {
+        let mut s = String::from(PRELUDE);
+        s.push_str("\\pgfkeys{\n");
+        let d = &mut s;
+        for &(n, v) in VALUES {
+            axes([n, v]).iter().for_each(|[n, v]| put(d, n, ".initial", v));
+        }
+        for &(n, v) in SWITCHES {
+            for [n, v] in axes([n, v]) {
+                put(d, &n, ".initial", &v);
+                put(d, &n, ".default", "true");
+            }
+        }
+        for &n in HOOKS {
+            axes([n]).iter().for_each(|[n]| put(d, n, ".style", ""));
+        }
+        for &n in IGNORED {
+            axes([n]).iter().for_each(|[n]| put(d, n, ".code", ""));
+        }
+        for &(n, t) in ADDS_TO {
+            axes([n, t]).iter().for_each(|[n, t]| put(d, n, ".style", &format!("{}/.append style={{#1}}", full(t))));
+        }
+        for &(n, t) in ALIASES {
+            axes([n, t]).iter().for_each(|[n, t]| put(d, n, ".style", &format!("{}={{#1}}", full(t))));
+        }
+        for &(n, path, v) in SETS {
+            for [n, path, v] in axes([n, path, v]) {
+                put(d, &n, ".code", &format!("\\pgfkeyssetvalue{{{}}}{{{v}}}", full(&path)));
+            }
+        }
+        for &(n, targets) in SPREADS {
+            let body: Vec<String> = targets.iter().map(|t| format!("{}={{#1}}", full(t))).collect();
+            put(d, n, ".style", &body.join(", "));
+        }
+        for &n in CHOICES {
+            d.push_str(&format!("{}/.is choice,\n", full(n)));
+        }
+        for &(n, v) in DEFAULTS {
+            axes([n, v]).iter().for_each(|[n, v]| put(d, n, ".default", v));
+        }
+        for &(n, v) in STYLES.iter().chain(LONG_STYLES) {
+            axes([n, v]).iter().for_each(|[n, v]| put(d, n, ".style", v));
+        }
+        for &(n, v) in CODES {
+            axes([n, v]).iter().for_each(|[n, v]| put(d, n, ".code", v));
+        }
+        for &(n, v) in STYLES_2 {
+            put(d, n, ".style 2 args", v);
+        }
+        for &(n, v) in CODES_2 {
+            put(d, n, ".code 2 args", v);
+        }
+        // the dash patterns pgfplots adds to TikZ's: a dash, then one or two dots
+        for (spacing, gap) in [("loosely ", 4), ("", 2), ("densely ", 1)] {
+            for (name, dots) in [("dashdotted", 1), ("dashdotdotted", 2)] {
+                let pattern = format!("on 3pt off {gap}pt{}", format!(" on \\the\\pgflinewidth off {gap}pt").repeat(dots));
+                put(d, &format!("/tikz/{spacing}{name}"), ".style", &format!("dash pattern={pattern}"));
+            }
+        }
+        for &(n, at, anchor) in LEGEND_POS {
+            put(d, &format!("legend pos/{n}"), ".style", &format!("/pgfplots/legend style={{at={{({at})}}, anchor={anchor}}}"));
+        }
+        for &(n, anchor) in LEGEND_CELL_ALIGN {
+            put(d, &format!("legend cell align/{n}"), ".style", &format!("/pgfplots/legend style={{cells={{anchor={anchor}}}}}"));
+        }
+        for (key, kind) in [("ticks", "ticks"), ("grid", "grids")] {
+            for &(choice, major, minor) in MAJOR_MINOR {
+                let body: Vec<String> = ["x", "y", "z"].iter().map(|a| format!("{a}major{kind}={major}, {a}minor{kind}={minor}")).collect();
+                put(d, &format!("{key}/{choice}"), ".style", &body.join(", "));
+            }
+        }
+        for &(n, align, anchor, upside_down) in CIRCLE_LABELS {
+            let labels = format!("rotate=90, sloped like y axis={{execute for upside down={{\\tikzset{{anchor={upside_down}}}}}, reset nontranslations=false}}, anchor={anchor}");
+            put(d, n, ".style", &format!("ytick align={align}, yticklabel style={{{labels}}}"));
+        }
+        for &(n, slot) in CYCLE_LIST_KEYS {
+            put(d, n, ".code", &format!("\\pgfplotscreateplotcyclelist{{{slot}}}{{#1}}\\pgfkeyssetvalue{{/pgfplots/cycle list name}}{{{slot}}}"));
+        }
+        let bars: Vec<String> = BAR_CYCLE.iter().map(|(line, fill)| format!("{{{line}, fill={fill}, mark=none}}")).collect();
+        put(d, "bar cycle list", ".style", &format!("/pgfplots/cycle list={{{}}}", bars.join(", ")));
+        for &(n, spec) in COLORMAPS {
+            put(d, &format!("colormap/{n}"), ".style", &format!("/pgfplots/colormap={{{n}}}{{{spec}}}"));
+        }
+        for &(n, stops) in SAMPLED_COLORMAPS {
+            let spec: Vec<String> = stops.iter().map(|rgb| format!("rgb=({rgb})")).collect();
+            put(d, &format!("colormap/{n}"), ".style", &format!("/pgfplots/colormap={{{n}}}{{{}}}", spec.join(" ")));
+        }
+        s.push_str("}\n");
+        for &(name, entries) in CYCLE_LISTS {
+            let entries: Vec<String> = entries
+                .iter()
+                .map(|&(line, dashed, mark_style, mark)| {
+                    let mut options = vec![];
+                    options.extend((!line.is_empty()).then(|| line.to_string()));
+                    options.extend(dashed.then(|| "densely dashed".to_string()));
+                    options.extend((!mark_style.is_empty()).then(|| format!("every mark/.append style={{{mark_style}}}")));
+                    options.push(format!("mark={mark}"));
+                    format!("{{{}}}", options.join(","))
+                })
+                .collect();
+            s.push_str(&format!("\\pgfplotscreateplotcyclelist{{{name}}}{{{}\\\\}}\n", entries.join("\\\\")));
+        }
+        for &(name, options) in PLAIN_CYCLE_LISTS {
+            s.push_str(&format!("\\pgfplotscreateplotcyclelist{{{name}}}{{{}\\\\}}\n", options.join("\\\\")));
+        }
+        s.push_str(SETUP);
+        s
+    })
+}
 
 macro_rules! keyfn {
     ($name:ident, |$e:ident, $v:ident| $body:expr) => {
@@ -1509,7 +1817,7 @@ pub fn define(e: &mut Engine) {
     let saved = e.st.key_path.clone();
     e.st.key_path = "/pgfplots".into();
     let mut lexer = crate::tex::Tex::new_lexer();
-    lexer.push_text(DEFINITIONS);
+    lexer.push_text(definitions());
     let mut tokens = Vec::new();
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
