@@ -65,7 +65,7 @@ The banner above is drawn by tikra itself from [`docs/banner.tex`](https://githu
 
 ## Examples
 
-Each image is an SVG drawn by tikra from the figure in [`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) it links to, shown on a white card; `tests/examples.rs` keeps them in sync with the code. The [gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html) draws all 233 figures of the corpus, by topic, live in the browser.
+Each image is an SVG drawn by tikra from the figure in [`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) it links to, shown on a white card; `tests/examples.rs` keeps them in sync with the code. The [gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html) draws all 236 figures of the corpus, by topic, live in the browser.
 
 <table>
 <tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-3d/lorenz-attractor.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/lorenz-attractor.svg" alt="The Lorenz attractor, colored by height" width="380"></a><br><sub>The Lorenz attractor, colored by height</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/charts/nightingale-rose.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/nightingale-rose.svg" alt="Nightingale's rose of the causes of mortality" width="380"></a><br><sub>Nightingale's rose of the causes of mortality</sub></td></tr>
@@ -133,7 +133,7 @@ Limits protect against hostile input: 100,000 statements per figure, 64 levels o
 
 ## Benchmark
 
-[`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) holds 233 hand-made figures, one folder per topic, that cover the features above. Reproduce with:
+[`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) holds 236 hand-made figures, one folder per topic, that cover the features above. Reproduce with:
 
 ```console
 $ cargo run --release -p tikra --example bench
@@ -143,12 +143,12 @@ One run on an Apple M5 (arm64), 15 runs per figure, median per figure:
 
 | Figures | Without warnings | With warnings | Errors |
 |---:|---:|---:|---:|
-| 233 | 233 | 0 | 0 |
+| 236 | 236 | 0 | 0 |
 
 | Per figure | Mean | p95 |
 |---|---:|---:|
-| SVG | 2.09 ms | 7.63 ms |
-| SVG + PNG at 300 dpi | 7.60 ms | 20.07 ms |
+| SVG | 1.94 ms | 7.64 ms |
+| SVG + PNG at 300 dpi | 7.17 ms | 19.35 ms |
 
 The corpus now holds large figures too (3D surfaces of a thousand cells, fractals, the Lorenz attractor): most figures take well under a millisecond.
 
