@@ -146,6 +146,24 @@ pub fn parse_number(s: &str) -> Option<f64> {
 
 /// Reads a table file, if it may be read: the folders searched and the reason it was refused.
 pub fn read_file(name: &str, search: &[String]) -> Result<String, String> {
+    let bytes = read_bytes(name, search, MAX_FILE)?;
+    String::from_utf8(bytes).map_err(|e| format!("file '{}': {e}", name.trim()))
+}
+
+/// Reads a file of at most `max` bytes from the input folders (with the folders of `search` in
+/// each), as [`read_file`] finds it.
+pub fn read_bytes(name: &str, search: &[String], max: u64) -> Result<Vec<u8>, String> {
+    let n = name.trim();
+    let full = find_file(n, search)?;
+    let meta = std::fs::metadata(&full).map_err(|e| format!("file '{n}': {e}"))?;
+    if meta.len() > max {
+        return Err(format!("file '{n}' is larger than {max} bytes"));
+    }
+    std::fs::read(&full).map_err(|e| format!("file '{n}': {e}"))
+}
+
+/// Where a file is: the first input folder (and folder of `search` in it) that has it.
+pub fn find_file(name: &str, search: &[String]) -> Result<PathBuf, String> {
     let n = name.trim();
     if n.is_empty() {
         return Err("no file name".into());
@@ -164,14 +182,8 @@ pub fn read_file(name: &str, search: &[String]) -> Result<String, String> {
                 continue;
             }
             let full = root.join(dir).join(n);
-            if let Ok(meta) = std::fs::metadata(&full) {
-                if !meta.is_file() {
-                    continue;
-                }
-                if meta.len() > MAX_FILE {
-                    return Err(format!("file '{n}' is larger than {} bytes", MAX_FILE));
-                }
-                return std::fs::read_to_string(&full).map_err(|e| format!("file '{n}': {e}"));
+            if std::fs::metadata(&full).is_ok_and(|m| m.is_file()) {
+                return Ok(full);
             }
         }
     }
