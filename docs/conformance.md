@@ -26,10 +26,10 @@ The same 192 figures (a fixed sample of the manuals), one at a time, on Darwin a
 | | Median per figure | p95 |
 |---|---:|---:|
 | pdflatex (texlive/texlive:latest) | 647 ms | 1031 ms |
-| tikra, TikZ to SVG | 0.97 ms | 9.23 ms |
+| tikra, TikZ to SVG | 0.96 ms | 8.58 ms |
 
-Median ratio: tikra is **754× faster**. pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user
-waits for; tikra's is the conversion inside a running process: the first figure of a process also builds the engine, 68.6 ms more.
+Median ratio: tikra is **719× faster**. pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user
+waits for; tikra's is the conversion inside a running process: the first figure of a process also builds the engine, 15.7 ms more.
 
 ## By chapter
 
@@ -171,23 +171,23 @@ Warnings, by how many figures they appear in (the varying part replaced by …):
 | 2 | `fill between: soft clip … not understood: ignored` |
 | 2 | `axis without data: drew the default window from N to N` |
 | 1 | `E-REC-N column N: unsupported text command: \pgfuseimage; written as is` |
-| 1 | `environment colormixin not supported: content read as statements` |
 | 1 | `E-REC-N column N: unsupported text command: \pgfimage; written as is` |
+| 1 | `environment colormixin not supported: content read as statements` |
 | 1 | `\pgfpathcurvebetweentime not supported: … ignored` |
 | 1 | `\pgfplotgnuplot not supported: … ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderrectangle; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderellipse; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointintersectionofcircles; statement ignored` |
 | 1 | `\pgfqbox{\mybox}: the box is not drawn` |
-| 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
 | 1 | `\pgftransparencygroup not supported: … ignored` |
-| 1 | `\endpgftransparencygroup not supported: … ignored` |
-| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
 | 1 | `unrecognized path fragment: …` |
+| 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
+| 1 | `\endpgftransparencygroup not supported: … ignored` |
+| 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
 | 1 | `\pgfmathparse: expression: unexpected character: …` |
 | 1 | `E-REC-N column N: unsupported text command: \-; written as is` |
 | 1 | `\pgfmathrandominteger not supported: … ignored` |
