@@ -260,3 +260,15 @@ fn statistics_and_colorbar() {
     let (wd, _) = size(&c);
     assert!(wd > 260.0, "{wd}");
 }
+
+#[test]
+fn a_scaled_picture_scales_its_axis_text_and_all() {
+    let plain = size(&axis("title=T", r"\addplot coordinates {(0,0) (1,1)};").0);
+    let (c, w) = tikra::engine::run_document(r"\begin{tikzpicture}[scale=0.5]\begin{axis}[title=T] \addplot coordinates {(0,0) (1,1)}; \end{axis}\end{tikzpicture}").unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    let half = size(&c);
+    assert!((half.0 - plain.0 / 2.0).abs() < 0.5 && (half.1 - plain.1 / 2.0).abs() < 0.5, "{plain:?} {half:?}");
+    // the title's text too
+    let scale = |c: &Canvas| c.items.iter().find_map(|i| if let Item::Text { place, .. } = i { Some(place.d) } else { None }).unwrap();
+    assert!((scale(&c) - scale(&axis("title=T", r"\addplot coordinates {(0,0) (1,1)};").0) / 2.0).abs() < 1e-9);
+}
