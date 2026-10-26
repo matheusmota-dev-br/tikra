@@ -453,3 +453,43 @@ fn smith_chart_minor_lines_count_after_the_major_ones() {
     // the minor x grid: the whole circle x = 1.5
     assert!(shapes.contains(&(1, 4)), "{shapes:?}");
 }
+
+#[test]
+fn expressions_use_the_exp_of_pgfs_fpu() {
+    // the sample at -0.00008 (25 samples of -5:5) has exp 1.00014 in pgf's fpu, not 0.99992:
+    // it stays in [1, 15], and the plot has 7 points (x 0 to 2.5), not 6
+    let (c, w) = canvas(r"\begin{semilogyaxis}[hide axis] \addplot[mark=none, restrict expr to domain={rawy}{1e0:1.5e1}] {exp(x)}; \end{semilogyaxis}");
+    assert!(w.is_empty(), "{w:?}");
+    let n: Vec<usize> = c.items.iter().filter_map(|i| if let Item::Path { segments, stroke: Some(_), .. } = i { Some(points(segments).len()) } else { None }).collect();
+    assert_eq!(n, vec![7]);
+}
+
+#[test]
+fn log_ticks_as_pgfplots_computes_them() {
+    // 1:100000 in 25 samples ends at ln 11.51257 (pgfplots loops in the fpu's logarithms), so y
+    // goes down to ln 1.0007e-10; the ticks are computed in TeX dimensions with 1/ln 10 = 0.4343:
+    // the y limits, -25.3277 to 2.3026, are 3 decades apart per tick from -10.9997 decades, so the
+    // ticks are 10^-10, 10^-7, 10^-4, 10^-1 (four labels), not 10^-11 … 10^1 (five)
+    let (c, w) = canvas(r"\begin{loglogaxis}[small, enlarge x limits={abs=11}, xtick=\empty] \addplot+[domain=1:100000] {x^-2}; \end{loglogaxis}");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c), 4);
+}
+
+#[test]
+fn transformed_coordinates_in_basic_layer_points() {
+    // `\pgfplotstransformcoordinatex` gives the units `\pgfqpointxy` takes in the axis (without
+    // `pgfpoint substitution`): the circle is at (1,1) of the axis, as `axis cs:1,1` is
+    let (c, w) = axis(
+        "xmin=0.5, xmax=2, ymin=0.5, ymax=5",
+        r"\pgfplotsset{compat/pgfpoint substitution=1.3}
+        \pgfplotsextra{\pgfplotstransformcoordinatex{1}\let\xcoord=\pgfmathresult
+            \pgfplotstransformcoordinatey{1}\let\ycoord=\pgfmathresult
+            \pgfpathcircle{\pgfqpointxy{\xcoord}{\ycoord}}{5pt}\pgfusepath{fill}}
+        \fill (axis cs:1,1) circle[radius=5pt];",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let f = filled(&c);
+    assert_eq!(f.len(), 2);
+    let (a, b) = (bounds(f[0]), bounds(f[1]));
+    assert!(close_to((a.0.x, a.0.y), (b.0.x, b.0.y)) && close_to((a.1.x, a.1.y), (b.1.x, b.1.y)), "{a:?} {b:?}");
+}

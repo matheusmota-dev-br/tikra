@@ -19,7 +19,8 @@ pub struct Variables {
     pub in_pt: bool,
     /// The font is sans serif (its `em` and `ex` are cmss's).
     pub sans: bool,
-    /// pgf's floating point unit computes (pgfplots' math): its square root, not pgfmath's.
+    /// pgf's floating point unit computes (pgfplots' expressions): its square root and `exp` are
+    /// pgf's own, not pgfmath's.
     pub fpu: bool,
 }
 
@@ -507,6 +508,7 @@ impl Parser<'_> {
                     "sqrt" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a),
                     "sqrt" => a.sqrt(),
                     "abs" => a.abs(),
+                    "exp" if self.vars.fpu => crate::engine::pgfplots::fpu::exp(a),
                     "exp" => a.exp(),
                     "ln" => a.ln(),
                     "log10" => a.log10(),

@@ -1719,7 +1719,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     // where the next fill between region goes: after those before it
     let mut pre_main_end = pre_main;
     let compat = keys::compat(e);
-    f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
+    f.cs.set(if keys::substitute_pgfpoint(e) { Cs::Axis } else { Cs::Plain });
     // before compat 1.11 TikZ's unit vectors are those of the data scale transformation: a radius
     // or a relative coordinate is in its units
     let units = (e.st.x, e.st.y, e.st.z);
@@ -2650,7 +2650,7 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     // `after end axis/.code`: plain coordinates again, nothing clipped
     if e.key_exists("/pgfplots/after end axis") {
         let cs = f.cs.get();
-        f.cs.set(if keys::compat(e) >= 111 { Cs::Axis } else { Cs::Plain });
+        f.cs.set(if keys::substitute_pgfpoint(e) { Cs::Axis } else { Cs::Plain });
         e.begin_group();
         let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/after end axis"), None));
         e.end_group();

@@ -163,6 +163,18 @@ fn clean(v: f64, h: f64) -> f64 {
     }
 }
 
+/// A value as a TeX dimension, in sp.
+fn to_sp(v: f64) -> i64 {
+    let max = crate::tex::dimen::MAX_DIMEN as f64;
+    (v * 65536.0).round().clamp(-max, max) as i64
+}
+
+/// `0.4343\dimen`: a length in natural logarithms in decades, as pgfplots' ticks compute it (1/ln 10
+/// is 0.4343 in its fpu, `log from display log`).
+fn by_one_over_ln10(sp: i64) -> i64 {
+    crate::tex::dimen::xn_over_d(sp, crate::tex::dimen::round_decimals(&[4, 3, 4, 3]), 65536).0
+}
+
 /// Logarithmic ticks, in natural logarithms: (ticks, distance, uniform). `uniform` is true when
 /// every power of ten gets a tick (then minor ticks are drawn).
 pub fn logarithmic(min: f64, max: f64, s: TickSettings) -> (Vec<f64>, f64, bool) {
@@ -171,7 +183,10 @@ pub fn logarithmic(min: f64, max: f64, s: TickSettings) -> (Vec<f64>, f64, bool)
     let (h_ten, uniform) = match s.distance {
         Some(d) if d.is_finite() && d > 0.0 => (d.ln() / LN_10, false),
         _ => {
-            let raw = range / (n.max(2) - 1) as f64 / LN_10;
+            // in TeX dimensions: (max + 0.001pt - min) / (n - 1), times 0.4343 (`log from display
+            // log`), the floor of that in decades
+            let range_sp = (to_sp(max) + 66 - to_sp(min)).abs();
+            let raw = by_one_over_ln10(range_sp / (n.max(2) - 1) as i64) as f64 / 65536.0;
             let j = if raw < 2.0 { 1.0 } else { raw.floor() };
             (j, j == 1.0)
         }
@@ -180,10 +195,11 @@ pub fn logarithmic(min: f64, max: f64, s: TickSettings) -> (Vec<f64>, f64, bool)
     if !(h.is_finite() && h > 0.0) {
         return (Vec::new(), 0.0, false);
     }
-    // MIN = I * log(10), I the truncated min / log(10), one less for negatives
-    let m = min / LN_10;
-    let mut i = m.trunc();
-    if m < 0.0 {
+    // MIN = I * log(10), I the truncated min / log(10), one less for negatives, in TeX
+    // dimensions too: -25.32768 is -10.9997 decades there, so I is -11, not -12
+    let m = by_one_over_ln10(to_sp(min));
+    let mut i = (m / 65536) as f64;
+    if m < 0 {
         i -= 1.0;
     }
     let mut first = i * LN_10;
