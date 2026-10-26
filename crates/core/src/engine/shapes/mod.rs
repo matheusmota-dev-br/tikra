@@ -143,6 +143,9 @@ pub enum Border {
     Point,
     /// a rectangle around the center, by its half sizes (`\pgfpointborderrectangle`)
     Rectangle(Point),
+    /// a rectangle by its half sizes, found toward the direction plus the center as measured from
+    /// the text's origin: the rectangle callout's border, as pgf computes it
+    RectangleShifted(Point, Point),
     /// an ellipse around the center, by its radii (`\pgfpointborderellipse`)
     Ellipse(Point),
     /// a closed outline: the border point toward a direction is where the ray from the center
@@ -239,6 +242,7 @@ impl Geometry {
         match &self.border {
             Border::Point => c,
             Border::Rectangle(h) => c.plus(border_rectangle(d, *h)),
+            Border::RectangleShifted(h, shift) => c.plus(border_rectangle(d.plus(*shift), *h)),
             Border::Ellipse(r) => c.plus(border_ellipse(d, *r)),
             Border::Outline(o) => ray_exit(c, d, o).unwrap_or(c),
         }
@@ -260,7 +264,8 @@ impl Geometry {
             return Some(*p);
         }
         let angle: f64 = name.parse().ok()?;
-        Some(self.border_point(polar(angle, 1.0)))
+        // toward a point 1pt away, as pgf asks (a border that adds its center to it depends on that)
+        Some(self.border_point(polar(angle, crate::PT)))
     }
 
     /// Whether the shape has an anchor of this name (not counting angles).

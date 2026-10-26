@@ -108,6 +108,14 @@ impl Engine {
         v.push(Token::Char('{', Cat::Begin));
         v.extend(tikra_tokens(&value));
         v.push(Token::Char('}', Cat::End));
+        // pgf animates the canvas: a rotation or a scaling turns the text and lines too
+        if matches!(attribute.as_str(), "rotate" | "scale" | "xscale" | "yscale" | "xslant" | "yslant") {
+            let mut w = tikra_tokens("transform canvas=");
+            w.push(Token::Char('{', Cat::Begin));
+            w.extend(v);
+            w.push(Token::Char('}', Cat::End));
+            return Ok(Some(w));
+        }
         Ok(Some(v))
     }
 
@@ -138,6 +146,27 @@ impl Engine {
         }
     }
 
+    /// `\pgfsysanimate{attribute}` in snapshot mode: the value the timeline gives the attribute at
+    /// the snapshot time, an option of the next object named `whom` (pgf attaches it to the id).
+    pub fn sys_animate(&mut self, attribute: &str, whom: &str, spec: Vec<Token>) -> Result<(), Error> {
+        let attribute = match attribute {
+            "fillopacity" => "fill opacity",
+            "strokeopacity" => "draw opacity",
+            "linewidth" => "line width",
+            "opacity" => "opacity",
+            // the other attributes keep their base value
+            _ => return Ok(()),
+        };
+        if let Some(o) = self.animation_option(attribute, spec)? {
+            let options = self.sys_animations.entry(whom.to_string()).or_default();
+            if !options.is_empty() {
+                options.push(Token::other(','));
+            }
+            options.extend(o);
+        }
+        Ok(())
+    }
+
     /// `:attribute = {…}` after a command or in a path (the `:` read): the option it gives, if any.
     pub fn read_animation(&mut self) -> Result<Option<Vec<Token>>, Error> {
         let mut name = String::new();
@@ -161,6 +190,14 @@ impl Engine {
     pub fn animate_key(&mut self, v: Vec<Token>) -> Result<(), Error> {
         for item in crate::keys::split_list(&v) {
             match item.value {
+                // `myself: = { :rotate = {…}, :color = {…} }`: one object, several attributes
+                Some(value) if item.key.trim_end().ends_with(':') => {
+                    for sub in crate::keys::split_list(&value) {
+                        if let Some(o) = self.animation_option(&sub.key, sub.value.unwrap_or_default())? {
+                            self.process_keys(o, Some("/tikz"))?;
+                        }
+                    }
+                }
                 Some(value) if item.key.contains(':') => {
                     if let Some(o) = self.animation_option(&item.key, value)? {
                         self.process_keys(o, Some("/tikz"))?;

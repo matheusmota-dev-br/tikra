@@ -65,8 +65,10 @@ A figure **matches** with F1 ≥ 0.9, color ≥ 0.9, ink ≥ 0.95, the same size
 leaves out, by an explicit list checked by eye ([unreproducible.json](unreproducible.json)), the
 figures with random numbers and no `\pgfmathsetseed` (TeX draws new ones on every run), with an image
 file or an external program (gnuplot), and with the day's date; and it counts as done the figures that
-differ from TeX's only by antialiasing (Ghostscript, which renders TeX's PDF, and tikra put lines and
-fills on the pixels differently), as long as they stay at least close. A figure joins the list only
+differ from TeX's only by antialiasing (Ghostscript, which renders TeX's PDF, and tikra put lines,
+fills and letters on the pixels differently: Ghostscript inks a line wider than it is and small labels
+heavier, bands a shading and draws pattern tiles without antialiasing), as long as they stay at least
+close. A figure joins the list only
 after looking at both drawings; one that later differs again is named in the report.
 
 The tolerance absorbs what is expected to differ: labels in Latin Modern Math (Computer Modern

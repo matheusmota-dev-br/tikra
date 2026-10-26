@@ -581,12 +581,22 @@ const DEFINITIONS: &str = r"
 	/pgfplots/table/x error plus expr/.initial=, /pgfplots/table/y error plus expr/.initial=,
 	/pgfplots/table/x error minus expr/.initial=, /pgfplots/table/y error minus expr/.initial=,
 	/pgfplots/table/columns/.initial=,
+	/pgfplots/plot graphics/src/.initial=, /pgfplots/plot graphics/includegraphics/.initial=,
+	/pgfplots/plot graphics/xmin/.initial=, /pgfplots/plot graphics/xmax/.initial=,
+	/pgfplots/plot graphics/ymin/.initial=, /pgfplots/plot graphics/ymax/.initial=,
+	/pgfplots/plot graphics/zmin/.initial=, /pgfplots/plot graphics/zmax/.initial=,
+	/pgfplots/plot graphics/points/.initial=,
+	/pgfplots/plot graphics/auto adjust axis/.initial=true, /pgfplots/plot graphics/auto adjust axis/.default=true,
+	/pgfplots/plot graphics/snap z/.initial=0.02,
+	/pgfplots/plot graphics/debug/.initial=, /pgfplots/plot graphics/debug/.default=true,
+	/pgfplots/plot graphics/squeeze tol/.initial=2pt,
 	/pgfplots/small/.style={width=6.5cm,height=,tick label style={font=\footnotesize},label style={font=\small},max space between ticks=25},
 	/pgfplots/footnotesize/.style={width=5cm,height=,legend style={font=\footnotesize},tick label style={font=\footnotesize},label style={font=\small},title style={font=\small},every axis title shift=0pt,max space between ticks=15,every mark/.append style={mark size=8},major tick length=0.1cm,minor tick length=0.066cm},
 	/pgfplots/tiny/.style={width=4cm,height=,legend style={font=\tiny},tick label style={font=\tiny},label style={font=\tiny},title style={font=\footnotesize},every axis title shift=0pt,max space between ticks=12,every mark/.append style={mark size=6},major tick length=0.1cm,minor tick length=0.066cm,every legend image post/.append style={scale=0.8}},
 	/pgfplots/normalsize/.style={/pgfplots/width=240pt,/pgfplots/height=207pt,/pgfplots/max space between ticks=35},
 	/pgfplots/compat/.initial=default,
 	/pgfplots/@compat/.initial=0,
+	/pgfplots/@substitute pgfpoint/.initial=false,
 	/pgfplots/xlabel absolute, /pgfplots/ylabel absolute,
 	/pgfplots/group/horizontal sep/.initial=1cm, /pgfplots/group/vertical sep/.initial=1cm,
 	/pgfplots/group/columns/.initial=1, /pgfplots/group/rows/.initial=1,
@@ -917,6 +927,7 @@ keyfn!(k_compat, |e, v| {
     };
     set(e, "/pgfplots/compat", &s);
     set(e, "/pgfplots/@compat", &level.to_string());
+    set(e, "/pgfplots/@substitute pgfpoint", if level >= 111 { "true" } else { "false" });
     if level >= 103 {
         run(e, "xlabel near ticks,ylabel near ticks")?;
     } else {
@@ -924,6 +935,21 @@ keyfn!(k_compat, |e, v| {
     }
     Ok(())
 });
+
+// `compat/pgfpoint substitution=1.x`: from 1.11 on, `(1,2)` and `\pgfqpointxy` inside an axis
+// are `axis cs`; before, they are in the units of the data scale transformation.
+keyfn!(k_pgfpoint_substitution, |e, v| {
+    let s = text(e, &v)?;
+    let minor = s.trim().strip_prefix("1.").and_then(|m| m.parse::<u32>().ok());
+    let on = s.trim() == "newest" || minor.is_some_and(|m| m >= 11);
+    set(e, "/pgfplots/@substitute pgfpoint", if on { "true" } else { "false" });
+    Ok(())
+});
+
+/// Whether plain coordinates inside an axis are `axis cs` (`\ifpgfplots@substitute@pgfpoint`).
+pub fn substitute_pgfpoint(e: &Engine) -> bool {
+    keys::value(&e.tex, "/pgfplots/@substitute pgfpoint").is_some_and(|v| tex::tokens_to_string(&v).trim() == "true")
+}
 
 /// `axis x line*=bottom`: where the line is, and the ticks go with it.
 fn line_star(e: &mut Engine, axis: char, value: &str) {
@@ -1364,6 +1390,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/pgfplots/.unknown", k_unknown),
     ("/pgfplots/table/.unknown", k_table_unknown),
     ("/pgfplots/compat", k_compat),
+    ("/pgfplots/compat/pgfpoint substitution", k_pgfpoint_substitution),
     ("/pgfplots/visualization depends on", k_visualization_depends_on),
     ("/pgfplots/mesh", k_mesh),
     ("/pgfplots/surf", k_mesh),

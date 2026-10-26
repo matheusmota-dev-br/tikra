@@ -104,8 +104,10 @@ pub struct GState {
     pub fill_opacity: f64,
     pub text_opacity: f64,
     pub even_odd: bool,
-    /// `rounded corners=` radius, or 0
+    /// `rounded corners=` radius, or 0: how far before a corner its arc starts
     pub rounded: f64,
+    /// how far after a corner its arc ends (`\pgfsetcornersarced{\pgfpoint{in}{out}}`)
+    pub rounded_out: f64,
     /// Arrow specifications at the start and the end (`->`, `-{Latex[length=3mm]}`).
     pub start_arrow: Option<String>,
     pub end_arrow: Option<String>,
@@ -290,6 +292,7 @@ impl Default for GState {
             text_opacity: 1.0,
             even_odd: false,
             rounded: 0.0,
+            rounded_out: 0.0,
             start_arrow: None,
             end_arrow: None,
             tips: Rc::default(),

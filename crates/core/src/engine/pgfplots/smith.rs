@@ -13,7 +13,7 @@ use crate::tex::Token;
 use crate::{Error, PT};
 
 use super::super::nodes::{NodeSpec, OnPath};
-use super::draw::{axis_char, minor_ticks, tick_labels_at, tick_offset, unit, visible, Frame, Setup};
+use super::draw::{axis_char, minor_ticks, number_list, tick_labels_at, tick_offset, unit, visible, Frame, Setup};
 use super::keys;
 use super::{toks, Engine};
 
@@ -182,7 +182,7 @@ fn key(v: f64) -> i64 {
 
 /// The grid lines of one axis and what their stops depend on.
 struct Lines {
-    /// (number in its list, value): the major lines, then the minor ones
+    /// (tick number, value): the major lines, then the minor ones
     lines: Vec<(usize, f64)>,
     rules: Vec<Rule>,
     /// a line's number to its place by magnitude
@@ -194,15 +194,15 @@ struct Lines {
 }
 
 impl Lines {
-    fn new(e: &mut Engine, a: usize, major: &[f64], minor: &[f64], other: &[f64]) -> Lines {
+    fn new(e: &mut Engine, a: usize, major: &[(usize, f64)], minor: &[(usize, f64)], other: &[f64]) -> Lines {
         let c = axis_char(a);
         let o = axis_char(1 - a);
         let mut lines: Vec<(usize, f64)> = Vec::new();
         if keys::flag(e, &format!("/pgfplots/{c}majorgrids")) {
-            lines.extend(major.iter().copied().enumerate());
+            lines.extend(major.iter().copied());
         }
         if keys::flag(e, &format!("/pgfplots/{c}minorgrids")) {
-            lines.extend(minor.iter().copied().enumerate());
+            lines.extend(minor.iter().copied());
         }
         let text = keys::value(e, &format!("/pgfplots/{c}grid each nth passes {o}"));
         let rules = rules(e, &text, other);
@@ -279,6 +279,29 @@ impl Lines {
     }
 }
 
+/// The tick numbers pgfplots gives the minor ticks (`\pgfplots@prepare@tick@coordlists@for`): a
+/// `minor xtick` list counts on after the whole major list, a tick of `minor x tick num` is its
+/// major tick's number plus its own (so it shares a number with a later major tick, as in pgfplots).
+fn minor_numbers(e: &mut Engine, s: &Setup, a: usize, minor: &[f64]) -> Vec<(usize, f64)> {
+    let f = &s.frame;
+    let all = &s.ticks[a];
+    let given = keys::value_tokens(e, &format!("/pgfplots/minor {}tick", axis_char(a)));
+    if let Some(v) = given {
+        let list: Vec<f64> = number_list(e, v).unwrap_or_default().into_iter().map(|x| f.logical(a, x)).collect();
+        return minor.iter().map(|t| (all.len() + list.iter().position(|x| x == t).unwrap_or(0), *t)).collect();
+    }
+    minor
+        .iter()
+        .map(|t| {
+            let j = all.iter().rposition(|m| m < t).unwrap_or(0);
+            let next = all.get(j + 1).copied().unwrap_or(*t);
+            let n = keys::number(e, &format!("/pgfplots/minor {} tick num", axis_char(a))).unwrap_or(1.0).max(1.0);
+            let i = if next > all[j] { ((t - all[j]) / ((next - all[j]) / (n + 1.0))).round() as usize } else { 1 };
+            (j + i, *t)
+        })
+        .collect()
+}
+
 /// The clip path: the chart's circle.
 pub fn clip_path(f: &Frame) -> Vec<Segment> {
     let mut segs = Vec::new();
@@ -301,12 +324,14 @@ pub fn size_style(width: f64) -> &'static str {
 /// The chart: grid lines, ticks, the axis lines and the tick labels.
 pub(super) fn draw_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
     let f = s.frame.clone();
-    let major: [Vec<f64>; 2] = [0, 1].map(|a| if s.hide[a] { Vec::new() } else { visible(&f, a, &s.ticks[a]).into_iter().map(|(_, t)| t).collect() });
+    let major_n: [Vec<(usize, f64)>; 2] = [0, 1].map(|a| if s.hide[a] { Vec::new() } else { visible(&f, a, &s.ticks[a]) });
+    let major: [Vec<f64>; 2] = [0, 1].map(|a| major_n[a].iter().map(|(_, t)| *t).collect());
     let minor: [Vec<f64>; 2] = [minor_ticks(e, s, 0, &s.ticks[0]), minor_ticks(e, s, 1, &s.ticks[1])];
+    let minor_n = [minor_numbers(e, s, 0, &minor[0]), minor_numbers(e, s, 1, &minor[1])];
     // the stops: x lines first without, then y lines, then x lines with the constraints
     let all = |a: usize| -> Vec<f64> { major[a].iter().chain(minor[a].iter()).copied().collect() };
-    let mut lx = Lines::new(e, 0, &major[0], &minor[0], &all(1));
-    let mut ly = Lines::new(e, 1, &major[1], &minor[1], &all(0));
+    let mut lx = Lines::new(e, 0, &major_n[0], &minor_n[0], &all(1));
+    let mut ly = Lines::new(e, 1, &major_n[1], &minor_n[1], &all(0));
     lx.compute(0, false, None);
     ly.compute(1, true, Some(&lx.last));
     lx.compute(0, true, Some(&ly.last));

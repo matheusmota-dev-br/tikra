@@ -99,6 +99,8 @@ pub struct Plot {
     pub deps: Vec<Vec<(String, String)>>,
     /// The formula it was sampled from (`\addplot {x^2}`), for the figure's description.
     pub expression: String,
+    /// `\addplot graphics`: the image and where it goes.
+    pub graphics: Option<Box<super::graphics::Graphics>>,
 }
 
 /// Letters following in the input: a word like `coordinates`.
@@ -426,7 +428,8 @@ fn survey_input(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Er
                     }
                     plot.fill_between = Some(e.optional()?.unwrap_or_default());
                 }
-                "gnuplot" | "shell" | "graphics" | "function" => {
+                "graphics" => super::graphics::survey(e, plot, three_d)?,
+                "gnuplot" | "shell" | "function" => {
                     let _ = e.optional()?;
                     let _ = e.argument()?;
                     e.warn(format!("\\addplot {w} not supported: it needs an external program or file"));
@@ -603,6 +606,12 @@ fn sample_points(e: &mut Engine, domain_key: &str, samples_key: &str, log: bool)
         if let Some(v) = tex_samples(a, b, n) {
             return Ok(v);
         }
+    } else if a > 0.0 && b > 0.0 {
+        // on a log axis, the same loop between the fpu's logarithms of the ends: 1:100000 in 25
+        // samples ends at ln 11.51257, not 11.51291
+        if let Some(v) = tex_samples(super::fpu::ln(a), super::fpu::ln(b), n) {
+            return Ok(v.into_iter().map(f64::exp).collect());
+        }
     }
     let mut v = Vec::with_capacity(n);
     for k in 0..n {
@@ -670,7 +679,7 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
     let xlog = keys::value(e, "/pgfplots/xmode") == "log";
     let uniform_x = texts.first().is_some_and(|t| t.trim() == var);
     let xs = sample_points(e, "/pgfplots/domain", "/pgfplots/samples", xlog && uniform_x)?;
-    let mut vars = e.vars();
+    let mut vars = fpu_vars(e);
     // `trig format plots`: the plot's expressions in radians (or degrees), whatever pgf's is
     match keys::value(e, "/pgfplots/trig format plots").trim() {
         "rad" => vars.trig_rad = true,
@@ -745,13 +754,18 @@ fn axis_value(e: &mut Engine, c: char, tokens: &[Token]) -> f64 {
     value(e, tokens)
 }
 
+/// pgfmath's variables for pgfplots' math, which runs with the fpu on.
+fn fpu_vars(e: &Engine) -> crate::expr::Variables {
+    crate::expr::Variables { fpu: true, ..e.vars() }
+}
+
 fn value(e: &mut Engine, tokens: &[Token]) -> f64 {
     let s = tex::tokens_to_string(tokens);
     if let Some(v) = table::parse_number(&s) {
         return v;
     }
     let tokens = tokens.to_vec();
-    e.math_string(tokens).and_then(|t| crate::expr::eval(&t, &e.vars())).unwrap_or(f64::NAN)
+    e.math_string(tokens).and_then(|t| crate::expr::eval(&t, &fpu_vars(e))).unwrap_or(f64::NAN)
 }
 
 /// `coordinates {(x,y) (x,y) +- (ex,ey) [meta] …}`.
@@ -1193,7 +1207,7 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
                 Src::Col(None) | Src::None => f64::NAN,
                 Src::Expr(tokens) => {
                     let replaced = replace_thisrow(tokens, t, r);
-                    let mut vars = e.vars();
+                    let mut vars = fpu_vars(e);
                     for (n, v) in known.borrow().iter() {
                         vars.insert((*n).into(), *v);
                     }
@@ -1226,7 +1240,7 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             for (k, name) in ["u", "v", "w"].iter().enumerate() {
                 if let Some(t) = keys::value_tokens(e, &format!("/pgfplots/quiver/{name}")) {
                     let replaced = replace_thisrow(&t, t_table, r);
-                    let mut vars = e.vars();
+                    let mut vars = fpu_vars(e);
                     vars.insert("x".into(), x);
                     vars.insert("y".into(), y);
                     vars.insert("z".into(), z);
@@ -1529,7 +1543,7 @@ fn coordinate_filters(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
             out
         };
         let eval = |e: &mut Engine, tokens: Vec<Token>, cur: [f64; 3]| -> f64 {
-            let mut vars = e.vars();
+            let mut vars = fpu_vars(e);
             for (i, n) in ["x", "y", "z"].iter().enumerate() {
                 vars.insert((*n).into(), cur[i]);
                 vars.insert(format!("raw{n}"), [raw.x, raw.y, raw.z][i]);
@@ -1710,7 +1724,7 @@ fn quiver_vectors(e: &mut Engine, plot: &mut Plot) {
     let var_y = keys::value(e, "/pgfplots/variable y").trim_start_matches('\\').to_string();
     let texts: Vec<Option<String>> = ["u", "v", "w"].iter().map(|n| keys::value_tokens(e, &format!("/pgfplots/quiver/{n}")).and_then(|t| e.math_string(t).ok())).collect();
     let scale = keys::number(e, "/pgfplots/quiver/scale arrows").unwrap_or(1.0);
-    let mut vars = e.vars();
+    let mut vars = fpu_vars(e);
     for c in plot.coords.iter_mut() {
         vars.insert("x".into(), c.x);
         vars.insert("y".into(), c.y);
@@ -1764,7 +1778,7 @@ fn data_cs(e: &mut Engine, plot: &mut Plot) {
 fn histogram(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
     let data = keys::value(e, "/pgfplots/hist/data");
     let value_expr = keys::value(e, "/pgfplots/hist/data value");
-    let mut vars = e.vars();
+    let mut vars = fpu_vars(e);
     let mut values = Vec::new();
     for c in &plot.coords {
         let v = if !value_expr.is_empty() {
@@ -1845,7 +1859,7 @@ fn symbolic_label(e: &mut Engine, text: &str, mathparse: bool, xyz: [f64; 3]) ->
     if !mathparse {
         return text.trim().to_string();
     }
-    let mut vars = e.vars();
+    let mut vars = fpu_vars(e);
     vars.insert("x".into(), xyz[0]);
     vars.insert("y".into(), xyz[1]);
     vars.insert("z".into(), xyz[2]);
@@ -1891,7 +1905,7 @@ fn point_meta(e: &mut Engine, plot: &mut Plot) -> Result<(), Error> {
                 // `\coordindex` is the point's number
                 let per_point = source.contains("\\coordindex");
                 let mut text = if per_point { String::new() } else { e.math_string(raw.clone())? };
-                let mut vars = e.vars();
+                let mut vars = fpu_vars(e);
                 for (i, c) in plot.coords.iter_mut().enumerate() {
                     if per_point {
                         e.tex.define_string("coordindex", &i.to_string(), false);

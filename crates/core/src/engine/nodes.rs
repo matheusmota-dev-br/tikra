@@ -78,6 +78,7 @@ impl NodeInfo {
 /// The node's text split at `\nodepart[options]{name}`: the parts in order, `text` first.
 pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
     let mut parts = vec![("text".to_string(), Vec::new())];
+    let mut current = 0usize;
     let mut depth = 0usize;
     let mut i = 0;
     let skip_spaces = |j: &mut usize| {
@@ -134,11 +135,21 @@ pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
                 "fourth" => "four".to_string(),
                 _ => name,
             };
-            parts.push((name, Vec::new()));
+            // a part named again starts its box anew, as `\setbox` does (`\nodepart{text}text`)
+            match parts.iter().position(|(n, _)| *n == name) {
+                Some(k) => {
+                    parts[k].1.clear();
+                    current = k;
+                }
+                None => {
+                    parts.push((name, Vec::new()));
+                    current = parts.len() - 1;
+                }
+            }
             i = j;
             continue;
         }
-        parts.last_mut().expect("parts start with text").1.push(t.clone());
+        parts[current].1.push(t.clone());
         i += 1;
     }
     parts
@@ -493,6 +504,10 @@ impl Engine {
         };
         self.process_keys(tikra_tokens(&format!("every {shape_name} node/.try")), Some("/tikz"))?;
         let name = spec.name.clone().or_else(|| self.st.node.name.clone()).or_else(|| self.set_member_name());
+        // what the system layer's animations give the node at the snapshot time
+        if let Some(options) = name.as_ref().and_then(|n| self.sys_animations.remove(n)) {
+            self.process_keys(options, Some("/tikz"))?;
+        }
 
         // the text boxes, one per node part
         let mut texts = Vec::new();
@@ -798,8 +813,8 @@ impl Engine {
         let layer_items = |e: &mut Engine, layers: &[Layer], items: &mut Vec<Item>| -> Result<(), Error> {
             for p in g.paths.iter().filter(|p| layers.contains(&p.layer)) {
                 let mut segs = p.segments.clone();
-                if p.layer == Layer::Background && g.roundable && e.st.rounded > 0.0 {
-                    segs = super::output::round_corners(&segs, e.st.rounded);
+                if p.layer == Layer::Background && g.roundable && (e.st.rounded != 0.0 || e.st.rounded_out != 0.0) {
+                    segs = super::output::round_corners(&segs, e.st.rounded, e.st.rounded_out);
                 }
                 let segs = transform_segments(&segs, &t);
                 if matches!(p.usage, Usage::Node)

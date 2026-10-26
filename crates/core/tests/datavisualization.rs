@@ -113,3 +113,11 @@ fn a_new_axis_system_from_its_parts() {
     let horizontal = |l: &Vec<Segment>| l.len() == 2 && near(end(&l[1]).unwrap().minus(end(&l[0]).unwrap()), 3.0, 0.0);
     assert!(p.iter().any(horizontal), "{p:?}");
 }
+
+#[test]
+fn about_divides_as_the_fpu_does() {
+    // a sine sampled to TeX's precision spans 1.99998: about 5 ticks is a step of 0.5 (pgf's FPU
+    // rounds 1.99998/5 to 0.4), not 0.25; so -1 to 1 by 0.5 and 0 to 8 by 2
+    let n = texts(r"\datavisualization [scientific axes=clean, visualize as smooth line] data [format=function] { var x : interval[0:3*pi]; func y = cos(\value x r); };");
+    assert_eq!(n, 10);
+}

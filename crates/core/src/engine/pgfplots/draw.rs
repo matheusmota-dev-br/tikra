@@ -170,13 +170,9 @@ impl Frame {
     }
 
     /// `axis description cs`: (0,0) the lower left corner of the box as drawn, (1,1) the upper right
-    /// one (`\pgfplotspointdescriptionxy`).
+    /// one (`\pgfplotspointdescriptionxy`). pgfplots takes the corners of the bounding box of the
+    /// axis, so with skewed unit vectors (`x={(5pt,1pt)}`) these are not the axis' corners.
     pub fn desc(&self, x: f64, y: f64) -> Point {
-        if !self.three_d && !self.polar && !self.smith {
-            // the box as seen: a reversed axis does not turn it over
-            let flip = |r: f64, a: usize| if self.reversed[a] { 1.0 - r } else { r };
-            return self.rel([flip(x, 0), flip(y, 1), 0.0]);
-        }
         let (lo, hi) = self.bbox();
         Point::new(lo.x + x * (hi.x - lo.x), lo.y + y * (hi.y - lo.y))
     }
@@ -420,9 +416,41 @@ fn axis_at(e: &mut Engine) -> Result<(Point, bool), Error> {
     Ok((at, shifts))
 }
 
-/// Draws the axis collected by the survey.
 /// Draws the axis collected by the survey; returns its colorbar, drawn once its group is closed.
+/// A picture scaled or rotated (`\begin{tikzpicture}[scale=0.75]`) has the whole axis drawn so, its
+/// text and lines too, as pgfplots does: it is drawn unscaled from the picture's origin, then
+/// transformed around it.
 pub fn draw_axis(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
+    let saved = e.st.transform;
+    let linear = Transform { e: 0.0, f: 0.0, ..saved };
+    let identity = Transform::default();
+    if [linear.a - identity.a, linear.b, linear.c, linear.d - identity.d].iter().all(|v| v.abs() < 1e-9) {
+        return draw_axis_unscaled(e, axis);
+    }
+    let origin = saved.apply(Point::default());
+    let m = Transform::translation(origin.x, origin.y).compose(&linear).compose(&Transform::translation(-origin.x, -origin.y));
+    e.st.transform = Transform::translation(origin.x, origin.y);
+    let (items_before, box_before) = (e.canvas.items.len(), (e.canvas.min.take(), e.canvas.max.take()));
+    let nodes_before: std::collections::HashSet<String> = e.nodes.keys().cloned().collect();
+    let r = draw_axis_unscaled(e, axis);
+    e.st.transform = saved;
+    e.canvas.items[items_before..].iter_mut().for_each(|it| it.transform(&m));
+    for (name, n) in e.nodes.iter_mut() {
+        if !nodes_before.contains(name) {
+            n.transform = m.compose(&n.transform);
+        }
+    }
+    let axis_box = e.canvas.min.zip(e.canvas.max);
+    (e.canvas.min, e.canvas.max) = box_before;
+    if let Some((lo, hi)) = axis_box {
+        for corner in [lo, Point::new(hi.x, lo.y), hi, Point::new(lo.x, hi.y)] {
+            e.canvas.include(m.apply(corner));
+        }
+    }
+    r
+}
+
+fn draw_axis_unscaled(e: &mut Engine, axis: &Axis) -> Result<Option<super::colorbar::Colorbar>, Error> {
     let mut setup = setup(e, axis)?;
     let anchor = keys::value(e, "/pgfplots/anchor");
     // an anchor of the box alone (`origin`, `south west`…) places the axis before it is drawn, as
@@ -1687,7 +1715,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     // where the next fill between region goes: after those before it
     let mut pre_main_end = pre_main;
     let compat = keys::compat(e);
-    f.cs.set(if compat >= 111 { Cs::Axis } else { Cs::Plain });
+    f.cs.set(if keys::substitute_pgfpoint(e) { Cs::Axis } else { Cs::Plain });
     // before compat 1.11 TikZ's unit vectors are those of the data scale transformation: a radius
     // or a relative coordinate is in its units
     let units = (e.st.x, e.st.y, e.st.z);
@@ -2618,7 +2646,7 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     // `after end axis/.code`: plain coordinates again, nothing clipped
     if e.key_exists("/pgfplots/after end axis") {
         let cs = f.cs.get();
-        f.cs.set(if keys::compat(e) >= 111 { Cs::Axis } else { Cs::Plain });
+        f.cs.set(if keys::substitute_pgfpoint(e) { Cs::Axis } else { Cs::Plain });
         e.begin_group();
         let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/after end axis"), None));
         e.end_group();

@@ -232,9 +232,12 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
             (
                 s * 2.0,
                 format!(
-                    r##"<rect width="{}" height="{}" fill="#ffffff"/><rect y="{}" width="{}" height="{}" fill="{gray}"/><rect x="{}" width="{}" height="{}" fill="{gray}"/>"##,
-                    n(2.0 * s),
-                    n(2.0 * s),
+                    // the white beyond the tile, which clips it: no seam where two tiles meet
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#ffffff"/><rect y="{}" width="{}" height="{}" fill="{gray}"/><rect x="{}" width="{}" height="{}" fill="{gray}"/>"##,
+                    n(-2.0 * s),
+                    n(-2.0 * s),
+                    n(6.0 * s),
+                    n(6.0 * s),
                     n(s),
                     n(s),
                     n(s),
@@ -258,12 +261,15 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
             (
                 s,
                 format!(
-                    r#"<rect y="{}" width="{}" height="{}" fill="{}"/><rect width="{}" height="{}" fill="{}"/>"#,
+                    // the stripes run on beyond the tile's sides, which it clips: no seam between tiles
+                    r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/><rect x="{}" width="{}" height="{}" fill="{}"/>"#,
+                    n(-s),
                     n(2.0 * pt),
-                    n(s),
+                    n(3.0 * s),
                     n(2.0 * pt),
                     tint(base, a),
-                    n(s),
+                    n(-s),
+                    n(3.0 * s),
                     n(2.0 * pt),
                     tint(base, b)
                 ),
@@ -281,7 +287,7 @@ fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
             let s = 8.0 * pt;
             let dot = |x: f64, y: f64, c: &str| format!(r#"<circle cx="{}" cy="{}" r="{}" fill="{c}"/>"#, n(x * pt), n((8.0 - y) * pt), n(pt));
             let (light, darker) = (tint(dark, 0.1), tint(dark, 0.7));
-            let body = format!(r#"<rect width="{}" height="{}" fill="{back}"/>"#, n(s), n(s))
+            let body = format!(r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{back}"/>"#, n(-s), n(-s), n(3.0 * s), n(3.0 * s))
                 + &dot(2.0, 1.75, &light)
                 + &dot(6.0, 5.75, &light)
                 + &dot(2.0, 2.25, &darker)
@@ -378,12 +384,25 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 }
                 let d = path_data(segments);
                 let mut a = String::new();
-                match fill {
+                // filled and stroked at one opacity: PDF paints the two as one group, so the stroke
+                // does not darken the fill under it; SVG's `opacity` of the element does the same
+                let shared = match (fill, stroke) {
+                    (Some(f), Some(s)) if f.opacity < 1.0 && (f.opacity - s.opacity).abs() < 1e-9 => Some(f.opacity),
+                    _ => None,
+                };
+                let (fill, stroke) = match shared {
+                    Some(_) => (fill.clone().map(|f| Fill { opacity: 1.0, ..f }), stroke.clone().map(|s| Stroke { opacity: 1.0, ..s })),
+                    None => (fill.clone(), stroke.clone()),
+                };
+                match &fill {
                     Some(f) => a.push_str(&fill_attributes(f, defs)),
                     None => a.push_str(r#" fill="none""#),
                 }
-                if let Some(s) = stroke {
+                if let Some(s) = &stroke {
                     a.push_str(&stroke_attributes(s));
+                }
+                if let Some(o) = shared {
+                    let _ = write!(a, r#" opacity="{}""#, n(o.max(0.0)));
                 }
                 let _ = write!(body, r#"<path d="{d}"{a}/>"#);
             }
@@ -406,6 +425,7 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                     body.push_str(r#"<g style="isolation:isolate">"#);
                 }
             }
+            Item::Crisp => body.push_str(r#"<g shape-rendering="crispEdges">"#),
             Item::Blend { mode } => {
                 let _ = write!(body, r#"<g style="mix-blend-mode:{mode}">"#);
             }
@@ -430,9 +450,42 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
                 let _ = write!(body, r#"<g mask="url(#{id})">"#);
             }
+            Item::Image { png, place: t } => {
+                // the unit square, y up, in the SVG's coordinates: y down, in bp; pdfTeX writes no
+                // /Interpolate, and PDF rasterizers sample the image's pixels
+                let m = [t.a * BP, -t.b * BP, -t.c * BP, t.d * BP, (t.c + t.e) * BP, -(t.d + t.f) * BP];
+                let _ = write!(
+                    body,
+                    r#"<image width="1" height="1" preserveAspectRatio="none" image-rendering="optimizeSpeed" transform="matrix({} {} {} {} {} {})" href="data:image/png;base64,{}"/>"#,
+                    num(m[0], 4),
+                    num(m[1], 4),
+                    num(m[2], 4),
+                    num(m[3], 4),
+                    n(m[4]),
+                    n(m[5]),
+                    base64(png)
+                );
+            }
             Item::End => body.push_str("</g>"),
         }
     }
+}
+
+/// Standard base64, with padding (an image's `data:` URI).
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let v = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        for k in 0..4 {
+            if k <= c.len() {
+                s.push(char::from(ABC[(v >> (18 - 6 * k)) as usize & 63]));
+            } else {
+                s.push('=');
+            }
+        }
+    }
+    s
 }
 
 /// FNV-1a: a hash that is the same on every platform, for ids that depend only on the input.
@@ -483,4 +536,15 @@ pub fn svg(canvas: &Canvas, source: &str, words: &crate::describe::Description) 
     let _ = write!(s, r#"<metadata><tikra:source type="tikz">{}</tikra:source></metadata>"#, escape(source));
     let _ = write!(s, "<defs>{}</defs>{body}</svg>", defs.text);
     s
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn base64_pads() {
+        assert_eq!(super::base64(b"Man"), "TWFu");
+        assert_eq!(super::base64(b"Ma"), "TWE=");
+        assert_eq!(super::base64(b"M"), "TQ==");
+        assert_eq!(super::base64(b""), "");
+    }
 }

@@ -347,3 +347,41 @@ fn shapes_have_their_border_paths() {
     let c = border(r"\node[draw, circle] {x};");
     assert_eq!(curves(&c), 4, "{c:?}");
 }
+
+#[test]
+fn a_line_between_nodes_of_a_name_prefix_stops_at_their_borders() {
+    let c = canvas(r"\begin{scope}[name prefix=top-] \node (A) at (0,0) {A}; \node (B) at (1,0) {B}; \draw (A) -- (B); \end{scope}");
+    let line = paths(&c).pop().unwrap();
+    let xs: Vec<f64> = points(&line.segments).into_iter().map(|(x, _)| x).collect();
+    // from A's east border to B's west border, not through B to its far side
+    assert!(xs[0] > 0.1 && xs[1] < 0.9, "{xs:?}");
+}
+
+#[test]
+fn a_rectangle_callout_finds_its_angle_anchors_as_pgf_does() {
+    // pgf looks for the border toward the direction plus the center (seen from the text's origin):
+    // on a wide callout, 60° lands on the east side, not near the top's middle
+    let body = r"\node[rectangle callout] (s) {A rather long callout for its height};";
+    let (a, east) = (point(body, "s.60"), point(body, "s.east"));
+    assert!((a.x - east.x).abs() < 1e-6 && a.y > east.y, "{a:?} {east:?}");
+}
+
+#[test]
+fn a_snapshot_animates_the_picture_with_its_text() {
+    // `myself: = {…}` with several attributes; the rotation turns the canvas, text included
+    let c = canvas(
+        r#"\begin{scope}[make snapshot of=1s, animate = { myself: = { :rotate = { 0s = "0", 2s = "90" }, :line width = { 0s = "0mm", 4s = "4mm" } }}] \node [draw] {Node}; \end{scope}"#,
+    );
+    let turned = c.items.iter().any(|i| matches!(i, tikra::canvas::Item::Transform { transform: t } if (t.b.atan2(t.a).to_degrees() - 45.0).abs() < 1e-6));
+    assert!(turned && !texts(&c).is_empty());
+    let width = paths(&c).iter().find_map(|d| d.stroke.as_ref().map(|s| s.width)).unwrap();
+    assert!((width - 0.1).abs() < 1e-6, "{width}");
+}
+
+#[test]
+fn small_capitals_are_as_wide_as_cmcsc10_sets_them() {
+    // a word in \scshape is wider than in the label font (cmcsc10 is an extended design): in 2cm,
+    // "Complexity" no longer fits and is hyphenated, as in TeX
+    let (l, _) = label(r"\node[text width=2cm, align=center, font=\scshape, execute at begin node=\hskip0pt] {Measuring Complexity};");
+    assert_eq!(l.lines.len(), 3, "{}", l.lines.len());
+}

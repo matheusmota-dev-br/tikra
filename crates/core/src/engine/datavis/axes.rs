@@ -320,7 +320,7 @@ impl Engine {
             hi = hi.log10();
         }
         let about = parse_value(self, n).unwrap_or(5.0);
-        let around = (hi - lo) / about;
+        let around = fpu_divide(hi - lo, about);
         if around == 0.0 || !around.is_finite() {
             self.tex.define_string("tikra@dv@step", "0", false);
             return Ok(());
@@ -801,4 +801,15 @@ fn parse_tick(item: &[Token]) -> (Vec<Token>, Vec<Token>, Option<Vec<Token>>) {
     }
     let text = if rest.is_empty() { None } else { Some(rest) };
     (pos, opts, text)
+}
+
+/// `a / b` as pgf's FPU divides: the quotient of the two mantissas kept to five decimals, so
+/// 1.99998 / 5 is 0.4 (and a step of 0.5, not 0.25, for a sine sampled to TeX's precision).
+fn fpu_divide(a: f64, b: f64) -> f64 {
+    if a == 0.0 || b == 0.0 || !a.is_finite() || !b.is_finite() {
+        return a / b;
+    }
+    let (ea, eb) = (a.abs().log10().floor() as i32, b.abs().log10().floor() as i32);
+    let q = (a / 10f64.powi(ea)) / (b / 10f64.powi(eb));
+    (q * 1e5).round() / 1e5 * 10f64.powi(ea - eb)
 }

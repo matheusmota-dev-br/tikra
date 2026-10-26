@@ -82,8 +82,14 @@ pub fn ellipse_callout(input: &mut Input) -> Geometry {
         g.anchor_at(name, q);
     }
     let mut v = vec![Segment::MoveTo(p), Segment::LineTo(after)];
-    let end = if after_angle < before_angle { before_angle } else { before_angle + 360.0 };
-    arc_to(&mut v, after, after_angle, end, xp, yp);
+    // pgf goes around in two arcs, up to 360° and on from 0°: their pieces start at 0°, so their
+    // control points (which count for the picture's size) stay inside the ellipse's box
+    if after_angle < before_angle {
+        arc_to(&mut v, after, after_angle, before_angle, xp, yp);
+    } else {
+        let east = arc_to(&mut v, after, after_angle, 360.0, xp, yp);
+        arc_to(&mut v, east, 0.0, before_angle, xp, yp);
+    }
     v.push(Segment::Close);
     g.background(v);
     g
@@ -129,7 +135,7 @@ pub fn rectangle_callout(input: &mut Input) -> Geometry {
     let before = c.plus(pt(xb - xc, yb - yc));
     let after = c.plus(pt(xb + xc, yb + yc));
     let pa = pointer_anchor(input, p, before, after);
-    let mut g = Geometry::new(c, Border::Rectangle(pt(xl, yl)));
+    let mut g = Geometry::new(c, Border::RectangleShifted(pt(xl, yl), c));
     let bp = input.base_point();
     // pgf puts this mid point half an em up, not half an ex
     let m = pt(bp.x, 0.5 * input.ex / 0.43);

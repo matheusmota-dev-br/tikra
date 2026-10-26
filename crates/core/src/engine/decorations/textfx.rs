@@ -320,7 +320,8 @@ impl Run<'_> {
             v.push(Token::Char('}', Cat::End));
             text = v;
         }
-        let blank = is_space(&c.tokens);
+        // (a control space `\ ` is one too)
+        let blank = is_space(&c.tokens) || matches!(&c.tokens[..], [Token::Cs(n)] if &**n == " ");
         if blank {
             // a space: an empty box as wide as the font's interword space
             text = super::super::tikra_tokens("$\\hspace{0.33333em}$");

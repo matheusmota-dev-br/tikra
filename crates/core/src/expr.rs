@@ -19,6 +19,9 @@ pub struct Variables {
     pub in_pt: bool,
     /// The font is sans serif (its `em` and `ex` are cmss's).
     pub sans: bool,
+    /// pgf's floating point unit computes (pgfplots' expressions): its square root and `exp` are
+    /// pgf's own, not pgfmath's.
+    pub fpu: bool,
 }
 
 impl Variables {
@@ -502,8 +505,10 @@ impl Parser<'_> {
                     "acos" => a.acos().to_degrees(),
                     "atan" => a.atan().to_degrees(),
                     "atan2" => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
+                    "sqrt" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a),
                     "sqrt" => a.sqrt(),
                     "abs" => a.abs(),
+                    "exp" if self.vars.fpu => crate::engine::pgfplots::fpu::exp(a),
                     "exp" => a.exp(),
                     "ln" => a.ln(),
                     "log10" => a.log10(),
@@ -516,6 +521,8 @@ impl Parser<'_> {
                     "max" => args.iter().copied().fold(f64::NEG_INFINITY, f64::max),
                     "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
                     "mod" => a % args.get(1).copied().unwrap_or(1.0),
+                    // the fpu's veclen is its sqrt(a^2 + b^2)
+                    "veclen" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a * a + args.get(1).map_or(0.0, |b| b * b)),
                     "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
                     // n! of the integer part, as pgfmath has it
                     "factorial" => (1..=a.trunc().max(0.0) as u64).map(|k| k as f64).product(),
