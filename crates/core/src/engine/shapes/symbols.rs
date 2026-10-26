@@ -186,7 +186,7 @@ pub fn cloud_parts(input: &mut Input) -> Cloud {
     let step = 360.0 / n as f64;
     let (x, y) = input.half_with_inner();
     let (x, y) = (SQRT_2 * x, SQRT_2 * y);
-    let (xc, yc) = if input.keys.flag("pgfcloudignoresaspect") {
+    let (xc, yc) = if input.keys.flag("tikra@sh@cloudnoaspect") {
         (x, y)
     } else {
         let aspect = input.aspect;
@@ -214,7 +214,7 @@ pub fn cloud_parts(input: &mut Input) -> Cloud {
 pub fn cloud(input: &mut Input) -> Geometry {
     let cl = cloud_parts(input);
     let c = input.center_point();
-    let border = if input.keys.flag("pgfcloudanchorsuseellipse") { Border::Ellipse(cl.outer) } else { Border::Outline(cl.outline) };
+    let border = if input.keys.flag("tikra@sh@cloudellipse") { Border::Ellipse(cl.outer) } else { Border::Outline(cl.outline) };
     let mut g = Geometry::new(c, border);
     text_anchors(&mut g, input);
     let (x, y) = (cl.outer.x, cl.outer.y);

@@ -69,8 +69,7 @@ pub const KEYS: &[(&str, KeyFn)] = &[
 
 /// The libraries' styles, read as TeX with `@` a letter.
 pub const DEFINITIONS: &str = r"
-\newcount\tikznumberofchildren
-\newcount\tikznumberofcurrentchild
+\newcount\tikznumberofchildren \newcount\tikznumberofcurrentchild
 % plain TeX's form of the scope environment
 \def\scope{\begin{scope}}
 \def\endscope{\end{scope}}
@@ -84,18 +83,18 @@ pub const DEFINITIONS: &str = r"
   state/.style={state without output},
   accepting by double/.style={double,outer sep=.5\pgflinewidth+.3pt},
   accepting by arrow/.style={after node path={{[to path={[->,double=none,every accepting by arrow] --
-    ([shift=(\tikz@accepting@angle:\tikz@accepting@distance)]\tikztostart.\tikz@accepting@angle)
-    node[shape=rectangle,anchor=\tikz@accepting@anchor]{\tikz@accepting@text}}] edge ()}}},
+    ([shift=(\tikra@au@accepting@angle:\tikra@au@accepting@distance)]\tikztostart.\tikra@au@accepting@angle)
+    node[shape=rectangle,anchor=\tikra@au@accepting@anchor]{\tikra@au@accepting@text}}] edge ()}}},
   initial by arrow/.style={after node path={{[to path={[->,double=none,every initial by arrow]
-    ([shift=(\tikz@initial@angle:\tikz@initial@distance)]\tikztostart.\tikz@initial@angle)
-    node[shape=rectangle,anchor=\tikz@initial@anchor]{\tikz@initial@text} -- (\tikztostart)}] edge ()}}},
+    ([shift=(\tikra@au@initial@angle:\tikra@au@initial@distance)]\tikztostart.\tikra@au@initial@angle)
+    node[shape=rectangle,anchor=\tikra@au@initial@anchor]{\tikra@au@initial@text} -- (\tikztostart)}] edge ()}}},
   initial by diamond/.style={shape=diamond},
-  initial text/.code={\tikzaddafternodepathoption{\def\tikz@initial@text{#1}}},
-  accepting text/.code={\tikzaddafternodepathoption{\def\tikz@accepting@text{#1}}},
-  initial where/.code={\tikzaddafternodepathoption{\csname tikz@initial@where@#1\endcsname}},
-  accepting where/.code={\tikzaddafternodepathoption{\csname tikz@accepting@where@#1\endcsname}},
-  initial distance/.code={\tikzaddafternodepathoption{\def\tikz@initial@distance{#1}}},
-  accepting distance/.code={\tikzaddafternodepathoption{\def\tikz@accepting@distance{#1}}},
+  initial text/.code={\tikzaddafternodepathoption{\def\tikra@au@initial@text{#1}}},
+  accepting text/.code={\tikzaddafternodepathoption{\def\tikra@au@accepting@text{#1}}},
+  initial where/.code={\tikzaddafternodepathoption{\csname tikra@au@initial@where@#1\endcsname}},
+  accepting where/.code={\tikzaddafternodepathoption{\csname tikra@au@accepting@where@#1\endcsname}},
+  initial distance/.code={\tikzaddafternodepathoption{\def\tikra@au@initial@distance{#1}}},
+  accepting distance/.code={\tikzaddafternodepathoption{\def\tikra@au@accepting@distance{#1}}},
   initial above/.style={initial by arrow,initial where=above},
   initial below/.style={initial by arrow,initial where=below},
   initial left/.style={initial by arrow,initial where=left},
@@ -106,13 +105,13 @@ pub const DEFINITIONS: &str = r"
   accepting right/.style={accepting by arrow,accepting where=right},
   accepting/.style={accepting by double}, initial/.style={initial by arrow},
 }
-\def\tikz@initial@text{start}\def\tikz@accepting@text{}
-\def\tikz@initial@distance{3ex}\def\tikz@accepting@distance{3ex}
-\def\tikz@initial@angle{180}\def\tikz@initial@anchor{east}
-\def\tikz@accepting@angle{0}\def\tikz@accepting@anchor{west}
+\def\tikra@au@initial@text{start}\def\tikra@au@accepting@text{}
+\def\tikra@au@initial@distance{3ex}\def\tikra@au@accepting@distance{3ex}
+\def\tikra@au@initial@angle{180}\def\tikra@au@initial@anchor{east}
+\def\tikra@au@accepting@angle{0}\def\tikra@au@accepting@anchor{west}
 \def\tikra@where#1#2#3{%
-  \expandafter\def\csname tikz@initial@where@#1\endcsname{\def\tikz@initial@angle{#2}\def\tikz@initial@anchor{#3}}%
-  \expandafter\def\csname tikz@accepting@where@#1\endcsname{\def\tikz@accepting@angle{#2}\def\tikz@accepting@anchor{#3}}}
+  \expandafter\def\csname tikra@au@initial@where@#1\endcsname{\def\tikra@au@initial@angle{#2}\def\tikra@au@initial@anchor{#3}}%
+  \expandafter\def\csname tikra@au@accepting@where@#1\endcsname{\def\tikra@au@accepting@angle{#2}\def\tikra@au@accepting@anchor{#3}}}
 \tikra@where{above}{90}{south}\tikra@where{below}{270}{north}
 \tikra@where{left}{180}{east}\tikra@where{right}{0}{west}
 \tikzset{
@@ -156,11 +155,13 @@ pub const DEFINITIONS: &str = r"
   attribute/.style={minimum size=1.5\baselineskip,ellipse,draw,every attribute},
   key attribute/.style={font=\itshape,attribute},
 }
+% the shadow keys' values, as the shadow's transformation reads them
+\def\tikra@shadow#1{\pgfkeysvalueof{/tikz/shadow #1}}
 \tikzset{
   shadow scale/.initial=1, shadow xshift/.initial=0pt, shadow yshift/.initial=0pt,
   general shadow/.style={preaction={#1,transform canvas={
-    scale around=\pgfkeysvalueof{/tikz/shadow scale}:(current path bounding box.center),
-    shift={(\pgfkeysvalueof{/tikz/shadow xshift},\pgfkeysvalueof{/tikz/shadow yshift})}}}},
+    scale around=\tikra@shadow{scale}:(current path bounding box.center),
+    shift={(\tikra@shadow{xshift},\tikra@shadow{yshift})}}}},
   drop shadow/.style={general shadow={shadow scale=1,shadow xshift=.5ex,shadow yshift=-.5ex,
     opacity=.5,fill=black!50,every shadow,#1}},
   circular drop shadow/.style={general shadow={shadow scale=1.1,shadow xshift=.3ex,shadow yshift=-.3ex,
@@ -172,8 +173,7 @@ pub const DEFINITIONS: &str = r"
   double copy shadow/.style={
     general shadow={shadow scale=1,shadow xshift=.5ex,shadow yshift=.5ex,
       fill=\tikz@fillcolor,draw=\tikz@strokecolor,#1,
-      shadow xshift/.expanded=2*\pgfkeysvalueof{/tikz/shadow xshift},
-      shadow yshift/.expanded=2*\pgfkeysvalueof{/tikz/shadow yshift}},
+      shadow xshift/.expanded=2*\tikra@shadow{xshift}, shadow yshift/.expanded=2*\tikra@shadow{yshift}},
     general shadow={shadow scale=1,shadow xshift=.5ex,shadow yshift=.5ex,
       fill=\tikz@fillcolor,draw=\tikz@strokecolor,#1}},
   general shadow/.default=, drop shadow/.default=, circular drop shadow/.default=, circular glow/.default=,

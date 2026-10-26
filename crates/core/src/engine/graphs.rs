@@ -414,16 +414,16 @@ impl Engine {
 
     fn invoke_operator_tokens(&mut self, list: Vec<Token>) -> Result<(), Error> {
         self.begin_group();
-        self.set_gvalue("@operators", Vec::new());
+        self.set_gvalue("@pending operators", Vec::new());
         let r = self.gkeys(list);
-        let ops = self.gvalue("@operators");
+        let ops = self.gvalue("@pending operators");
         self.end_group();
         r?;
         self.run_tokens(ops)
     }
 
     fn run_operators(&mut self) -> Result<(), Error> {
-        let ops = self.gvalue("@operators");
+        let ops = self.gvalue("@pending operators");
         self.run_tokens(ops)
     }
 
@@ -466,11 +466,11 @@ impl Engine {
         };
         self.graphs.stack.push(Graph::default());
         self.begin_group();
-        let mut o = tikra_tokens("graphs/.cd,redirect unknown to tikz,@graph drawing setup/.try,@operators=,every graph/.try,");
+        let mut o = tikra_tokens("graphs/.cd,redirect unknown to tikz,@graph drawing setup/.try,@pending operators=,every graph/.try,");
         o.extend(options);
         let r = self.open_tikz_scope(Some(o), false).and_then(|_| {
             self.begin_group();
-            let r = if self.tex_if("iftikz@graph@quick") { self.quick_graph(body) } else { self.graph_main(body) };
+            let r = if self.tex_if("iftikra@gr@quick") { self.quick_graph(body) } else { self.graph_main(body) };
             self.end_group();
             r
         });
@@ -482,7 +482,7 @@ impl Engine {
 
     /// `\tikz@lib@graphs@normal@main`: the outermost group, then the graph's own operators.
     fn graph_main(&mut self, body: Vec<Token>) -> Result<(), Error> {
-        let outer = self.gvalue("@operators");
+        let outer = self.gvalue("@pending operators");
         self.set_list(Vec::new());
         for key in ["depth", "width", "level"] {
             self.set_place(key, 0.0);
@@ -535,7 +535,7 @@ impl Engine {
         if let Some(g) = self.graph_state() {
             g.extras.clear();
         }
-        let mut o = tikra_tokens("@operators=,every group/.try,@extra group options,@extra group options/.style={},");
+        let mut o = tikra_tokens("@pending operators=,every group/.try,@extra group options,@extra group options/.style={},");
         o.extend(options);
         self.gkeys(o)?;
         let mut content = self.graph_state().map(|g| std::mem::take(&mut g.extras)).unwrap_or_default();
@@ -689,11 +689,11 @@ impl Engine {
         self.invoke_operator("recolor source by=source',recolor source'' by=source")?;
         self.begin_group();
         self.set_gvalue("default edge kind", tex::string_tokens(kind));
-        self.set_gvalue("@operators", Vec::new());
+        self.set_gvalue("@pending operators", Vec::new());
         self.set_unknown("@unknown edge option");
         let r = (|| {
             self.gkeys(edge_quotes(&options))?;
-            if keys::trim(&self.gvalue("@operators")).is_empty() {
+            if keys::trim(&self.gvalue("@pending operators")).is_empty() {
                 let default = self.gvalue("default edge operator");
                 self.gkeys(default)?;
             }
@@ -743,21 +743,21 @@ impl Engine {
                 (tex::tokens_to_string(&raw).trim().to_string(), raw)
             }
         };
-        let path = self.macro_string("tikz@lib@graph@path");
-        if self.tex_if("iftikzgraphsautonumbernodes") && !name.is_empty() {
-            let sep = self.macro_string("tikz@lib@auto@sep");
-            if let Meaning::Count(c) = self.tex.meaning_of("tikz@lib@auto@number") {
+        let path = self.macro_string("tikra@gr@path");
+        if self.tex_if("iftikra@gr@numbered") && !name.is_empty() {
+            let sep = self.macro_string("tikra@gr@autosep");
+            if let Meaning::Count(c) = self.tex.meaning_of("tikra@gr@autonum") {
                 let n = self.tex.counts.get(&c).copied().unwrap_or(0);
                 name = format!("{name}{sep}{n}");
                 self.tex.set_count(c, n + 1, true);
             }
         }
-        if self.tex_if("iftikz@lib@graph@fresh@node") {
+        if self.tex_if("iftikra@gr@fresh@node") {
             while self.is_local(&format!("{path}{name}")) {
                 name.push('\'');
             }
         }
-        self.tex.set_meaning(&Token::cs("tikzgraphnodeas"), macro_tokens(vec![Token::cs("tikz@lib@graph@typesetter")]), false);
+        self.tex.set_meaning(&Token::cs("tikzgraphnodeas"), macro_tokens(vec![Token::cs("tikra@gr@typesetter")]), false);
         if name.is_empty() && options.is_none() {
             return Ok(());
         }
@@ -784,8 +784,8 @@ impl Engine {
             return Ok(());
         }
         let full = format!("{path}{name}");
-        self.tex.define_string("tikz@lib@graph@name", &full, false);
-        if let Meaning::Macro(m) = self.tex.meaning_of(&format!("tikz@lib@graph@def@{name}")) {
+        self.tex.define_string("tikra@gr@name", &full, false);
+        if let Meaning::Macro(m) = self.tex.meaning_of(&format!("tikra@gr@def@{name}")) {
             let body = tex::substitute(&m.body, &[]);
             return self.declared_graph(body, options);
         }
@@ -797,7 +797,7 @@ impl Engine {
         self.begin_group();
         let outer = self.take_list();
         self.set_list(vec![full.clone()]);
-        self.set_gvalue("@operators", Vec::new());
+        self.set_gvalue("@pending operators", Vec::new());
         let r = self.make_graph_node(name, path, &full, text, options);
         self.set_list(outer);
         self.end_group();
@@ -808,7 +808,7 @@ impl Engine {
         if let Some(g) = self.graph_state() {
             g.list.push(full.clone());
         }
-        if self.tex_if("iftikz@lib@graph@trie") {
+        if self.tex_if("iftikra@gr@trie") {
             let mut k = tikra_tokens("name=");
             k.extend(text_group(name));
             self.gkeys(k)?;
@@ -835,7 +835,7 @@ impl Engine {
         if let Some(g) = self.graph_state() {
             g.colors.insert(full.to_string(), vec!["all".into(), "source".into(), "target".into()]);
         }
-        if self.tex_if("iftikz@lib@graph@all") {
+        if self.tex_if("iftikra@gr@all") {
             // use existing nodes: only the coloring
             self.set_unknown("@ignore");
             self.gkeys(options)?;
@@ -852,7 +852,7 @@ impl Engine {
         }
         let mut node = tikra_tokens("\\node[name=");
         node.extend(text_group(full));
-        node.extend(tikra_tokens(",graphs/redirect unknown to tikz,/tikz/graphs/.cd,/tikz/graphs/@nodes styling,"));
+        node.extend(tikra_tokens(",graphs/redirect unknown to tikz,/tikz/graphs/.cd,/tikz/graphs/@node options,"));
         node.extend(options);
         node.extend(tikra_tokens(",/tikz/graphs/@save operators]{\\tikzgraphnodeas};"));
         self.run_tokens(node)?;
@@ -997,9 +997,9 @@ impl Engine {
             }
             let options = if r.peek_char('[') { r.delimited('[', ']') } else { Vec::new() };
             let mut name = tex::tokens_to_string(&name);
-            if self.tex_if("iftikzgraphsautonumbernodes") {
-                let sep = self.macro_string("tikz@lib@auto@sep");
-                if let Meaning::Count(c) = self.tex.meaning_of("tikz@lib@auto@number") {
+            if self.tex_if("iftikra@gr@numbered") {
+                let sep = self.macro_string("tikra@gr@autosep");
+                if let Meaning::Count(c) = self.tex.meaning_of("tikra@gr@autonum") {
                     let n = self.tex.counts.get(&c).copied().unwrap_or(0);
                     name = format!("{name}{sep}{n}");
                     self.tex.set_count(c, n + 1, true);
@@ -1014,10 +1014,10 @@ impl Engine {
                 self.tex.set_meaning(&Token::cs("tikzgraphnodetext"), macro_tokens(text), false);
                 self.tex.define_string("tikzgraphnodename", &name, false);
                 self.tex.define_string("tikzgraphnodefullname", &name, false);
-                self.tex.set_meaning(&Token::cs("tikzgraphnodeas"), macro_tokens(vec![Token::cs("tikz@lib@graph@typesetter")]), false);
+                self.tex.set_meaning(&Token::cs("tikzgraphnodeas"), macro_tokens(vec![Token::cs("tikra@gr@typesetter")]), false);
                 let mut node = tikra_tokens("\\node[name=");
                 node.extend(text_group(&name));
-                node.extend(tikra_tokens(",graphs/redirect unknown to tikz,/tikz/graphs/.cd,/tikz/graphs/@nodes styling,"));
+                node.extend(tikra_tokens(",graphs/redirect unknown to tikz,/tikz/graphs/.cd,/tikz/graphs/@node options,"));
                 node.extend(options);
                 node.extend(tikra_tokens("]{\\tikzgraphnodeas};"));
                 let res = self.run_tokens(node);
@@ -1028,7 +1028,7 @@ impl Engine {
                 self.begin_group();
                 self.set_unknown("@unknown edge option");
                 let res = self.gkeys(edge_quotes(&options)).and_then(|_| {
-                    let (styling, nodes) = (self.gvalue("@edges styling"), self.gvalue("@edges node"));
+                    let (styling, nodes) = (self.gvalue("@edge options"), self.gvalue("@edge texts"));
                     self.new_edge(&kind, &from, &name, styling, nodes)
                 });
                 self.end_group();
@@ -1074,8 +1074,8 @@ impl Engine {
     /// `\tikz@lib@graph@default@new@edge`: an edge of the default kind, with the edge styling in force
     /// and the annotations of its two nodes; in a `simple` graph it waits for the group's end.
     fn default_new_edge(&mut self, from: &str, to: &str) -> Result<(), Error> {
-        let mut styling = self.gvalue("@edges styling");
-        let mut nodes = self.gvalue("@edges node");
+        let mut styling = self.gvalue("@edge options");
+        let mut nodes = self.gvalue("@edge texts");
         let mut annotated = false;
         for (side, n) in [('a', from), ('b', to)] {
             if let Some((s, nd)) = self.graph_state().and_then(|g| g.annotations.get(&(side, n.to_string())).cloned()) {
@@ -1089,7 +1089,7 @@ impl Engine {
             styling.extend(tikra_tokens(",after source and target edge/.try"));
         }
         let kind = self.gvalue_string("default edge kind");
-        if self.tex_if("iftikz@lib@graph@simple") {
+        if self.tex_if("iftikra@gr@simple") {
             if let Some(g) = self.graph_state() {
                 g.simple.remove(&(to.to_string(), from.to_string()));
                 g.simple.insert((from.to_string(), to.to_string()), (kind, styling, nodes));
@@ -1423,7 +1423,7 @@ fn k_color_class(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
 fn k_annotate(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let a = split_arguments(&v.unwrap_or_default(), 3);
     let side = if e.tex.expand_to_string(a[0].clone())?.trim() == "a" { 'a' } else { 'b' };
-    let name = e.macro_string("tikz@lib@graph@name");
+    let name = e.macro_string("tikra@gr@name");
     if let Some(g) = e.graph_state() {
         let entry = g.annotations.entry((side, name)).or_insert_with(|| (Vec::new(), Vec::new()));
         if entry.0.is_empty() && entry.1.is_empty() {
@@ -1439,7 +1439,7 @@ fn k_annotate(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
 
 fn k_annotate_clear(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let side = if value_text(e, &v)? == "a" { 'a' } else { 'b' };
-    let name = e.macro_string("tikz@lib@graph@name");
+    let name = e.macro_string("tikra@gr@name");
     if let Some(g) = e.graph_state() {
         g.annotations.remove(&(side, name));
     }
@@ -1523,7 +1523,7 @@ fn k_parse(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
 fn k_declare(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let a = split_arguments(&v.unwrap_or_default(), 2);
     let name = e.tex.expand_to_string(a[0].clone())?.trim().to_string();
-    e.tex.set_meaning(&Token::cs(&format!("tikz@lib@graph@def@{name}")), macro_tokens(a[1].clone()), false);
+    e.tex.set_meaning(&Token::cs(&format!("tikra@gr@def@{name}")), macro_tokens(a[1].clone()), false);
     Ok(())
 }
 
@@ -1534,14 +1534,14 @@ fn current_name(e: &mut Engine) -> String {
 /// An unknown key among the options of a join: an option of the edges (`\tikz@lib@graph@unknown@edge@option`).
 fn k_unknown_edge_option(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let name = current_name(e);
-    let mut styling = e.gvalue("@edges styling");
+    let mut styling = e.gvalue("@edge options");
     styling.push(Token::other(','));
     styling.extend(tex::string_tokens(&name));
     if let Some(v) = v {
         styling.push(Token::other('='));
         styling.extend(group(v));
     }
-    e.set_gvalue("@edges styling", styling);
+    e.set_gvalue("@edge options", styling);
     Ok(())
 }
 
@@ -1572,7 +1572,7 @@ fn k_ignore(_e: &mut Engine, _v: Option<Vec<Token>>) -> Result<(), Error> {
 
 /// At the end of a node's options: the operators they asked for, kept for when the node exists.
 fn k_save_operators(e: &mut Engine, _v: Option<Vec<Token>>) -> Result<(), Error> {
-    let ops = e.gvalue("@operators");
+    let ops = e.gvalue("@pending operators");
     if let Some(g) = e.graph_state() {
         g.saved_ops = ops;
     }
@@ -1677,52 +1677,54 @@ const DEFINITIONS: &str = r"
 \def\tikzgraphforeachcolorednode#1#2{\pgfkeys{/tikz/graphs/@foreach colored={#1}{#2}}}
 \def\tikzgraphpreparecolor#1#2#3{\pgfkeys{/tikz/graphs/@prepare color={#1}{#2}{#3}}}
 \def\tikzgraphinvokeoperator#1{\pgfkeys{/tikz/graphs/@invoke operator={#1}}}
-\def\tikz@lib@graph@linear@pos{\pgfkeys{/tikz/graphs/@pos=linear}}
-\def\tikz@lib@graph@circular@pos{\pgfkeys{/tikz/graphs/@pos=circular}}
-\def\tikz@lib@graph@grid@pos{\pgfkeys{/tikz/graphs/@pos=grid}}
-\def\tikz@lib@graph@width@sep#1#2{\pgfkeys{/tikz/graphs/@sep={x}{#1}{#2}}}
-\def\tikz@lib@graph@depth@sep#1#2{\pgfkeys{/tikz/graphs/@sep={y}{#1}{#2}}}
+\def\tikra@gr@linear@pos{\pgfkeys{/tikz/graphs/@pos=linear}}
+\def\tikra@gr@circular@pos{\pgfkeys{/tikz/graphs/@pos=circular}}
+\def\tikra@gr@grid@pos{\pgfkeys{/tikz/graphs/@pos=grid}}
+\def\tikra@gr@width@sep#1#2{\pgfkeys{/tikz/graphs/@sep={x}{#1}{#2}}}
+\def\tikra@gr@depth@sep#1#2{\pgfkeys{/tikz/graphs/@sep={y}{#1}{#2}}}
 \def\tikzgraphleftanchor{}\def\tikzgraphrightanchor{}
-\newif\iftikz@lib@graph@all\newif\iftikz@lib@graph@simple\newif\iftikz@lib@graph@trie
-\newif\iftikz@lib@graph@fresh@node\newif\iftikzgraphsautonumbernodes\newif\iftikz@graph@quick
-\newcount\tikz@lib@auto@number
-\def\tikz@lib@auto@sep{\space}\def\tikz@lib@graph@path{}
-\def\tikz@lib@graph@x{0}\def\tikz@lib@graph@y{0}
-\def\tikz@lib@graphs@check@at{\pgfkeys{/tikz/at/.expanded={(\tikz@lib@graph@x,\tikz@lib@graph@y)}}}
-\def\tikz@lib@graph@auto@h{center}\def\tikz@lib@graph@auto@v{center}
-\def\tikz@lib@graph@auto@center@center{center}\def\tikz@lib@graph@auto@west@center{west}
-\def\tikz@lib@graph@auto@east@center{east}\def\tikz@lib@graph@auto@center@north{north}
-\def\tikz@lib@graph@auto@west@north{north west}\def\tikz@lib@graph@auto@east@north{north east}
-\def\tikz@lib@graph@auto@center@south{south}\def\tikz@lib@graph@auto@west@south{south west}
-\def\tikz@lib@graph@auto@east@south{south east}
+\def\tikra@gr@new#1#2#3#4#5#6{\path[#1,every new #2/.try] (#3\tikzgraphleftanchor) edge[#5] #6 (#4\tikzgraphrightanchor);}
+\def\tikra@gr@one{\def\pgfmathresult{1}}
+\newif\iftikra@gr@all\newif\iftikra@gr@simple\newif\iftikra@gr@trie
+\newif\iftikra@gr@fresh@node\newif\iftikra@gr@numbered\newif\iftikra@gr@quick
+\newcount\tikra@gr@autonum
+\def\tikra@gr@autosep{\space}\def\tikra@gr@path{}
+\def\tikra@gr@x{0}\def\tikra@gr@y{0}
+\def\tikra@gr@at{\pgfkeys{/tikz/at/.expanded={(\tikra@gr@x,\tikra@gr@y)}}}
+\def\tikra@gr@auto@h{center}\def\tikra@gr@auto@v{center}
+\def\tikra@gr@auto@center@center{center}\def\tikra@gr@auto@west@center{west}
+\def\tikra@gr@auto@east@center{east}\def\tikra@gr@auto@center@north{north}
+\def\tikra@gr@auto@west@north{north west}\def\tikra@gr@auto@east@north{north east}
+\def\tikra@gr@auto@center@south{south}\def\tikra@gr@auto@west@south{south west}
+\def\tikra@gr@auto@east@south{south east}
 \pgfkeys{/utils/exec/.code={#1}}
 \tikzset{edge label/.style={/tikz/edge node={node[auto]{#1}}}, edge label'/.style={/tikz/edge node={node[auto,swap]{#1}}}}
 \tikzgraphsset{
-  new ->/.code n args={4}{\path[->,every new ->/.try] (#1\tikzgraphleftanchor) edge[#3] #4 (#2\tikzgraphrightanchor);},
-  new --/.code n args={4}{\path[-,every new --/.try] (#1\tikzgraphleftanchor) edge[#3] #4 (#2\tikzgraphrightanchor);},
-  new <->/.code n args={4}{\path[<->,every new <->/.try] (#1\tikzgraphleftanchor) edge[#3] #4 (#2\tikzgraphrightanchor);},
-  new <-/.code n args={4}{\path[<-,every new <-/.try] (#1\tikzgraphleftanchor) edge[#3] #4 (#2\tikzgraphrightanchor);},
-  new -!-/.code n args={4}{},
-  default edge kind/.initial=--,
+  % an edge of each kind: the tip, the kind's own style, from, to, options, edge nodes
+  new ->/.code n args={4}{\tikra@gr@new{->}{->}{#1}{#2}{#3}{#4}},
+  new <-/.code n args={4}{\tikra@gr@new{<-}{<-}{#1}{#2}{#3}{#4}},
+  new <->/.code n args={4}{\tikra@gr@new{<->}{<->}{#1}{#2}{#3}{#4}},
+  new --/.code n args={4}{\tikra@gr@new{-}{--}{#1}{#2}{#3}{#4}},
+  new -!-/.code n args={4}{\relax},
+  default edge kind/.initial=--, default edge operator/.initial=matching and star,
   --/.style={default edge kind=--}, ->/.style={default edge kind=->}, <-/.style={default edge kind=<-},
   <->/.style={default edge kind=<->}, -!-/.style={default edge kind=-!-},
-  default edge operator/.initial=matching and star,
   left anchor/.code={\def\tikz@temp{#1}\ifx\tikz@temp\pgfutil@empty\def\tikzgraphleftanchor{}\else\def\tikzgraphleftanchor{.#1}\fi},
   right anchor/.code={\def\tikz@temp{#1}\ifx\tikz@temp\pgfutil@empty\def\tikzgraphrightanchor{}\else\def\tikzgraphrightanchor{.#1}\fi},
-  use existing nodes/.is if=tikz@lib@graph@all,
-  simple/.code={\iftikz@lib@graph@simple\else\tikz@lib@graph@simpletrue\pgfkeysalso{operator={\tikra@gop{simple}{}}}\fi},
-  multi/.code={\tikz@lib@graph@simplefalse},
-  @nodes styling/.style={},
-  nodes/.style={/tikz/graphs/@nodes styling/.append style={,#1}},
-  @edges styling/.initial=,
-  edges/.style={/tikz/graphs/@edges styling/.append={,#1}},
+  use existing nodes/.is if=tikra@gr@all,
+  simple/.code={\iftikra@gr@simple\else\tikra@gr@simpletrue\pgfkeysalso{operator={\tikra@gop{simple}{}}}\fi},
+  multi/.code={\tikra@gr@simplefalse},
+  @node options/.style={},
+  nodes/.style={/tikz/graphs/@node options/.append style={,#1}},
+  @edge options/.initial=,
+  edges/.style={/tikz/graphs/@edge options/.append={,#1}},
   edge/.style={edges={#1}},
-  @edges node/.initial=,
-  edge node/.style={/tikz/graphs/@edges node/.append={#1}},
-  edge label/.style={/tikz/graphs/@edges node/.append={node[auto]{#1}}},
-  edge label'/.style={/tikz/graphs/@edges node/.append={node[auto,swap]{#1}}},
-  @operators/.initial=,
-  operator/.style={/tikz/graphs/@operators/.append={#1}},
+  @edge texts/.initial=,
+  edge node/.style={/tikz/graphs/@edge texts/.append={#1}},
+  edge label/.style={/tikz/graphs/@edge texts/.append={node[auto]{#1}}},
+  edge label'/.style={/tikz/graphs/@edge texts/.append={node[auto,swap]{#1}}},
+  @pending operators/.initial=,
+  operator/.style={/tikz/graphs/@pending operators/.append={#1}},
   @extra group options/.style={},
   source edge style/.code={\pgfkeys{/tikz/graphs/@annotate={a}{#1}{}}},
   source edge node/.code={\pgfkeys{/tikz/graphs/@annotate={a}{}{#1}}},
@@ -1731,32 +1733,26 @@ const DEFINITIONS: &str = r"
   target edge node/.code={\pgfkeys{/tikz/graphs/@annotate={b}{}{#1}}},
   target edge clear/.code={\pgfkeys{/tikz/graphs/@annotate clear=b}},
   clear >/.style={target edge clear}, clear </.style={source edge clear},
-  x/.code={\def\tikz@lib@graph@x{#1}\tikz@lib@graphs@check@at},
-  y/.code={\def\tikz@lib@graph@y{#1}\tikz@lib@graphs@check@at},
-  trie/.is if=tikz@lib@graph@trie,
+  x/.code={\def\tikra@gr@x{#1}\tikra@gr@at},
+  y/.code={\def\tikra@gr@y{#1}\tikra@gr@at},
+  trie/.is if=tikra@gr@trie,
   put node text on incoming edges/.style={nodes={/tikz/graphs/@edge node from text={target}{#1}}},
   put node text on outgoing edges/.style={nodes={/tikz/graphs/@edge node from text={source}{#1}}},
-  edge quotes/.style={/tikz/every edge quotes/.style={#1}},
-  edge quotes center/.style={edge quotes={anchor=center}},
-  edge quotes mid/.style={edge quotes={anchor=mid}},
-  fresh nodes/.is if=tikz@lib@graph@fresh@node,
-  number nodes/.code={\pgfmathsetcount\tikz@lib@auto@number{#1}\tikzgraphsautonumbernodestrue},
-  number nodes/.default=1,
-  number nodes sep/.code={\def\tikz@lib@auto@sep{#1}},
-  typeset/.store in=\tikz@lib@graph@typesetter,
-  math nodes/.style={/tikz/graphs/typeset=$\tikzgraphnodetext$},
-  empty nodes/.style={/tikz/graphs/typeset=},
-  typeset=\tikzgraphnodetext,
+  edge quotes/.code={\pgfkeysalso{/tikz/every edge quotes/.style={#1}}},
+  edge quotes center/.style={edge quotes=anchor=center}, edge quotes mid/.style={edge quotes=anchor=mid},
+  fresh nodes/.is if=tikra@gr@fresh@node,
+  number nodes/.code={\tikra@gr@numberedtrue\pgfmathsetcount\tikra@gr@autonum{#1}}, number nodes/.default=1,
+  number nodes sep/.code={\def\tikra@gr@autosep{#1}},
+  typeset/.code={\def\tikra@gr@typesetter{#1}}, typeset=\tikzgraphnodetext,
+  math nodes/.code={\def\tikra@gr@typesetter{$\tikzgraphnodetext$}},
+  empty nodes/.code={\def\tikra@gr@typesetter{}},
   as/.code={\def\tikzgraphnodeas{#1}},
-  name separator/.store in=\tikz@lib@graph@name@separator,
-  name separator=\space,
-  name/.code={\edef\tikz@lib@graph@path{\tikz@lib@graph@path#1\tikz@lib@graph@name@separator}},
+  name separator/.code={\def\tikra@gr@name@separator{#1}}, name separator=\space,
+  name/.code={\edef\tikra@gr@path{\tikra@gr@path#1\tikra@gr@name@separator}},
   color class=source, color class=source', color class=source'', color class=target,
   color class=target', color class=all,
   complete bipartite/.style 2 args={operator={\tikra@gop{complete bipartite}{{#1}{#2}}}},
-  complete bipartite/.default={target'}{source'},
   induced complete bipartite/.style 2 args={induced independent set={#1},induced independent set={#2},complete bipartite={#1}{#2}},
-  induced complete bipartite/.default={target'}{source'},
   clique/.style={operator={\tikra@gop{clique}{#1}}}, clique/.default=all,
   induced independent set/.style={operator={\tikra@gop{independent set}{#1}}}, induced independent set/.default=all,
   path/.style={operator={\tikra@gop{path}{#1}}}, path/.default=all,
@@ -1764,73 +1760,60 @@ const DEFINITIONS: &str = r"
   cycle/.style={operator={\tikra@gop{cycle}{#1}}}, cycle/.default=all,
   induced cycle/.style={induced independent set={#1},cycle={#1}}, induced cycle/.default=all,
   matching and star/.style 2 args={operator={\tikra@gop{matching and star}{{#1}{#2}}}},
-  matching and star/.default={target'}{source'},
   matching/.style 2 args={operator={\tikra@gop{matching}{{#1}{#2}}}},
-  matching/.default={target'}{source'},
+  % the two-shore operators join the nodes on the left (target') with those on the right (source')
+  complete bipartite/.default={target'}{source'}, induced complete bipartite/.default={target'}{source'},
+  matching and star/.default={target'}{source'}, matching/.default={target'}{source'},
   butterfly/.style={operator={\tikra@gop{butterfly}{#1}}}, butterfly/.default=,
   butterfly/level/.initial=1, butterfly/from/.initial=target', butterfly/to/.initial=source',
   butterfly'/.style={operator={\tikra@gop{butterfly'}{#1}}}, butterfly'/.default=,
   no edges/.style={operator=\relax},
   grid/.style={operator={\tikra@gop{grid}{#1}}}, grid/.default=all,
-  placement/compute position/.code=\tikz@lib@graph@linear@pos,
+  placement/compute position/.code=\tikra@gr@linear@pos,
   placement/place/.code={\pgfkeys{/tikz/graphs/placement/compute position,/tikz/graphs/@placed}%
     \pgfkeyssetvalue{/tikz/graphs/placement/element count}{0}\pgfkeyssetvalue{/tikz/graphs/placement/chain count}{0}%
     \pgfkeyssetvalue{/tikz/graphs/placement/depth}{0}\pgfkeyssetvalue{/tikz/graphs/placement/width}{0}%
     \pgfkeyssetvalue{/tikz/graphs/placement/local depth}{0}\pgfkeyssetvalue{/tikz/graphs/placement/local width}{0}},
   placement/element count/.initial=0, placement/chain count/.initial=0, placement/depth/.initial=0,
   placement/width/.initial=0, placement/level/.initial=0, placement/local depth/.initial=0, placement/local width/.initial=0,
-  placement/logical node depth/.code=\def\pgfmathresult{1},
-  placement/logical node width/.code=\def\pgfmathresult{1},
-  Cartesian placement/.style={placement/place, placement/compute position/.code=\tikz@lib@graph@linear@pos},
+  placement/logical node depth/.code=\tikra@gr@one,
+  placement/logical node width/.code=\tikra@gr@one,
+  Cartesian placement/.style={placement/place, placement/compute position/.code=\tikra@gr@linear@pos},
   chain shift/.initial={(1,0)}, group shift/.initial={(0,-1)},
-  grow right/.style={placement/place, chain shift={(#1,0)}, @auto anchor horizontal=center, placement/logical node width/.code=\def\pgfmathresult{1}},
-  grow right/.default=1,
-  grow left/.style={placement/place, chain shift={(-#1,0)}, @auto anchor horizontal=center, placement/logical node width/.code=\def\pgfmathresult{1}},
-  grow left/.default=1,
-  grow up/.style={placement/place, chain shift={(0,#1)}, @auto anchor horizontal=center, placement/logical node width/.code=\def\pgfmathresult{1}},
-  grow up/.default=1,
-  grow down/.style={placement/place, chain shift={(0,-#1)}, @auto anchor vertical=center, placement/logical node width/.code=\def\pgfmathresult{1}},
-  grow down/.default=1,
-  branch right/.style={placement/place, group shift={(#1,0)}, @auto anchor horizontal=center, placement/logical node depth/.code=\def\pgfmathresult{1}},
-  branch right/.default=1,
-  branch left/.style={placement/place, group shift={(-#1,0)}, @auto anchor horizontal=center, placement/logical node depth/.code=\def\pgfmathresult{1}},
-  branch left/.default=1,
-  branch up/.style={placement/place, group shift={(0,#1)}, @auto anchor vertical=center, placement/logical node depth/.code=\def\pgfmathresult{1}},
-  branch up/.default=1,
-  branch down/.style={placement/place, group shift={(0,-#1)}, @auto anchor vertical=center, placement/logical node depth/.code=\def\pgfmathresult{1}},
-  branch down/.default=1,
-  grow right sep/.style={Cartesian placement, chain shift={(1pt,0)}, @auto anchor horizontal=west, placement/logical node width/.code=\tikz@lib@graph@width@sep{##1}{#1}},
-  grow right sep/.default=1em,
-  grow left sep/.style={Cartesian placement, chain shift={(-1pt,0)}, @auto anchor horizontal=east, placement/logical node width/.code=\tikz@lib@graph@width@sep{##1}{#1}},
-  grow left sep/.default=1em,
-  grow up sep/.style={Cartesian placement, chain shift={(0,1pt)}, @auto anchor vertical=south, placement/logical node width/.code=\tikz@lib@graph@depth@sep{##1}{#1}},
-  grow up sep/.default=1em,
-  grow down sep/.style={Cartesian placement, chain shift={(0,-1pt)}, @auto anchor vertical=north, placement/logical node width/.code=\tikz@lib@graph@depth@sep{##1}{#1}},
-  grow down sep/.default=1em,
-  branch right sep/.style={Cartesian placement, group shift={(1pt,0)}, @auto anchor horizontal=west, placement/logical node depth/.code=\tikz@lib@graph@width@sep{##1}{#1}},
-  branch right sep/.default=1em,
-  branch left sep/.style={Cartesian placement, group shift={(-1pt,0)}, @auto anchor horizontal=east, placement/logical node depth/.code=\tikz@lib@graph@width@sep{##1}{#1}},
-  branch left sep/.default=1em,
-  branch up sep/.style={Cartesian placement, group shift={(0,1pt)}, @auto anchor vertical=south, placement/logical node depth/.code=\tikz@lib@graph@depth@sep{##1}{#1}},
-  branch up sep/.default=1em,
-  branch down sep/.style={Cartesian placement, group shift={(0,-1pt)}, @auto anchor vertical=north, placement/logical node depth/.code=\tikz@lib@graph@depth@sep{##1}{#1}},
-  branch down sep/.default=1em,
-  @auto anchor horizontal/.style={nodes={anchor=\csname tikz@lib@graph@auto@\tikz@lib@graph@auto@h @\tikz@lib@graph@auto@v\endcsname}, /utils/exec=\def\tikz@lib@graph@auto@h{#1}},
-  @auto anchor vertical/.style={nodes={anchor=\csname tikz@lib@graph@auto@\tikz@lib@graph@auto@h @\tikz@lib@graph@auto@v\endcsname}, /utils/exec=\def\tikz@lib@graph@auto@v{#1}},
+  grow right/.style={placement/place, chain shift={(#1,0)}, @auto anchor horizontal=center, placement/logical node width/.code=\tikra@gr@one},
+  grow left/.style={placement/place, chain shift={(-#1,0)}, @auto anchor horizontal=center, placement/logical node width/.code=\tikra@gr@one},
+  grow up/.style={placement/place, chain shift={(0,#1)}, @auto anchor horizontal=center, placement/logical node width/.code=\tikra@gr@one},
+  grow down/.style={placement/place, chain shift={(0,-#1)}, @auto anchor vertical=center, placement/logical node width/.code=\tikra@gr@one},
+  branch right/.style={placement/place, group shift={(#1,0)}, @auto anchor horizontal=center, placement/logical node depth/.code=\tikra@gr@one},
+  branch left/.style={placement/place, group shift={(-#1,0)}, @auto anchor horizontal=center, placement/logical node depth/.code=\tikra@gr@one},
+  branch up/.style={placement/place, group shift={(0,#1)}, @auto anchor vertical=center, placement/logical node depth/.code=\tikra@gr@one},
+  branch down/.style={placement/place, group shift={(0,-#1)}, @auto anchor vertical=center, placement/logical node depth/.code=\tikra@gr@one},
+  grow right sep/.style={Cartesian placement, chain shift={(1pt,0)}, @auto anchor horizontal=west, placement/logical node width/.code=\tikra@gr@width@sep{##1}{#1}},
+  grow left sep/.style={Cartesian placement, chain shift={(-1pt,0)}, @auto anchor horizontal=east, placement/logical node width/.code=\tikra@gr@width@sep{##1}{#1}},
+  grow up sep/.style={Cartesian placement, chain shift={(0,1pt)}, @auto anchor vertical=south, placement/logical node width/.code=\tikra@gr@depth@sep{##1}{#1}},
+  grow down sep/.style={Cartesian placement, chain shift={(0,-1pt)}, @auto anchor vertical=north, placement/logical node width/.code=\tikra@gr@depth@sep{##1}{#1}},
+  branch right sep/.style={Cartesian placement, group shift={(1pt,0)}, @auto anchor horizontal=west, placement/logical node depth/.code=\tikra@gr@width@sep{##1}{#1}},
+  branch left sep/.style={Cartesian placement, group shift={(-1pt,0)}, @auto anchor horizontal=east, placement/logical node depth/.code=\tikra@gr@width@sep{##1}{#1}},
+  branch up sep/.style={Cartesian placement, group shift={(0,1pt)}, @auto anchor vertical=south, placement/logical node depth/.code=\tikra@gr@depth@sep{##1}{#1}},
+  branch down sep/.style={Cartesian placement, group shift={(0,-1pt)}, @auto anchor vertical=north, placement/logical node depth/.code=\tikra@gr@depth@sep{##1}{#1}},
+  % the default steps: a unit for the plain ones, 1em between nodes for the sep ones
+  grow right/.default=1, grow left/.default=1, grow up/.default=1, grow down/.default=1, branch right/.default=1, branch left/.default=1, branch up/.default=1, branch down/.default=1,
+  grow right sep/.default=1em, grow left sep/.default=1em, grow up sep/.default=1em, grow down sep/.default=1em, branch right sep/.default=1em, branch left sep/.default=1em, branch up sep/.default=1em, branch down sep/.default=1em,
+  @auto anchor horizontal/.style={nodes={anchor=\csname tikra@gr@auto@\tikra@gr@auto@h @\tikra@gr@auto@v\endcsname}, /utils/exec=\def\tikra@gr@auto@h{#1}},
+  @auto anchor vertical/.style={nodes={anchor=\csname tikra@gr@auto@\tikra@gr@auto@h @\tikra@gr@auto@v\endcsname}, /utils/exec=\def\tikra@gr@auto@v{#1}},
   no placement/.style={placement/place, placement/compute position/.code=},
-  circular placement/.style={placement/place, placement/compute position/.code=\tikz@lib@graph@circular@pos,
-    placement/logical node depth/.code=\def\pgfmathresult{1}, placement/logical node width/.code=\def\pgfmathresult{1}},
+  circular placement/.style={placement/place, placement/compute position/.code=\tikra@gr@circular@pos,
+    placement/logical node depth/.code=\tikra@gr@one, placement/logical node width/.code=\tikra@gr@one},
   clockwise/.style={circular placement, group polar shift={(-360/#1:0)}}, clockwise/.default=\tikzgraphVnum,
   counterclockwise/.style={circular placement, group polar shift={(360/#1:0)}}, counterclockwise/.default=\tikzgraphVnum,
   chain polar shift/.initial={(0:1cm)}, group polar shift/.initial={(60:0)}, radius/.initial=1cm, phase/.initial=90,
-  grid placement/.style={placement/place, placement/compute position/.code=\tikz@lib@graph@grid@pos},
+  grid placement/.style={placement/place, placement/compute position/.code=\tikra@gr@grid@pos},
   wrap after/.initial=0,
   V={1}, W={1},
-  n/.style={V={1,...,#1},name shore V/.style={name=V}},
-  m/.style={W={1,...,#1},name shore W/.style={name=W}},
+  n/.style={name shore V/.style={name=V},V={1,...,#1}}, m/.style={name shore W/.style={name=W},W={1,...,#1}},
   name shore V/.style={}, name shore W/.style={},
-  quick/.is if=tikz@graph@quick,
-  declare={subgraph I_n}{\foreach \tikz@lib@graph@node@num in \tikzgraphV {\tikz@lib@graph@node@num}},
+  quick/.is if=tikra@gr@quick,
+  declare={subgraph I_n}{\foreach \tikra@gr@node@num in \tikzgraphV {\tikra@gr@node@num}},
   declare={subgraph I_nm}{subgraph I_n [name shore V] -- [no edges] subgraph I_n [name shore W, V/.expand once=\tikzgraphW]},
   declare={subgraph K_n}{[clique] subgraph I_n},
   declare={subgraph K_nm}{[color class=shore V, color class=shore W, complete bipartite={shore V}{shore W}]

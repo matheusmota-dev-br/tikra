@@ -487,11 +487,11 @@ te_key!(k_text_effects, |e, v| e.process_keys(v.unwrap_or_default(), Some("/pgf/
 
 /// TikZ's definitions of the text effects styles.
 pub const DEFINITIONS: &str = r"
+\def\tikra@te@style#1#2{\pgfkeys{/pgf/decoration/text effects/every character#1/.style={#2}}}
 \pgfkeys{/pgf/decoration/text effects/.cd,
-  characters/.style={/pgf/decoration/text effects/every character/.style={#1}},
-  character widths/.style={/pgf/decoration/text effects/every character width/.style={#1}},
-  text along path/.style={inner xsep=0pt, anchor=base, transform shape},
-  every character width/.style={/pgf/decoration/text effects/every character/.try},
-  every character/.style={},
+  % a character's width is measured with its own style, unless the widths have one
+  every character/.style={}, every character width/.style={/pgf/decoration/text effects/every character/.try},
+  characters/.code={\tikra@te@style{}{#1}}, character widths/.code={\tikra@te@style{ width}{#1}},
+  text along path/.style={transform shape, anchor=base, inner xsep=0pt},
 }
 ";
