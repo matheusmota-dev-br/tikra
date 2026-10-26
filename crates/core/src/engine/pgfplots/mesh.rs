@@ -1,7 +1,7 @@
 //! `mesh`, `surf` and `patch` plots (`pgfplotsmeshplothandler.code.tex`): a lattice or a list of
 //! patches, each colored by the colormap at its point meta, drawn back to front in 3d
 //! (`z buffer`), with the shaders `faceted` (fill and `faceted color` edges), `flat` (one color,
-//! edges too), `flat corner` and `interp` (the patch's mean color).
+//! edges too), `flat corner` and `interp` (the point meta shaded across each triangle).
 //!
 //! Colors given with `mapped color` (`draw=mapped color!80!black`) are linear in it: each is found
 //! by setting the style with `mapped color` black, then white.
@@ -114,6 +114,52 @@ pub fn image_limits(pts: &[[f64; 3]], rows: usize, cols: usize, a: usize) -> Vec
             out.push(point(la + 0.5 * (la - lla), cur_b));
         }
         b_next = true;
+    }
+    out
+}
+
+/// `mesh input=image` with `shader=interp`: the point metas of each cell's corners, as
+/// `pgfplotsmeshplotimage.code.tex` sweeps the scanlines. A cell's first corner has its own meta;
+/// an inner corner the meta of the center after it if bounded, else the mean of the four centers
+/// around; a corner of the first row or column the meta of its center after it, else an
+/// extrapolation; those of the last row and column extrapolations (`2 × mean of two centers −
+/// the corner before`), the very last one the last center's. An unbounded meta counts as the
+/// lowest (`\pgfplots@metamin`).
+pub fn image_interp_metas(metas: &[f64], rows: usize, cols: usize, min: f64) -> Vec<[f64; 4]> {
+    if rows < 2 || cols < 2 || metas.len() < rows * cols {
+        return metas.iter().map(|&m| [m; 4]).collect();
+    }
+    let raw = |r: usize, c: usize| metas[r * cols + c];
+    let m = |r: usize, c: usize| Some(raw(r, c)).filter(|v| v.is_finite()).unwrap_or(min);
+    let or = |r: usize, c: usize, v: f64| Some(raw(r, c)).filter(|v| v.is_finite()).unwrap_or(v);
+    // k[at(a, b)]: the corner between center rows a-1, a and columns b-1, b
+    let mut k = vec![0.0; (rows + 1) * (cols + 1)];
+    let at = |a: usize, b: usize| a * (cols + 1) + b;
+    for a in 1..rows {
+        for b in 1..cols {
+            k[at(a, b)] = or(a, b, 0.25 * (m(a - 1, b - 1) + m(a - 1, b) + m(a, b) + m(a, b - 1)));
+        }
+    }
+    for b in 1..cols {
+        k[at(0, b)] = or(0, b, m(0, b) + m(0, b - 1) - k[at(1, b)]);
+    }
+    for a in 1..rows {
+        k[at(a, 0)] = or(a, 0, m(a, 0) + m(a - 1, 0) - k[at(a, 1)]);
+    }
+    for a in 1..rows {
+        k[at(a, cols)] = m(a - 1, cols - 1) + m(a, cols - 1) - k[at(a, cols - 1)];
+    }
+    k[at(0, cols)] = k[at(1, cols)] + k[at(0, cols - 1)] - k[at(1, cols - 1)];
+    for b in 1..cols {
+        k[at(rows, b)] = m(rows - 1, b - 1) + m(rows - 1, b) - k[at(rows - 1, b)];
+    }
+    k[at(rows, 0)] = k[at(rows, 1)] + k[at(rows - 1, 0)] - k[at(rows - 1, 1)];
+    k[at(rows, cols)] = or(rows - 1, cols - 1, k[at(rows, cols - 1)] - k[at(rows - 1, cols - 1)] + k[at(rows - 1, cols)]);
+    let mut out = Vec::with_capacity(rows * cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            out.push([raw(r, c), k[at(r, c + 1)], k[at(r + 1, c + 1)], k[at(r + 1, c)]]);
+        }
     }
     out
 }
@@ -264,6 +310,15 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let is_inside = interior_fn(e, f, thresh);
     // `point meta rel=per plot`: the colormap spans this plot's point meta only
     let range = if keys::value(e, "/pgfplots/point meta rel") == "per plot" { plot_meta_range(p).unwrap_or(f.meta) } else { f.meta };
+    // the shadings of `interp` are drawn as PDF viewers draw them, without antialiasing: no seams
+    // between patches
+    let crisp = closes && (surf || p.patch) && (shader == "interp" || shader == "faceted interp");
+    if crisp {
+        e.canvas.push(Item::Crisp);
+    }
+    // an image's cells are shaded between metas found for their corners
+    let image_metas =
+        p.lattice.filter(|_| p.image && crisp && !explicit).map(|(rows, cols)| image_interp_metas(&p.coords.iter().map(|c| c.meta).collect::<Vec<_>>(), rows, cols, range[0]));
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         // the normal at the corner the z buffer made first (`compute normal`), its sign kept
@@ -289,6 +344,10 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         if p.has_meta && !explicit && unbounded {
             continue;
         }
+        let metas = match &image_metas {
+            Some(im) => im.get(src[0]).map_or(metas, |c| c.to_vec()),
+            None => metas,
+        };
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
         // `mesh/color input=explicit`: each point has its color
         let vertex: Option<Vec<Color>> = match explicit.then(|| src.iter().map(|&k| vertex_color(e, p, k)).collect::<Option<Vec<Color>>>()) {
@@ -377,6 +436,54 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
                 }
             }
             continue;
+        }
+        // a triangle, or a cell of a matrix shaded as two triangles (a shading of type 5), ABD
+        // then BCD of its corners as the z buffer has turned them (reversing the rows or the
+        // columns): each a linear gradient of the colormap, however small
+        let lattice_cell = corners.len() == 4 && p.lattice.is_some() && !p.image && kind != "bilinear";
+        let shaded = shader == "interp" || shader == "faceted interp";
+        if let Some(cm) = cmap.filter(|c| c.access == super::colormap::Access::Map && closes && shaded && vertex.is_none() && metas.len() == corners.len()) {
+            let tris: Vec<[usize; 3]> = match (corners.len(), reversed) {
+                (3, _) => vec![[0, 1, 2]],
+                (4, (false, false)) if lattice_cell => vec![[0, 1, 3], [1, 2, 3]],
+                (4, (false, true)) if lattice_cell => vec![[3, 2, 0], [2, 1, 0]],
+                (4, (true, false)) if lattice_cell => vec![[1, 0, 2], [0, 3, 2]],
+                (4, (true, true)) if lattice_cell => vec![[2, 3, 1], [3, 0, 1]],
+                // a patch of an image: ABD, then BCD (streamed to the shader as a lattice of
+                // two columns)
+                (4, _) if image_metas.is_some() => vec![[0, 1, 3], [1, 2, 3]],
+                _ => vec![],
+            };
+            for t in &tris {
+                let paint = gouraud(&t.map(|k| (corners[k], metas[k])), cm, range, &fill);
+                let segs = vec![Segment::MoveTo(corners[t[0]]), Segment::LineTo(corners[t[1]]), Segment::LineTo(corners[t[2]]), Segment::Close];
+                if !e.canvas_frozen {
+                    e.canvas.include_path(&segs);
+                }
+                e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint, opacity: opacity.1, even_odd: false }), stroke: None });
+            }
+            if !tris.is_empty() {
+                // `faceted interp`: the patch's edges on top, in `faceted color` (antialiased, as
+                // lines are)
+                if shader == "faceted interp" {
+                    let mut segs = vec![Segment::MoveTo(corners[0])];
+                    segs.extend(corners[1..].iter().map(|c| Segment::LineTo(*c)));
+                    segs.push(Segment::Close);
+                    let stroke = Stroke {
+                        color: faceted.at(mapped),
+                        width,
+                        dash: st.dash.clone().filter(|d| !d.0.is_empty()),
+                        cap: st.cap,
+                        join: st.join,
+                        miter_limit: st.miter_limit,
+                        opacity: opacity.0,
+                    };
+                    e.canvas.push(Item::End);
+                    e.canvas.push(Item::Path { segments: segs, fill: None, stroke: Some(stroke) });
+                    e.canvas.push(Item::Crisp);
+                }
+                continue;
+            }
         }
         if closes && shader == "interp" && interp_ok && (corners.len() == 4 || corners.len() == 3) {
             let size = (0..corners.len()).map(|i| corners[i].minus(corners[(i + 1) % corners.len()]).norm()).fold(0.0, f64::max);
@@ -487,6 +594,9 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             st.width = 0.2 * crate::PT;
         }
         e.canvas.push(Item::Path { segments: segs, fill: fill_item, stroke: stroke_item });
+    }
+    if crisp {
+        e.canvas.push(Item::End);
     }
     Ok(())
 }
@@ -669,7 +779,16 @@ fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &st
             // the shading: small pieces of the patch, each of the color at its middle;
             // a rectangle is shaded as two triangles
             let parts = if kind == Kind::Rectangle { patch.triangulate() } else { vec![patch.clone()] };
+            e.canvas.push(Item::Crisp);
             for part in parts {
+                // a triangle: its linear gradient, exact
+                if let Some(cm) = f.colormap.as_ref().filter(|c| c.access == super::colormap::Access::Map && part.kind == Kind::Triangle) {
+                    let c: Vec<Point> = part.pts.iter().map(|l| f.at(*l)).collect();
+                    let paint = gouraud(&[(c[0], part.metas[0]), (c[1], part.metas[1]), (c[2], part.metas[2])], cm, f.meta, &look.fill);
+                    let segs = vec![Segment::MoveTo(c[0]), Segment::LineTo(c[1]), Segment::LineTo(c[2]), Segment::Close];
+                    e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint, opacity: st.fill_opacity, even_odd: false }), stroke: None });
+                    continue;
+                }
                 let size = {
                     let c: Vec<Point> = part.pts.iter().map(|l| f.at(*l)).collect();
                     let (lo, hi) = c.iter().fold((c[0], c[0]), |(lo, hi), q| (Point::new(lo.x.min(q.x), lo.y.min(q.y)), Point::new(hi.x.max(q.x), hi.y.max(q.y))));
@@ -690,6 +809,7 @@ fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &st
                     e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint: Paint::Solid(c), opacity: st.fill_opacity, even_odd: false }), stroke: Some(stroke) });
                 }
             }
+            e.canvas.push(Item::End);
             if look.shader == "faceted interp" {
                 e.canvas.push(Item::Path { segments: outline, fill: None, stroke: Some(stroke_of(look.faceted.at(mapped), st.line_width)) });
             }
@@ -709,6 +829,42 @@ fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &st
         });
     }
     Ok(())
+}
+
+/// A triangle of `shader=interp`: pgfplots hands the point metas to a Gouraud shading (type 4)
+/// whose function is the colormap, so the meta is affine across the triangle and the color
+/// changes along the meta's gradient only. That is a linear gradient, exact: the colormap's own
+/// stops between the triangle's lowest and highest meta.
+fn gouraud(tri: &[(Point, f64); 3], cm: &super::colormap::Colormap, range: [f64; 2], fill: &Linear) -> Paint {
+    let color = |m: f64| fill.at(cm.color_of(m, range[0], range[1]));
+    // a meta out of the range is taken into it at the corner (the shading's domain), before the
+    // shading interpolates
+    let tri = &tri.map(|(q, m)| (q, m.clamp(range[0].min(range[1]), range[1].max(range[0]))));
+    let (p0, m0) = tri[0];
+    let (lo, hi) = tri.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), t| (lo.min(t.1), hi.max(t.1)));
+    let (e1, e2) = (tri[1].0.minus(p0), tri[2].0.minus(p0));
+    let det = e1.x * e2.y - e1.y * e2.x;
+    if det.abs() < 1e-12 || hi - lo <= 1e-12 * (lo.abs() + hi.abs() + 1.0) {
+        return Paint::Solid(color((tri[0].1 + tri[1].1 + tri[2].1) / 3.0));
+    }
+    // the gradient g of the meta on the canvas: e1·g = d1, e2·g = d2
+    let (d1, d2) = (tri[1].1 - m0, tri[2].1 - m0);
+    let g = Point::new((d1 * e2.y - d2 * e1.y) / det, (e1.x * d2 - e2.x * d1) / det);
+    let g2 = g.x * g.x + g.y * g.y;
+    // from the point of the lowest meta to that of the highest, along g
+    let a = p0.plus(g.scale((lo - m0) / g2));
+    let u = g.scale((hi - lo) / g2);
+    let transform = crate::scene::Transform { a: -u.y / 100.0, b: u.x / 100.0, c: u.x / 100.0, d: u.y / 100.0, e: a.x + 0.5 * u.x, f: a.y + 0.5 * u.y };
+    let mut metas = vec![lo, hi];
+    for (t, _) in cm.normalized() {
+        let m = range[0] + t * (range[1] - range[0]);
+        if m > lo && m < hi {
+            metas.push(m);
+        }
+    }
+    metas.sort_by(f64::total_cmp);
+    let stops = metas.iter().map(|&m| ((m - lo) / (hi - lo), color(m))).collect();
+    Paint::Shading(crate::canvas::Shading::Axial { transform, stops })
 }
 
 fn mean(v: &[Color]) -> Color {

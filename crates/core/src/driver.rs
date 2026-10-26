@@ -425,6 +425,7 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                     body.push_str(r#"<g style="isolation:isolate">"#);
                 }
             }
+            Item::Crisp => body.push_str(r#"<g shape-rendering="crispEdges">"#),
             Item::Blend { mode } => {
                 let _ = write!(body, r#"<g style="mix-blend-mode:{mode}">"#);
             }

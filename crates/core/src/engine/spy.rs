@@ -91,7 +91,7 @@ impl Engine {
         let mut drawing: Vec<Item> = self.canvas.items[scope.start.min(self.canvas.items.len())..].to_vec();
         // clips and groups of the scope that are still open are closed in the copy
         let open = drawing.iter().fold(0i64, |d, i| match i {
-            Item::Clip { .. } | Item::Group { .. } | Item::Fade { .. } | Item::Blend { .. } | Item::Transform { .. } | Item::FadePicture { .. } => d + 1,
+            Item::Clip { .. } | Item::Group { .. } | Item::Fade { .. } | Item::Blend { .. } | Item::Crisp | Item::Transform { .. } | Item::FadePicture { .. } => d + 1,
             Item::End => d - 1,
             _ => d,
         });
