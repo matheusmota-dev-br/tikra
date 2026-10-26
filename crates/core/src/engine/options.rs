@@ -1529,6 +1529,7 @@ keyfn!(k_transform_canvas, |e, v| {
     r?;
     // the transformations act on the canvas around the current origin, as pgf's low level does
     e.open_in_scope(crate::canvas::Item::Transform { transform: t });
+    e.canvas_transforms += 1;
     Ok(())
 });
 // `view={(a) (b) at (c) (d)}` (animations library): what the scope draws in the box from a to b,

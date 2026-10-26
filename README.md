@@ -65,13 +65,14 @@ The banner above is drawn by tikra itself from [`docs/banner.tex`](https://githu
 
 ## Examples
 
-Each image is an SVG drawn by tikra from the figure in [`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) it links to, shown on a white card; `tests/examples.rs` keeps them in sync with the code. The [gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html) draws all 227 figures of the corpus, by topic, live in the browser.
+Each image is an SVG drawn by tikra from the figure in [`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) it links to, shown on a white card; `tests/examples.rs` keeps them in sync with the code. The [gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html) draws all 233 figures of the corpus, by topic, live in the browser.
 
 <table>
 <tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-3d/lorenz-attractor.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/lorenz-attractor.svg" alt="The Lorenz attractor, colored by height" width="380"></a><br><sub>The Lorenz attractor, colored by height</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/charts/nightingale-rose.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/nightingale-rose.svg" alt="Nightingale's rose of the causes of mortality" width="380"></a><br><sub>Nightingale's rose of the causes of mortality</sub></td></tr>
 <tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-2d/normal-distribution.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/normal-distribution.svg" alt="The bell curve and the 68–95–99.7 rule" width="380"></a><br><sub>The bell curve and the 68–95–99.7 rule</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/diagrams/petersen-graph.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/petersen-graph.svg" alt="The Petersen graph" width="380"></a><br><sub>The Petersen graph</sub></td></tr>
 <tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/science/feynman-diagram.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/feynman-diagram.svg" alt="A Feynman diagram, with decorations" width="380"></a><br><sub>A Feynman diagram, with decorations</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/geometry/golden-spiral.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/golden-spiral.svg" alt="The golden spiral" width="380"></a><br><sub>The golden spiral</sub></td></tr>
 <tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/nodes-and-text/periodic-table-corner.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/periodic-table-corner.svg" alt="The periodic table, by family" width="380"></a><br><sub>The periodic table, by family</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-3d/surface-3d.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/surface-3d.svg" alt="A pgfplots surface and its colorbar" width="380"></a><br><sub>A pgfplots surface and its colorbar</sub></td></tr>
+<tr><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/plots-3d/smooth-shaded-surface.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/smooth-shaded-surface.svg" alt="A surface shaded smoothly between its points" width="380"></a><br><sub>A surface shaded smoothly between its points</sub></td><td align="center"><a href="https://github.com/matheusmota-dev-br/tikra/blob/main/corpus/decorations/clock-snapshots.tex"><img src="https://raw.githubusercontent.com/matheusmota-dev-br/tikra/main/docs/examples/clock-snapshots.svg" alt="One animation, three snapshots" width="380"></a><br><sub>One animation, three snapshots</sub></td></tr>
 </table>
 
 ## How close to TikZ
@@ -80,8 +81,8 @@ Every example of the TikZ manual and of the pgfplots manual is drawn by pdflatex
 
 | | Figures | Drawn as TeX draws them |
 |---|---:|---:|
-| Every figure of the manuals | 2502 | 2360 (94.3%) |
-| Our 100%: the ones a converter can reproduce | 2486 | 2473 (99.5%) |
+| Every figure of the manuals | 2502 | 2365 (94.5%) |
+| Our 100%: the ones a converter can reproduce | 2486 | 2476 (99.6%) |
 
 "Our 100%" leaves out what no converter can reproduce (random numbers without a seed, image files, gnuplot, the day's date) and counts the figures that differ only by antialiasing (how Ghostscript and tikra put lines, letters and pattern tiles on the pixels) as drawn; the list is checked by eye ([unreproducible.json](https://github.com/matheusmota-dev-br/tikra/blob/main/tools/conformance/unreproducible.json)). tikra converts a figure in about half a millisecond, against about 0.7 s for pdflatex.
 
@@ -93,15 +94,15 @@ A full `standalone` document, a bare `tikzpicture` or `pgfpicture`, an inline `\
 
 TikZ and pgf as the manuals describe them, through a small TeX interpreter (macros, `\def`, `\newcommand`, conditionals, registers, `\foreach`, pgfmath and `\tikzmath`):
 
-- **Paths and coordinates**: every path operation (`--`, `|-`, `to`, `.. controls ..`, `arc`, `circle`, `rectangle`, `grid`, `plot`, `svg`, `let`), `calc`, positioning, polar and 3D coordinates, intersections, `through`, transformations and `transform canvas`, nonlinear transformations, `spy`.
+- **Paths and coordinates**: every path operation (`--`, `|-`, `to`, `.. controls ..`, `arc`, `circle`, `rectangle`, `grid`, `plot`, `svg`, `let`), `calc`, positioning, polar and 3D coordinates, intersections, `through`, transformations and `transform canvas`, nonlinear transformations, `spy`, views (`meet`, `slice`).
 - **Nodes and shapes**: every shape library (geometric, symbols, arrows, multipart, callouts, misc), labels and pins, `quotes`, matrices and `matrix of nodes`, `fit`, pics and `\pgfdeclareshape`; text with `text width`, alignment, line breaking with hyphenation, `itemize`, simple `tabular`, font sizes and families.
 - **Diagrams**: chains, trees, the `graphs` library, mind maps, automata, Petri nets, ER diagrams, circuits (`circuits.ee.IEC`, logic gates), calendars, folding, turtle and Lindenmayer systems.
-- **Painting**: arrow tips (`arrows.meta`, `bending`), dashes, opacity, transparency groups and blend modes, shadings (axial, radial, ball, declared and functional), fadings, patterns (classic, `patterns.meta`, declared), shadows, backgrounds and layers, every decoration (`pathmorphing`, `pathreplacing`, `markings`, `shapes`, `text`, `fractals`, `footprints`).
-- **pgfplots**: 2D and 3D axes, `\addplot` of expressions, coordinates and tables, marks, legends, colorbars and colormaps, bar charts and histograms, error bars, `fill between`, surfaces, meshes, patches and contours, polar, ternary, Smith charts, `dateplot`, group plots and statistics; and the `datavisualization` library.
+- **Painting**: arrow tips (`arrows.meta`, `bending`), dashes, opacity, transparency groups and blend modes, shadings (axial, radial, ball, declared and functional), fadings, patterns (classic, `patterns.meta`, declared), shadows, backgrounds and layers, animations as a snapshot at a given time (`make snapshot of`, `\pgfsysanimsnapshot`), every decoration (`pathmorphing`, `pathreplacing`, `markings`, `shapes`, `text`, `fractals`, `footprints`).
+- **pgfplots**: 2D and 3D axes, `\addplot` of expressions, coordinates and tables, marks, legends, colorbars and colormaps, bar charts and histograms, error bars, `fill between`, surfaces, meshes, patches and contours (`shader=interp` shaded smoothly), images placed on the axes (`\addplot graphics` with a PNG), polar, ternary, Smith charts, `dateplot`, group plots and statistics; and the `datavisualization` library.
 
 The details, and what is left out, are in [`spec/subset.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md) and [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).
 
-Labels: node text is typeset by mathra in Latin Modern Math, with `$…$` and `\(…\)` for math, `\textbf`, `\textit`, `\texttt`, `\textcolor`, `\\` for line breaks and `\tiny`…`\Huge`. Math follows mathra's default locale (English).
+Labels: node text is typeset by mathra in Latin Modern Math, with `$…$` and `\(…\)` for math, `\textbf`, `\textit`, `\texttt`, `\textsc` and `\scshape`, `\textcolor`, `\\` for line breaks and `\tiny`…`\Huge`. Math follows mathra's default locale (English).
 
 ## The figure in words
 
@@ -132,7 +133,7 @@ Limits protect against hostile input: 100,000 statements per figure, 64 levels o
 
 ## Benchmark
 
-[`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) holds 227 hand-made figures, one folder per topic, that cover the features above. Reproduce with:
+[`corpus/`](https://github.com/matheusmota-dev-br/tikra/tree/main/corpus) holds 233 hand-made figures, one folder per topic, that cover the features above. Reproduce with:
 
 ```console
 $ cargo run --release -p tikra --example bench
@@ -142,12 +143,12 @@ One run on an Apple M5 (arm64), 15 runs per figure, median per figure:
 
 | Figures | Without warnings | With warnings | Errors |
 |---:|---:|---:|---:|
-| 227 | 227 | 0 | 0 |
+| 233 | 233 | 0 | 0 |
 
 | Per figure | Mean | p95 |
 |---|---:|---:|
-| SVG | 1.68 ms | 5.76 ms |
-| SVG + PNG at 300 dpi | 6.58 ms | 17.10 ms |
+| SVG | 2.09 ms | 7.63 ms |
+| SVG + PNG at 300 dpi | 7.60 ms | 20.07 ms |
 
 The corpus now holds large figures too (3D surfaces of a thousand cells, fractals, the Lorenz attractor): most figures take well under a millisecond.
 

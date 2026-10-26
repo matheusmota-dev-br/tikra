@@ -482,3 +482,15 @@ fn a_slice_overflows_its_box_and_leaves_the_size_alone() {
     assert!(close(w, 2.0 + 0.4 * tikra::PT) && close(h, 2.0 + 0.4 * tikra::PT), "{w} {h}");
     assert!(!canvas(body).items.iter().any(|i| matches!(i, Item::Clip { .. })));
 }
+
+#[test]
+fn transform_canvas_of_a_path_is_for_that_path_only() {
+    // the node after it is not turned; a clip, though, stays for the rest of the scope
+    let c = canvas(r"\draw[transform canvas={rotate=30}] (0,0) -- (1,0); \node at (0,-1) {A};");
+    let ends_before_text = c.items.iter().take_while(|i| !matches!(i, Item::Text { .. })).filter(|i| matches!(i, Item::End)).count();
+    let transforms = c.items.iter().filter(|i| matches!(i, Item::Transform { .. })).count();
+    assert!(transforms == 1 && ends_before_text >= 1, "{:?}", c.items);
+    let c = canvas(r"\clip (0,0) circle (1); \fill (1,0) circle (1);");
+    let fill = c.items.iter().position(|i| matches!(i, Item::Path { fill: Some(_), .. })).unwrap();
+    assert!(!c.items[..fill].iter().any(|i| matches!(i, Item::End)), "{:?}", c.items);
+}
