@@ -83,3 +83,18 @@ fn split_parts_are_placed_and_named() {
 fn shape_names_alone_are_shapes() {
     no_warnings("\\node[trapezium, draw] {a}; \\node[regular polygon, draw] at (2,0) {b};");
 }
+
+#[test]
+fn a_part_named_again_starts_its_box_anew() {
+    // `\nodepart{text}` at the start restarts the text box: the text part holds `text`, not nothing
+    let ends = |text: &str| {
+        let p = paths(&format!(r"\node[rectangle split,rectangle split parts=2,draw] (s) {{{text}}}; \draw (0,0) -- (s.text split) -- (s.text);"));
+        match p.last().map(|s| s.as_slice()) {
+            Some([Segment::MoveTo(_), Segment::LineTo(a), Segment::LineTo(b)]) => (*a, *b),
+            s => panic!("{s:?}"),
+        }
+    };
+    let (a, b) = ends(r"\nodepart{text}text\nodepart{two}two");
+    let (c, d) = ends(r"text\nodepart{two}two");
+    assert!(near(a, c.x, c.y) && near(b, d.x, d.y), "{a:?} {b:?} / {c:?} {d:?}");
+}
