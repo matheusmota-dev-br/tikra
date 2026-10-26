@@ -384,12 +384,25 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 }
                 let d = path_data(segments);
                 let mut a = String::new();
-                match fill {
+                // filled and stroked at one opacity: PDF paints the two as one group, so the stroke
+                // does not darken the fill under it; SVG's `opacity` of the element does the same
+                let shared = match (fill, stroke) {
+                    (Some(f), Some(s)) if f.opacity < 1.0 && (f.opacity - s.opacity).abs() < 1e-9 => Some(f.opacity),
+                    _ => None,
+                };
+                let (fill, stroke) = match shared {
+                    Some(_) => (fill.clone().map(|f| Fill { opacity: 1.0, ..f }), stroke.clone().map(|s| Stroke { opacity: 1.0, ..s })),
+                    None => (fill.clone(), stroke.clone()),
+                };
+                match &fill {
                     Some(f) => a.push_str(&fill_attributes(f, defs)),
                     None => a.push_str(r#" fill="none""#),
                 }
-                if let Some(s) = stroke {
+                if let Some(s) = &stroke {
                     a.push_str(&stroke_attributes(s));
+                }
+                if let Some(o) = shared {
+                    let _ = write!(a, r#" opacity="{}""#, n(o.max(0.0)));
                 }
                 let _ = write!(body, r#"<path d="{d}"{a}/>"#);
             }

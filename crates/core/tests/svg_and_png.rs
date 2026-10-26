@@ -98,3 +98,13 @@ fn a_striped_pattern_has_no_seams_between_its_tiles() {
     let row: Vec<u8> = (10..60).map(|x| image.pixel(x, 20).unwrap().red()).collect();
     assert!(row.iter().all(|&v| v == row[0]), "{row:?}");
 }
+
+#[test]
+fn a_filled_and_stroked_path_at_one_opacity_is_one_group() {
+    // as PDF paints fill and stroke: the stroke does not darken the fill under it
+    let svg = no_warnings(r"\tikz \filldraw[fill=red, opacity=0.5, line width=2mm] (0,0) rectangle (1,1);").svg;
+    assert!(svg.contains(r#" opacity="0.5""#) && !svg.contains("fill-opacity") && !svg.contains("stroke-opacity"), "{svg}");
+    // different opacities stay apart
+    let svg = no_warnings(r"\tikz \filldraw[fill=red, fill opacity=0.5, draw opacity=0.3] (0,0) rectangle (1,1);").svg;
+    assert!(svg.contains("fill-opacity") && svg.contains("stroke-opacity"), "{svg}");
+}
