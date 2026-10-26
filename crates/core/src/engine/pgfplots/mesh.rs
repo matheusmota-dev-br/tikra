@@ -118,6 +118,52 @@ pub fn image_limits(pts: &[[f64; 3]], rows: usize, cols: usize, a: usize) -> Vec
     out
 }
 
+/// `mesh input=image` with `shader=interp`: the point metas of each cell's corners, as
+/// `pgfplotsmeshplotimage.code.tex` sweeps the scanlines. A cell's first corner has its own meta;
+/// an inner corner the meta of the center after it if bounded, else the mean of the four centers
+/// around; a corner of the first row or column the meta of its center after it, else an
+/// extrapolation; those of the last row and column extrapolations (`2 × mean of two centers −
+/// the corner before`), the very last one the last center's. An unbounded meta counts as the
+/// lowest (`\pgfplots@metamin`).
+pub fn image_interp_metas(metas: &[f64], rows: usize, cols: usize, min: f64) -> Vec<[f64; 4]> {
+    if rows < 2 || cols < 2 || metas.len() < rows * cols {
+        return metas.iter().map(|&m| [m; 4]).collect();
+    }
+    let raw = |r: usize, c: usize| metas[r * cols + c];
+    let m = |r: usize, c: usize| Some(raw(r, c)).filter(|v| v.is_finite()).unwrap_or(min);
+    let or = |r: usize, c: usize, v: f64| Some(raw(r, c)).filter(|v| v.is_finite()).unwrap_or(v);
+    // k[at(a, b)]: the corner between center rows a-1, a and columns b-1, b
+    let mut k = vec![0.0; (rows + 1) * (cols + 1)];
+    let at = |a: usize, b: usize| a * (cols + 1) + b;
+    for a in 1..rows {
+        for b in 1..cols {
+            k[at(a, b)] = or(a, b, 0.25 * (m(a - 1, b - 1) + m(a - 1, b) + m(a, b) + m(a, b - 1)));
+        }
+    }
+    for b in 1..cols {
+        k[at(0, b)] = or(0, b, m(0, b) + m(0, b - 1) - k[at(1, b)]);
+    }
+    for a in 1..rows {
+        k[at(a, 0)] = or(a, 0, m(a, 0) + m(a - 1, 0) - k[at(a, 1)]);
+    }
+    for a in 1..rows {
+        k[at(a, cols)] = m(a - 1, cols - 1) + m(a, cols - 1) - k[at(a, cols - 1)];
+    }
+    k[at(0, cols)] = k[at(1, cols)] + k[at(0, cols - 1)] - k[at(1, cols - 1)];
+    for b in 1..cols {
+        k[at(rows, b)] = m(rows - 1, b - 1) + m(rows - 1, b) - k[at(rows - 1, b)];
+    }
+    k[at(rows, 0)] = k[at(rows, 1)] + k[at(rows - 1, 0)] - k[at(rows - 1, 1)];
+    k[at(rows, cols)] = or(rows - 1, cols - 1, k[at(rows, cols - 1)] - k[at(rows - 1, cols - 1)] + k[at(rows - 1, cols)]);
+    let mut out = Vec::with_capacity(rows * cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            out.push([raw(r, c), k[at(r, c + 1)], k[at(r + 1, c + 1)], k[at(r + 1, c)]]);
+        }
+    }
+    out
+}
+
 /// `mesh input=image`: the corners of the cells around a lattice of centers, (rows+1) × (cols+1),
 /// halfway between neighbours and as far out at the borders.
 pub fn image_corners(pts: &[[f64; 3]], rows: usize, cols: usize) -> Vec<[f64; 3]> {
@@ -270,6 +316,9 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     if crisp {
         e.canvas.push(Item::Crisp);
     }
+    // an image's cells are shaded between metas found for their corners
+    let image_metas =
+        p.lattice.filter(|_| p.image && crisp && !explicit).map(|(rows, cols)| image_interp_metas(&p.coords.iter().map(|c| c.meta).collect::<Vec<_>>(), rows, cols, range[0]));
     for (q, src) in list {
         let Some(corners) = q.iter().map(|&k| canvas.get(k).copied().flatten()).collect::<Option<Vec<Point>>>() else { continue };
         // the normal at the corner the z buffer made first (`compute normal`), its sign kept
@@ -295,6 +344,10 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         if p.has_meta && !explicit && unbounded {
             continue;
         }
+        let metas = match &image_metas {
+            Some(im) => im.get(src[0]).map_or(metas, |c| c.to_vec()),
+            None => metas,
+        };
         let m = if shader == "flat corner" { metas.first().copied().unwrap_or(f64::NAN) } else { metas.iter().sum::<f64>() / metas.len().max(1) as f64 };
         // `mesh/color input=explicit`: each point has its color
         let vertex: Option<Vec<Color>> = match explicit.then(|| src.iter().map(|&k| vertex_color(e, p, k)).collect::<Option<Vec<Color>>>()) {
@@ -396,6 +449,9 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
                 (4, (false, true)) if lattice_cell => vec![[3, 2, 0], [2, 1, 0]],
                 (4, (true, false)) if lattice_cell => vec![[1, 0, 2], [0, 3, 2]],
                 (4, (true, true)) if lattice_cell => vec![[2, 3, 1], [3, 0, 1]],
+                // a patch of an image: ABD, then BCD (streamed to the shader as a lattice of
+                // two columns)
+                (4, _) if image_metas.is_some() => vec![[0, 1, 3], [1, 2, 3]],
                 _ => vec![],
             };
             for t in &tris {

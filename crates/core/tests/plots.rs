@@ -265,6 +265,35 @@ fn interp_shades_each_triangle_smoothly() {
 }
 
 #[test]
+fn interp_image_cells_shade_between_their_corners() {
+    // `matrix plot, shader=interp`: the corners' metas as pgfplots finds them sweeping the
+    // scanlines (pgfplots manual, the matrix with a nan in its middle)
+    let metas = [0.0, 1.0, 2.0, 3.0, f64::NAN, 5.0, 6.0, 7.0, 8.0];
+    let cells = tikra::engine::pgfplots::mesh::image_interp_metas(&metas, 3, 3, 0.0);
+    // the first corner its own; the inner corner after a nan the mean of the four around
+    // (nan as the lowest meta); the first row's from its centers; the last column extrapolated
+    assert_eq!(cells[0], [0.0, 1.0, 1.0, 3.0]);
+    assert_eq!(cells[2], [2.0, -1.0, 2.0, 5.0]);
+    assert_eq!(cells[5], [5.0, 2.0, 5.0, 8.0]);
+    assert_eq!(cells[6], [6.0, 7.0, 6.0, 5.0]);
+    assert_eq!(cells[8], [8.0, 5.0, 8.0, 7.0]);
+    // drawn as two shaded triangles each, the nan cell left out
+    let (c, w) = axis(
+        "colorbar=false",
+        r"\addplot [matrix plot, shader=interp, point meta=explicit] coordinates {
+        (0,0) [0] (1,0) [1] (2,0) [2]
+
+        (0,1) [3] (1,1) [nan] (2,1) [5]
+
+        (0,2) [6] (1,2) [7] (2,2) [8]
+    };",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let shaded = c.items.iter().filter(|i| matches!(i, Item::Path { fill: Some(f), .. } if matches!(f.paint, Paint::Shading(_)))).count();
+    assert_eq!(shaded, 8 * 2);
+}
+
+#[test]
 fn group_plots() {
     // 2 by 2: four axes side by side and below each other, 1cm apart
     let (c, w) = canvas(
