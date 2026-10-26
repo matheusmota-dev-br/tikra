@@ -129,7 +129,7 @@ pub fn rectangle_callout(input: &mut Input) -> Geometry {
     let before = c.plus(pt(xb - xc, yb - yc));
     let after = c.plus(pt(xb + xc, yb + yc));
     let pa = pointer_anchor(input, p, before, after);
-    let mut g = Geometry::new(c, Border::Rectangle(pt(xl, yl)));
+    let mut g = Geometry::new(c, Border::RectangleShifted(pt(xl, yl), c));
     let bp = input.base_point();
     // pgf puts this mid point half an em up, not half an ex
     let m = pt(bp.x, 0.5 * input.ex / 0.43);

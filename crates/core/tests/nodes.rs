@@ -356,3 +356,12 @@ fn a_line_between_nodes_of_a_name_prefix_stops_at_their_borders() {
     // from A's east border to B's west border, not through B to its far side
     assert!(xs[0] > 0.1 && xs[1] < 0.9, "{xs:?}");
 }
+
+#[test]
+fn a_rectangle_callout_finds_its_angle_anchors_as_pgf_does() {
+    // pgf looks for the border toward the direction plus the center (seen from the text's origin):
+    // on a wide callout, 60° lands on the east side, not near the top's middle
+    let body = r"\node[rectangle callout] (s) {A rather long callout for its height};";
+    let (a, east) = (point(body, "s.60"), point(body, "s.east"));
+    assert!((a.x - east.x).abs() < 1e-6 && a.y > east.y, "{a:?} {east:?}");
+}
