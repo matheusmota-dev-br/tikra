@@ -182,7 +182,8 @@ impl Engine {
                         let p = node.anchor(&gatebox).or_else(|| node.anchor(a));
                         Coord { p: p.ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None }
                     }
-                    None => Coord { p: node.center(), node: Some(name.to_string()) },
+                    // the name it is registered by: with the scope's name prefix when that is the one found
+                    None => Coord { p: node.center(), node: Some(self.node_key(name)) },
                 });
             }
             return Err(Error::Figure(format!("unknown coordinate: ({t})")));

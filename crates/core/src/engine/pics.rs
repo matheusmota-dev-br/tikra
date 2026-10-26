@@ -200,6 +200,16 @@ impl Engine {
         super::path::statement(self, &options.join(","))
     }
 
+    /// The key a node is registered by: its name with the current name prefix when there is one.
+    pub fn node_key(&self, name: &str) -> String {
+        let prefixed = format!("{}{name}", self.st.name_prefix);
+        if self.nodes.contains_key(&prefixed) {
+            prefixed
+        } else {
+            name.to_string()
+        }
+    }
+
     /// A node by name, with the current name prefix tried first.
     pub fn lookup_node(&self, name: &str) -> Option<super::nodes::NodeInfo> {
         let prefixed = format!("{}{name}", self.st.name_prefix);

@@ -347,3 +347,12 @@ fn shapes_have_their_border_paths() {
     let c = border(r"\node[draw, circle] {x};");
     assert_eq!(curves(&c), 4, "{c:?}");
 }
+
+#[test]
+fn a_line_between_nodes_of_a_name_prefix_stops_at_their_borders() {
+    let c = canvas(r"\begin{scope}[name prefix=top-] \node (A) at (0,0) {A}; \node (B) at (1,0) {B}; \draw (A) -- (B); \end{scope}");
+    let line = paths(&c).pop().unwrap();
+    let xs: Vec<f64> = points(&line.segments).into_iter().map(|(x, _)| x).collect();
+    // from A's east border to B's west border, not through B to its far side
+    assert!(xs[0] > 0.1 && xs[1] < 0.9, "{xs:?}");
+}
