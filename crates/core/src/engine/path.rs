@@ -113,7 +113,19 @@ pub fn statement(e: &mut Engine, defaults: &str) -> Result<(), Error> {
     let carried = std::mem::take(&mut e.carried_fadings);
     e.path_fadings.push(carried.into_iter().map(|(name, fit, t)| (name, e.canvas.items.len(), fit.is_some(), t, fit)).collect());
     e.path_fading_settings.push((e.st.fading_transform, e.st.fit_fading));
+    // `transform canvas` among the path's options (or an animated `:rotate`) is for this path only;
+    // a clip it makes stays for the rest of the scope
+    let (opened, transforms) = (e.scopes.last().map(|s| s.ends), e.canvas_transforms);
     let r = statement_in_group(e, defaults, &outer);
+    if let (Some(before), Some(s)) = (opened, e.scopes.last_mut()) {
+        let mut own = e.canvas_transforms - transforms;
+        while own > 0 && s.ends > before {
+            s.ends -= 1;
+            own -= 1;
+            e.canvas.push(crate::canvas::Item::End);
+        }
+    }
+    e.canvas_transforms = transforms;
     let fadings = e.path_fadings.pop().unwrap_or_default();
     let settings = e.path_fading_settings.pop().unwrap_or((crate::scene::Transform::default(), true));
     e.close_path_fadings(fadings, settings);

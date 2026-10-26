@@ -413,6 +413,8 @@ pub struct Engine {
     /// The `scope fading`s of a path that drew nothing: the next path is faded, the fading fitted
     /// to the box of the path that gave it (none: at its natural size).
     pub carried_fadings: Vec<fadings::CarriedFading>,
+    /// How many `transform canvas` groups have been opened: a path statement closes its own.
+    pub canvas_transforms: usize,
     /// For each path statement being read, the `fading transform` and `fit fading` its options (and
     /// its nodes') set: what its `scope fading`s use.
     pub path_fading_settings: Vec<(Transform, bool)>,
@@ -569,6 +571,7 @@ impl Clone for Engine {
             interrupted_boxes: Vec::new(),
             path_fadings: Vec::new(),
             carried_fadings: Vec::new(),
+            canvas_transforms: 0,
             path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
@@ -657,6 +660,7 @@ impl Engine {
             interrupted_boxes: Vec::new(),
             path_fadings: Vec::new(),
             carried_fadings: Vec::new(),
+            canvas_transforms: 0,
             path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
