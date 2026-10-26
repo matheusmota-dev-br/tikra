@@ -83,3 +83,39 @@ fn split_parts_are_placed_and_named() {
 fn shape_names_alone_are_shapes() {
     no_warnings("\\node[trapezium, draw] {a}; \\node[regular polygon, draw] at (2,0) {b};");
 }
+
+#[test]
+fn a_part_named_again_starts_its_box_anew() {
+    // `\nodepart{text}` at the start restarts the text box: the text part holds `text`, not nothing
+    let ends = |text: &str| {
+        let p = paths(&format!(r"\node[rectangle split,rectangle split parts=2,draw] (s) {{{text}}}; \draw (0,0) -- (s.text split) -- (s.text);"));
+        match p.last().map(|s| s.as_slice()) {
+            Some([Segment::MoveTo(_), Segment::LineTo(a), Segment::LineTo(b)]) => (*a, *b),
+            s => panic!("{s:?}"),
+        }
+    };
+    let (a, b) = ends(r"\nodepart{text}text\nodepart{two}two");
+    let (c, d) = ends(r"text\nodepart{two}two");
+    assert!(near(a, c.x, c.y) && near(b, d.x, d.y), "{a:?} {b:?} / {c:?} {d:?}");
+}
+
+#[test]
+fn an_ellipse_callout_goes_around_through_east() {
+    // pgf draws the ellipse in two arcs, to 360° and from 0°: no control point lies past the
+    // ellipse's east and west, so the picture is as wide as the ellipse
+    let p = paths(r"\node[ellipse callout, draw] (h) {Hallo!}; \draw (h.east) -- (h.west);");
+    let (east, west) = match p[1][..] {
+        [Segment::MoveTo(e), Segment::LineTo(w)] => (e.x - 0.2 * PT, w.x + 0.2 * PT),
+        ref s => panic!("{s:?}"),
+    };
+    for s in &p[0] {
+        let pts = match *s {
+            Segment::MoveTo(a) | Segment::LineTo(a) => vec![a],
+            Segment::CurveTo(a, b, c) => vec![a, b, c],
+            _ => vec![],
+        };
+        for q in pts {
+            assert!(q.x <= east + 1e-6 && q.x >= west - 1e-6, "{q:?} outside {west}..{east}");
+        }
+    }
+}

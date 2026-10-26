@@ -78,6 +78,7 @@ impl NodeInfo {
 /// The node's text split at `\nodepart[options]{name}`: the parts in order, `text` first.
 pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
     let mut parts = vec![("text".to_string(), Vec::new())];
+    let mut current = 0usize;
     let mut depth = 0usize;
     let mut i = 0;
     let skip_spaces = |j: &mut usize| {
@@ -134,11 +135,21 @@ pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
                 "fourth" => "four".to_string(),
                 _ => name,
             };
-            parts.push((name, Vec::new()));
+            // a part named again starts its box anew, as `\setbox` does (`\nodepart{text}text`)
+            match parts.iter().position(|(n, _)| *n == name) {
+                Some(k) => {
+                    parts[k].1.clear();
+                    current = k;
+                }
+                None => {
+                    parts.push((name, Vec::new()));
+                    current = parts.len() - 1;
+                }
+            }
             i = j;
             continue;
         }
-        parts.last_mut().expect("parts start with text").1.push(t.clone());
+        parts[current].1.push(t.clone());
         i += 1;
     }
     parts

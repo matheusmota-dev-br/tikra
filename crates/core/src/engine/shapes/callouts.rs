@@ -82,8 +82,14 @@ pub fn ellipse_callout(input: &mut Input) -> Geometry {
         g.anchor_at(name, q);
     }
     let mut v = vec![Segment::MoveTo(p), Segment::LineTo(after)];
-    let end = if after_angle < before_angle { before_angle } else { before_angle + 360.0 };
-    arc_to(&mut v, after, after_angle, end, xp, yp);
+    // pgf goes around in two arcs, up to 360° and on from 0°: their pieces start at 0°, so their
+    // control points (which count for the picture's size) stay inside the ellipse's box
+    if after_angle < before_angle {
+        arc_to(&mut v, after, after_angle, before_angle, xp, yp);
+    } else {
+        let east = arc_to(&mut v, after, after_angle, 360.0, xp, yp);
+        arc_to(&mut v, east, 0.0, before_angle, xp, yp);
+    }
     v.push(Segment::Close);
     g.background(v);
     g
