@@ -247,3 +247,26 @@ fn scope_fading_of_an_empty_path_is_fitted_to_that_path() {
     let own = mask(r"\fill[scope fading=south] (-2,-2) rectangle (2,2); \path (0,1) circle (1);");
     assert_eq!(carried, own);
 }
+
+#[test]
+fn system_layer_animation_snapshot() {
+    // the timeline of \pgfsysanimkeytime/\pgfsysanimval… at the snapshot time, given to the node
+    // the id refers to; without a snapshot, the node keeps its base state
+    let fill_opacity = |snapshot: &str| {
+        let (canvas, warnings) = tikra::engine::run_document(&format!(
+            r"{snapshot}\tikz {{
+              \pgfidrefnextuse{{\objid}}{{node}}\pgfsysanimkeywhom{{\objid}}{{}}
+              \pgfsysanimkeytime{{0}}{{1}}{{1}}{{0}}{{0}}\pgfsysanimvalscalar{{1}}
+              \pgfsysanimkeytime{{2}}{{1}}{{1}}{{0}}{{0}}\pgfsysanimvalscalar{{0}}
+              \pgfsysanimate{{opacity}}
+              \node (node) [fill=blue!20, circle] {{Hi}};
+            }}"
+        ))
+        .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        canvas.items.iter().find_map(|i| if let Item::Path { fill: Some(f), .. } = i { Some(f.opacity) } else { None }).unwrap()
+    };
+    assert!((fill_opacity(r"\pgfsysanimsnapshot{0.5}") - 0.75).abs() < 1e-6);
+    assert!((fill_opacity(r"\pgfsysanimsnapshot{2}") - 0.0).abs() < 1e-6);
+    assert!((fill_opacity("") - 1.0).abs() < 1e-6);
+}

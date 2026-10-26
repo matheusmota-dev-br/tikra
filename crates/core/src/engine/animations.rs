@@ -138,6 +138,27 @@ impl Engine {
         }
     }
 
+    /// `\pgfsysanimate{attribute}` in snapshot mode: the value the timeline gives the attribute at
+    /// the snapshot time, an option of the next object named `whom` (pgf attaches it to the id).
+    pub fn sys_animate(&mut self, attribute: &str, whom: &str, spec: Vec<Token>) -> Result<(), Error> {
+        let attribute = match attribute {
+            "fillopacity" => "fill opacity",
+            "strokeopacity" => "draw opacity",
+            "linewidth" => "line width",
+            "opacity" => "opacity",
+            // the other attributes keep their base value
+            _ => return Ok(()),
+        };
+        if let Some(o) = self.animation_option(attribute, spec)? {
+            let options = self.sys_animations.entry(whom.to_string()).or_default();
+            if !options.is_empty() {
+                options.push(Token::other(','));
+            }
+            options.extend(o);
+        }
+        Ok(())
+    }
+
     /// `:attribute = {…}` after a command or in a path (the `:` read): the option it gives, if any.
     pub fn read_animation(&mut self) -> Result<Option<Vec<Token>>, Error> {
         let mut name = String::new();

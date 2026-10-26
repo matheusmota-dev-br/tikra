@@ -493,6 +493,10 @@ impl Engine {
         };
         self.process_keys(tikra_tokens(&format!("every {shape_name} node/.try")), Some("/tikz"))?;
         let name = spec.name.clone().or_else(|| self.st.node.name.clone()).or_else(|| self.set_member_name());
+        // what the system layer's animations give the node at the snapshot time
+        if let Some(options) = name.as_ref().and_then(|n| self.sys_animations.remove(n)) {
+            self.process_keys(options, Some("/tikz"))?;
+        }
 
         // the text boxes, one per node part
         let mut texts = Vec::new();
