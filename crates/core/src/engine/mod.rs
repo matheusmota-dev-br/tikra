@@ -1522,6 +1522,10 @@ impl Engine {
                     }
                     None => String::new(),
                 };
+                // the mindmap library sets `/pgf/decoration/angle=20` as it loads, for every decoration after
+                if cmd == Cmd::Usetikzlibrary && a.split(',').any(|l| l.trim() == "mindmap") {
+                    self.st.decoration.angle = 20.0;
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;

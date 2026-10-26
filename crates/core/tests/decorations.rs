@@ -228,3 +228,11 @@ fn replaced_characters_and_relative_controls() {
     assert_eq!(items.iter().filter(|i| matches!(i, Item::Text { .. })).count(), 2);
     assert_eq!(paths(&items).len(), 1);
 }
+
+#[test]
+fn the_mindmap_library_sets_the_decoration_angle_to_20() {
+    // as pgf's mindmap library does when it loads: each wave starts at 20 degrees, not 45
+    let (items, _) = picture(r"\usetikzlibrary{mindmap}\draw[decorate,decoration={waves,radius=4mm}] (0,0) -- (3,0);");
+    let top = ends(&paths(&items)[0]).iter().map(|p| p.y).fold(f64::MIN, f64::max);
+    assert!((top - 0.4 * 20f64.to_radians().sin()).abs() < 1e-3, "{top}");
+}
