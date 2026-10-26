@@ -385,3 +385,11 @@ fn small_capitals_are_as_wide_as_cmcsc10_sets_them() {
     let (l, _) = label(r"\node[text width=2cm, align=center, font=\scshape, execute at begin node=\hskip0pt] {Measuring Complexity};");
     assert_eq!(l.lines.len(), 3, "{}", l.lines.len());
 }
+
+#[test]
+fn lines_too_tall_for_the_baselines_are_a_lineskip_apart() {
+    // a molecule over a word: TeX puts \lineskip (1pt) between the boxes, it does not overlap them
+    let (l, _) = label(r"\node[align=center] {$\chemfig{*6(------)}$\\caffeine};");
+    let gap = -l.baseline(1) - (l.lines[0].depth + l.lines[1].height) as f64 * l.scale;
+    assert!((gap - 2.54 / 72.27).abs() < 1e-6, "{gap}");
+}

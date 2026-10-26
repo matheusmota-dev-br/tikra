@@ -1199,7 +1199,16 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             *s += after * 2.54 / 72.27;
         }
     }
-    let lines = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
+    let lines: Vec<mathra::layout::MathBox> = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
+    // TeX's interline glue: lines that would come closer than \lineskiplimit (0pt) at their
+    // baselines' distance are set \lineskip (1pt) apart instead (a tall formula, a molecule)
+    skips.resize(lines.len(), 0.0);
+    for k in 0..lines.len().saturating_sub(1) {
+        let gap = line_height - (lines[k].depth + lines[k + 1].height) as f64 * scale;
+        if gap < 0.0 {
+            skips[k] += 2.54 / 72.27 - gap;
+        }
+    }
     Label { lines, scale, color, align: drawn, line_height, stretch, skips }
 }
 
