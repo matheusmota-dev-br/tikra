@@ -502,3 +502,14 @@ fn transformed_coordinates_in_basic_layer_points() {
     let (a, b) = (bounds(f[0]), bounds(f[1]));
     assert!(close_to((a.0.x, a.0.y), (b.0.x, b.0.y)) && close_to((a.1.x, a.1.y), (b.1.x, b.1.y)), "{a:?} {b:?}");
 }
+
+#[test]
+fn a_declared_function_is_plotted_and_a_failed_plot_says_why() {
+    // \pgfmathdeclarefunction's #1 is the argument
+    let (c, w) = canvas(r"\pgfmathdeclarefunction{sq}{1}{\pgfmathparse{(#1)^2}} \begin{axis} \addplot[domain=0:2] {sq(x)}; \end{axis}");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(c.items.iter().any(|i| matches!(i, Item::Path { segments, .. } if segments.len() > 20)));
+    // a plot none of whose points can be computed is not dropped in silence
+    let (_, w) = axis("", r"\addplot[domain=0:2] {nosuchfunction(x)};");
+    assert!(w.iter().any(|w| w.contains("no point of the plot")), "{w:?}");
+}

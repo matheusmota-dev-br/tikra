@@ -687,7 +687,15 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
         _ => {}
     }
     let mut out = Vec::new();
-    let eval = |text: &str, vars: &crate::expr::Variables| crate::expr::eval(text, vars).unwrap_or(f64::NAN);
+    // a point pgfplots cannot compute is unbounded (NaN); the first error is kept, to tell it when
+    // no point at all could be
+    let failed: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+    let eval = |text: &str, vars: &crate::expr::Variables| {
+        crate::expr::eval(text, vars).unwrap_or_else(|err| {
+            failed.borrow_mut().get_or_insert_with(|| err.to_string());
+            f64::NAN
+        })
+    };
     // `patch type sampling`: each interval (or cell) gives the points of one patch, at the places
     // of the patch type's points in the unit interval (square)
     let unit = if keys::flag(e, "/pgfplots/patch type sampling") { patch_unit_points(&keys::value(e, "/pgfplots/patch type")) } else { None };
@@ -741,6 +749,9 @@ fn sample(e: &mut Engine, parts: &[Vec<Token>], plot: &mut Plot) -> Result<Vec<C
             c.param = [x, f64::NAN];
             out.push(c);
         }
+    }
+    if let Some(err) = failed.into_inner().filter(|_| out.iter().all(|c| !(c.x.is_finite() && c.y.is_finite()))) {
+        e.warn(format!("\\addplot: {err}: no point of the plot could be computed"));
     }
     Ok(out)
 }

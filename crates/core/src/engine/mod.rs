@@ -1498,7 +1498,13 @@ impl Engine {
                 let expr = text.split("\\pgfmathparse").nth(1).map(|r| r.trim().trim_start_matches('{').trim_end_matches('}').to_string());
                 match expr {
                     Some(e) => {
-                        let params = (1..=n).map(|k| format!("#{k}")).collect();
+                        // #1, #2… become variables the expressions read (`\tikraarga`…)
+                        let params: Vec<String> = (1..=n.min(9)).map(|k| format!("tikraarg{}", (b'a' + k as u8 - 1) as char)).collect();
+                        let mut e = e;
+                        for (k, p) in params.iter().enumerate() {
+                            let var = format!("\\{p}");
+                            e = e.replace(&format!("##{}", k + 1), &var).replace(&format!("#{}", k + 1), &var);
+                        }
                         Rc::make_mut(&mut self.st.functions).insert(name, (params, e));
                     }
                     None => self.warn(format!("\\pgfmathdeclarefunction{{{name}}}: only a \\pgfmathparse body is supported")),
