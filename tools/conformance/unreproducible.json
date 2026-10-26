@@ -151,7 +151,10 @@
       "tikz/pgfmanual-en-tutorial:538",
       "tikz/pgfmanual-en-tutorial-nodes:858",
       "tikz/pgfmanual-en-tutorial-map:885",
-      "pgfplots/pgfplots.reference.scaling:651"
+      "pgfplots/pgfplots.reference.scaling:651",
+      "pgfplots/pgfplots.libs.smithchart:218",
+      "pgfplots/pgfplots.libs.smithchart:286",
+      "tikz/pgfmanual-en-tikz-actions:1345"
     ]
   }
 }
