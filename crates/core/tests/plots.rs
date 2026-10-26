@@ -270,3 +270,25 @@ fn statistics_and_colorbar() {
     let (wd, _) = size(&c);
     assert!(wd > 260.0, "{wd}");
 }
+
+#[test]
+fn smith_chart_minor_lines_count_after_the_major_ones() {
+    // pgfplots numbers a `minor xtick` list after the whole xtick list, so x = 1, 1.5, 2 are the
+    // first, second and third by magnitude: with `xgrid each nth passes y={1:2}` x = 1 and x = 2
+    // stop at y = 1 and only x = 1.5 goes round
+    let (c, w) = canvas(
+        r"\begin{smithchart}[xtick={1,2}, minor xtick={1.5}, ytick={0,1,-1}, xminorgrids, xgrid each nth passes y={1:2}, ygrid each nth passes x={}] \addplot coordinates {(0.5,0.5)}; \end{smithchart}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let count = |s: &[Segment], f: fn(&Segment) -> bool| s.iter().filter(|x| f(x)).count();
+    let shapes: Vec<(usize, usize)> = c
+        .items
+        .iter()
+        .filter_map(|i| if let Item::Path { segments, stroke: Some(_), .. } = i { Some(segments) } else { None })
+        .map(|s| (count(s, |x| matches!(x, Segment::MoveTo(_))), count(s, |x| matches!(x, Segment::CurveTo(..)))))
+        .collect();
+    // the major x grid: two arcs of 106° and 74° (two and one Bézier pieces), not a full circle
+    assert!(shapes.contains(&(2, 3)), "{shapes:?}");
+    // the minor x grid: the whole circle x = 1.5
+    assert!(shapes.contains(&(1, 4)), "{shapes:?}");
+}
