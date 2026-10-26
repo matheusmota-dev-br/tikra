@@ -205,6 +205,16 @@ fn three_d_axis_and_surface() {
 }
 
 #[test]
+fn fpu_square_root_decides_the_ticks() {
+    // the fpu's sqrt(1) is 0.999985, so x stays below 1 and one tick per unit would leave one
+    // label in range: pgfplots asks for four ticks instead and labels x at -0.5, 0, 0.5, 1 as TeX
+    let (c, w) = axis("view={60}{30}", r"\addplot3[surf, samples=30, domain=-1:0, y domain=0:2*pi] ({sqrt(1-x^2) * cos(deg(y))}, {sqrt(1-x^2) * sin(deg(y))}, x);");
+    assert!(w.is_empty(), "{w:?}");
+    // x: -0.5, 0, 0.5, 1; y: -0.5, 0, 0.5; z: -1, -0.5, 0
+    assert_eq!(texts(&c), 10);
+}
+
+#[test]
 fn group_plots() {
     // 2 by 2: four axes side by side and below each other, 1cm apart
     let (c, w) = canvas(
