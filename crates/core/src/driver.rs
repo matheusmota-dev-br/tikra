@@ -408,7 +408,8 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
             }
             Item::Text { label: l, place, opacity } => {
                 let op = if *opacity < 1.0 { format!(r#" opacity="{}""#, n(*opacity)) } else { String::new() };
-                let _ = write!(body, r#"<g transform="{}" fill="{}"{op}>"#, label_matrix(place), l.color.hex());
+                // `color` too: mathra's lines (bonds, cancels, fraction-free strokes) are drawn in currentColor
+                let _ = write!(body, r#"<g transform="{}" fill="{c}" color="{c}"{op}>"#, label_matrix(place), c = l.color.hex());
                 body.push_str(&label(l, glyphs));
                 body.push_str("</g>");
             }

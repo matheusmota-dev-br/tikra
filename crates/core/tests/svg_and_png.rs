@@ -108,3 +108,10 @@ fn a_filled_and_stroked_path_at_one_opacity_is_one_group() {
     let svg = no_warnings(r"\tikz \filldraw[fill=red, fill opacity=0.5, draw opacity=0.3] (0,0) rectangle (1,1);").svg;
     assert!(svg.contains("fill-opacity") && svg.contains("stroke-opacity"), "{svg}");
 }
+
+#[test]
+fn the_lines_of_a_label_take_its_color() {
+    // a molecule's bonds are lines in currentColor: the label sets color, not only fill
+    let svg = no_warnings(r"\tikz \node[text=red] {$\chemfig{H_3C-OH}$};").svg;
+    assert!(svg.contains(r##"fill="#ff0000" color="#ff0000""##) && svg.contains(r#"stroke="currentColor""#), "{svg}");
+}
