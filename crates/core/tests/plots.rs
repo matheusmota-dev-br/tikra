@@ -44,6 +44,15 @@ fn default_size_is_pgfplots() {
 }
 
 #[test]
+fn description_cs_is_the_bounding_box_of_a_skewed_axis() {
+    // the labels (empty here) are at `axis description cs` points: of the axis' bounding box, not
+    // of its slanted sides. TeX draws this one 225.8pt × 154.1pt
+    let (c, _) = axis("x={(5pt,1pt)}, y={(-4pt,4pt)}", r"\addplot {1-x^2};");
+    let (wd, ht) = size(&c);
+    assert!((wd - 225.8).abs() < 1.0 && (ht - 154.1).abs() < 1.0, "{wd} × {ht}");
+}
+
+#[test]
 fn axis_line_styles() {
     for lines in ["left", "middle", "center", "none", "box", "right"] {
         let (c, w) = axis(&format!("xmin=-1, xmax=1, ymin=-1, ymax=1, axis lines={lines}"), r"\addplot {x};");

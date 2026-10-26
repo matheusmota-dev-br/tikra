@@ -516,6 +516,8 @@ enum Layout {
     TabEnd,
     /// the width of the line (cm), in a `\vbox` of that `\hsize`
     Width(f64),
+    /// the pictures are in a `\vbox` (not a `minipage`): glue at its end is part of its height
+    Vbox,
 }
 
 /// Cap on nested runs (a style calling itself).
@@ -2013,6 +2015,9 @@ impl Engine {
             let hsize = self.tex.dimens.get(&255).copied().unwrap_or(0);
             if hsize != 345 * 65536 && hsize > 0 {
                 self.layout.push(Layout::Width(hsize as f64 / 65536.0 * crate::PT));
+                if !self.tex.env_stack.iter().any(|n| n == "minipage") {
+                    self.layout.push(Layout::Vbox);
+                }
             }
             self.layout.push(Layout::Picture(self.boxes.len()));
             self.boxes.push(PictureBox { canvas, baseline });
@@ -2590,6 +2595,9 @@ pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
 const SPACE: f64 = 3.33333 * crate::PT;
 const BASELINE_SKIP: f64 = 12.0 * crate::PT;
 const LINE_SKIP: f64 = 1.0 * crate::PT;
+/// LaTeX's `\topsep` and `\partopsep` at 10 pt (their natural sizes), in cm.
+const TOPSEP: f64 = 8.0 * crate::PT;
+const PARTOPSEP: f64 = 2.0 * crate::PT;
 
 /// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
@@ -2615,28 +2623,51 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         items: Vec<Layout>,
         center: bool,
         empty_kept: bool,
+        /// vertical glue above the line (`\addvspace`: the larger of two that meet)
+        skip: f64,
     }
-    let line = |center| Line { items: Vec::new(), center, empty_kept: false };
+    let line = |center| Line { items: Vec::new(), center, empty_kept: false, skip: 0.0 };
     let mut lines = vec![line(false)];
     let mut center = false;
     let mut hsize: Option<f64> = None;
     let mut after_break = false;
+    let mut vbox = false;
+    // whether TeX is between paragraphs (vertical mode), and whether it was before the last
+    // paragraph's end
+    let (mut vmode, mut vmode_before_par) = (true, true);
+    // `center` is a list: `\topsep` above and below it, `\partopsep` more if it begins a paragraph
+    let mut topsep_add = 0.0;
     for l in layout {
         match l {
             Layout::Par => {
-                if after_break {
+                // in `center`, `\\` ends the paragraph itself: the paragraph's end after it adds no line
+                if after_break && !center {
                     lines.last_mut().expect("a line").empty_kept = true;
                 }
+                vmode_before_par = vmode;
+                vmode = true;
                 lines.push(line(center));
             }
-            Layout::Break => lines.push(line(center)),
+            Layout::Break => {
+                vmode = center;
+                lines.push(line(center));
+            }
             Layout::Center(c) => {
                 center = *c;
-                lines.last_mut().expect("a line").center = center;
+                if center {
+                    topsep_add = TOPSEP + if vmode_before_par { PARTOPSEP } else { 0.0 };
+                }
+                let last = lines.last_mut().expect("a line");
+                last.center = center;
+                last.skip = last.skip.max(topsep_add);
             }
+            Layout::Vbox => vbox = true,
             other => {
                 if let Layout::Width(w) = other {
                     hsize = Some(*w);
+                }
+                if matches!(other, Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_)) {
+                    vmode = false;
                 }
                 lines.last_mut().expect("a line").items.push(*other);
             }
@@ -2647,7 +2678,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
     if let Some(w) = hsize {
         let mut broken = Vec::new();
         for l in lines {
-            let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept };
+            let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept, skip: l.skip };
             let (mut x, mut pending) = (0.0, 0.0);
             let mut started = false;
             let mut chunk: Vec<Layout> = Vec::new();
@@ -2658,7 +2689,7 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                 }
                 let content = chunk.iter().any(|c| matches!(c, Layout::Picture(_) | Layout::Word(_)));
                 if *started && content && *x + *pending + *chunk_w > w + 1e-9 {
-                    let next = Line { items: Vec::new(), center: cur.center, empty_kept: false };
+                    let next = Line { items: Vec::new(), center: cur.center, empty_kept: false, skip: 0.0 };
                     broken.push(std::mem::replace(cur, next));
                     *x = 0.0;
                     *pending = 0.0;
@@ -2692,7 +2723,13 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
     let mut previous_depth: Option<f64> = None;
     let has_picture = layout.iter().any(|x| matches!(x, Layout::Picture(_)));
     let shown = |l: &Line| l.items.iter().any(|x| matches!(x, Layout::Picture(_))) || (has_picture && (l.empty_kept || l.items.iter().any(|x| matches!(x, Layout::Word(_)))));
-    for line in lines.iter().filter(|l| shown(l)) {
+    // the glue waiting above the next line (that of lines not shown too)
+    let mut skip = 0.0f64;
+    for line in &lines {
+        skip = skip.max(line.skip);
+        if !shown(line) {
+            continue;
+        }
         let (mut height, mut depth) = (0.0f64, 0.0f64);
         for l in &line.items {
             match l {
@@ -2711,8 +2748,10 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         }
         if let Some(d) = previous_depth {
             let gap = BASELINE_SKIP - d - height;
-            baseline_y -= if gap >= 0.0 { BASELINE_SKIP } else { d + LINE_SKIP + height };
+            baseline_y -= skip + if gap >= 0.0 { BASELINE_SKIP } else { d + LINE_SKIP + height };
         }
+        // (glue at the top of the box is dropped)
+        skip = 0.0;
         // centered: what the line holds (from its first box) in the middle of its width
         let mut x = 0.0;
         if let (true, Some(w)) = (line.center, hsize) {
@@ -2764,6 +2803,10 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
             }
         }
         previous_depth = Some(depth);
+    }
+    // glue at the end of a `\vbox` (that below a `center`) is part of its height; the page drops it
+    if let (true, Some(d)) = (vbox && skip > 0.0, previous_depth) {
+        out.include(Point::new(0.0, baseline_y - d - skip));
     }
     // a `\vbox` of a known `\hsize` is that wide: what sticks out of it is cut off with the page
     if let (Some(w), Some(lo), Some(hi)) = (hsize, out.min.as_mut(), out.max.as_mut()) {
@@ -2821,6 +2864,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
                 Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
                 // the line's width stays known
                 Layout::Width(w) if !out.contains(&Layout::Width(w)) => out.push(Layout::Width(w)),
+                Layout::Vbox if !out.contains(&Layout::Vbox) => out.push(Layout::Vbox),
                 _ => {}
             }
             i += 1;

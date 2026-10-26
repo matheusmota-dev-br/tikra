@@ -58,6 +58,27 @@ fn inline_tikz_with_and_without_braces() {
 }
 
 #[test]
+fn center_lines_and_the_space_around_it() {
+    // the height of the document's drawing, in pt
+    let height = |doc: &str| -> f64 {
+        let (c, _) = tikra::engine::run_document(doc).unwrap();
+        (c.max.unwrap().y - c.min.unwrap().y) / tikra::PT
+    };
+    let pic = r"\begin{tikzpicture}\draw (0,0) rectangle (3,1);\end{tikzpicture}";
+    // `\\` in `center` ends the paragraph: the blank line after it adds no empty line, so the text's
+    // baseline is a \baselineskip (12pt) below the picture (28.85pt high), as TeX has it
+    let h = height(&format!("\\begin{{center}}\n{pic}\n\\\\\n\nxx\n\\end{{center}}"));
+    assert!((h - 40.85).abs() < 0.3, "{h}");
+    // \topsep above and below the list (the space below it comes before the next line)
+    let h = height(&format!("{pic}\n\\begin{{center}}\n{pic}\n\\end{{center}}\nxx"));
+    assert!((h - 86.7).abs() < 0.3, "{h}");
+    // in a \vbox the space below the list stays at its end, \partopsep more as it began a paragraph
+    // (TeX's \vbox is 50.85pt high)
+    let h = height(&format!("\\vbox\\bgroup\\hsize=12cm\\relax\n\\begin{{center}}\n{pic}\n\\\\\n\nxx\n\\end{{center}}\n\\egroup"));
+    assert!((h - 50.85).abs() < 0.3, "{h}");
+}
+
+#[test]
 fn bare_axis_and_loose_statements() {
     no_warnings(r"\begin{axis}[xmin=0,xmax=1,ymin=0,ymax=1] \addplot coordinates {(0,0) (1,1)}; \end{axis}");
     no_warnings(r"\draw (0,0) -- (1,1);");
