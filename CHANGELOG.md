@@ -4,12 +4,16 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
-## Unreleased
+## 1.3.2 - 2026-10-27
 
-The playground's editor stops growing with the code.
+How tikra grew, on the site and in this changelog.
 
+- The site's [evolution page](https://matheusmota-dev-br.github.io/tikra/changelog.html): every release with its figures drawn live, and the conformance over time as a chart tikra draws.
+- This changelog, from 1.0.0 on; each release on GitHub is made from it.
 - The playground's editor has a maximum height and scrolls inside: a figure with a lot of data, such as the Lorenz attractor, no longer stretches the page ([#17](https://github.com/matheusmota-dev-br/tikra/issues/17)).
 - pgf's and pgfplots' key definitions written anew, clean-room, with credits to the original authors.
+
+**Matches TeX:** 2365 of 2502 figures of the manuals (94.5%).
 
 ## 1.3.1 - 2026-10-26
 
