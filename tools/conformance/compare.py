@@ -4,7 +4,8 @@
 
 Reads <work dir>/ref (TeX, from reference.py) and <work dir>/tikra (from the `conformance` example of
 the core crate), and writes <work dir>/results.json, <work dir>/report.html (every figure that differs,
-side by side) and the summary in Markdown (to --docs, or <work dir>/report.md).
+side by side) and the summary in Markdown (to --docs, or <work dir>/report.md). With --docs, the day's
+figures that match go into progress.tsv next to it, the history the site's evolution page draws.
 
 The two drawings never agree pixel for pixel: TeX sets labels in Computer Modern and tikra in Latin
 Modern Math (the same letters, without TeX's optical sizes), antialiasing differs, and so can the bounding box by a hair. So a figure is compared by its
@@ -37,6 +38,7 @@ import html
 import json
 import re
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -237,8 +239,20 @@ def main():
         timing = {**timing, **json.loads(startup_path.read_text())}
     summary = report_md(results, timing)
     Path(a.docs or work / "report.md").write_text(summary)
+    if a.docs:
+        record_progress(Path(a.docs).parent / "progress.tsv", results)
     report_html(results, work)
     print(summary.split("\n## ")[0])
+
+
+def record_progress(path, results):
+    """Today's row of progress.tsv (date, figures that match, figures counted), replacing an earlier run's."""
+    counted = [r for r in results if r["kind"] in FIGURE_KINDS and r["category"] != "excluded"]
+    today = date.today().isoformat()
+    row = f"{today}\t{sum(r['category'] == 'match' for r in counted)}\t{len(counted)}"
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else ["date\tmatch\tfigures"]
+    lines = [line for line in lines if not line.startswith(today + "\t")] + [row]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 CATS = ["match", "close", "different", "fails"]

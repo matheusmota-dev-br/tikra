@@ -2,7 +2,7 @@
 
 # tikra
 
-tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. It reimplements TikZ, pgf and pgfplots in Rust, and labels are set by [mathra](https://github.com/matheusmota-dev-br/mathra) in Latin Modern, TeX's own Computer Modern. It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)** · **[See the gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html)** · **[Watch the 60-second demo](https://youtu.be/vTX69CwtjB4)**.
+tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. It reimplements TikZ, pgf and pgfplots in Rust, and labels are set by [mathra](https://github.com/matheusmota-dev-br/mathra) in Latin Modern, TeX's own Computer Modern. It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)** · **[See the gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html)** · **[Watch the 60-second demo](https://youtu.be/vTX69CwtjB4)** · **[See how it grew](https://matheusmota-dev-br.github.io/tikra/changelog.html)** ([CHANGELOG.md](https://github.com/matheusmota-dev-br/tikra/blob/main/CHANGELOG.md)).
 
 <p align="center"><a href="https://youtu.be/vTX69CwtjB4"><img src="https://img.youtube.com/vi/vTX69CwtjB4/maxresdefault.jpg" alt="tikra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
 
@@ -175,7 +175,7 @@ tikra depends on the published `mathra` crate. To work against a local checkout 
 mathra = { path = "../mathra/crates/core" }
 ```
 
-**Releasing.** Each package has its own version: `Cargo.toml` (crates `tikra` and `tikra-cli`), `npm/package.json` and `crates/python/Cargo.toml`. Bump the ones to release in a pull request, merge it, then run `scripts/release.sh` on `main`: it tags every version not yet on its registry (`v*`, `npm-v*`, `py-v*`) and pushes the tags at once; each tag runs its workflow (`crates.yml`, `npm.yml`, `pypi.yml`), which publishes with trusted publishing, without stored tokens. A rerun of a half-done release skips what is already out.
+**Releasing.** Each package has its own version: `Cargo.toml` (crates `tikra` and `tikra-cli`), `npm/package.json` and `crates/python/Cargo.toml`. Bump the ones to release in a pull request, and turn `## Unreleased` of [CHANGELOG.md](https://github.com/matheusmota-dev-br/tikra/blob/main/CHANGELOG.md) into `## <version> - <date>`, with what changed and the corpus figures that show it; merge it, then run `scripts/release.sh` on `main`: it tags every version not yet on its registry (`v*`, `npm-v*`, `py-v*`) and pushes the tags at once; each tag runs its workflow (`crates.yml`, `npm.yml`, `pypi.yml`), which publishes with trusted publishing, without stored tokens. A rerun of a half-done release skips what is already out. The script stops when the version has no section in the changelog, and makes the GitHub release from it.
 
 The first release needs a few steps by hand, because crates.io and npm only let a package that already exists trust a workflow:
 
