@@ -5,24 +5,27 @@ fn error(e: tikra::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// The options from a language code (`pt-BR`, `fr`…).
-fn options(locale: &str) -> PyResult<tikra::Options> {
-    locale.parse().map(tikra::Options::locale).map_err(PyValueError::new_err)
+/// The options from a language code (`pt-BR`, `fr`…), with the construction animation and the
+/// numbered steps or not.
+fn options(locale: &str, animate: bool, steps: bool) -> PyResult<tikra::Options> {
+    let o: tikra::Options = locale.parse().map(tikra::Options::locale).map_err(PyValueError::new_err)?;
+    let o = if animate { o.animated() } else { o };
+    Ok(if steps { o.steps() } else { o })
 }
 
 /// Converts a TikZ figure to SVG, with the figure in words in `locale`.
 #[pyfunction]
-#[pyo3(signature = (code, *, locale = "en"))]
-fn tikz_to_svg(code: &str, locale: &str) -> PyResult<String> {
-    tikra::convert_with(code, &options(locale)?).map(|r| r.svg).map_err(error)
+#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false))]
+fn tikz_to_svg(code: &str, locale: &str, animate: bool, steps: bool) -> PyResult<String> {
+    tikra::convert_with(code, &options(locale, animate, steps)?).map(|r| r.svg).map_err(error)
 }
 
 /// The SVG, the figure in words (alt text and description) and the warnings (what was ignored or
 /// approximated); `tikra.render` turns them into a dict.
 #[pyfunction]
-#[pyo3(signature = (code, *, locale = "en"))]
-fn render(code: &str, locale: &str) -> PyResult<(String, String, String, Vec<String>)> {
-    tikra::convert_with(code, &options(locale)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
+#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false))]
+fn render(code: &str, locale: &str, animate: bool, steps: bool) -> PyResult<(String, String, String, Vec<String>)> {
+    tikra::convert_with(code, &options(locale, animate, steps)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
 }
 
 /// Rasterizes an SVG written by tikra to PNG bytes.

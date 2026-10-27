@@ -52,11 +52,28 @@ pub use mathra::locale::Locale;
 pub struct Options {
     /// The language of the figure in words. English by default.
     pub locale: Locale,
+    /// The construction animation: the SVG draws itself, path by path, in the order TikZ drew it
+    /// (CSS in the SVG; browsers play it, PNG ignores it). Off by default.
+    pub animate: bool,
+    /// Each element of the SVG numbered by its step (`data-step`, one per path, label or image, in
+    /// the order TikZ drew them) and the count on the `<svg>` (`data-steps`), with no CSS: for a page
+    /// that walks through the figure itself. The animation numbers them too. Off by default.
+    pub steps: bool,
 }
 
 impl Options {
     pub fn locale(locale: Locale) -> Options {
-        Options { locale }
+        Options { locale, animate: false, steps: false }
+    }
+
+    /// These options, with the construction animation.
+    pub fn animated(self) -> Options {
+        Options { animate: true, ..self }
+    }
+
+    /// These options, with each element numbered by its step.
+    pub fn steps(self) -> Options {
+        Options { steps: true, ..self }
     }
 }
 
@@ -104,7 +121,7 @@ pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
     };
     let (canvas, warnings, facts) = engine::run_document_noting(&input)?;
     let words = describe::describe(&facts, options.locale);
-    let svg = driver::svg(&canvas, code, &words);
+    let svg = driver::svg_with(&canvas, code, &words, options.steps, options.animate);
     let mut all = early;
     all.extend(warnings);
     Ok(Output { svg, alt: words.alt, description: words.text, warnings: all })
@@ -188,7 +205,12 @@ pub fn png(svg: &str, dpi: f32, background: bool) -> Result<Vec<u8>, Error> {
     if !(dpi > 0.0 && dpi.is_finite()) {
         return Err(Error::Png(format!("invalid dpi: {dpi}")));
     }
-    let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).map_err(png_error)?;
+    // a PNG is still: the construction animation's rules would leave the strokes undrawn
+    let still = match (svg.find("<style>@keyframes tr-d"), svg.find("</style>")) {
+        (Some(i), Some(j)) if i < j => format!("{}{}", &svg[..i], &svg[j + "</style>".len()..]),
+        _ => svg.to_string(),
+    };
+    let tree = usvg::Tree::from_str(&still, &usvg::Options::default()).map_err(png_error)?;
     // usvg converts the `pt` of the width attribute at 96 px per inch: the scale is relative to that
     let scale = dpi / 96.0;
     // whole pixels, rounded as a PDF rasterizer rounds the page, and the drawing on them from the

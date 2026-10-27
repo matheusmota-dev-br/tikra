@@ -54,13 +54,16 @@
       <div class="code">
         <pre id="highlight" aria-hidden="true"></pre>
         <textarea id="tex" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="TikZ input">\begin{tikzpicture}
-  \draw[help lines, step=0.5] (-0.2,-1.2) grid (4.2,1.2);
+  \def\a{1}   % amplitude, 0..2
+  \def\k{1}   % frequency, 0..3
+  \draw[help lines, step=0.5] (-0.2,-2.2) grid (4.2,2.2);
   \draw[->] (-0.2,0) -- (4.3,0) node[right] {$x$};
-  \draw[->] (0,-1.2) -- (0,1.4) node[above] {$y$};
-  \draw[blue, thick, domain=0:4, samples=80] plot (\x, {sin(deg(\x))});
-  \node[blue, above right] at (1.6,1) {$y = \sin x$};
+  \draw[->] (0,-2.2) -- (0,2.4) node[above] {$y$};
+  \draw[blue, thick, domain=0:4, samples=100] plot (\x, {\a*sin(\k*deg(\x))});
+  \node[blue, right] at (4.3,1.8) {$y = a \sin kx$};
 \end{tikzpicture}</textarea>
       </div>
+      <div class="params" id="params" aria-label="Numbers in the code" hidden></div>
       <div class="chips" id="chips" aria-label="Examples"></div>
     </div>
 
@@ -69,9 +72,19 @@
         <span class="label">SVG</span>
         <div class="preview" id="preview" aria-live="polite"><span class="status">Loading WebAssembly…</span></div>
       </div>
+      <div class="steps" id="steps" hidden>
+        <button class="button" id="step-back" type="button" aria-label="One step back">◀</button>
+        <input type="range" id="step" min="0" max="0" value="0" aria-label="Step of the drawing">
+        <button class="button" id="step-next" type="button" aria-label="One step forward">▶</button>
+        <output id="step-label" aria-live="polite"></output>
+      </div>
       <div class="messages" id="messages"></div>
       <div class="actions">
-        <button class="button solid" id="download" type="button">Download SVG</button>
+        <button class="button solid" id="animate" type="button">▶ Animate</button>
+        <button class="button" id="download-gif" type="button">Download GIF</button>
+        <button class="button" id="download-video" type="button" hidden>Download video</button>
+        <button class="button" id="download" type="button">Download SVG</button>
+        <button class="button" id="download-animated" type="button">Animated SVG</button>
         <button class="button" id="download-png" type="button">Download PNG</button>
         <button class="button" id="copy-svg" type="button">Copy SVG</button>
         <button class="button" id="copy-link" type="button">Copy link</button>
@@ -220,6 +233,8 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
 
 <script src="pkg/tikra_wasm.js"></script>
 <script src="pkg/corpus.js"></script>
+<script src="animate.js"></script>
+<script src="params.js"></script>
 <script src="pkg/conformance.js"></script>
 <script>
 (function () {
@@ -228,7 +243,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   const CORPUS = typeof TIKRA_CORPUS === "undefined" ? [] : TIKRA_CORPUS;
   // "07-flowchart" → "Flowchart"
   const caption = (name) => { const s = name.replace(/^\d+-/, "").replace(/-/g, " "); return s[0].toUpperCase() + s.slice(1); };
-  const CHIPS = ["triangle-angles", "pgfplots-legend", "flowchart", "graph-nodes", "spring-decorations", "bar-chart", "polar-star"];
+  const CHIPS = ["polar-rose-petals", "triangle-angles", "pgfplots-legend", "flowchart", "graph-nodes", "spring-decorations", "bar-chart", "polar-star"];
 
   const $ = (id) => document.getElementById(id);
   // the conformance numbers, from docs/conformance.md at build time
@@ -248,7 +263,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     ["tr", "Türkçe"], ["nl", "Nederlands"], ["pl", "Polski"]];
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const convert = (code) => JSON.parse(api.render(code, locale));
+  const convert = (code, animate = false, steps = false) => JSON.parse(api.render(code, locale, animate, steps));
 
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
@@ -301,14 +316,67 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     $("stats").textContent = `${ms(t)} · ${kb(new Blob([last.svg]).size)} SVG${gz}`;
   }
 
+  // the figure building itself in a loop, until it is stopped or the code changes
+  let stopLoop = null;
+  function stopAnimation() {
+    if (stopLoop) { stopLoop(); stopLoop = null; }
+    $("animate").textContent = "▶ Animate";
+  }
+
+  // the figure step by step: the SVG with its steps numbered, read off the typing path; the slider
+  // at k shows the first k steps, at the end the whole figure
+  let stepsTimer = 0, stepped = null;
+  function scheduleSteps() {
+    clearTimeout(stepsTimer);
+    stepped = null;
+    $("steps").hidden = true;
+    if (last) stepsTimer = setTimeout(readSteps, 250);
+  }
+  function readSteps() {
+    if (!last) return;
+    try {
+      const svg = convert(tex.value, false, true).svg;
+      const count = Number(/data-steps="(\d+)"/.exec(svg)?.[1] ?? 0);
+      if (count < 2) return;
+      stepped = { svg, count };
+      $("step").max = String(count);
+      $("step").value = String(count);
+      showStep(count);
+      $("steps").hidden = false;
+    } catch { /* the figure was drawn; without its steps the slider stays hidden */ }
+  }
+  function showStep(k) {
+    $("step-label").textContent = `${k} of ${stepped.count}`;
+    $("step-back").disabled = k <= 0;
+    $("step-next").disabled = k >= stepped.count;
+  }
+  function goToStep(k) {
+    if (!stepped) return;
+    stopAnimation();
+    k = Math.max(0, Math.min(stepped.count, k));
+    $("step").value = String(k);
+    showStep(k);
+    // the whole figure is the plain SVG; a part of it, the numbered one with the rest hidden
+    if (k === stepped.count) { preview.innerHTML = last.svg; return; }
+    if (!preview.querySelector("svg[data-steps]")) preview.innerHTML = stepped.svg;
+    for (const el of preview.querySelectorAll("[data-step]")) el.style.visibility = Number(el.dataset.step) < k ? "" : "hidden";
+  }
+
+  // a slider for each number the code defines (\def\r{0.7}): moving it writes the number in the
+  // code, and the figure follows
+  let refreshParams = () => {};
+
   function update() {
     highlight();
     if (!api) return;
+    stopAnimation();
     messages.replaceChildren();
+    refreshParams();
     try {
       last = convert(tex.value);
       preview.innerHTML = last.svg;
       scheduleStats();
+      scheduleSteps();
       for (const w of last.warnings) {
         const el = document.createElement("div");
         el.className = "msg warn";
@@ -317,6 +385,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       }
     } catch (e) {
       last = null;
+      scheduleSteps();
       preview.innerHTML = tex.value.trim() ? "" : '<span class="status">Type some TikZ on the left.</span>';
       if (tex.value.trim()) {
         const el = document.createElement("div");
@@ -372,14 +441,15 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   }
 
   function drawStatic() {
-    $("logo").innerHTML = convert(TIKRA_BANNER).svg;
+    $("logo").innerHTML = convert(TIKRA_BANNER, true).svg;
     $("logo").querySelector("svg")?.setAttribute("aria-hidden", "true");
     for (const el of document.querySelectorAll("[data-tikz]")) el.innerHTML = convert(el.dataset.tikz).svg;
     const tiles = $("tiles");
     let total = 0;
     // the home page shows a few; gallery.html shows them all
-    const FEATURED = ["lorenz-attractor", "smooth-shaded-surface", "nightingale-rose", "petersen-graph", "clock-snapshots", "feynman-diagram", "normal-distribution", "golden-spiral", "matrix-with-moustaches"];
+    const FEATURED = ["lissajous-figure", "lorenz-attractor", "smooth-shaded-surface", "nightingale-rose", "petersen-graph", "clock-snapshots", "feynman-diagram", "normal-distribution", "golden-spiral", "matrix-with-moustaches"];
     const shown = CORPUS.filter((f) => FEATURED.includes(f.name));
+    const featured = new Map();
     $("gallery-all").textContent = `See all ${CORPUS.length} figures`;
     for (const { name, topic, tex: src } of CORPUS) {
       const start = performance.now();
@@ -390,8 +460,10 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       b.className = "card tile";
       b.innerHTML = `<div class="eq">${svg}</div><div class="cap"><span>${escape(caption(name))}</span><span>${escape(topic ?? "")}</span></div>`;
       b.onclick = () => { load(src); $("playground").scrollIntoView(); tex.focus({ preventScroll: true }); };
-      if (shown.some((f) => f.name === name)) tiles.append(b);
+      if (shown.some((f) => f.name === name)) featured.set(name, b);
     }
+    // in the order of FEATURED: the figure with sliders first
+    for (const name of FEATURED) if (featured.has(name)) tiles.append(featured.get(name));
     if (CORPUS.length) $("stat-time").innerHTML = `${(total / CORPUS.length).toFixed(2)}<span> ms</span>`;
   }
 
@@ -427,12 +499,57 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     $("chips").append(b);
   }
   for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => { tab = b.dataset.tab; showTab(); };
+  refreshParams = tikraParams.mount($("params"), { code: () => tex.value, change: (code) => { tex.value = code; update(); } });
   tex.addEventListener("input", update);
   window.addEventListener("hashchange", () => { readHash(); update(); });
 
   $("copy-link").onclick = async (e) => { await navigator.clipboard.writeText(link()); flash(e.target, "Copied"); };
   $("copy-svg").onclick = async (e) => { if (last) { await navigator.clipboard.writeText(last.svg); flash(e.target, "Copied"); } };
+  $("animate").onclick = () => {
+    if (stopLoop) return stopAnimation();
+    if (!last) return;
+    if (stepped) { $("step").value = String(stepped.count); showStep(stepped.count); }
+    stopLoop = tikraAnimation.loop(preview, convert(tex.value, true).svg, last.svg);
+    $("animate").textContent = "■ Stop";
+  };
+  $("download-gif").onclick = async (e) => {
+    const b = e.target;
+    if (!last || b.disabled) return;
+    b.disabled = true;
+    try {
+      const bytes = await tikraAnimation.gif(convert(tex.value, true).svg, { progress: (p) => (b.textContent = `GIF ${Math.round(p * 100)}%`) });
+      save(new Blob([bytes], { type: "image/gif" }), "figure.gif");
+    } catch (err) {
+      alert(`Could not make the GIF: ${String(err.message ?? err)}`);
+    } finally {
+      b.disabled = false;
+      b.textContent = "Download GIF";
+    }
+  };
+  $("step").oninput = (e) => goToStep(Number(e.target.value));
+  $("step-back").onclick = () => goToStep(Number($("step").value) - 1);
+  $("step-next").onclick = () => goToStep(Number($("step").value) + 1);
+  // the video is recorded in real time: the button counts it down
+  $("download-video").hidden = !tikraAnimation.recordable();
+  $("download-video").onclick = async (e) => {
+    const b = e.target;
+    if (!last || b.disabled) return;
+    b.disabled = true;
+    try {
+      const { blob, ext } = await tikraAnimation.video(convert(tex.value, true).svg, { progress: (p) => (b.textContent = `Video ${Math.round(p * 100)}%`) });
+      save(blob, `figure.${ext}`);
+    } catch (err) {
+      alert(`Could not make the video: ${String(err.message ?? err)}`);
+    } finally {
+      b.disabled = false;
+      b.textContent = "Download video";
+    }
+  };
   $("download").onclick = () => { if (last) save(new Blob([last.svg], { type: "image/svg+xml" }), "figure.svg"); };
+  // the SVG that builds itself, with its own play button and bar to drag
+  $("download-animated").onclick = () => {
+    if (last) save(new Blob([tikraAnimation.withControls(convert(tex.value, true).svg)], { type: "image/svg+xml" }), "figure-animated.svg");
+  };
   $("download-png").onclick = () => {
     if (!last) return;
     try {

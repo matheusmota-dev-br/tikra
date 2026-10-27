@@ -57,6 +57,8 @@
 
 <script src="pkg/tikra_wasm.js"></script>
 <script src="pkg/corpus.js"></script>
+<script src="animate.js"></script>
+<script src="params.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -65,6 +67,7 @@
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   // the folders of corpus/, in this order: title, what they show, and the figure on their card
   const TOPICS = {
+    "parameters": ["Live parameters", "Figures with numbers in their code: drag a slider and the figure follows.", "polar-rose-petals"],
     "geometry": ["Geometry", "Points, lines, circles, angles, transformations and coordinates.", "golden-spiral"],
     "plots-2d": ["Function plots", "TikZ plots and pgfplots axes in two dimensions.", "normal-distribution"],
     "plots-3d": ["3D plots", "Surfaces, meshes, curves and heat maps with pgfplots.", "lorenz-attractor"],
@@ -82,11 +85,35 @@
   // the figure's source without its first comment line ("Made up for the tikra benchmark.")
   const source = (tex) => tex.replace(/^%[^\n]*\n/, "");
   let api;
+  // by the code, not the name: a figure with sliders is drawn again for each value
   const svgs = new Map();
-  const draw = (f) => {
-    if (!svgs.has(f.name)) svgs.set(f.name, JSON.parse(api.render(f.tex)).svg);
-    return svgs.get(f.name);
+  const render = (tex) => {
+    if (!svgs.has(tex)) svgs.set(tex, JSON.parse(api.render(tex)).svg);
+    return svgs.get(tex);
   };
+  const draw = (f) => render(f.tex);
+
+  const animatedSvgs = new Map();
+  const animated = (tex) => {
+    if (!animatedSvgs.has(tex)) animatedSvgs.set(tex, JSON.parse(api.render(tex, null, true)).svg);
+    return animatedSvgs.get(tex);
+  };
+
+  // the GIF of an animated SVG, made in the browser; the button tells how far along it is
+  async function makeGif(button, svg, name) {
+    if (button.disabled) return;
+    const label = button.textContent;
+    button.disabled = true;
+    try {
+      const bytes = await tikraAnimation.gif(svg, { progress: (p) => (button.textContent = `${Math.round(p * 100)}%`) });
+      save(new Blob([bytes], { type: "image/gif" }), `${name}.gif`);
+    } catch (e) {
+      alert(`Could not make the GIF: ${String(e.message ?? e)}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
 
   function save(blob, name) {
     const a = document.createElement("a");
@@ -135,16 +162,53 @@
       const card = document.createElement("article");
       card.className = "card tile";
       card.dataset.search = `${f.name} ${f.tex}`.toLowerCase();
-      const src = source(f.tex);
+      // the code as it is now: the sliders change its numbers
+      let tex = f.tex;
+      const hasParams = tikraParams.find(tex).length > 0;
       card.innerHTML =
         `<div class="eq">${svg}</div>` +
-        `<div class="cap"><span>${escape(caption(f.name))}</span></div>` +
-        `<div class="tile-actions"><a class="button" href="index.html#${new URLSearchParams({ tikz: src })}">Open in playground</a>` +
+        (hasParams ? `<div class="params"></div>` : "") +
+        `<div class="cap"><span>${escape(caption(f.name))}</span>${hasParams ? "<span>sliders</span>" : ""}</div>` +
+        `<div class="tile-actions"><a class="button" data-act="open">Open in playground</a>` +
         `<button class="button" type="button" data-act="code">Source</button>` +
-        `<button class="button" type="button" data-act="svg">SVG</button></div>` +
-        `<pre class="tile-code" hidden>${escape(src)}</pre>`;
-      card.querySelector('[data-act="code"]').onclick = () => { const pre = card.querySelector("pre"); pre.hidden = !pre.hidden; };
-      card.querySelector('[data-act="svg"]').onclick = () => save(new Blob([svg], { type: "image/svg+xml" }), `${f.name}.svg`);
+        `<button class="button" type="button" data-act="svg">SVG</button>` +
+        `<button class="button" type="button" data-act="play">▶ Animate</button>` +
+        `<button class="button" type="button" data-act="gif">GIF</button>` +
+        `<button class="button" type="button" data-act="animated">Animated SVG</button></div>` +
+        `<pre class="tile-code" hidden></pre>`;
+      const eq = card.querySelector(".eq"), pre = card.querySelector("pre"), open = card.querySelector('[data-act="open"]');
+      const showCode = () => {
+        const src = source(tex);
+        pre.textContent = src;
+        open.href = `index.html#${new URLSearchParams({ tikz: src })}`;
+      };
+      showCode();
+      card.querySelector('[data-act="code"]').onclick = () => { pre.hidden = !pre.hidden; };
+      card.querySelector('[data-act="svg"]').onclick = () => save(new Blob([render(tex)], { type: "image/svg+xml" }), `${f.name}.svg`);
+      // the figure building itself, over and over, as a GIF plays; and as a GIF to download
+      let stop = null;
+      const play = card.querySelector('[data-act="play"]');
+      const stopPlaying = () => { if (stop) { stop(); stop = null; play.textContent = "▶ Animate"; } };
+      play.onclick = () => {
+        if (stop) return stopPlaying();
+        stop = tikraAnimation.loop(eq, animated(tex), render(tex));
+        play.textContent = "■ Stop";
+      };
+      card.querySelector('[data-act="gif"]').onclick = (e) => makeGif(e.target, animated(tex), f.name);
+      card.querySelector('[data-act="animated"]').onclick = () => save(new Blob([tikraAnimation.withControls(animated(tex))], { type: "image/svg+xml" }), `${f.name}-animated.svg`);
+      if (hasParams) {
+        tikraParams.mount(card.querySelector(".params"), {
+          code: () => tex,
+          change: (code) => {
+            stopPlaying();
+            try {
+              eq.innerHTML = render(code);
+              tex = code;
+              showCode();
+            } catch { /* a value the figure cannot take: the last drawing stays */ }
+          },
+        });
+      }
       tiles.append(card);
     }
     $("count").textContent = `${figures.length} figures`;
