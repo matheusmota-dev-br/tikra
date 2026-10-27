@@ -55,16 +55,25 @@ pub struct Options {
     /// The construction animation: the SVG draws itself, path by path, in the order TikZ drew it
     /// (CSS in the SVG; browsers play it, PNG ignores it). Off by default.
     pub animate: bool,
+    /// Each element of the SVG numbered by its step (`data-step`, one per path, label or image, in
+    /// the order TikZ drew them) and the count on the `<svg>` (`data-steps`), with no CSS: for a page
+    /// that walks through the figure itself. The animation numbers them too. Off by default.
+    pub steps: bool,
 }
 
 impl Options {
     pub fn locale(locale: Locale) -> Options {
-        Options { locale, animate: false }
+        Options { locale, animate: false, steps: false }
     }
 
     /// These options, with the construction animation.
     pub fn animated(self) -> Options {
         Options { animate: true, ..self }
+    }
+
+    /// These options, with each element numbered by its step.
+    pub fn steps(self) -> Options {
+        Options { steps: true, ..self }
     }
 }
 
@@ -112,7 +121,7 @@ pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
     };
     let (canvas, warnings, facts) = engine::run_document_noting(&input)?;
     let words = describe::describe(&facts, options.locale);
-    let svg = driver::svg_with(&canvas, code, &words, options.animate);
+    let svg = driver::svg_with(&canvas, code, &words, options.steps, options.animate);
     let mut all = early;
     all.extend(warnings);
     Ok(Output { svg, alt: words.alt, description: words.text, warnings: all })

@@ -374,37 +374,48 @@ fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
     s
 }
 
-/// The construction animation: what is drawn appears in the order TikZ drew it, one step per
-/// path, label or image. Off, it writes nothing.
+/// The steps of the drawing, one per path, label or image, in the order TikZ drew them: each one
+/// numbered (`data-step`) and, for the construction animation, timed. Off, it writes nothing.
 struct Steps {
     on: bool,
+    animate: bool,
     count: usize,
 }
 
 impl Steps {
     /// For what is not drawn in place: a pattern's tile, a mask.
     fn off() -> Steps {
-        Steps { on: false, count: 0 }
+        Steps { on: false, animate: false, count: 0 }
     }
 
-    /// The attributes of the next step: a stroke drawn along its length (and its fill after it), or
-    /// anything else fading in. A dashed stroke fades in, since `pathLength` would stretch its dashes.
+    /// The attributes of the next step: its number and, animated, a stroke drawn along its length
+    /// (and its fill after it) or anything else fading in. A dashed stroke fades in, since
+    /// `pathLength` would stretch its dashes.
     fn next(&mut self, drawn: bool) -> String {
         if !self.on {
             return String::new();
         }
         let i = self.count;
         self.count += 1;
-        if drawn {
-            format!(r#" class="tr-d" pathLength="1" style="--i:{i}""#)
+        match (self.animate, drawn) {
+            (false, _) => format!(r#" data-step="{i}""#),
+            (true, true) => format!(r#" data-step="{i}" class="tr-d" pathLength="1" style="--i:{i}""#),
+            (true, false) => format!(r#" data-step="{i}" class="tr-f" style="--i:{i}""#),
+        }
+    }
+
+    /// How many steps there are, on the `<svg>`.
+    fn total(&self) -> String {
+        if self.on {
+            format!(r#" data-steps="{}""#, self.count)
         } else {
-            format!(r#" class="tr-f" style="--i:{i}""#)
+            String::new()
         }
     }
 
     /// The animation's rules: all the steps within about six seconds, however many there are.
     fn style(&self) -> String {
-        if self.count == 0 {
+        if !self.animate || self.count == 0 {
             return String::new();
         }
         let step = (6.0 / self.count as f64).min(0.25);
@@ -545,12 +556,13 @@ fn fnv(bytes: &[u8]) -> u64 {
 }
 
 pub fn svg(canvas: &Canvas, source: &str, words: &crate::describe::Description) -> String {
-    svg_with(canvas, source, words, false)
+    svg_with(canvas, source, words, false, false)
 }
 
-/// [`svg`], with the construction animation when `animate`: the figure builds itself in the
-/// order it was drawn, in any browser, with CSS alone.
-pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Description, animate: bool) -> String {
+/// [`svg`], with each element numbered by its step when `steps`, and with the construction
+/// animation when `animate` (steps included): the figure builds itself in the order it was drawn,
+/// in any browser, with CSS alone.
+pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Description, steps: bool, animate: bool) -> String {
     let m = canvas.margin;
     let (min, max) = match (canvas.min, canvas.max) {
         (Some(a), Some(b)) => (a, b),
@@ -562,7 +574,7 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     let mut body = String::new();
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
-    let mut steps = Steps { on: animate, count: 0 };
+    let mut steps = Steps { on: steps || animate, animate, count: 0 };
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps);
     glyphs.append(&mut defs.glyphs);
     let font = crate::label::FONT.get();
@@ -577,14 +589,15 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     let mut s = String::new();
     let _ = write!(
         s,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="img" aria-labelledby="tr-title-{id:08x}"{}>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="img" aria-labelledby="tr-title-{id:08x}"{}{}>"#,
         n(x0 * BP),
         n(-y1 * BP),
         n(width),
         n(height),
         n(width),
         n(height),
-        if words.by_author { String::new() } else { format!(r#" aria-describedby="tr-desc-{id:08x}""#) }
+        if words.by_author { String::new() } else { format!(r#" aria-describedby="tr-desc-{id:08x}""#) },
+        steps.total()
     );
     let _ = write!(s, r#"<title id="tr-title-{id:08x}">{}</title>"#, escape(&words.alt));
     // the author's text is the whole of it; tikra's own has a longer description

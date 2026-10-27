@@ -17,6 +17,8 @@ export interface Options {
   locale?: Locale | (string & {});
   /** The construction animation: in a browser, the figure draws itself path by path, in the order TikZ drew it. Default `false`. */
   animate?: boolean;
+  /** Each element numbered by its step (`data-step`, and `data-steps` on the `<svg>`), with no CSS: for a page that walks through the figure itself. Default `false`. */
+  steps?: boolean;
 }
 
 export interface PngOptions {

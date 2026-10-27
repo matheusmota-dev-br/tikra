@@ -123,8 +123,9 @@ fn construction_animation() {
     assert!(!still.contains("<style>") && !still.contains("class=\"tr-"));
     let svg = tikra::convert_with(code, &tikra::Options::default().animated()).unwrap().svg;
     assert!(svg.contains("<style>@keyframes tr-d"));
-    // the solid line is drawn along its length; the dashed one, the dot and the label fade in
-    assert!(svg.contains(r#"class="tr-d" pathLength="1" style="--i:0""#));
+    // five steps (the arrow tip is one); the solid line is drawn along its length, the dashed one,
+    // the dot and the label fade in
+    assert!(svg.contains(r#"data-steps="5""#) && svg.contains(r#"data-step="0" class="tr-d" pathLength="1" style="--i:0""#));
     assert!(!svg.split("stroke-dasharray=").nth(1).unwrap().split("/>").next().unwrap().contains("tr-d"));
     assert!(svg.contains(r#"<g transform="#) && svg.matches(r#"class="tr-f""#).count() >= 3);
     // the drawing is the same: only the attributes of the steps and the style are added
@@ -135,13 +136,25 @@ fn construction_animation() {
     assert_eq!(tikra::png(&svg, 72.0, true).unwrap(), tikra::png(&still, 72.0, true).unwrap());
 }
 
+#[test]
+fn steps_without_the_animation() {
+    let code = r"\begin{tikzpicture} \draw (0,0) -- (1,1); \fill (2,0) circle (2pt); \node at (3,0) {$x$}; \end{tikzpicture}";
+    let still = tikra::convert(code).unwrap().svg;
+    let svg = tikra::convert_with(code, &tikra::Options::default().steps()).unwrap().svg;
+    // numbered in the order drawn, counted on the <svg>, and no CSS
+    assert!(svg.contains(r#"data-steps="3""#) && svg.contains(r#"data-step="0""#) && svg.contains(r#"data-step="2""#), "{svg}");
+    assert!(!svg.contains("<style>") && !svg.contains("class=\"tr-"));
+    assert_eq!(without_steps(&svg), still);
+}
+
 /// The SVG without the steps' attributes.
 fn without_steps(svg: &str) -> String {
     let mut s = svg.replace(r#" class="tr-d" pathLength="1""#, "").replace(r#" class="tr-f""#, "");
-    while let Some(i) = s.find(r#" style="--i:"#) {
-        let end = i + s[i + 1..].find('"').unwrap() + 2;
-        let end = end + s[end..].find('"').unwrap() + 1;
-        s.replace_range(i..end, "");
+    for attr in [r#" style="--i:"#, r#" data-step=""#, r#" data-steps=""#] {
+        while let Some(i) = s.find(attr) {
+            let end = i + attr.len() + s[i + attr.len()..].find('"').unwrap() + 1;
+            s.replace_range(i..end, "");
+        }
     }
     s
 }

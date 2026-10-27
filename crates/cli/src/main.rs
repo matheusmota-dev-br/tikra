@@ -15,6 +15,7 @@ OPTIONS
       --warnings          lists what was ignored or approximated
       --describe          prints the figure in words: its alt text and its description
       --animate           the SVG draws itself in the browser, in the order TikZ drew it
+      --steps             each element numbered by its step (data-step), with no animation
   -l, --locale <code>     the language of the figure in words: en (default), pt-BR, es, fr, de,
                           it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl (the drawing is the same)
   -V, --version
@@ -46,6 +47,7 @@ fn main() -> ExitCode {
             "--warnings" => show_warnings = true,
             "--describe" => describe = true,
             "--animate" => options = options.animated(),
+            "--steps" => options = options.steps(),
             "-l" | "--locale" => match it.next().unwrap_or_default().parse() {
                 Ok(l) => options.locale = l,
                 Err(e) => {
