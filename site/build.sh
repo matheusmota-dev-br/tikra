@@ -18,6 +18,8 @@ node -e '
   fs.writeFileSync("site/pkg/corpus.js", "var TIKRA_CORPUS = " + JSON.stringify(figures) + ";\n" +
     "var TIKRA_BANNER = " + JSON.stringify(fs.readFileSync("docs/banner.tex", "utf8")) + ";\n");
 '
+# the releases of CHANGELOG.md and the history of docs/progress.tsv, for the evolution page
+python3 -I scripts/changelog.py js > site/pkg/changelog.js
 # the conformance numbers of docs/conformance.md, for the "How close to TikZ" section
 python3 -I - > site/pkg/conformance.js <<'PY'
 import json, re
