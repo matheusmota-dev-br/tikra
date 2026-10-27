@@ -54,11 +54,13 @@
       <div class="code">
         <pre id="highlight" aria-hidden="true"></pre>
         <textarea id="tex" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="TikZ input">\begin{tikzpicture}
-  \draw[help lines, step=0.5] (-0.2,-1.2) grid (4.2,1.2);
+  \def\a{1}   % amplitude, 0..2
+  \def\k{1}   % frequency, 0..3
+  \draw[help lines, step=0.5] (-0.2,-2.2) grid (4.2,2.2);
   \draw[->] (-0.2,0) -- (4.3,0) node[right] {$x$};
-  \draw[->] (0,-1.2) -- (0,1.4) node[above] {$y$};
-  \draw[blue, thick, domain=0:4, samples=80] plot (\x, {sin(deg(\x))});
-  \node[blue, above right] at (1.6,1) {$y = \sin x$};
+  \draw[->] (0,-2.2) -- (0,2.4) node[above] {$y$};
+  \draw[blue, thick, domain=0:4, samples=100] plot (\x, {\a*sin(\k*deg(\x))});
+  \node[blue, right] at (4.3,1.8) {$y = a \sin kx$};
 \end{tikzpicture}</textarea>
       </div>
       <div class="params" id="params" aria-label="Numbers in the code" hidden></div>
@@ -232,6 +234,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
 <script src="pkg/tikra_wasm.js"></script>
 <script src="pkg/corpus.js"></script>
 <script src="animate.js"></script>
+<script src="params.js"></script>
 <script src="pkg/conformance.js"></script>
 <script>
 (function () {
@@ -240,7 +243,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   const CORPUS = typeof TIKRA_CORPUS === "undefined" ? [] : TIKRA_CORPUS;
   // "07-flowchart" → "Flowchart"
   const caption = (name) => { const s = name.replace(/^\d+-/, "").replace(/-/g, " "); return s[0].toUpperCase() + s.slice(1); };
-  const CHIPS = ["triangle-angles", "pgfplots-legend", "flowchart", "graph-nodes", "spring-decorations", "bar-chart", "polar-star"];
+  const CHIPS = ["polar-rose-petals", "triangle-angles", "pgfplots-legend", "flowchart", "graph-nodes", "spring-decorations", "bar-chart", "polar-star"];
 
   const $ = (id) => document.getElementById(id);
   // the conformance numbers, from docs/conformance.md at build time
@@ -359,83 +362,16 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     for (const el of preview.querySelectorAll("[data-step]")) el.style.visibility = Number(el.dataset.step) < k ? "" : "hidden";
   }
 
-  // a slider for each number the code defines: \def\r{0.7}, \pgfmathsetmacro{\r}{0.7},
-  // \newcommand{\r}{0.7}; moving it writes the number in the code, and the figure follows
-  const PARAM = /\\(?:def\s*(\\[a-zA-Z@]+)|pgfmathsetmacro\s*\{?\s*(\\[a-zA-Z@]+)\s*\}?|(?:re)?newcommand\s*\{?\s*(\\[a-zA-Z@]+)\s*\}?)\s*\{\s*(-?\d*\.?\d+)\s*\}/g;
-  const ranges = new Map();
-  function findParams() {
-    const out = [];
-    for (const m of strip(tex.value).matchAll(PARAM)) {
-      const name = m[1] ?? m[2] ?? m[3];
-      if (out.some((p) => p.name === name)) continue;
-      const at = m.index + m[0].lastIndexOf(m[4]);
-      out.push({ name, value: Number(m[4]), at, length: m[4].length, text: m[4] });
-    }
-    return out;
-  }
-  // the code with its comments blanked out, the same length: a \def in a comment is no number
-  const strip = (src) => src.replace(/(^|[^\\])%[^\n]*/g, (m, c) => c + " ".repeat(m.length - c.length));
-  // from 0 to twice the number (or the other way for a negative one), whole steps for whole numbers
-  function range(name, v) {
-    let r = ranges.get(name);
-    if (!r) {
-      const whole = Number.isInteger(v);
-      const lo = v === 0 ? -1 : Math.min(0, 2 * v), hi = v === 0 ? 1 : Math.max(0, 2 * v);
-      r = { lo, hi, step: whole && Math.abs(v) >= 3 ? 1 : (hi - lo) / 200 };
-      ranges.set(name, r);
-    }
-    r.lo = Math.min(r.lo, v);
-    r.hi = Math.max(r.hi, v);
-    return r;
-  }
-  // the number as the slider gives it, with no more decimals than its step has
-  const decimals = (step) => (step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step))));
-  let paramsKey = "";
-  function showParams() {
-    const params = findParams();
-    const key = params.map((p) => p.name).join(" ");
-    const box = $("params");
-    box.hidden = !params.length;
-    // the same names: only the values move (rebuilding would drop the slider being dragged)
-    if (key === paramsKey) {
-      for (const p of params) {
-        const row = box.querySelector(`[data-name="${CSS.escape(p.name)}"]`);
-        if (!row || document.activeElement === row.querySelector("input")) continue;
-        const r = range(p.name, p.value);
-        Object.assign(row.querySelector("input"), { min: r.lo, max: r.hi, step: r.step, value: p.value });
-        row.querySelector("output").textContent = p.text;
-      }
-      return;
-    }
-    paramsKey = key;
-    box.replaceChildren();
-    for (const p of params) {
-      const r = range(p.name, p.value);
-      const row = document.createElement("label");
-      row.className = "param";
-      row.dataset.name = p.name;
-      row.innerHTML = `<span>${escape(p.name)}</span><input type="range"><output></output>`;
-      const input = row.querySelector("input");
-      Object.assign(input, { min: r.lo, max: r.hi, step: r.step, value: p.value });
-      row.querySelector("output").textContent = p.text;
-      input.oninput = () => {
-        const now = findParams().find((q) => q.name === p.name);
-        if (!now) return;
-        const text = String(Number(Number(input.value).toFixed(decimals(r.step))));
-        tex.value = tex.value.slice(0, now.at) + text + tex.value.slice(now.at + now.length);
-        row.querySelector("output").textContent = text;
-        update();
-      };
-      box.append(row);
-    }
-  }
+  // a slider for each number the code defines (\def\r{0.7}): moving it writes the number in the
+  // code, and the figure follows
+  let refreshParams = () => {};
 
   function update() {
     highlight();
     if (!api) return;
     stopAnimation();
     messages.replaceChildren();
-    showParams();
+    refreshParams();
     try {
       last = convert(tex.value);
       preview.innerHTML = last.svg;
@@ -511,8 +447,9 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     const tiles = $("tiles");
     let total = 0;
     // the home page shows a few; gallery.html shows them all
-    const FEATURED = ["lorenz-attractor", "smooth-shaded-surface", "nightingale-rose", "petersen-graph", "clock-snapshots", "feynman-diagram", "normal-distribution", "golden-spiral", "matrix-with-moustaches"];
+    const FEATURED = ["lissajous-figure", "lorenz-attractor", "smooth-shaded-surface", "nightingale-rose", "petersen-graph", "clock-snapshots", "feynman-diagram", "normal-distribution", "golden-spiral", "matrix-with-moustaches"];
     const shown = CORPUS.filter((f) => FEATURED.includes(f.name));
+    const featured = new Map();
     $("gallery-all").textContent = `See all ${CORPUS.length} figures`;
     for (const { name, topic, tex: src } of CORPUS) {
       const start = performance.now();
@@ -523,8 +460,10 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       b.className = "card tile";
       b.innerHTML = `<div class="eq">${svg}</div><div class="cap"><span>${escape(caption(name))}</span><span>${escape(topic ?? "")}</span></div>`;
       b.onclick = () => { load(src); $("playground").scrollIntoView(); tex.focus({ preventScroll: true }); };
-      if (shown.some((f) => f.name === name)) tiles.append(b);
+      if (shown.some((f) => f.name === name)) featured.set(name, b);
     }
+    // in the order of FEATURED: the figure with sliders first
+    for (const name of FEATURED) if (featured.has(name)) tiles.append(featured.get(name));
     if (CORPUS.length) $("stat-time").innerHTML = `${(total / CORPUS.length).toFixed(2)}<span> ms</span>`;
   }
 
@@ -560,6 +499,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     $("chips").append(b);
   }
   for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => { tab = b.dataset.tab; showTab(); };
+  refreshParams = tikraParams.mount($("params"), { code: () => tex.value, change: (code) => { tex.value = code; update(); } });
   tex.addEventListener("input", update);
   window.addEventListener("hashchange", () => { readHash(); update(); });
 

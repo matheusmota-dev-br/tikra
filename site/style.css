@@ -186,6 +186,7 @@
   /* the gallery page: bigger tiles, each with its actions and its source */
   .gallery.big { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
   .gallery.big .tile { cursor: default; }
+  .tile .params { padding: 0 14px 12px; }
   .gallery.big .tile .eq { min-height: 220px; overflow: visible; }
   /* the whole figure, scaled down to the card (its 10 px white padding included), never cut */
   .gallery.big .tile .eq svg { width: auto; height: auto; max-width: calc(100% - 20px); max-height: 340px; }
