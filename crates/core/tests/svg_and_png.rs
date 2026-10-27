@@ -115,3 +115,33 @@ fn the_lines_of_a_label_take_its_color() {
     let svg = no_warnings(r"\tikz \node[text=red] {$\chemfig{H_3C-OH}$};").svg;
     assert!(svg.contains(r##"fill="#ff0000" color="#ff0000""##) && svg.contains(r#"stroke="currentColor""#), "{svg}");
 }
+
+#[test]
+fn construction_animation() {
+    let code = r"\begin{tikzpicture} \draw[->] (0,0) -- (1,1); \draw[dashed] (0,1) -- (1,0); \fill (2,0) circle (2pt); \node at (3,0) {$x$}; \end{tikzpicture}";
+    let still = tikra::convert(code).unwrap().svg;
+    assert!(!still.contains("<style>") && !still.contains("class=\"tr-"));
+    let svg = tikra::convert_with(code, &tikra::Options::default().animated()).unwrap().svg;
+    assert!(svg.contains("<style>@keyframes tr-d"));
+    // the solid line is drawn along its length; the dashed one, the dot and the label fade in
+    assert!(svg.contains(r#"class="tr-d" pathLength="1" style="--i:0""#));
+    assert!(!svg.split("stroke-dasharray=").nth(1).unwrap().split("/>").next().unwrap().contains("tr-d"));
+    assert!(svg.contains(r#"<g transform="#) && svg.matches(r#"class="tr-f""#).count() >= 3);
+    // the drawing is the same: only the attributes of the steps and the style are added
+    let svg_only = svg.replace(&svg[svg.find("<style>").unwrap()..svg.find("</style>").unwrap() + 8], "");
+    let plain = without_steps(&svg_only);
+    assert_eq!(plain, still);
+    // a PNG of the animated SVG is the still figure
+    assert_eq!(tikra::png(&svg, 72.0, true).unwrap(), tikra::png(&still, 72.0, true).unwrap());
+}
+
+/// The SVG without the steps' attributes.
+fn without_steps(svg: &str) -> String {
+    let mut s = svg.replace(r#" class="tr-d" pathLength="1""#, "").replace(r#" class="tr-f""#, "");
+    while let Some(i) = s.find(r#" style="--i:"#) {
+        let end = i + s[i + 1..].find('"').unwrap() + 2;
+        let end = end + s[end..].find('"').unwrap() + 1;
+        s.replace_range(i..end, "");
+    }
+    s
+}

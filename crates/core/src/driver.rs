@@ -121,7 +121,7 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
         Paint::Tile { items, origin, size, transform: t } => {
             // the tile's items drawn first (their own definitions come before the pattern)
             let (mut inner, mut glyphs) = (String::new(), Vec::new());
-            items_svg(&items.0, &mut inner, defs, &mut glyphs);
+            items_svg(&items.0, &mut inner, defs, &mut glyphs, &mut Steps::off());
             defs.glyphs.append(&mut glyphs);
             let id = defs.id("p");
             let (w, h) = (size.x * BP, size.y * BP);
@@ -374,8 +374,54 @@ fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
     s
 }
 
+/// The construction animation: what is drawn appears in the order TikZ drew it, one step per
+/// path, label or image. Off, it writes nothing.
+struct Steps {
+    on: bool,
+    count: usize,
+}
+
+impl Steps {
+    /// For what is not drawn in place: a pattern's tile, a mask.
+    fn off() -> Steps {
+        Steps { on: false, count: 0 }
+    }
+
+    /// The attributes of the next step: a stroke drawn along its length (and its fill after it), or
+    /// anything else fading in. A dashed stroke fades in, since `pathLength` would stretch its dashes.
+    fn next(&mut self, drawn: bool) -> String {
+        if !self.on {
+            return String::new();
+        }
+        let i = self.count;
+        self.count += 1;
+        if drawn {
+            format!(r#" class="tr-d" pathLength="1" style="--i:{i}""#)
+        } else {
+            format!(r#" class="tr-f" style="--i:{i}""#)
+        }
+    }
+
+    /// The animation's rules: all the steps within about six seconds, however many there are.
+    fn style(&self) -> String {
+        if self.count == 0 {
+            return String::new();
+        }
+        let step = (6.0 / self.count as f64).min(0.25);
+        format!(
+            "<style>@keyframes tr-d{{from{{stroke-dashoffset:1.01;fill-opacity:0}}70%{{stroke-dashoffset:0;fill-opacity:0}}}}\
+             @keyframes tr-f{{from{{opacity:0}}}}\
+             .tr-d{{stroke-dasharray:1 2;animation:tr-d .9s ease-in-out both}}\
+             .tr-f{{animation:tr-f .45s ease-out both}}\
+             .tr-d,.tr-f{{animation-delay:calc(var(--i)*{}s)}}\
+             @media (prefers-reduced-motion:reduce){{.tr-d,.tr-f{{animation:none;stroke-dasharray:none}}}}</style>",
+            num(step, 4)
+        )
+    }
+}
+
 /// The items as SVG elements, into `body`; their definitions (gradients, clips, masks) into `defs`.
-fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<GlyphId>) {
+fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<GlyphId>, steps: &mut Steps) {
     for item in items {
         match item {
             Item::Path { segments, fill, stroke } => {
@@ -404,12 +450,14 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 if let Some(o) = shared {
                     let _ = write!(a, r#" opacity="{}""#, n(o.max(0.0)));
                 }
+                let dashed = a.contains("stroke-dasharray");
+                a.push_str(&steps.next(stroke.is_some() && !dashed));
                 let _ = write!(body, r#"<path d="{d}"{a}/>"#);
             }
             Item::Text { label: l, place, opacity } => {
                 let op = if *opacity < 1.0 { format!(r#" opacity="{}""#, n(*opacity)) } else { String::new() };
                 // `color` too: mathra's lines (bonds, cancels, fraction-free strokes) are drawn in currentColor
-                let _ = write!(body, r#"<g transform="{}" fill="{c}" color="{c}"{op}>"#, label_matrix(place), c = l.color.hex());
+                let _ = write!(body, r#"<g transform="{}" fill="{c}" color="{c}"{op}{}>"#, label_matrix(place), steps.next(false), c = l.color.hex());
                 body.push_str(&label(l, glyphs));
                 body.push_str("</g>");
             }
@@ -446,7 +494,8 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
             Item::FadePicture { items } => {
                 // the picture as a luminance mask: white opaque, black and nothing transparent
                 let mut inner = String::new();
-                items_svg(items, &mut inner, defs, glyphs);
+                // a mask is not drawn: it is not animated
+                items_svg(items, &mut inner, defs, glyphs, &mut Steps::off());
                 let id = defs.id("m");
                 let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
                 let _ = write!(body, r#"<g mask="url(#{id})">"#);
@@ -457,13 +506,14 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 let m = [t.a * BP, -t.b * BP, -t.c * BP, t.d * BP, (t.c + t.e) * BP, -(t.d + t.f) * BP];
                 let _ = write!(
                     body,
-                    r#"<image width="1" height="1" preserveAspectRatio="none" image-rendering="optimizeSpeed" transform="matrix({} {} {} {} {} {})" href="data:image/png;base64,{}"/>"#,
+                    r#"<image width="1" height="1" preserveAspectRatio="none" image-rendering="optimizeSpeed" transform="matrix({} {} {} {} {} {})"{} href="data:image/png;base64,{}"/>"#,
                     num(m[0], 4),
                     num(m[1], 4),
                     num(m[2], 4),
                     num(m[3], 4),
                     n(m[4]),
                     n(m[5]),
+                    steps.next(false),
                     base64(png)
                 );
             }
@@ -495,6 +545,12 @@ fn fnv(bytes: &[u8]) -> u64 {
 }
 
 pub fn svg(canvas: &Canvas, source: &str, words: &crate::describe::Description) -> String {
+    svg_with(canvas, source, words, false)
+}
+
+/// [`svg`], with the construction animation when `animate`: the figure builds itself in the
+/// order it was drawn, in any browser, with CSS alone.
+pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Description, animate: bool) -> String {
     let m = canvas.margin;
     let (min, max) = match (canvas.min, canvas.max) {
         (Some(a), Some(b)) => (a, b),
@@ -506,7 +562,8 @@ pub fn svg(canvas: &Canvas, source: &str, words: &crate::describe::Description) 
     let mut body = String::new();
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
-    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs);
+    let mut steps = Steps { on: animate, count: 0 };
+    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps);
     glyphs.append(&mut defs.glyphs);
     let font = crate::label::FONT.get();
     let mut seen = HashSet::new();
@@ -535,7 +592,7 @@ pub fn svg(canvas: &Canvas, source: &str, words: &crate::describe::Description) 
         let _ = write!(s, r#"<desc id="tr-desc-{id:08x}">{}</desc>"#, escape(&words.text));
     }
     let _ = write!(s, r#"<metadata><tikra:source type="tikz">{}</tikra:source></metadata>"#, escape(source));
-    let _ = write!(s, "<defs>{}</defs>{body}</svg>", defs.text);
+    let _ = write!(s, "{}<defs>{}</defs>{body}</svg>", steps.style(), defs.text);
     s
 }
 

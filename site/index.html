@@ -70,7 +70,8 @@
       </div>
       <div class="messages" id="messages"></div>
       <div class="actions">
-        <button class="button solid" id="download" type="button">Download SVG</button>
+        <button class="button solid" id="animate" type="button">Watch it build</button>
+        <button class="button" id="download" type="button">Download SVG</button>
         <button class="button" id="download-png" type="button">Download PNG</button>
         <button class="button" id="copy-svg" type="button">Copy SVG</button>
         <button class="button" id="copy-link" type="button">Copy link</button>
@@ -247,7 +248,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     ["tr", "Türkçe"], ["nl", "Nederlands"], ["pl", "Polski"]];
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const convert = (code) => JSON.parse(api.render(code, locale));
+  const convert = (code, animate = false) => JSON.parse(api.render(code, locale, animate));
 
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
@@ -371,7 +372,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   }
 
   function drawStatic() {
-    $("logo").innerHTML = convert(TIKRA_BANNER).svg;
+    $("logo").innerHTML = convert(TIKRA_BANNER, true).svg;
     $("logo").querySelector("svg")?.setAttribute("aria-hidden", "true");
     for (const el of document.querySelectorAll("[data-tikz]")) el.innerHTML = convert(el.dataset.tikz).svg;
     const tiles = $("tiles");
@@ -431,6 +432,8 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
 
   $("copy-link").onclick = async (e) => { await navigator.clipboard.writeText(link()); flash(e.target, "Copied"); };
   $("copy-svg").onclick = async (e) => { if (last) { await navigator.clipboard.writeText(last.svg); flash(e.target, "Copied"); } };
+  // the same figure with the construction animation: replayed on every click, until the next edit
+  $("animate").onclick = () => { if (last) preview.innerHTML = convert(tex.value, true).svg; };
   $("download").onclick = () => { if (last) save(new Blob([last.svg], { type: "image/svg+xml" }), "figure.svg"); };
   $("download-png").onclick = () => {
     if (!last) return;

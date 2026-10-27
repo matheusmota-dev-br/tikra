@@ -27,7 +27,7 @@ class Result(TypedDict):
     """What was ignored or approximated: unsupported commands, labels with broken LaTeX."""
 
 
-def tikz_to_svg(code: str, *, locale: str = "en") -> str:
+def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False) -> str:
     """Converts a TikZ figure to SVG, with the figure in words (its ``<title>`` and ``<desc>``) in
     ``locale``: one of mathra's languages, ``en``, ``pt-BR``, ``es``, ``fr``, ``de``, ``it``, ``ru``,
     ``zh``, ``ja``, ``ko``, ``hi``, ``ar``, ``id``, ``tr``, ``nl``, ``pl``. The drawing is the same in all.
@@ -36,13 +36,16 @@ def tikz_to_svg(code: str, *, locale: str = "en") -> str:
     ``axis`` environment or loose TikZ statements. What tikra does not understand is skipped (see
     :func:`render` for the warnings). Raises ValueError when there is no figure to draw or the
     locale is unknown.
+
+    ``animate=True`` adds the construction animation: in a browser, the figure draws itself path by
+    path, in the order TikZ drew it.
     """
-    return _tikra.tikz_to_svg(code, locale=locale)
+    return _tikra.tikz_to_svg(code, locale=locale, animate=animate)
 
 
-def render(code: str, *, locale: str = "en") -> Result:
+def render(code: str, *, locale: str = "en", animate: bool = False) -> Result:
     """The SVG, the figure in words (in ``locale``) and the warnings at once."""
-    svg, alt, description, warnings = _tikra.render(code, locale=locale)
+    svg, alt, description, warnings = _tikra.render(code, locale=locale, animate=animate)
     return {"svg": svg, "alt": alt, "description": description, "warnings": warnings}
 
 
