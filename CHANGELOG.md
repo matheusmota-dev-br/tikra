@@ -4,6 +4,20 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.4.0 - 2026-10-27
+
+The figure draws itself, in the order TikZ drew it.
+
+- The construction animation: `--animate`, `{ animate: true }`, `animate=True`. Each stroke is drawn along its length and its fill follows, all in about six seconds; off by default, and the SVG without it is unchanged byte for byte.
+- The steps apart from the animation: `--steps`, `{ steps: true }`, `steps=True` number each element by the order TikZ drew it, for a page that walks through the figure.
+- The playground walks through the figure step by step, gives a slider to each number the code defines (`\def`, `\pgfmathsetmacro`, `\newcommand`), and downloads the animation as a GIF, a video or an animated SVG with its own controls.
+- The gallery animates every figure, and figures with numbers to change have their sliders.
+- Five figures in the corpus with numbers to change, a topic of their own; the corpus has 241 figures.
+
+**Matches TeX:** 2365 of 2502 figures of the manuals (94.5%).
+
+Figures: `sine-wave-controls` `polar-rose-petals` `lissajous-figure` `regular-polygon-sides` `projectile-launch`
+
 ## 1.3.2 - 2026-10-27
 
 How tikra grew, on the site and in this changelog.
