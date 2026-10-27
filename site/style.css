@@ -76,15 +76,17 @@
   .label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
   .editor { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .code { position: relative; flex: 1; background: var(--surface-2); border: 1px solid transparent; border-radius: 10px; }
+  /* a long figure (the Lorenz attractor's data) scrolls inside the editor instead of stretching the page;
+     the colored text and the textarea share one grid cell, so they scroll together */
+  .code { display: grid; grid-auto-rows: max-content; flex: 1; max-height: min(560px, 70vh); overflow: auto; background: var(--surface-2); border: 1px solid transparent; border-radius: 10px; }
   .code:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
   .code pre, .code textarea {
     margin: 0; padding: 14px; min-height: 170px; font: 14.5px/1.6 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; border: 0;
+    white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; border: 0; grid-area: 1 / 1;
   }
   .code pre { color: var(--ink); pointer-events: none; }
   .code textarea {
-    position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden; outline: none;
+    width: 100%; resize: none; overflow: hidden; outline: none;
     background: transparent; color: transparent; caret-color: var(--ink);
   }
   .code textarea::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: transparent; }

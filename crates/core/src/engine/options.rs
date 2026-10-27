@@ -1193,7 +1193,7 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         _ => (target.trim_start_matches('(').trim_end_matches(')').to_string(), None),
     };
     // `on grid`: from center to center
-    let on_grid = e.tex.meaning_of("iftikz@lib@ignore@size") == e.tex.meaning_of("iftrue");
+    let on_grid = e.tex.meaning_of("iftikra@ignore@size") == e.tex.meaning_of("iftrue");
     let base = match e.nodes.get(&name) {
         Some(n) if on_grid => n.center(),
         Some(n) => n.anchor(explicit.as_deref().unwrap_or(target_anchor)).unwrap_or(n.center()),
@@ -2456,8 +2456,8 @@ const DEFINITIONS: &str = r"
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
-\newif\iftikz@lib@ignore@size
-\tikzset{on grid/.is if=tikz@lib@ignore@size}
+\newif\iftikra@ignore@size
+\tikzset{on grid/.is if=tikra@ignore@size}
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
 \def\pgfsetmatrixrowsep#1{\tikzset{row sep={#1}}}
 \def\pgfmatrixnextcell{\tikra@nextcell}

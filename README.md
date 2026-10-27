@@ -186,6 +186,10 @@ The first release needs a few steps by hand, because crates.io and npm only let 
 
 Every pull request runs the same checks (`.github/workflows/ci.yml`): fmt, clippy, the Rust, wasm, npm and Python tests.
 
+## Credits
+
+tikra reads the languages of [TikZ and pgf](https://github.com/pgf-tikz/pgf), by Till Tantau and the PGF/TikZ team, and of [pgfplots](https://github.com/pgf-tikz/pgfplots), by Christian Feuersänger, and its figures are checked against the ones TeX draws from them. TikZ, pgf and pgfplots remain the reference; tikra is an independent project, not affiliated with them.
+
 ## Licenses
 
 Code: MIT or Apache-2.0. Labels are set in Latin Modern Math, the OpenType version of TeX's Computer Modern (GUST Font License), which comes from mathra with its STIX Two Math (SIL OFL 1.1); the Python and npm packages carry both license texts.

@@ -468,12 +468,12 @@ pub const DEFINITIONS: &str = r"
   text align/left indent/.initial=0pt, text align/right indent/.initial=0pt,
   text align/fit to path/.default=true, text align/fit to path stretching spaces/.default=true,
 }
-\pgfkeys{
-  /pgf/segment amplitude/.style={/pgf/decoration={amplitude={#1},shape height={2*(#1)}}},
-  /pgf/segment length/.style={/pgf/decoration={segment length={#1}}},
-  /pgf/segment angle/.style={/pgf/decoration={angle={#1}}},
-  /pgf/segment aspect/.style={/pgf/decoration={aspect={#1}}},
-  /pgf/segment object length/.style={/pgf/decoration={shape width={#1},radius={#1}}},
+% the older names of the decoration keys, under /pgf
+\pgfkeys{/pgf/.cd,
+  segment length/.style={/pgf/decoration/segment length={#1}}, segment angle/.style={/pgf/decoration/angle={#1}},
+  segment aspect/.style={/pgf/decoration/aspect={#1}},
+  segment amplitude/.style={/pgf/decoration/amplitude={#1},/pgf/decoration/shape height={2*(#1)}},
+  segment object length/.style={/pgf/decoration/shape width={#1},/pgf/decoration/radius={#1}},
 }
 ";
 

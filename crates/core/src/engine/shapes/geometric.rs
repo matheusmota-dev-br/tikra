@@ -61,7 +61,7 @@ fn swap_for(rotate: f64, x: f64, y: f64) -> (f64, f64) {
 pub fn star(input: &mut Input) -> Geometry {
     let points = input.number("/pgf/star points", 5.0).trunc().max(2.0);
     let step = 180.0 / points;
-    let uses_ratio = input.keys.flag("pgf@lib@shapes@starouterradiususesratio");
+    let uses_ratio = input.keys.flag("tikra@sh@starratio");
     let ratio = input.number("/pgf/star point ratio", 1.5);
     let height = input.length("/pgf/star point height", 0.5);
     let (x, y) = input.half_with_inner();
@@ -146,8 +146,8 @@ pub fn trapezium(input: &mut Input) -> Geometry {
     let right = angle_mod(input.number("/pgf/trapezium right angle", 60.0));
     let mut xa = extension(left, y);
     let mut xb = extension(right, y);
-    let stretches = input.keys.flag("pgf@lib@sh@trapeziumstretches");
-    let stretches_body = input.keys.flag("pgf@lib@sh@trapeziumstretchesbody");
+    let stretches = input.keys.flag("tikra@sh@trapstretch");
+    let stretches_body = input.keys.flag("tikra@sh@trapbody");
     let (min_w, min_h) = (input.minimum_width, input.minimum_height);
     if y < min_h / 2.0 {
         if stretches || stretches_body {
@@ -268,7 +268,7 @@ pub fn isosceles_triangle(input: &mut Input) -> Geometry {
     if xa == 0.0 {
         xa = input.minimum_height;
     }
-    let stretches = input.keys.flag("pgf@lib@sh@isosceslestrianglestretches");
+    let stretches = input.keys.flag("tikra@sh@isostretch");
     if ya < input.minimum_width / 2.0 {
         ya = input.minimum_width / 2.0;
         if stretches {
