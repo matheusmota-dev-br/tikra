@@ -82,6 +82,7 @@
         <button class="button" id="download-gif" type="button">Download GIF</button>
         <button class="button" id="download-video" type="button" hidden>Download video</button>
         <button class="button" id="download" type="button">Download SVG</button>
+        <button class="button" id="download-animated" type="button">Animated SVG</button>
         <button class="button" id="download-png" type="button">Download PNG</button>
         <button class="button" id="copy-svg" type="button">Copy SVG</button>
         <button class="button" id="copy-link" type="button">Copy link</button>
@@ -605,6 +606,10 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     }
   };
   $("download").onclick = () => { if (last) save(new Blob([last.svg], { type: "image/svg+xml" }), "figure.svg"); };
+  // the SVG that builds itself, with its own play button and bar to drag
+  $("download-animated").onclick = () => {
+    if (last) save(new Blob([tikraAnimation.withControls(convert(tex.value, true).svg)], { type: "image/svg+xml" }), "figure-animated.svg");
+  };
   $("download-png").onclick = () => {
     if (!last) return;
     try {

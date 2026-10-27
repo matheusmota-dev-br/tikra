@@ -33,6 +33,96 @@ var tikraAnimation = (() => {
     return svg.replace("</svg>", pause + "</svg>");
   }
 
+  // The controls an animated SVG carries when it is downloaded: play and pause, a bar to drag and
+  // the step it is at, below the figure. They run as the SVG's own script, so they show where a
+  // browser opens the file or a page puts it inline; as an <img> scripts do not run, and the
+  // figure builds itself once, with no bar. Written out by its source, with nothing from outside.
+  function controls() {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.currentScript?.closest("svg") ?? document.documentElement;
+    const animations = svg.getAnimations({ subtree: true }).filter((a) => a.effect);
+    // reduced motion: tikra's CSS plays nothing, and there is nothing to control
+    if (!animations.length) return;
+    const end = Math.max(...animations.map((a) => a.effect.getComputedTiming().endTime));
+    const starts = animations.map((a) => a.effect.getTiming().delay).sort((a, b) => a - b);
+    // room for the bar under the figure, in the figure's units: 24pt, or more for a large figure
+    const [x, y, w, h] = svg.getAttribute("viewBox").split(/\s+/).map(Number);
+    const bar = Math.max(24, w * 0.045), pad = bar * 0.25;
+    svg.setAttribute("viewBox", `${x} ${y} ${w} ${h + bar}`);
+    if (svg.hasAttribute("height")) svg.setAttribute("height", `${h + bar}pt`);
+    const el = (name, attrs, parent) => {
+      const e = document.createElementNS(NS, name);
+      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+      parent.append(e);
+      return e;
+    };
+    const g = el("g", { transform: `translate(${x} ${y + h})`, "font-family": "system-ui, sans-serif", "font-size": bar * 0.42 }, svg);
+    el("rect", { width: w, height: bar, fill: "#f4f1ea" }, g);
+    // the button: a triangle to play, two bars to pause, an arrow to start over
+    const button = el("g", { cursor: "pointer", role: "button", tabindex: "0", "aria-label": "Play" }, g);
+    el("rect", { width: bar, height: bar, fill: "transparent" }, button);
+    const icon = el("path", { fill: "#0e1726" }, button);
+    const s = bar * 0.3, c = bar / 2;
+    const ICONS = {
+      play: `M${c - s * 0.7} ${c - s}L${c + s} ${c}L${c - s * 0.7} ${c + s}Z`,
+      pause: `M${c - s * 0.8} ${c - s}h${s * 0.55}v${2 * s}h${-s * 0.55}ZM${c + s * 0.25} ${c - s}h${s * 0.55}v${2 * s}h${-s * 0.55}Z`,
+      again: `M${c} ${c - s}A${s} ${s} 0 1 1 ${c - s} ${c}h${s * 0.4}A${s * 0.6} ${s * 0.6} 0 1 0 ${c} ${c - s * 0.6}v${s * 0.45}l${-s * 0.7} ${-s * 0.65}l${s * 0.7} ${-s * 0.65}Z`,
+    };
+    // the bar to drag, and how many steps have started
+    const label = el("text", { x: w - pad, y: bar * 0.66, "text-anchor": "end", fill: "#5d6b80" }, g);
+    label.textContent = `${starts.length}/${starts.length}`;
+    const left = bar + pad * 0.5, right = w - pad * 2 - label.getComputedTextLength(), track = Math.max(bar, right - left);
+    const hit = el("rect", { x: left, y: 0, width: track, height: bar, fill: "transparent", cursor: "pointer" }, g);
+    el("rect", { x: left, y: bar / 2 - 1.5, width: track, height: 3, rx: 1.5, fill: "#e5dfd2", "pointer-events": "none" }, g);
+    const done = el("rect", { x: left, y: bar / 2 - 1.5, width: 0, height: 3, rx: 1.5, fill: "#f2b544", "pointer-events": "none" }, g);
+    const knob = el("circle", { cy: bar / 2, r: bar * 0.18, fill: "#f2b544", "pointer-events": "none" }, g);
+
+    // the clock is the script's: every animation paused, and set to the same moment
+    let t = 0, playing = false, last = 0;
+    animations.forEach((a) => a.pause());
+    function show() {
+      animations.forEach((a) => (a.currentTime = t));
+      const f = end ? t / end : 1;
+      done.setAttribute("width", f * track);
+      knob.setAttribute("cx", left + f * track);
+      label.textContent = `${starts.filter((d) => d <= t).length}/${starts.length}`;
+      const state = playing ? "pause" : t >= end ? "again" : "play";
+      icon.setAttribute("d", ICONS[state]);
+      button.setAttribute("aria-label", { play: "Play", pause: "Pause", again: "Play again" }[state]);
+    }
+    function tick(now) {
+      if (!playing) return;
+      t = Math.min(end, t + (now - last));
+      last = now;
+      if (t >= end) playing = false;
+      show();
+      if (playing) requestAnimationFrame(tick);
+    }
+    function play() {
+      if (t >= end) t = 0;
+      playing = true;
+      last = performance.now();
+      requestAnimationFrame(tick);
+      show();
+    }
+    const toggle = () => (playing ? ((playing = false), show()) : play());
+    button.addEventListener("click", toggle);
+    button.addEventListener("keydown", (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(); } });
+    // dragging the bar: the figure at that moment, paused
+    const seek = (e) => {
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(g.getScreenCTM().inverse());
+      t = Math.max(0, Math.min(1, (p.x - left) / track)) * end;
+      show();
+    };
+    hit.addEventListener("pointerdown", (e) => { playing = false; hit.setPointerCapture(e.pointerId); seek(e); });
+    hit.addEventListener("pointermove", (e) => { if (hit.hasPointerCapture(e.pointerId)) seek(e); });
+    // it starts playing, as the plain animated SVG does
+    play();
+  }
+
+  // the animated SVG with its controls, for a file to download
+  const withControls = (svg) => svg.replace(/<\/svg>$/, `<script><![CDATA[(${controls})();]]></script></svg>`);
+
   const loadImage = (svg) => new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
@@ -219,5 +309,5 @@ var tikraAnimation = (() => {
     return new Uint8Array(out);
   }
 
-  return { duration, loop, gif, video, recordable };
+  return { duration, loop, gif, video, recordable, withControls };
 })();

@@ -166,7 +166,8 @@
         `<button class="button" type="button" data-act="code">Source</button>` +
         `<button class="button" type="button" data-act="svg">SVG</button>` +
         `<button class="button" type="button" data-act="play">▶ Animate</button>` +
-        `<button class="button" type="button" data-act="gif">GIF</button></div>` +
+        `<button class="button" type="button" data-act="gif">GIF</button>` +
+        `<button class="button" type="button" data-act="animated">Animated SVG</button></div>` +
         `<pre class="tile-code" hidden>${escape(src)}</pre>`;
       card.querySelector('[data-act="code"]').onclick = () => { const pre = card.querySelector("pre"); pre.hidden = !pre.hidden; };
       card.querySelector('[data-act="svg"]').onclick = () => save(new Blob([svg], { type: "image/svg+xml" }), `${f.name}.svg`);
@@ -178,6 +179,7 @@
         e.target.textContent = "■ Stop";
       };
       card.querySelector('[data-act="gif"]').onclick = (e) => makeGif(e.target, animated(f), f.name);
+      card.querySelector('[data-act="animated"]').onclick = () => save(new Blob([tikraAnimation.withControls(animated(f))], { type: "image/svg+xml" }), `${f.name}-animated.svg`);
       tiles.append(card);
     }
     $("count").textContent = `${figures.length} figures`;
