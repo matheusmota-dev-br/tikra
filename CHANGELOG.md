@@ -4,6 +4,17 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.4.1 - 2026-10-27
+
+The engine opens to libraries from outside tikra.
+
+- `tikra::extension`: a package drawn on TikZ can live in a crate of its own, as TeX definitions run once and keys written in Rust, without a copy of the engine. `tikra::convert_with_libraries` converts with them defined next to TikZ's own.
+- TikZ's circuit libraries go through the same opening, which shows it is enough for them; they draw as before.
+- The engine's internal modules are hidden from the documentation: they are not an API and change with any release. What is kept stable is `convert`, `png` and `extension`.
+- Nothing changes for the CLI, npm and PyPI.
+
+**Matches TeX:** 2365 of 2502 figures of the manuals (94.5%).
+
 ## 1.4.0 - 2026-10-27
 
 The figure draws itself, in the order TikZ drew it.
