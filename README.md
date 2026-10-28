@@ -186,7 +186,7 @@ The first release needs a few steps by hand, because crates.io and npm only let 
 3. PyPI accepts a trusted publisher before the project exists: Publishing → add a pending publisher, project `tikra`, repository `matheusmota-dev-br/tikra`, workflow `pypi.yml`, environment `pypi`. The `py-v*` tag publishes it.
 4. GitHub: Settings → Pages → Source: "GitHub Actions", for the playground (`pages.yml`), and an environment named `pypi`.
 
-Every pull request runs the same checks (`.github/workflows/ci.yml`): fmt, clippy, the Rust, wasm, npm and Python tests.
+The checks run on your machine: `git config core.hooksPath .githooks` once, and every commit runs fmt, clippy and the Rust tests, every push the wasm, npm and Python tests (`scripts/check.sh` runs them all by hand). `.github/workflows/ci.yml` runs the same checks again on `main` after each merge.
 
 ## Credits
 
