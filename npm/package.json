@@ -1,6 +1,6 @@
 {
   "name": "@mathlabs/tikra",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "TikZ and pgfplots figures to SVG and PNG, without a TeX install. Math labels typeset by mathra. Runs on WebAssembly in Node, bundlers and browsers.",
   "keywords": [
     "tikz",
