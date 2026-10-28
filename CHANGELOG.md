@@ -4,6 +4,16 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.4.2 - 2026-10-28
+
+How to contribute, and how to report a vulnerability.
+
+- A code of conduct (Contributor Covenant 2.1), a contributing guide and a security policy, in `.github/`. Vulnerabilities are reported privately through the repository's Security tab.
+- The checks run on the contributor's machine: `scripts/check.sh` runs fmt, clippy and the Rust, wasm, npm and Python tests, and the git hooks in `.githooks/` run it before each commit and push. GitHub runs them again on `main`, not on pull requests.
+- Drawing is unchanged: every figure is the same as 1.4.1's.
+
+**Matches TeX:** 2365 of 2502 figures of the manuals (94.5%).
+
 ## 1.4.1 - 2026-10-27
 
 The engine opens to libraries from outside tikra.
