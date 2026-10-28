@@ -61,7 +61,7 @@ for w in &out.warnings { eprintln!("{w}"); }
 println!("{}", out.description);                 // the figure in words; `out.alt` in one sentence
 ```
 
-A package drawn on TikZ can be added from another crate as a library of [`tikra::extension`](https://docs.rs/tikra/latest/tikra/extension/): TeX definitions run once and native keys written in Rust, passed to `tikra::convert_with_libraries`. TikZ's own circuit libraries are written this way.
+A package drawn on TikZ can be added from another crate as a library of [`tikra::extension`](https://docs.rs/tikra/latest/tikra/extension/): TeX definitions run once, native keys and node shapes written in Rust, passed to `tikra::convert_with_libraries`. TikZ's own circuit libraries are written this way.
 
 The banner above is drawn by tikra itself from [`docs/banner.tex`](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/banner.tex).
 

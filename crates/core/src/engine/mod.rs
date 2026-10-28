@@ -445,6 +445,8 @@ pub struct Engine {
     pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// shapes declared by `\pgfdeclareshape`
     pub user_shapes: HashMap<String, user_shapes::UserShape>,
+    /// the node shapes libraries declared, by name
+    pub extension_shapes: HashMap<String, crate::extension::ShapeFn>,
     /// the node `\pgfpositionnodelater` kept: what it draws, where its anchors are, its name
     pub later_node: Option<(Vec<Item>, nodes::NodeInfo, Option<String>)>,
     /// the text box a node must take (a matrix's cells), instead of its text's
@@ -601,6 +603,7 @@ impl Clone for Engine {
             sys_animations: HashMap::new(),
             user_patterns: self.user_patterns.clone(),
             user_shapes: self.user_shapes.clone(),
+            extension_shapes: self.extension_shapes.clone(),
             later_node: None,
             scope_ends: self.scope_ends.clone(),
             brace_scopes: Vec::new(),
@@ -741,6 +744,7 @@ impl Engine {
             sys_animations: HashMap::new(),
             user_patterns: HashMap::new(),
             user_shapes: HashMap::new(),
+            extension_shapes: HashMap::new(),
             later_node: None,
             scope_ends: Vec::new(),
             brace_scopes: Vec::new(),
