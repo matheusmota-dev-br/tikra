@@ -315,12 +315,14 @@ fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64
     let inner = |x: f64, y: f64| -> (f64, f64) { ((origin.x + x * scale) * BP, -(origin.y + y * scale) * BP) };
     for item in &c.items {
         match item {
-            MathItem::Glyph { id, x, y, scale: gs, color } => {
+            MathItem::Glyph { id, x, y, scale: gs, color, flip } => {
                 glyphs.push(*id);
                 let (px, py) = inner(*x as f64, *y as f64);
                 let f = *gs as f64 * k;
+                // a mirrored glyph (`\reflectbox`) is drawn leftward from its x
+                let fx = if *flip { -f * stretch } else { f * stretch };
                 let fill = color.as_ref().map(|c| format!(r#" fill="{c}""#)).unwrap_or_default();
-                let _ = write!(s, r##"<use href="#tr-g{}" transform="translate({} {}) scale({} {})"{fill}/>"##, id.0, n(px), n(py), num(f * stretch, 5), num(-f, 5));
+                let _ = write!(s, r##"<use href="#tr-g{}" transform="translate({} {}) scale({} {})"{fill}/>"##, id.0, n(px), n(py), num(fx, 5), num(-f, 5));
             }
             MathItem::Rule { x, y, width, height, color } => {
                 let (px, py) = inner(*x as f64, (*y + *height) as f64);
