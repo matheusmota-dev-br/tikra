@@ -8,71 +8,40 @@
 //! decoration whose marks are the symbols, joined by `mark connection node`. Units (`ohm=5`) and
 //! `info` are labels; annotations (`light emitting`) are short arrows drawn next to the symbol after
 //! it. The styles that only gather options are generated from the tables below.
+//!
+//! It is a library of [`crate::extension`]: its keys use only what a library from outside has.
 
-use crate::keys;
-use crate::scene::{Point, Transform};
-use crate::tex::{Cat, Token};
-use crate::{Error, PT};
+use crate::extension::{Context, Error, KeyFn, Library, Point, Tokens, Transform, PT};
 
-use super::{macro_tokens, tikra_tokens, Engine};
-
-fn braced(v: Vec<Token>) -> Vec<Token> {
-    let mut out = vec![Token::Char('{', Cat::Begin)];
-    out.extend(v);
-    out.push(Token::Char('}', Cat::End));
-    out
-}
+/// The circuit libraries, defined with TikZ's own.
+pub static LIBRARY: Library = Library { name: "circuits", definitions, keys: KEYS };
 
 /// `text` with `opts` spliced where `@@` is.
-fn with_options(text: &str, opts: &[Token]) -> Vec<Token> {
+fn with_options(text: &str, opts: &Tokens) -> Tokens {
     let (a, b) = text.split_once("@@").unwrap_or((text, ""));
-    let mut v = tikra_tokens(a);
-    v.extend(opts.iter().cloned());
-    v.extend(tikra_tokens(b));
-    v
-}
-
-fn arguments(e: &mut Engine, v: Option<Vec<Token>>, n: usize) -> Vec<Vec<Token>> {
-    let _ = e;
-    super::options::split_arguments(&v.unwrap_or_default(), n)
-}
-
-fn string(e: &mut Engine, v: Vec<Token>) -> Result<String, Error> {
-    Ok(e.tex.expand_to_string(v)?.trim().to_string())
-}
-
-fn define(e: &mut Engine, name: &str, body: Vec<Token>) {
-    e.tex.set_meaning(&Token::cs(name), macro_tokens(body), false);
-}
-
-/// The text of a macro without parameters.
-fn macro_text(e: &Engine, name: &str) -> String {
-    match e.tex.meaning_of(name) {
-        crate::tex::Meaning::Macro(m) => crate::tex::tokens_to_string(&crate::tex::substitute(&m.body, &[])).trim().to_string(),
-        _ => String::new(),
-    }
+    Tokens::text(a).and(opts.clone()).and_text(b)
 }
 
 /// Whether the `to` being read is a circuit's (set at its start by `circuit`).
-fn on_to(e: &Engine) -> bool {
-    macro_text(e, "tikra@circ@onto") == "1"
+fn on_to(cx: &Context) -> bool {
+    cx.macro_text("tikra@circ@onto") == "1"
 }
 
 // ------------------------------------------------------------------------------------------ keys
 
 /// `circuit`: every `to` of the scope may carry symbols; each starts with an ordinary line.
-fn k_circuit(e: &mut Engine, _v: Option<Vec<Token>>) -> Result<(), Error> {
-    define(e, "tikra@circ@onto", tikra_tokens("0"));
-    e.process_keys(tikra_tokens("every circuit/.try, execute at begin to={\\tikra@circ@reset}"), Some("/tikz"))
+fn k_circuit(cx: &mut Context, _v: Option<Tokens>) -> Result<(), Error> {
+    cx.define("tikra@circ@onto", Tokens::text("0"));
+    cx.keys(Tokens::text("every circuit/.try, execute at begin to={\\tikra@circ@reset}"))
 }
 
 /// The position of a symbol on its line: the last of its `pos`, `near start`… keys, `.5` without.
-fn position(e: &mut Engine, opts: &[Token]) -> Result<f64, Error> {
+fn position(cx: &mut Context, opts: &Tokens) -> Result<f64, Error> {
     let mut pos = 0.5;
-    for item in keys::split_list(opts) {
-        pos = match item.key.as_str() {
-            "pos" => match item.value {
-                Some(v) if !keys::trim(&v).is_empty() => e.number_of(v)?,
+    for (key, value) in opts.key_list() {
+        pos = match key.as_str() {
+            "pos" => match value {
+                Some(v) if !v.trim().is_empty() => cx.number(v)?,
                 _ => continue,
             },
             "at start" => 0.0,
@@ -90,224 +59,182 @@ fn position(e: &mut Engine, opts: &[Token]) -> Result<f64, Error> {
 
 /// `circuit handle symbol={options}`: on a circuit's `to`, a node with the options on the line;
 /// elsewhere the options themselves.
-fn k_handle_symbol(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
+fn k_handle_symbol(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
     let opts = v.unwrap_or_default();
-    let n = 1 + macro_text(e, "tikra@circ@n").parse::<u64>().unwrap_or(0);
-    e.tex.define_string("tikra@circ@n", &n.to_string(), true);
-    if !on_to(e) {
-        return e.process_keys(opts, Some("/tikz"));
+    let n = 1 + cx.macro_text("tikra@circ@n").parse::<u64>().unwrap_or(0);
+    cx.define_text("tikra@circ@n", &n.to_string(), true);
+    if !on_to(cx) {
+        return cx.keys(opts);
     }
-    let pos = position(e, &opts)?;
+    let pos = position(cx, &opts)?;
     // the line from the start to the target, decorated by the symbols' marks
     let path = "\\pgfextra{\\def\\tikra@circ@onto{0}} decorate [decoration={markings,mark connection node=tikra@circ@mark}] {\\tikra@circ@first \\tikra@circ@last}";
-    let mut kv = tikra_tokens("to path=");
-    kv.extend(braced(tikra_tokens(path)));
-    e.process_keys(kv, Some("/tikz"))?;
+    cx.keys(Tokens::text("to path=").and(Tokens::text(path).braced()))?;
     if pos == 0.0 {
         // at the start: a node there, turned toward the target, from whose border the line goes
         let first = with_options("{\\pgfextra{\\pgfkeys{/tikz/circuits/tikra turn=start}} node[alias=tikra@circ@a,at={(0,0)},@@,pos=]{}} (tikra@circ@a)", &opts);
-        define(e, "tikra@circ@first", first);
+        cx.define("tikra@circ@first", first);
     } else if pos == 1.0 {
         let name = format!("tikra@circ@z{n}");
         let last =
             with_options(&format!("{{\\pgfextra{{\\pgfkeys{{/tikz/circuits/tikra turn=target}}}} node[alias={name},at={{(0,0)}},@@,pos=]{{}}}} -- ({name}) \\tikztonodes"), &opts);
-        define(e, "tikra@circ@last", last);
+        cx.define("tikra@circ@last", last);
     } else {
         let mark = with_options(&format!("decoration={{mark=at position {pos} with {{\\node[alias=tikra@circ@mark,@@,pos=]{{}};}}}}"), &opts);
-        e.process_keys(mark, Some("/tikz"))?;
+        cx.keys(mark)?;
     }
     Ok(())
 }
 
 /// `circuits/tikra turn=start` (or `target`): the coordinate system at that end of the `to`, its x
 /// axis along the line.
-fn k_turn(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let which = string(e, v.unwrap_or_default())?;
+fn k_turn(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let which = cx.expand(v.unwrap_or_default())?;
     let mut ends = [Point::default(); 2];
-    for (k, m) in ["tikztostart", "tikztotarget"].iter().enumerate() {
-        let name = e.tex.expand_to_string(vec![Token::cs(m)])?;
-        ends[k] = e.coordinate(&name)?.p;
+    for (k, m) in ["\\tikztostart", "\\tikztotarget"].iter().enumerate() {
+        let name = cx.expand(Tokens::text(m))?;
+        ends[k] = cx.point(&name)?;
     }
     let d = ends[1].minus(ends[0]);
     let at = if which == "target" { ends[1] } else { ends[0] };
-    let linear = Transform { e: 0.0, f: 0.0, ..e.st.transform };
-    e.st.transform = Transform::translation(at.x, at.y).compose(&Transform::rotation(d.y.atan2(d.x).to_degrees())).compose(&linear);
+    let linear = Transform { e: 0.0, f: 0.0, ..cx.transform() };
+    cx.set_transform(Transform::translation(at.x, at.y).compose(&Transform::rotation(d.y.atan2(d.x).to_degrees())).compose(&linear));
     Ok(())
 }
 
 /// `circuit declare symbol=name`: the keys `name`, `name/graphic` and `set name graphic`.
-fn k_declare_symbol(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let name = string(e, v.unwrap_or_default())?;
+fn k_declare_symbol(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let name = cx.expand(v.unwrap_or_default())?;
     let text = format!(
         "{name}/.style={{circuit handle symbol={{inner sep=0.5pt,every circuit symbol,{name}/graphic,every {name}/.try,#1}}}},\
          {name}/graphic/.style={{}}, set {name} graphic/.style={{{name}/graphic/.style={{#1}}}}"
     );
-    e.process_keys(tikra_tokens(&text), Some("/tikz"))
+    cx.keys(Tokens::text(&text))
 }
 
 /// `circuit declare unit={name}{unit}`: `name=value` and its `'` and `sloped` forms, labels of the
 /// value in that unit.
-fn k_declare_unit(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let a = arguments(e, v, 2);
-    let name = string(e, a[0].clone())?;
-    let unit = crate::tex::tokens_to_string(&a[1]);
+fn k_declare_unit(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let a = v.unwrap_or_default().arguments(2);
+    let name = cx.expand(a[0].clone())?;
+    let unit = a[1].to_text();
     for (suffix, mode) in [("", "a"), (" sloped", "as"), ("'", "b"), ("' sloped", "bs")] {
         let text = format!("{name}{suffix}/.code={{\\pgfkeys{{/tikz/circuits/tikra label={{{name}}}{{{unit}}}{{{mode}}}{{#1}}}}}}");
-        e.process_keys(tikra_tokens(&text), Some("/tikz"))?;
+        cx.keys(Tokens::text(&text))?;
     }
     Ok(())
 }
 
 /// `circuits/tikra label={name}{unit}{mode}{[options]value}`: the label of a unit (`$\mathrm{5\Omega}$`)
 /// or, without a name, of `info`; `mode` says below (`b`) and sloped (`s`).
-fn k_label(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let a = arguments(e, v, 4);
-    let name = string(e, a[0].clone())?;
-    let mode = string(e, a[2].clone())?;
-    let mut value = keys::trim(&a[3]).to_vec();
-    let mut opts = Vec::new();
-    if value.first().is_some_and(|t| t.is_char('[')) {
-        let mut depth = 0;
-        if let Some(end) = value.iter().position(|t| {
-            if t.is_char('[') {
-                depth += 1;
-            } else if t.is_char(']') {
-                depth -= 1;
-            }
-            depth == 0
-        }) {
-            opts = value[1..end].to_vec();
-            value = value[end + 1..].to_vec();
-        }
-    }
-    let mut spec = tikra_tokens("[");
+fn k_label(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let a = v.unwrap_or_default().arguments(4);
+    let name = cx.expand(a[0].clone())?;
+    let mode = cx.expand(a[2].clone())?;
+    let (opts, value) = a[3].leading_options();
+    let mut spec = Tokens::text("[");
     if mode.starts_with('b') {
-        spec.extend(tikra_tokens("label position=below,"));
+        spec = spec.and_text("label position=below,");
     }
-    spec.extend(tikra_tokens("every info/.try,"));
+    spec = spec.and_text("every info/.try,");
     if !name.is_empty() {
-        spec.extend(tikra_tokens(&format!("every {name}/.try,")));
+        spec = spec.and_text(&format!("every {name}/.try,"));
     }
     if mode.ends_with('s') {
-        spec.extend(tikra_tokens("transform shape,"));
+        spec = spec.and_text("transform shape,");
     }
-    spec.extend(opts);
-    spec.extend(tikra_tokens("]"));
-    if name.is_empty() {
-        spec.extend(value);
-    } else {
-        spec.extend(tikra_tokens("$\\mathrm{"));
-        spec.extend(value);
-        spec.extend(a[1].clone());
-        spec.extend(tikra_tokens("}$"));
-    }
-    let mut kv = tikra_tokens("label=");
-    kv.extend(braced(spec));
-    e.process_keys(kv, Some("/tikz"))
+    spec = spec.and(opts).and_text("]");
+    spec = if name.is_empty() { spec.and(value) } else { spec.and_text("$\\mathrm{").and(value).and(a[1].clone()).and_text("}$") };
+    cx.keys(Tokens::text("label=").and(spec.braced()))
 }
 
 /// `circuit declare annotation={name}{label distance}{path}`: `name` and `name'` draw the path after
 /// the symbol, from its north (south, upside down), with `->` tips.
-fn k_declare_annotation(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let a = arguments(e, v, 3);
-    let name = string(e, a[0].clone())?;
-    define(e, &format!("tikra@circ@ann@{name}@d"), a[1].clone());
-    define(e, &format!("tikra@circ@ann@{name}@p"), a[2].clone());
+fn k_declare_annotation(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let a = v.unwrap_or_default().arguments(3);
+    let name = cx.expand(a[0].clone())?;
+    cx.define(&format!("tikra@circ@ann@{name}@d"), a[1].clone());
+    cx.define(&format!("tikra@circ@ann@{name}@p"), a[2].clone());
     for (suffix, side) in [("", "north"), ("'", "south")] {
         let text = format!("{name}{suffix}/.style={{after node path={{\\pgfextra{{\\pgfkeys{{/tikz/circuits/tikra annotate={{{name}}}{{{side}}}{{#1}}}}}}}}}}");
-        e.process_keys(tikra_tokens(&text), Some("/tikz"))?;
+        cx.keys(Tokens::text(&text))?;
     }
     Ok(())
 }
 
 /// `circuits/tikra annotate={name}{side}{options}`: an annotation of the last node, as a path of its
 /// own, then the labels among its options on the node.
-fn k_annotate(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let a = arguments(e, v, 3);
-    let name = string(e, a[0].clone())?;
-    let side = string(e, a[1].clone())?;
-    let body = |e: &Engine, which: &str| match e.tex.meaning_of(&format!("tikra@circ@ann@{name}@{which}")) {
-        crate::tex::Meaning::Macro(m) => crate::tex::substitute(&m.body, &[]),
-        _ => Vec::new(),
-    };
-    let (distance, path) = (body(e, "d"), body(e, "p"));
+fn k_annotate(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let a = v.unwrap_or_default().arguments(3);
+    let name = cx.expand(a[0].clone())?;
+    let side = cx.expand(a[1].clone())?;
+    let distance = cx.macro_body(&format!("tikra@circ@ann@{name}@d"));
+    let path = cx.macro_body(&format!("tikra@circ@ann@{name}@p"));
     let flip = if side == "south" { "yscale=-1," } else { "" };
-    let mut t = tikra_tokens(&format!("\\path[every circuit annotation/.try,every {name}/.try,shift={{(\\tikzlastnode.{side})}},{flip}annotation arrow,->,"));
-    t.extend(a[2].clone());
-    t.extend(tikra_tokens("]"));
-    t.extend(path);
-    t.extend(tikra_tokens(";"));
-    e.run_tokens(t)?;
+    let t = Tokens::text(&format!("\\path[every circuit annotation/.try,every {name}/.try,shift={{(\\tikzlastnode.{side})}},{flip}annotation arrow,->,"))
+        .and(a[2].clone())
+        .and_text("]")
+        .and(path)
+        .and_text(";");
+    cx.run(t)?;
     // TikZ puts the labels after the annotation, where `\tikzlastnode` is still the symbol
-    let Some(node) = e.last_node.clone() else { return Ok(()) };
-    e.begin_group();
-    let saved = std::mem::take(&mut e.st.node.labels);
-    let r = e.process_keys(a[2].clone(), Some("/tikz"));
-    let labels = std::mem::replace(&mut e.st.node.labels, saved);
-    e.end_group();
-    r?;
-    for (spec, pin) in labels {
-        e.begin_group();
-        let mut d = tikra_tokens("label distance=");
-        d.extend(braced(distance.clone()));
-        let r = e.process_keys(d, Some("/tikz")).and_then(|_| e.label(&node, spec, pin));
-        e.end_group();
-        e.canvas.items.extend(r?);
+    for label in cx.labels_of(a[2].clone())? {
+        cx.draw_label_on_last_node(&label, Tokens::text("label distance=").and(distance.clone().braced()))?;
     }
     Ok(())
 }
 
 /// `circuit symbol unit=length`: `\tikzcircuitssizeunit`, which symbol sizes are counted in.
-fn k_unit(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let d = e.length_of(v.unwrap_or_default())? / PT;
-    e.run_tokens(tikra_tokens(&format!("\\tikzcircuitssizeunit={d}pt\\relax")))
+fn k_unit(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let d = cx.length(v.unwrap_or_default())? / PT;
+    cx.run(Tokens::text(&format!("\\tikzcircuitssizeunit={d}pt\\relax")))
 }
 
 /// `circuit symbol size=width w height h`: the minimum size, in symbol units.
-fn k_size(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let s = crate::tex::tokens_to_string(&v.unwrap_or_default());
+fn k_size(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let s = v.unwrap_or_default().to_text();
     let (w, h) = s.trim().strip_prefix("width").and_then(|r| r.split_once("height")).map(|(w, h)| (w.trim().to_string(), h.trim().to_string())).unwrap_or_default();
     let text = format!("minimum width={{({w})*\\tikzcircuitssizeunit}},minimum height={{({h})*\\tikzcircuitssizeunit}}");
-    e.process_keys(tikra_tokens(&text), Some("/tikz"))
+    cx.keys(Tokens::text(&text))
 }
 
 /// The tip `direction ee` of a given length, as `>`.
-fn direction_tips(e: &mut Engine, length: f64) -> Result<(), Error> {
+fn direction_tips(cx: &mut Context, length: f64) -> Result<(), Error> {
     let d = length / PT;
-    e.tex.define_string(&keys::macro_name("/pgf/arrow options/direction ee"), &format!("{d}pt"), false);
-    std::rc::Rc::make_mut(&mut e.st.tips).declare("direction ee", &format!("tikra direction ee[length={d}pt]"));
-    e.process_keys(tikra_tokens(">=direction ee"), Some("/tikz"))
+    cx.set_key_value("/pgf/arrow options/direction ee", &format!("{d}pt"));
+    cx.declare_arrow_tip("direction ee", &format!("tikra direction ee[length={d}pt]"));
+    cx.keys(Tokens::text(">=direction ee"))
 }
 
-fn size_unit(e: &mut Engine) -> f64 {
-    e.length("\\tikzcircuitssizeunit").unwrap_or(7.0 * PT)
+fn size_unit(cx: &mut Context) -> f64 {
+    cx.length(Tokens::text("\\tikzcircuitssizeunit")).unwrap_or(7.0 * PT)
 }
 
 /// `annotation arrow`: the tips of annotations, growing with the symbol unit and the line width.
-fn k_annotation_arrow(e: &mut Engine, _v: Option<Vec<Token>>) -> Result<(), Error> {
-    let l = 0.4 * size_unit(e) + 0.3 * e.st.line_width;
-    direction_tips(e, l)
+fn k_annotation_arrow(cx: &mut Context, _v: Option<Tokens>) -> Result<(), Error> {
+    let l = 0.4 * size_unit(cx) + 0.3 * cx.line_width();
+    direction_tips(cx, l)
 }
 
 /// `current direction arrow`: the tip of the `current direction` symbols.
-fn k_current_arrow(e: &mut Engine, _v: Option<Vec<Token>>) -> Result<(), Error> {
-    let l = 1.3065 * (0.5 * size_unit(e) + 0.3 * e.st.line_width);
-    direction_tips(e, l)?;
-    e.process_keys(tikra_tokens("/pgf/direction ee arrow=direction ee"), Some("/tikz"))
+fn k_current_arrow(cx: &mut Context, _v: Option<Tokens>) -> Result<(), Error> {
+    let l = 1.3065 * (0.5 * size_unit(cx) + 0.3 * cx.line_width());
+    direction_tips(cx, l)?;
+    cx.keys(Tokens::text("/pgf/direction ee arrow=direction ee"))
 }
 
 /// `\pgfsetarrowoptions{direction ee}{length}`, as `circuits/tikra arrow options={name}{length}`.
-fn k_arrow_options(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
-    let a = arguments(e, v, 2);
-    if string(e, a[0].clone())? == "direction ee" {
-        let l = e.length_of(a[1].clone())?;
-        direction_tips(e, l)?;
+fn k_arrow_options(cx: &mut Context, v: Option<Tokens>) -> Result<(), Error> {
+    let a = v.unwrap_or_default().arguments(2);
+    if cx.expand(a[0].clone())? == "direction ee" {
+        let l = cx.length(a[1].clone())?;
+        direction_tips(cx, l)?;
     }
     Ok(())
 }
 
 /// The keys done natively.
-pub const KEYS: &[(&str, super::options::KeyFn)] = &[
+pub const KEYS: &[(&str, KeyFn)] = &[
     ("/tikz/circuit", k_circuit),
     ("/tikz/circuit handle symbol", k_handle_symbol),
     ("/tikz/circuit declare symbol", k_declare_symbol),

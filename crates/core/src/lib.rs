@@ -5,15 +5,28 @@
 //! assert!(r.svg.starts_with("<svg"));
 //! ```
 
+// The engine's parts: public for tikra's own tests, not an API (they change with any release).
+// What is kept stable is `convert`, `png` and `extension`.
+#[doc(hidden)]
 pub mod canvas;
+#[doc(hidden)]
 pub mod color;
+#[doc(hidden)]
 pub mod describe;
+#[doc(hidden)]
 pub mod driver;
+#[doc(hidden)]
 pub mod engine;
+#[doc(hidden)]
 pub mod expr;
+pub mod extension;
+#[doc(hidden)]
 pub mod keys;
+#[doc(hidden)]
 pub mod label;
+#[doc(hidden)]
 pub mod scene;
+#[doc(hidden)]
 pub mod tex;
 
 use std::fmt;
@@ -99,6 +112,11 @@ pub fn convert(code: &str) -> Result<Output, Error> {
 
 /// [`convert`], with the figure in words in `options.locale`.
 pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
+    convert_with_libraries(code, options, &[])
+}
+
+/// [`convert_with`], with libraries from outside tikra defined next to TikZ's own (see [`extension`]).
+pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'static extension::Library]) -> Result<Output, Error> {
     let mut early = Vec::new();
     // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
     let repaired = mathra::input::latex::undo_doubled_backslashes(code);
@@ -119,7 +137,7 @@ pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
     } else {
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
-    let (canvas, warnings, facts) = engine::run_document_noting(&input)?;
+    let (canvas, warnings, facts) = engine::run_document_with(&input, libraries)?;
     let words = describe::describe(&facts, options.locale);
     let svg = driver::svg_with(&canvas, code, &words, options.steps, options.animate);
     let mut all = early;
