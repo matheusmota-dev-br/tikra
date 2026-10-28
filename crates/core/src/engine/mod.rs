@@ -373,6 +373,8 @@ pub struct Engine {
     text_reported: bool,
     /// the native keys, by id − NATIVE_KEY_BASE
     key_fns: Vec<options::KeyFn>,
+    /// the keys of libraries from outside ([`crate::extension`]), by id − EXTENSION_KEY_BASE
+    extension_fns: Vec<crate::extension::KeyFn>,
     /// `use as bounding box` was used: the bounding box no longer grows
     pub canvas_frozen: bool,
     /// nested runs of token lists (styles, loop bodies)
@@ -531,9 +533,14 @@ pub const MAX_KEYS: usize = 50_000;
 /// Ids at and above this are native keys (`\pgfk@…/.@cmd`), below are commands.
 pub const NATIVE_KEY_BASE: u16 = 1000;
 
+/// Ids at and above this are the keys of libraries from outside ([`crate::extension`]).
+pub const EXTENSION_KEY_BASE: u16 = 40000;
+
 thread_local! {
     /// The engine after defining every command and key: cloned for each figure.
     static PROTOTYPE: std::cell::RefCell<Option<Engine>> = const { std::cell::RefCell::new(None) };
+    /// The engine with libraries from outside, by their names: cloned for each figure that uses them.
+    static WITH_LIBRARIES: std::cell::RefCell<Vec<(Vec<&'static str>, Engine)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 impl Clone for Engine {
@@ -552,6 +559,7 @@ impl Clone for Engine {
             depth: self.depth,
             text_reported: self.text_reported,
             key_fns: self.key_fns.clone(),
+            extension_fns: self.extension_fns.clone(),
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
             keys_run: self.keys_run,
@@ -626,6 +634,56 @@ impl Engine {
         })
     }
 
+    /// A fresh engine with TikZ and these libraries defined (built once per thread for each set of
+    /// libraries, then cloned).
+    pub fn with_libraries(libraries: &[&'static crate::extension::Library]) -> Engine {
+        if libraries.is_empty() {
+            return Engine::new();
+        }
+        let names: Vec<&'static str> = libraries.iter().map(|l| l.name).collect();
+        let found = WITH_LIBRARIES.with(|w| w.borrow().iter().find(|(n, _)| *n == names).map(|(_, e)| e.clone()));
+        if let Some(e) = found {
+            arrows::clear_declared();
+            return e;
+        }
+        let mut e = Engine::new();
+        for library in libraries {
+            e.register(library);
+        }
+        e.tex.warnings.clear();
+        WITH_LIBRARIES.with(|w| w.borrow_mut().push((names, e.clone())));
+        e
+    }
+
+    /// Defines a library's keys, then runs its definitions as TeX with `@` a letter.
+    fn register(&mut self, library: &crate::extension::Library) {
+        self.register_keys(library);
+        let path = std::mem::replace(&mut self.st.key_path, "/tikz".into());
+        let mut lexer = Tex::new_lexer();
+        lexer.push_text(&(library.definitions)());
+        let mut tokens = Vec::new();
+        while let Some(t) = lexer.get_token() {
+            tokens.push(t);
+        }
+        if let Err(err) = self.run_tokens(tokens) {
+            self.warn(format!("library {}: definitions failed: {err}", library.name));
+        }
+        self.st.key_path = path;
+    }
+
+    /// Defines a library's keys only (TikZ's own libraries run their definitions with TikZ's).
+    pub(crate) fn register_keys(&mut self, library: &crate::extension::Library) {
+        for (path, f) in library.keys {
+            let id = EXTENSION_KEY_BASE as usize + self.extension_fns.len();
+            if id > u16::MAX as usize {
+                self.warn(format!("library {}: too many keys, {path} left out", library.name));
+                continue;
+            }
+            self.extension_fns.push(*f);
+            self.tex.define(&crate::keys::macro_name(&format!("{path}/.@cmd")), Meaning::Native(id as u16));
+        }
+    }
+
     fn build() -> Engine {
         let mut e = Engine {
             tex: Tex::new(),
@@ -641,6 +699,7 @@ impl Engine {
             depth: 0,
             text_reported: false,
             key_fns: Vec::new(),
+            extension_fns: Vec::new(),
             canvas_frozen: false,
             nesting: 0,
             keys_run: 0,
@@ -2951,7 +3010,12 @@ pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
 
 /// [`run_document`], and what the figure shows, for its description in words.
 pub fn run_document_noting(code: &str) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
-    let mut e = Engine::new();
+    run_document_with(code, &[])
+}
+
+/// [`run_document_noting`] with libraries from outside defined.
+pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Library]) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
+    let mut e = Engine::with_libraries(libraries);
     crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
     e.canvas.margin = 2.0 * crate::PT;

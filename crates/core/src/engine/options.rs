@@ -11,7 +11,7 @@ use crate::scene::{Point, Transform};
 use crate::tex::{self, Body, Cat, Macro, Meaning, Param, Token};
 use crate::{Error, PT};
 
-use super::{macro_from, macro_tokens, tikra_tokens, Engine, NATIVE_KEY_BASE};
+use super::{macro_from, macro_tokens, tikra_tokens, Engine, EXTENSION_KEY_BASE, NATIVE_KEY_BASE};
 
 pub type KeyFn = fn(&mut Engine, Option<Vec<Token>>) -> Result<(), Error>;
 
@@ -138,6 +138,14 @@ impl Engine {
         let cmd = self.tex.meaning_of(&macro_name(&format!("{path}/.@cmd")));
         let value = value.or_else(|| keys::value(&self.tex, &format!("{path}/.@def")));
         match cmd {
+            Meaning::Native(id) if id >= EXTENSION_KEY_BASE => {
+                let f = self.extension_fns[(id - EXTENSION_KEY_BASE) as usize];
+                self.current_key.clear();
+                self.current_key.push_str(path);
+                let v = value.filter(|v| !is_novalue(v)).map(crate::extension::Tokens);
+                f(&mut crate::extension::Context { e: self }, v)?;
+                Ok(true)
+            }
             Meaning::Native(id) if id >= NATIVE_KEY_BASE => {
                 let f = self.key_fns[(id - NATIVE_KEY_BASE) as usize];
                 self.current_key.clear();
@@ -2492,11 +2500,12 @@ pub fn define_keys(e: &mut Engine) {
     e.tex.dimens.insert(4000, (0.4 * 65536.0) as i64);
     super::trees::define(e);
     super::decorations::define(e);
-    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::circuits::KEYS).chain(super::libraries::KEYS).chain(super::three_d::KEYS) {
+    for (path, f) in NATIVE.iter().chain(super::decorations::KEYS).chain(super::libraries::KEYS).chain(super::three_d::KEYS) {
         let id = NATIVE_KEY_BASE + e.key_fns.len() as u16;
         e.key_fns.push(*f);
         e.tex.define(&macro_name(&format!("{path}/.@cmd")), Meaning::Native(id));
     }
+    e.register_keys(&super::circuits::LIBRARY);
     e.st.key_path = "/tikz".into();
     for (path, value) in super::shapes::INITIAL {
         e.tex.set_meaning(&Token::cs(&macro_name(path)), macro_from(value), false);
@@ -2515,7 +2524,7 @@ pub fn define_keys(e: &mut Engine) {
     lexer.push_text(super::trees::DEFINITIONS);
     lexer.push_text(super::turtle::DEFINITIONS);
     lexer.push_text(super::lsystem::DEFINITIONS);
-    let circuits = super::circuits::definitions();
+    let circuits = (super::circuits::LIBRARY.definitions)();
     lexer.push_text(&circuits);
     lexer.push_text(super::libraries::DEFINITIONS);
     lexer.push_text(super::spy::DEFINITIONS);

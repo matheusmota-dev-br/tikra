@@ -923,7 +923,7 @@ impl Engine {
     }
 
     /// `label=[options]angle:text`, `pin=…`: another node next to this one.
-    pub(super) fn label(&mut self, info: &NodeInfo, spec: Vec<Token>, pin: bool) -> Result<Vec<Item>, Error> {
+    pub(crate) fn label(&mut self, info: &NodeInfo, spec: Vec<Token>, pin: bool) -> Result<Vec<Item>, Error> {
         let mut v = keys::trim(&spec).to_vec();
         let mut opts = Vec::new();
         if v.first().is_some_and(|t| t.is_char('[')) {
