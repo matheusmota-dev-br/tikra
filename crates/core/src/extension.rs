@@ -130,6 +130,87 @@ impl Tokens {
     }
 }
 
+/// A node shape drawn by a library: computed for each node, as tikra's own shapes are, from what
+/// the node holds. Declared with [`Context::declare_shape`].
+pub type ShapeFn = fn(&mut Context, &ShapeInput) -> Result<NodeShape, Error>;
+
+/// What a library's shape is computed from, in cm.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ShapeInput {
+    /// The shape's name, as declared: one function may draw several.
+    pub name: String,
+    /// The node's text box: its width, and its height and depth around the baseline.
+    pub width: f64,
+    pub height: f64,
+    pub depth: f64,
+    /// `inner xsep` and `inner ysep`.
+    pub inner_sep: Point,
+    /// The line width in force.
+    pub line_width: f64,
+}
+
+/// A library's shape, in the node's coordinates (cm, y up): the node puts it where `at` and
+/// `anchor` say and turns it as its transformations do.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NodeShape {
+    /// The `center` anchor; borders are found from it.
+    pub center: Point,
+    /// The named anchors (`north`, `out`, `B`): a node's anchor not named here is a border point
+    /// when it is an angle, else unknown.
+    pub anchors: Vec<(String, Point)>,
+    /// Where lines to the node stop.
+    pub border: ShapeBorder,
+    /// Where the origin of the text box goes (the left end of its baseline).
+    pub text: Point,
+    /// What it draws, in order.
+    pub paths: Vec<ShapePath>,
+    /// Points that count in the picture's size besides its paths (its text does not).
+    pub extent: Vec<Point>,
+}
+
+/// Where lines to a library's node stop.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum ShapeBorder {
+    /// At the center: lines reach it.
+    #[default]
+    Point,
+    /// A rectangle around the center, by its half width and half height.
+    Rectangle(Point),
+    /// A closed outline: lines stop where they enter it.
+    Outline(Vec<Point>),
+}
+
+/// A path of a library's shape and how it is painted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShapePath {
+    pub segments: Vec<PathSegment>,
+    pub paint: ShapePaint,
+}
+
+/// A segment of a path.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PathSegment {
+    MoveTo(Point),
+    LineTo(Point),
+    /// Two control points, then the end.
+    CurveTo(Point, Point, Point),
+    Close,
+}
+
+/// How a path of a library's shape is painted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ShapePaint {
+    /// Stroked in the node's line color, this wide (cm), whether the node is `draw`n or not.
+    Stroke(f64),
+    /// Filled with the node's `fill`, when it has one.
+    Fill,
+    /// Filled with the node's `fill`, or white without one (an open terminal hides the wire under
+    /// it).
+    Background,
+    /// Filled with the node's line color.
+    Solid,
+}
+
 /// A label of a node (`label=…` or `pin=…`), as the node's options gave it.
 #[derive(Clone, Debug)]
 pub struct Label {
@@ -260,5 +341,11 @@ impl Context<'_> {
     /// A warning in the conversion's output: what was ignored or approximated.
     pub fn warn(&mut self, message: impl Into<String>) {
         self.e.warn(message);
+    }
+
+    /// Declares the node shape `name`, drawn by `shape`: `node[shape=name]`, or a style that sets
+    /// it, makes a node of that shape, for the rest of the conversion.
+    pub fn declare_shape(&mut self, name: &str, shape: ShapeFn) {
+        self.e.extension_shapes.insert(name.trim().to_string(), shape);
     }
 }

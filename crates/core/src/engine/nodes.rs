@@ -15,7 +15,7 @@ use crate::scene::{Label, Point, Segment, Transform};
 use crate::tex::{self, Token};
 use crate::{Error, PT};
 
-use super::shapes::{self, BoxSize, Geometry, Layer, Usage};
+use super::shapes::{self, Border, BoxSize, Geometry, Layer, Usage};
 use super::{tikra_tokens, Engine};
 
 pub fn is_shape(name: &str) -> bool {
@@ -73,6 +73,40 @@ impl NodeInfo {
     pub fn anchor_local(&self, name: &str) -> Option<Point> {
         self.geometry.anchor(name)
     }
+}
+
+/// A library's shape as the geometry of a node.
+fn library_geometry(shape: crate::extension::NodeShape) -> Geometry {
+    use crate::extension::{PathSegment, ShapeBorder, ShapePaint};
+    let border = match shape.border {
+        ShapeBorder::Point => Border::Point,
+        ShapeBorder::Rectangle(half) => Border::Rectangle(half),
+        ShapeBorder::Outline(points) => Border::Outline(points),
+    };
+    let mut g = Geometry::new(shape.center, border);
+    g.anchors = shape.anchors;
+    g.parts = vec![("text".into(), shape.text)];
+    g.extent = shape.extent;
+    for path in shape.paths {
+        let segments = path
+            .segments
+            .into_iter()
+            .map(|s| match s {
+                PathSegment::MoveTo(p) => Segment::MoveTo(p),
+                PathSegment::LineTo(p) => Segment::LineTo(p),
+                PathSegment::CurveTo(a, b, c) => Segment::CurveTo(a, b, c),
+                PathSegment::Close => Segment::Close,
+            })
+            .collect();
+        let usage = match path.paint {
+            ShapePaint::Stroke(w) => Usage::StrokeWidth(w),
+            ShapePaint::Fill => Usage::NodeFill,
+            ShapePaint::Background => Usage::NodeBackground,
+            ShapePaint::Solid => Usage::LineFill,
+        };
+        g.path(Layer::Background, segments, usage);
+    }
+    g
 }
 
 /// The node's text split at `\nodepart[options]{name}`: the parts in order, `text` first.
@@ -494,8 +528,12 @@ impl Engine {
         self.after_node_path.extend(after);
         let shape_name = self.key_text("/tikz/shape").split_whitespace().collect::<Vec<_>>().join(" ");
         let user_shape = self.user_shapes.get(shape_name.trim()).cloned();
+        let library_shape = self.extension_shapes.get(shape_name.trim()).copied();
         let shape = if let Some(u) = &user_shape {
             u.base.clone()
+        } else if library_shape.is_some() {
+            // computed as a rectangle, then replaced by what the library's shape gives
+            "rectangle".to_string()
         } else if shapes::is_shape(&shape_name) {
             shape_name.clone()
         } else {
@@ -674,6 +712,18 @@ impl Engine {
         if let Some(u) = &user_shape {
             geometry = self.user_shape_geometry(u, geometry)?;
         }
+        if let Some(f) = library_shape {
+            let text = boxes.first().map(|(_, b)| *b).unwrap_or_default();
+            let input = crate::extension::ShapeInput {
+                name: shape_name.trim().to_string(),
+                width: text.wd,
+                height: text.ht,
+                depth: text.dp,
+                inner_sep: Point::new(xsep, ysep),
+                line_width,
+            };
+            geometry = library_geometry(f(&mut crate::extension::Context { e: self }, &input)?);
+        }
         let mut info = NodeInfo { shape: shape.clone(), geometry: Rc::new(geometry), transform: Transform::default() };
 
         // where: `at`, positioning, the path's point or a point along its last segment
@@ -837,6 +887,12 @@ impl Engine {
                     Usage::Stroke => (None, Some(e.stroke())),
                     Usage::TipStroke(cap, join) => (None, Some(crate::canvas::Stroke { cap: *cap, join: *join, ..e.stroke() })),
                     Usage::LineFill => (Some(Fill { paint: Paint::Solid(e.st.stroke_color()), opacity: e.st.fill_opacity, even_odd: false }), None),
+                    Usage::StrokeWidth(w) => (None, Some(crate::canvas::Stroke { width: *w, ..e.stroke() })),
+                    Usage::NodeFill => (node_fill.clone(), None),
+                    Usage::NodeBackground => {
+                        let white = Fill { paint: Paint::Solid(crate::color::Color::WHITE), opacity: e.st.fill_opacity, even_odd: false };
+                        (Some(node_fill.clone().unwrap_or(white)), None)
+                    }
                 };
                 if e.counts_for_size() {
                     e.canvas.include_path(&segs);
@@ -852,6 +908,11 @@ impl Engine {
             Ok(())
         };
         layer_items(self, &[Layer::BehindBackground, Layer::Background, Layer::BeforeBackground], &mut items)?;
+        if self.counts_for_size() {
+            for p in &g.extent {
+                self.canvas.include(t.apply(*p));
+            }
+        }
         if let Some((drawn, lo, _)) = self.text_picture.take() {
             if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
                 let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y));

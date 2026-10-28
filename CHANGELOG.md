@@ -4,6 +4,13 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+Node shapes drawn by a library.
+
+- `tikra::extension`: a library declares node shapes with a Rust function (`Context::declare_shape`), computed for each node from its text box: its anchors, its border, where its text goes, its paths (stroked as wide as it says, filled with the node's fill, with its fill or white, or solid in its line color) and what else counts in the picture's size. One function may draw several shapes, told apart by name. They are nodes as any other: placed by their anchors (`anchor=`), turned with the node, with lines stopping at their border (#29).
+- Drawing is unchanged: every figure is the same as 1.4.2's.
+
 ## 1.4.2 - 2026-10-28
 
 How to contribute, and how to report a vulnerability.

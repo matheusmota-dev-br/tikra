@@ -178,6 +178,12 @@ pub enum Usage {
     LineFill,
     /// stroked as the node's lines are, with these caps and joins (an arrow tip the shape draws)
     TipStroke(crate::canvas::Cap, crate::canvas::Join),
+    /// stroked as the node's lines are but this wide (a library's shape)
+    StrokeWidth(f64),
+    /// filled with the node's fill, never stroked (a library's shape)
+    NodeFill,
+    /// filled with the node's fill, or white without one (a library's shape)
+    NodeBackground,
 }
 
 #[derive(Debug, Clone)]
@@ -211,12 +217,23 @@ pub struct Geometry {
     pub roundable: bool,
     /// texts of its own, drawn in the foreground
     pub texts: Vec<ShapeText>,
+    /// points that count in the picture's size besides the paths (a library's shape)
+    pub extent: Vec<Point>,
 }
 
 impl Geometry {
     /// A geometry with its center and border; anchors and paths are added by the shape.
     pub fn new(center: Point, border: Border) -> Geometry {
-        Geometry { center, anchors: Vec::new(), border, parts: vec![("text".into(), Point::new(0.0, 0.0))], paths: Vec::new(), roundable: false, texts: Vec::new() }
+        Geometry {
+            center,
+            anchors: Vec::new(),
+            border,
+            parts: vec![("text".into(), Point::new(0.0, 0.0))],
+            paths: Vec::new(),
+            roundable: false,
+            texts: Vec::new(),
+            extent: Vec::new(),
+        }
     }
 
     pub fn anchor_at(&mut self, name: &str, p: Point) {
