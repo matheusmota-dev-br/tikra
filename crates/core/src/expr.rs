@@ -82,9 +82,11 @@ fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool),
     if !units || vars.in_pt {
         return Ok((v, units));
     }
-    // back to cm, without the rounding error of the way through pt (`14cm` is 14, not 13.999…)
+    // back to cm, without the rounding error of the way through pt (`14cm` is 14, not 13.999…):
+    // only a value a few ulps from a round one is moved (`120pt` stays 120pt exactly)
     let cm = v * crate::PT;
-    Ok(((cm * 1e9).round() / 1e9, units))
+    let round = (cm * 1e9).round() / 1e9;
+    Ok((if (round - cm).abs() <= 8.0 * f64::EPSILON * cm.abs() { round } else { cm }, units))
 }
 
 /// The value with lengths in pt, as pgfmath computes it: a length is its number of pt, so `1/10pt`

@@ -115,6 +115,10 @@ fn lengths_count_in_pt() {
     }
     // exactly, without the rounding of the way through pt
     assert_eq!(eval_length("14cm", &v).unwrap(), (14.0, true));
+    // and nothing else moves: lengths in pt, small ones included, are what they were
+    for x in [120.0, 0.00003, 1.0 / 3.0] {
+        assert_eq!(eval_length(&format!("{x}pt"), &v).unwrap().0, x * pt, "{x}pt");
+    }
     // an element of an array and a declared function keep the count in pt
     assert!((eval_length("1/{10pt, 1}[0]", &v).unwrap().0 - 0.1 * pt).abs() < 1e-9);
     let mut f = Variables::new();
