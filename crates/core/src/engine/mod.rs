@@ -140,6 +140,7 @@ pub enum Cmd {
     Hspace,
     Fbox,
     Scalebox,
+    Resizebox,
     Hskip,
     FontSize,
     FontSeries,
@@ -287,6 +288,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("hspace", Cmd::Hspace),
     ("fbox", Cmd::Fbox),
     ("scalebox", Cmd::Scalebox),
+    ("resizebox", Cmd::Resizebox),
     ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
@@ -299,6 +301,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
+    // the geometry package's page margins: no page here
+    ("geometry", Cmd::Ignore1),
+    ("newgeometry", Cmd::Ignore1),
     ("thispagestyle", Cmd::Ignore1),
     ("caption", Cmd::Ignore1),
     ("tikzsetnextfilename", Cmd::Ignore1),
@@ -1767,17 +1772,41 @@ impl Engine {
                 self.end_group();
                 r?;
                 if self.picture_depth == 0 {
-                    let t = crate::scene::Transform::scaling(fx, fy);
-                    for b in &mut self.boxes[start..] {
-                        b.canvas.items.iter_mut().for_each(|i| i.transform(&t));
-                        let corners = [b.canvas.min, b.canvas.max];
-                        if let [Some(lo), Some(hi)] = corners {
-                            let (a, c) = (t.apply(lo), t.apply(hi));
-                            b.canvas.min = Some(Point::new(a.x.min(c.x), a.y.min(c.y)));
-                            b.canvas.max = Some(Point::new(a.x.max(c.x), a.y.max(c.y)));
+                    self.scale_boxes(start, |_, _, _| (fx, fy));
+                }
+                Ok(())
+            }
+            // `\resizebox{7cm}{!}{…}`: the pictures in it scaled to that width and height (`!`
+            // keeps the other's ratio); starred, the height is the height plus the depth
+            Cmd::Resizebox => {
+                let next = self.tex.next_nonspace();
+                let star = next.as_ref().is_some_and(|t| t.is_char('*'));
+                if let Some(t) = next.filter(|_| !star) {
+                    self.tex.back(t);
+                }
+                let mut size = [None, None];
+                for s in &mut size {
+                    let t = self.argument_string()?;
+                    if t.trim() != "!" {
+                        match self.length(&t) {
+                            Ok(v) => *s = Some(v),
+                            // (`\width`, the box's own size, is not known here)
+                            Err(_) => self.warn(format!("\\resizebox: size '{t}' not understood: not resized to it")),
                         }
-                        b.baseline *= fy;
                     }
+                }
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    self.scale_boxes(start, |width, height, depth| {
+                        let fx = size[0].map(|x| x / width);
+                        let fy = size[1].map(|y| y / if star { height + depth } else { height });
+                        (fx.or(fy).unwrap_or(1.0), fy.or(fx).unwrap_or(1.0))
+                    });
                 }
                 Ok(())
             }
@@ -2246,6 +2275,28 @@ impl Engine {
             return self.point_of(tikra_tokens(point)).map(|p| t.apply(p).y).unwrap_or(lower);
         }
         self.length(s).unwrap_or(lower)
+    }
+
+    /// The pictures from `start` on scaled around their origins, by the factors `factors` gives
+    /// for the size of all of them together: its width, and its height and depth at the first
+    /// one's baseline.
+    fn scale_boxes(&mut self, start: usize, factors: impl Fn(f64, f64, f64) -> (f64, f64)) {
+        let corners: Vec<(Point, Point)> = self.boxes[start..].iter().filter_map(|b| b.canvas.min.zip(b.canvas.max)).collect();
+        let Some(&(first_lo, first_hi)) = corners.first() else { return };
+        let (lo, hi) = corners.iter().fold((first_lo, first_hi), |(a, b), (l, h)| (Point::new(a.x.min(l.x), a.y.min(l.y)), Point::new(b.x.max(h.x), b.y.max(h.y))));
+        let baseline = self.boxes[start].baseline;
+        let (fx, fy) = factors(hi.x - lo.x, hi.y - baseline, baseline - lo.y);
+        let t = crate::scene::Transform::scaling(fx, fy);
+        for b in &mut self.boxes[start..] {
+            b.canvas.items.iter_mut().for_each(|i| i.transform(&t));
+            let corners = [b.canvas.min, b.canvas.max];
+            if let [Some(lo), Some(hi)] = corners {
+                let (a, c) = (t.apply(lo), t.apply(hi));
+                b.canvas.min = Some(Point::new(a.x.min(c.x), a.y.min(c.y)));
+                b.canvas.max = Some(Point::new(a.x.max(c.x), a.y.max(c.y)));
+            }
+            b.baseline *= fy;
+        }
     }
 
     /// `\tikz[options]{…}` or `\tikz[options] statement;`

@@ -187,12 +187,25 @@ fn repair_markdown(t: &str) -> Option<String> {
         .join("\n");
     for c in COMMANDS {
         let doubled = format!("\\\\{c}");
-        if s.contains(&doubled) {
-            s = s.replace(&doubled, &format!("\\{c}"));
+        // (not `\\\end`: a line break before `\end`)
+        let at: Vec<usize> = s.match_indices(&doubled).map(|(i, _)| i).filter(|&i| !s[..i].ends_with('\\')).collect();
+        for &i in at.iter().rev() {
+            s.replace_range(i..i + 1, "");
             changed = true;
         }
     }
-    if s.contains("\\[") || s.contains("\\]") {
+    // `\[` is display math in TeX: brackets are escaped only where an option list opens, right
+    // after a command of TikZ or its environment (`\draw\[`, `\begin{tikzpicture}\[`), or where
+    // `\[` holds such a command (`\[\draw`; not `\[\begin{array}`, display math)
+    let drawing = COMMANDS.iter().filter(|c| !matches!(**c, "begin" | "end" | "def")).map(|c| format!("\\{c}"));
+    let opening: Vec<String> = drawing.clone().chain(["\\begin{tikzpicture}".to_string(), "\\begin{scope}".to_string()]).collect();
+    let inside: Vec<String> = drawing.collect();
+    let escaped = s.match_indices("\\[").any(|(i, _)| {
+        let after = s[i + 2..].trim_start();
+        opening.iter().any(|c| s[..i].ends_with(c.as_str()))
+            || inside.iter().any(|c| after.strip_prefix(c.as_str()).is_some_and(|r| !r.starts_with(|x: char| x.is_ascii_alphabetic())))
+    });
+    if escaped {
         // a Markdown \[ inside \draw\[…\]; \\[2pt] (a line break with spacing) is left alone
         let c: Vec<char> = s.chars().collect();
         let mut out = String::with_capacity(s.len());

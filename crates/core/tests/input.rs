@@ -148,6 +148,52 @@ fn markdown_fences_commands_and_brackets() {
     no_warnings(r"\begin{tikzpicture} \node[align=center] at (0,0) {a \\[2pt] b}; \end{tikzpicture}");
     // \[ at the start of the text
     with_warning("\\[\\draw (0,0) -- (1,1);", "Markdown");
+    // TeX's display math, and a line break before `\end`, are no Markdown
+    let r = no_warnings(r"\begin{tikzpicture} \node[text width=3cm] {so \[ x^2 \] and \[ \begin{array}{c} a \end{array} \]}; \end{tikzpicture}");
+    assert!(r.svg.contains("<use"));
+    no_warnings(r"\begin{tikzpicture} \node {\begin{tabular}{c} a \\\end{tabular}}; \end{tikzpicture}");
+    // the option list of an environment, escaped
+    with_warning("\\begin{tikzpicture}\\[thick\\] \\draw (0,0) -- (1,1); \\end{tikzpicture}", "Markdown");
+}
+
+#[test]
+fn preamble_operators_and_page_setup() {
+    // `\DeclareMathOperator` (and starred) defines a command a label uses; the geometry
+    // package's margins are no text
+    let r = no_warnings(
+        r"\documentclass{article}
+          \usepackage{amsmath}
+          \usepackage{geometry}
+          \geometry{hmargin=1cm,vmargin=1cm}
+          \DeclareMathOperator{\p}{p}
+          \DeclareMathOperator*{\am}{arg\,max}
+          \begin{document}
+          \begin{tikzpicture} \node {$\p(a) = \am_x f$}; \end{tikzpicture}
+          \end{document}",
+    );
+    assert!(!r.description.contains("margin"), "{}", r.description);
+}
+
+#[test]
+fn resizebox_scales_the_picture() {
+    let width = |body: &str| {
+        let r = figure(&format!("\\documentclass{{article}}\\begin{{document}}{body}\\end{{document}}"));
+        let at = r.svg.find("viewBox=\"").unwrap() + 9;
+        r.svg[at..].split(' ').nth(2).unwrap().parse::<f64>().unwrap()
+    };
+    let picture = r"\begin{tikzpicture}\draw (0,0) rectangle (2,1);\end{tikzpicture}";
+    let plain = width(picture);
+    // to 4cm wide (twice), to 3cm high (thrice), to its height and depth, or as it is with `!` twice
+    let wide = width(&format!(r"\resizebox{{4cm}}{{!}}{{{picture}}}"));
+    let high = width(&format!(r"\resizebox{{!}}{{3cm}}{{{picture}}}"));
+    let starred = width(&format!(r"\resizebox*{{!}}{{3cm}}{{{picture}}}"));
+    let same = width(&format!(r"\resizebox{{!}}{{!}}{{{picture}}}"));
+    // (nothing to resize)
+    assert!((width(&format!(r"\resizebox{{1cm}}{{!}}{{}}{picture}")) - plain).abs() < 1e-6);
+    assert!(wide > 1.9 * plain && high > 2.8 * plain && (high - starred).abs() < 1e-6 && (same - plain).abs() < 1e-6, "{plain} {wide} {high} {starred} {same}");
+    // a size tikra cannot read leaves the picture as it is, with a warning
+    let r = with_warning(&format!(r"\documentclass{{article}}\begin{{document}}\resizebox{{0.5\width}}{{!}}{{{picture}}}\end{{document}}"), "resizebox");
+    assert!(!r.description.contains("width"));
 }
 
 #[test]

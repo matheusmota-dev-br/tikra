@@ -629,6 +629,17 @@ impl Engine {
                 texts[0].1.clear();
             }
         }
+        // a text that is all a `\parbox{4cm}{…}` or a `minipage`: a paragraph that wide, as a text
+        // width sets it, justified unless it says otherwise (`\centering`)
+        let (mut text_width, mut align) = (text_width, align);
+        if let Some((width, body)) = texts.first().filter(|_| texts.len() == 1).and_then(|(_, t)| label::paragraph_box(t)) {
+            if let Ok(w) = self.length(&width) {
+                let first = body.trim_start();
+                align = [("\\centering", 'C'), ("\\raggedright", 'L'), ("\\raggedleft", 'R')].iter().find(|(c, _)| first.starts_with(c)).map_or('j', |(_, a)| *a);
+                text_width = Some(w);
+                texts[0].1 = body;
+            }
+        }
         for (k, (part, t)) in texts.iter().enumerate() {
             let lbl = if shape == "coordinate" || t.is_empty() {
                 None
@@ -1421,8 +1432,10 @@ impl Engine {
                 Some(c) => {
                     let hex = c.hex();
                     let hex = hex.trim_start_matches('#');
-                    // math inside stays math; text goes in \text
-                    if inner.contains('$') {
+                    // in math, a color of math; math inside stays math; text goes in \text
+                    if label::in_math(&out) {
+                        out.push_str(&format!("\\textcolor[HTML]{{{hex}}}{{{inner}}}"));
+                    } else if inner.contains('$') {
                         out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{{}}}$", inner.replace('$', "")));
                     } else {
                         out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{\\text{{{inner}}}}}$"));
