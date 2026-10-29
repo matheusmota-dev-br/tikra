@@ -30,6 +30,24 @@ fn standalone_without_border_uses_default_margin() {
 }
 
 #[test]
+fn preview_package_setup_is_neither_text_nor_a_warning() {
+    // the preamble of many TeXample figures: nothing of it is drawn
+    let plain = no_warnings(r"\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}");
+    let r = no_warnings(
+        r"\documentclass{article}
+          \usepackage{tikz}
+          \usepackage[active,tightpage]{preview}
+          \PreviewEnvironment{tikzpicture}
+          \setlength\PreviewBorder{5pt}%
+          \begin{document}
+          \begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}
+          \end{document}",
+    );
+    let drawing = |svg: &str| (svg[..svg.find(" role=").unwrap()].to_string(), svg[svg.find("</metadata>").unwrap()..].to_string());
+    assert_eq!(drawing(&r.svg), drawing(&plain.svg));
+}
+
+#[test]
 fn tikzpicture_with_options_and_spaces() {
     let r = no_warnings("\\begin{tikzpicture}  \n [scale=2]\n \\draw (0,0) -- (1,0);\n\\end{tikzpicture}");
     assert!(r.svg.contains("<path"));

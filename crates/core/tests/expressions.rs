@@ -35,6 +35,11 @@ fn functions_constants_and_units() {
         ("pow(5)", 5.0),
         ("mod(7, 3)", 1.0),
         ("mod(7)", 0.0),
+        // as TeX computes them: never negative
+        ("Mod(-7, 3)", 2.0),
+        ("mod(-7, 3)", -1.0),
+        ("Mod(7, -3)", 1.0),
+        ("Mod(-7.5, 2)", 0.5),
         ("veclen(3, 4)", 5.0),
         ("veclen(3)", 3.0),
         ("\\pi", std::f64::consts::PI),
