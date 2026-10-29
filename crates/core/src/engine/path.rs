@@ -238,9 +238,25 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         from_node: None,
         fresh_link: false,
     };
+    let (color, dash, start) = (e.st.stroke_color(), e.st.dash.clone(), e.canvas.items.len());
     operations(e, &mut b, None)?;
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
+    // options in the middle of the path (`[dashed, red]`) are the whole path's: TeX draws its nodes
+    // after it, with its final color and dashes where they have their own none
+    if (e.st.stroke_color(), &e.st.dash) != (color, &dash) {
+        let (to_color, to_dash) = (e.st.stroke_color(), e.st.dash.clone());
+        for item in e.canvas.items[start..].iter_mut().chain(b.node_items.iter_mut()) {
+            if let crate::canvas::Item::Path { stroke: Some(st), .. } = item {
+                if st.color == color {
+                    st.color = to_color;
+                }
+                if st.dash == dash {
+                    st.dash = to_dash.clone();
+                }
+            }
+        }
+    }
     let mut segs = std::mem::take(&mut b.segs);
     // a move to a node waits for the next point, which tells it where on the border to start
     // (`\tikz@moveto@waiting`): alone (`\draw (a) edge (b);`), it never reaches the path
