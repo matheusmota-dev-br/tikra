@@ -117,6 +117,8 @@ enum Kind {
     FastTriangle,
     FastRound,
     Rays,
+    /// CircuiTikZ's `Jack Tap`: a step then half a triangle
+    JackTap,
     /// `_`: only space
     Underscore,
     Old(Old),
@@ -223,6 +225,7 @@ fn code(name: &str) -> Option<Kind> {
         "Fast Triangle" => FastTriangle,
         "Fast Round" => FastRound,
         "Rays" => Rays,
+        "Jack Tap" => JackTap,
         "_" => Underscore,
         name if declared(name).is_some() => return declared(name),
         "stealth" => Old(self::Old::Stealth),
@@ -782,6 +785,8 @@ fn defaults(kind: Kind) -> Vec<Opt> {
         Kind::RoundCap | Kind::ButtCap | Kind::TriangleCap => vec![Length(Dep(0.0, 0.5, 0.0))],
         Kind::FastTriangle | Kind::FastRound => vec![Length(Dep(0.0, 0.5, 0.0)), Inset(Dep(0.0, 0.5, 0.0))],
         Kind::Rays => vec![Length(Dep(3.0, 4.0, 0.0)), WidthOfLength(Dep(0.0, 1.0, 0.0)), lw],
+        // 0.3cm by 0.15cm whatever the line width, open
+        Kind::JackTap => vec![Length(Dep(8.53583, 0.0, 0.0)), Width(Dep(4.26791, 0.0, 0.0)), lw, Open(true)],
         Kind::Underscore => vec![Sep(Dep(0.88, 0.3, 1.0))],
         Kind::Implies | Kind::Old(_) => Vec::new(),
     }
@@ -1547,6 +1552,19 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
             }
             shapes.push(Shape { segs: p.take(), fill: false, stroke: true, width: alw, cap: cap(rc), join: None });
         }
+        Kind::JackTap => {
+            // a tenth of the length along the line, then up the width at its middle and down to
+            // the end: open, or closed and filled
+            tip = 1.1 * l;
+            back = 0.0;
+            line = 0.0;
+            hull.extend([Point::new(0.0, 0.0), Point::new(0.6 * l, w), Point::new(tip, 0.0)]);
+            p.m(0.0, 0.0).l(0.1 * l, 0.0).l(0.6 * l, w).l(tip, 0.0);
+            if !k.open {
+                p.z();
+            }
+            shapes.push(Shape { segs: p.take(), fill: !k.open, stroke: true, width: alw, cap: cap(rc), join: join(rj) });
+        }
         Kind::Underscore | Kind::Old(_) => {
             tip = 0.0;
             back = 0.0;
@@ -2249,6 +2267,25 @@ mod tests {
     }
 
     #[test]
+    fn jack_tap() {
+        // measured on CircuiTikZ 1.8.7: 0.3cm long and 0.15cm high whatever the line width, the
+        // line pulled back a tenth more
+        let l = 8.53583;
+        for lw in [0.4, 2.0] {
+            let e = end("Jack Tap", lw);
+            let g = &e.tips[0].g;
+            assert!(close(g.tip, 1.1 * l) && close(g.back, 0.0) && close(g.line, 0.0), "{g:?}");
+            let s = &g.shapes[0];
+            assert!(!s.fill && s.stroke && close(s.width, lw));
+            assert_eq!(s.segs[2], Segment::LineTo(Point::new(0.6 * l, 4.26791)));
+        }
+        let wide = end("Jack Tap[width=.3cm,fill]", 0.4);
+        let s = &wide.tips[0].g.shapes[0];
+        assert!(s.fill && matches!(s.segs.last(), Some(Segment::Close)));
+        assert!(end("Jack Tap[swap]", 0.4).tips[0].swap);
+    }
+
+    #[test]
     fn every_kind_draws() {
         for spec in [
             "Straight Barb",
@@ -2273,6 +2310,7 @@ mod tests {
             "Fast Triangle",
             "Fast Round",
             "Rays[n=5]",
+            "Jack Tap[reversed,fill=red]",
             "Triangle",
             "Rectangle",
             "Ellipse",

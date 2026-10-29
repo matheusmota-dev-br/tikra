@@ -20,6 +20,7 @@ Each release has a headline (the line under its title), what changed, and the fi
 - LaTeX's `picture` environment in a text: `\begin{picture}(w,h)(x,y)` with `\put`, `\multiput`, `\line`, `\circle`, `\circle*`, `\thinlines`, `\thicklines` and `\linethickness`, in `\unitlength`, drawn as LaTeX draws it (#53).
 - Images in a text: `\pgfdeclareimage[width=…, height=…]{name}{file}` and `\pgfuseimage{name}`, `\pgfimage` and `\includegraphics` in a node or `\pgftext`, a PNG file in a box of its size (#53).
 - `\begingroup`, `\endgroup` and `\relax` in a text no longer leave the space after them.
+- The `Jack Tap` arrow tip of CircuiTikZ: a step, then half a triangle, 0.3cm by 0.15cm whatever the line width; `swap`, `reversed`, `width`, `length`, `fill`, `open` and the line cap and join (#53).
 
 ## 1.6.0 - 2026-10-29
 
