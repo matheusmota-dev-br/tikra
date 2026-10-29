@@ -22,6 +22,7 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `\begingroup`, `\endgroup` and `\relax` in a text no longer leave the space after them.
 - `\NewDocumentCommand` and its kin (`Renew`, `Provide`, `Declare`, `Expandable`): commands with arguments `m`, `o`, `O{…}`, `s`, `t`, `d`, `D`, `r` and `R`, and `\IfNoValueTF`, `\IfValueTF`, `\IfBooleanTF` and their `T` and `F` forms (#53).
 - The `Jack Tap` arrow tip of CircuiTikZ: a step, then half a triangle, 0.3cm by 0.15cm whatever the line width; `swap`, `reversed`, `width`, `length`, `fill`, `open` and the line cap and join (#53).
+- `\scalebox{0.7}{…}` (and `\scalebox{2}[1]`) around pictures in a document scales them, their lines and texts with them, as graphicx does.
 - Colors in xcolor's cmyk (`cyan`, `magenta`, `yellow`, `olive`, the dvipsnames, `\definecolor{x}{cmyk}{…}`) are drawn as Ghostscript draws them from TeX's PDF, through its ICC profiles: `cyan` is #00aeef, `cyan!30!white` #abe1fa (`tools/cmyk/table.py`). Mixes are in their first color's model, as xcolor mixes them (`white!70!cyan` is cmyk, `red!50!cyan` rgb), and so are complements and the extended syntax's `cmyk,1:…` and `gray,1:…` (#53).
 - `tikra::color::Color` has a `model`: code that builds one with `Color { r, g, b }` uses `Color::rgb(r, g, b)` (#53).
 - `tikra::extension`: `Context::measure` runs code without drawing it and gives the box of what it drew, with what a closure read before its nodes are forgotten (a subcircuit placed by one of its anchors) (#53).

@@ -67,6 +67,18 @@ fn more_than_one_tikzpicture() {
 }
 
 #[test]
+fn scalebox_scales_the_pictures_in_it() {
+    // the drawing, its lines and its size, by each factor (the second one up)
+    let width = |svg: &str| -> f64 { svg.split("width=\"").nth(1).unwrap().split("pt").next().unwrap().parse().unwrap() };
+    let one = no_warnings(r"\tikz \draw[line width=2pt] (0,0) -- (4,0);");
+    let half = no_warnings(r"\scalebox{0.5}{\tikz \draw[line width=2pt] (0,0) -- (4,0);}");
+    assert!((width(&one.svg) - width(&half.svg) - 2.0 * 28.3465 - 1.0).abs() < 0.1, "{}", width(&half.svg));
+    assert!(half.svg.contains("stroke-width=\"1\"") || half.svg.contains("stroke-width=\"0.996\""), "{}", half.svg);
+    let wide = no_warnings(r"\scalebox{2}[1]{\tikz \draw (0,0) circle (1);}");
+    assert!(width(&wide.svg) > 4.0 * 28.3465, "{}", wide.svg);
+}
+
+#[test]
 fn inline_tikz_with_and_without_braces() {
     no_warnings(r"\tikz \draw (0,0) -- (1,1);");
     no_warnings(r"\tikz[thick] {\draw (0,0) -- (1,1); \fill (0,0) circle (2pt);}");

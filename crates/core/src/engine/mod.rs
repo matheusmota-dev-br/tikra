@@ -139,6 +139,7 @@ pub enum Cmd {
     Ignore2,
     Hspace,
     Fbox,
+    Scalebox,
     Hskip,
     FontSize,
     FontSeries,
@@ -285,6 +286,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
     ("fbox", Cmd::Fbox),
+    ("scalebox", Cmd::Scalebox),
     ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
@@ -1742,6 +1744,39 @@ impl Engine {
                         b.canvas.items.push(Item::Path { segments, fill: None, stroke: Some(stroke) });
                         b.canvas.include(Point::new(lo.x - rule / 2.0, lo.y - rule / 2.0));
                         b.canvas.include(Point::new(hi.x + rule / 2.0, hi.y + rule / 2.0));
+                    }
+                }
+                Ok(())
+            }
+            // `\scalebox{0.7}[1]{…}`: the pictures in it scaled, by the second factor up (the first
+            // without it), around their origin
+            Cmd::Scalebox => {
+                let fx = self.argument_string()?;
+                let fx = self.number(&fx)?;
+                let fy = match self.optional()? {
+                    Some(t) => {
+                        let t = self.tex.expand_to_string(t)?;
+                        self.number(&t)?
+                    }
+                    None => fx,
+                };
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    let t = crate::scene::Transform::scaling(fx, fy);
+                    for b in &mut self.boxes[start..] {
+                        b.canvas.items.iter_mut().for_each(|i| i.transform(&t));
+                        let corners = [b.canvas.min, b.canvas.max];
+                        if let [Some(lo), Some(hi)] = corners {
+                            let (a, c) = (t.apply(lo), t.apply(hi));
+                            b.canvas.min = Some(Point::new(a.x.min(c.x), a.y.min(c.y)));
+                            b.canvas.max = Some(Point::new(a.x.max(c.x), a.y.max(c.y)));
+                        }
+                        b.baseline *= fy;
                     }
                 }
                 Ok(())
