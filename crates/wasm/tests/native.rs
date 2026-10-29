@@ -27,6 +27,20 @@ fn render_carries_svg_and_warnings() {
 }
 
 #[test]
+fn render_carries_named_points_and_origin() {
+    // (tip) is 1 cm right and 1 cm up from the origin; y is down in SVG
+    let json: serde_json::Value =
+        serde_json::from_str(&convert_json(r"\begin{tikzpicture}\coordinate (tip) at (1,1); \draw (0,0) -- (tip);\end{tikzpicture}", None, None, None).unwrap()).unwrap();
+    let (tip, origin) = (&json["points"][0], &json["origin"]);
+    assert_eq!(tip["name"], "tip");
+    let cm = 72.0 / 2.54;
+    assert!((tip["x"].as_f64().unwrap() - origin[0].as_f64().unwrap() - cm).abs() < 1e-6, "{json}");
+    assert!((tip["y"].as_f64().unwrap() - origin[1].as_f64().unwrap() + cm).abs() < 1e-6, "{json}");
+    let json: serde_json::Value = serde_json::from_str(&convert_json(FIGURE, None, None, None).unwrap()).unwrap();
+    assert_eq!(json["points"], serde_json::json!([]));
+}
+
+#[test]
 fn errors_become_text() {
     assert!(convert_json("no figure here", None, None, None).unwrap_err().contains("no tikzpicture"));
     assert!(convert_json(FIGURE, Some("xx".into()), None, None).unwrap_err().contains("unknown locale: xx"));

@@ -11,11 +11,12 @@ fn options(locale: Option<String>, animate: Option<bool>, steps: Option<bool>) -
     Ok(if steps.unwrap_or(false) { o.steps() } else { o })
 }
 
-/// The figure as JSON, `{"svg": …, "alt": …, "description": …, "warnings": […]}`, its words in
-/// `locale`: testable outside the browser.
+/// The figure as JSON, `{"svg": …, "alt": …, "description": …, "warnings": […], "points": [{"name",
+/// "x", "y"}], "origin": [x, y]}`, its words in `locale`: testable outside the browser.
 pub fn convert_json(code: &str, locale: Option<String>, animate: Option<bool>, steps: Option<bool>) -> Result<String, String> {
     let r = tikra::convert_with(code, &options(locale, animate, steps)?).map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "svg": r.svg, "alt": r.alt, "description": r.description, "warnings": r.warnings }).to_string())
+    let points: Vec<_> = r.points.iter().map(|p| serde_json::json!({ "name": p.name, "x": p.x, "y": p.y })).collect();
+    Ok(serde_json::json!({ "svg": r.svg, "alt": r.alt, "description": r.description, "warnings": r.warnings, "points": points, "origin": [r.origin.0, r.origin.1] }).to_string())
 }
 
 /// The PNG bytes of an SVG written by tikra. `dpi` defaults to 300, `background` (white) to true.

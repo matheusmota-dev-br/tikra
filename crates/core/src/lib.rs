@@ -104,6 +104,22 @@ pub struct Output {
     pub description: String,
     /// What was ignored or approximated (unsupported commands, labels with mathra warnings).
     pub warnings: Vec<String>,
+    /// The nodes and coordinates the author named (`\coordinate (top) at (0,2);`), where they are
+    /// in the SVG's own coordinates (the viewBox's units, y down), once per name, where it was
+    /// last placed: a page can hang handles, hints or answers on them.
+    pub points: Vec<NamedPoint>,
+    /// Where the picture's origin, (0,0), is in the SVG. The drawing is moved so that its box starts
+    /// at the SVG's corner, so the same point lands elsewhere when the figure grows to the left or
+    /// up; less `origin`, it does not: the way to follow a point from one drawing to the next.
+    pub origin: (f64, f64),
+}
+
+/// A node or coordinate with a name, and where it is in the SVG (see [`Output::points`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NamedPoint {
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 /// Accepts a full `standalone` document, a bare `tikzpicture`, an inline `\tikz` or an `axis`.
@@ -143,7 +159,16 @@ pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'stat
     let svg = driver::svg_with(&canvas, code, &words, options.steps, options.animate);
     let mut all = early;
     all.extend(warnings);
-    Ok(Output { svg, alt: words.alt, description: words.text, warnings: all })
+    let mut points: Vec<NamedPoint> = Vec::new();
+    for (name, p) in &canvas.named {
+        let at = NamedPoint { name: name.clone(), x: p.x * driver::BP, y: -p.y * driver::BP };
+        match points.iter_mut().find(|q| q.name == *name) {
+            Some(q) => *q = at,
+            None => points.push(at),
+        }
+    }
+    let origin = canvas.origin.map_or((0.0, 0.0), |d| (d.x * driver::BP, -d.y * driver::BP));
+    Ok(Output { svg, alt: words.alt, description: words.text, warnings: all, points, origin })
 }
 
 /// TikZ that went through a Markdown generator: code fences, `\\draw` and `\[red\]`.
