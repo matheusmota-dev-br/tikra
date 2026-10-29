@@ -129,3 +129,23 @@ fn loops_end() {
     assert!(run(r"\def\a{\a}\a").starts_with("error"));
     assert!(run(r"\def\a{x\a}\a").starts_with("error"));
 }
+
+#[test]
+fn document_commands() {
+    // optional arguments in brackets, with their defaults, then mandatory ones
+    let def = r"\NewDocumentCommand{\c}{O{} O{0.2cm} m m}{(#1|#2|#3|#4)}";
+    assert_eq!(run(&format!(r"{def}\c[a][b]{{x}}{{y}}")), "(a|b|x|y)");
+    assert_eq!(run(&format!(r"{def}\c[a] {{x}}y")), "(a|0.2cm|x|y)");
+    assert_eq!(run(&format!(r"{def}\c{{x}}{{y}}")), "(|0.2cm|x|y)");
+    // a missing `o` is no value; `s` is a star or not
+    let def = r"\NewDocumentCommand\d{s o m}{\IfBooleanTF{#1}{*}{-}\IfNoValueTF{#2}{none}{[#2]}\IfValueT{#2}{!}#3}";
+    assert_eq!(run(&format!(r"{def}\d*[q]{{z}}")), "*[q]!z");
+    assert_eq!(run(&format!(r"{def}\d{{z}}")), "-nonez");
+    // other delimiters, a required pair and a token flag
+    let def = r"\DeclareDocumentCommand\e{D<>{1} t+ r() +m}{#1#2#3#4}\def\BooleanTrue{T}\def\BooleanFalse{F}";
+    assert_eq!(run(&format!(r"{def}\e<2>+(3){{4}}")), "2T34");
+    assert_eq!(run(&format!(r"{def}\e(3)4")), "1F34");
+    // a missing value typesets as LaTeX's marker; Provide keeps a command, Renew replaces it
+    assert_eq!(run(r"\NewDocumentCommand\f{o}{#1}\f"), "-NoValue-");
+    assert_eq!(run(r"\def\g{old}\ProvideDocumentCommand\g{}{new}\g\RenewDocumentCommand\g{m}{<#1>}\g x"), "old<x>");
+}
