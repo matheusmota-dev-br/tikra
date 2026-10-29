@@ -326,6 +326,34 @@ fn picture_environment_in_text() {
 }
 
 #[test]
+fn images_in_text() {
+    // a PNG of 40 × 30 px at 72 dpi (40.15 × 30.11pt), in a folder tikra reads files from
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40pt" height="30pt" viewBox="0 0 40 30"><rect width="40" height="30" fill="blue"/></svg>"#;
+    let dir = std::env::temp_dir().join(format!("tikra-node-images-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pic.png"), tikra::png(svg, 72.0, false).unwrap()).unwrap();
+    std::env::set_var("TIKRA_INPUT_DIR", dir.display().to_string());
+    let images = |body: &str| {
+        let (c, w) = tikra::engine::run_document(&format!(r"\begin{{tikzpicture}}{body}\end{{tikzpicture}}")).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        c.items.iter().filter_map(|i| if let tikra::canvas::Item::Image { place, .. } = i { Some(*place) } else { None }).collect::<Vec<_>>()
+    };
+    // \pgfdeclareimage's width, the height kept in proportion; the box the image's size
+    let body = r"\pgfdeclareimage[width=2cm]{p}{pic} \node[inner sep=0pt, outer sep=0pt] (a) {\pgfuseimage{p}};";
+    let t = images(body);
+    assert!(t.len() == 1 && close(t[0].a, 2.0) && close(t[0].d, 1.5), "{t:?}");
+    assert!(close(point(body, "a.east").x, 1.0) && close(point(body, "a.north").y, 0.75));
+    // \includegraphics and \pgfimage, at the natural size without options
+    let t = images(r"\node {\includegraphics[height=3cm]{pic.png}}; \node at (5,0) {\pgfimage{pic}};");
+    assert!(close(t[0].a, 4.0) && close(t[0].d, 3.0), "{t:?}");
+    assert!(close(t[1].a, 40.0 * 72.27 / 72.0 * 2.54 / 72.27), "{t:?}");
+    // in \pgftext, and a file not found reported
+    assert_eq!(images(r"\pgfdeclareimage{p}{pic}\pgftext{\pgfuseimage{p}}").len(), 1);
+    let (_, w) = tikra::engine::run_document(r"\begin{tikzpicture}\pgfdeclareimage{q}{none}\node {\pgfuseimage{q}};\end{tikzpicture}").unwrap();
+    assert!(w.iter().any(|x| x.contains("not found")), "{w:?}");
+}
+
+#[test]
 fn baseline_anchors() {
     let body =
         r"\node[draw, anchor=base west] (a) at (1,2) {xg}; \node[anchor=base] (b) at (5,2) {x}; \node[anchor=base east] (c) at (9,2) {x}; \node[anchor=text] (d) at (12,2) {x};";
