@@ -752,6 +752,10 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     let (width, height) = (((x1 - x0) * BP).max(0.0), ((y1 - y0) * BP).max(0.0));
 
     let mut body = String::new();
+    // the page under the figure, as far as the figure's page goes
+    if let Some(c) = canvas.page_color {
+        let _ = write!(body, r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>"#, n(x0 * BP), n(-y1 * BP), n(width), n(height), c.hex());
+    }
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
     let mut steps = Steps { on: steps || animate, animate, count: 0 };

@@ -161,6 +161,8 @@ pub struct Canvas {
     pub local: Vec<(Option<Point>, Option<Point>)>,
     /// `overlay` is on: nothing grows the bounding box.
     pub overlay: bool,
+    /// `\pagecolor`: painted behind the figure, margin included.
+    pub page_color: Option<Color>,
 }
 
 impl Canvas {

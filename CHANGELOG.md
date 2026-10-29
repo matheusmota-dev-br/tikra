@@ -4,6 +4,10 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- `\pagecolor{…}` (and `\pagecolor[model]{…}`) paints the page behind the figure, margin included, as TeX does, instead of being drawn as text; `\nopagecolor` takes it away (#50).
+
 ## 1.6.0 - 2026-10-29
 
 Labels in Times, fills without seams, and library shapes with texts and styles of their own.

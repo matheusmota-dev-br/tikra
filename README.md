@@ -90,7 +90,7 @@ Every example of the TikZ manual and of the pgfplots manual is drawn by pdflatex
 
 ## Input
 
-A full `standalone` document, a bare `tikzpicture` or `pgfpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset`, `\pgfplotsset`, `\newcommand` and `\def`; `\usetikzlibrary` lines are accepted, and every library is available.
+A full `standalone` document, a bare `tikzpicture` or `pgfpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset`, `\pgfplotsset`, `\newcommand` and `\def`; `\usetikzlibrary` lines are accepted, and every library is available. `\pagecolor` paints the page behind the figure.
 
 ## What it draws
 
