@@ -37,6 +37,10 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `\calendar[name=cal, …]` names its days `cal-2000-01-20`, as `\calendar (cal)` does (#99).
 - `\ifdate` and a calendar's `if (…)` run the tests a document defines as `/pgf/calendar/<name>/.code`, with the date in `\pgfcalendarifdateyear`, `…month`, `…day`, `…weekday`, `…julian` and `\pgfcalendarmatchestrue` (#100).
 - Calendar layouts of the document's own can use pgf's `\c@pgf@counta` … `\c@pgf@countd` and the library's `\tikz@lib@cal@xshift`, `…yshift`, `…month@xshift`, `…month@yshift`, `…width`; such a layout no longer stops tikra with "nesting went past 64 levels" (#101).
+- `\pgfdeclareshape` runs a shape's code for each node as pgf does: `\savedanchor`, `\saveddimen` and `\savedmacro` (from the node's text box `\pgfnodeparttextbox` and its sizes `\pgfshapeminwidth`, …), `\anchor{name}{code}` (also as `\pgf@anchor@<shape>@<name>`), the paths of every layer (`\behindbackgroundpath`, `\beforebackgroundpath`, …) with what their code fills, strokes and writes (`\pgftext`), and the rectangle's border around the shape's own corners; only the paths it inherits are drawn, and its name works as an option. Also `\pgf@process`, `\pgfextractx`, `\pgfextracty`, `\pgfclosepath` and `\c@pgf@counta`, and a style that appends to `\tikz@textfont` no longer loops (#103).
+- `\tikzoption{name}[default]{code}` defines the key with its default value (#104).
+- An anchor that is an expression, `(a.200+360/5)`, is the angle it gives, as pgf evaluates it (#105).
+- The `svg` path operation takes its data in quotes too: `svg "M0,0 L20,10"` (#106).
 
 ## 1.7.0 - 2026-10-29
 

@@ -509,3 +509,13 @@ fn transform_canvas_of_a_path_is_for_that_path_only() {
     let fill = c.items.iter().position(|i| matches!(i, Item::Path { fill: Some(_), .. })).unwrap();
     assert!(!c.items[..fill].iter().any(|i| matches!(i, Item::End)), "{:?}", c.items);
 }
+
+#[test]
+fn svg_path_data_in_quotes() {
+    // the svg.path library takes the data in quotes as in braces
+    let quoted = first_path(r#"\draw svg "M0,0 L20,10 l5,0";"#).segments;
+    assert_eq!(quoted, first_path(r"\draw svg {M0,0 L20,10 l5,0};").segments);
+    assert_eq!(quoted.len(), 3);
+    let scaled = first_path(r#"\draw svg[scale=2] "M0,0 L20,10";"#).segments;
+    assert!(matches!(scaled[1], Segment::LineTo(p) if close(p.x, 40.0 * tikra::PT)), "{scaled:?}");
+}

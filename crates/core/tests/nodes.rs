@@ -657,3 +657,12 @@ fn right_of_takes_the_node_distance_given_after_it() {
     // in its place among the other transformations
     assert_eq!(at("right of=a, rotate=90, xshift=1cm, node distance=3cm"), (3.0, 1.0));
 }
+
+#[test]
+fn a_style_that_adds_to_the_text_font_ends() {
+    // `\tikz@textfont` is a macro: a key that appends to it, then the font used (as a shape's code
+    // does), does not refer to itself forever
+    no_warnings(
+        r"\makeatletter\tikzset{add font/.code={\expandafter\def\expandafter\tikz@textfont\expandafter{\tikz@textfont#1}}}\begin{tikzpicture}[font=\sffamily]\begingroup\tikzset{add font=\bfseries}\tikz@textfont\endgroup\node[draw] {A};\end{tikzpicture}",
+    );
+}
