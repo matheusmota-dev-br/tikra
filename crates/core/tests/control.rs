@@ -99,6 +99,44 @@ fn macros_def_newcommand_and_pgfmath() {
 }
 
 #[test]
+fn latex_counters_and_pgfmath() {
+    // \the<counter> is the counter's value, in an expression, a color and a node's text
+    let (c, w) = canvas_and_warnings(
+        r"\newcounter{d} \setcounter{d}{30}
+          \draw (0,0) -- (\thed/10,0);
+          \fill[red!\thed] (0,0) rectangle (1,1); \fill[red!30] (0,0) rectangle (1,1);
+          \node {\thed}; \node {30};",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let p = paths(&c);
+    assert!(close(points(&p[0].segments)[1].0, 3.0), "{:?}", p[0].segments);
+    assert_eq!(format!("{:?}", p[1].fill), format!("{:?}", p[2].fill));
+    let t = texts(&c);
+    assert!(close(t[0].0.width(), t[1].0.width()) && t[0].0.width() > 0.0);
+    // pgfmath truncates toward zero; its counters are set locally (a \foreach body is a group), which
+    // \setcounter{n}{\then} makes global
+    let x = |body: &str| {
+        let c = canvas(&format!(r"\newcounter{{n}} {body} \draw (0,0) -- (\then,0);"));
+        points(&paths(&c)[0].segments)[1].0
+    };
+    assert!(close(x(r"\pgfmathsetcounter{n}{2.7*2}"), 5.0));
+    assert!(close(x(r"\pgfmathsetcounter{n}{-2.7}"), -2.0));
+    assert!(close(x(r"\pgfmathsetcounter{n}{1cm}"), 28.0));
+    assert!(close(x(r"\pgfmathsetcounter{n}{5} \pgfmathaddtocounter{n}{-1.9}"), 4.0));
+    assert!(close(x(r"\begingroup \pgfmathsetcounter{n}{9} \endgroup"), 0.0));
+    assert!(close(x(r"\foreach \i in {1,2} {\pgfmathaddtocounter{n}{10}}"), 0.0));
+    assert!(close(x(r"\foreach \i in {1,2} {\pgfmathaddtocounter{n}{10} \setcounter{n}{\then}}"), 20.0));
+    // a loop on a counter that pgfmath moves ends
+    let c = canvas(r"\newcounter{k} \whiledo{\value{k}<3}{\pgfmathsetcounter{k}{\value{k}+1} \draw (\thek,0) -- (\thek,1);}");
+    assert_eq!(paths(&c).len(), 3);
+    // lengths: a plain number is in points
+    let c = canvas(r"\newlength{\l} \pgfmathsetlength{\l}{2cm+3} \pgfmathaddtolength{\l}{1pt*2} \draw (0,0) -- (\l,0);");
+    assert!((points(&paths(&c)[0].segments)[1].0 - (2.0 + 5.0 / 72.27 * 2.54)).abs() < 1e-4);
+    let (_, w) = canvas_and_warnings(r"\pgfmathsetcounter{nope}{1}");
+    assert!(w.iter().any(|a| a.contains("no register or counter 'nope'")), "{w:?}");
+}
+
+#[test]
 fn environments_and_end_without_begin() {
     // layers are drawn now, with no warning
     let (c, w) = canvas_and_warnings("\\begin{pgfonlayer}{background}\n\\draw (0,0) -- (1,0); \\end{pgfonlayer}");

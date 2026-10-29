@@ -2354,6 +2354,10 @@ impl Tex {
                             self.back(x);
                         }
                     }
+                    // \the<name> prints the counter's value
+                    let the = vec![Token::cs("arabic"), Token::Char('{', Cat::Begin)];
+                    let the = the.into_iter().chain(string_tokens(n.trim())).chain([Token::Char('}', Cat::End)]).collect();
+                    self.define_macro(&format!("the{}", n.trim()), the, true);
                     Token::Cs(Rc::from(format!("c@{}", n.trim()).as_str()))
                 } else {
                     let t = self.read_undelimited()?;
