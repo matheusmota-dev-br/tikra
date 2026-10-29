@@ -15,8 +15,9 @@ use crate::scene::{Label, Point, Segment, Transform};
 use crate::tex::{self, Token};
 use crate::{Error, PT};
 
-use super::shapes::{self, Border, BoxSize, Geometry, Layer, Usage};
+use super::shapes::{self, Border, BoxSize, Geometry, Layer, ShapeText, Usage};
 use super::{tikra_tokens, Engine};
+use crate::extension::{LineCap, ShapePaint};
 
 pub fn is_shape(name: &str) -> bool {
     shapes::is_shape(name)
@@ -77,7 +78,7 @@ impl NodeInfo {
 
 /// A library's shape as the geometry of a node.
 fn library_geometry(shape: crate::extension::NodeShape) -> Geometry {
-    use crate::extension::{PathSegment, ShapeBorder, ShapePaint};
+    use crate::extension::{PathSegment, ShapeBorder};
     let border = match shape.border {
         ShapeBorder::Point => Border::Point,
         ShapeBorder::Rectangle(half) => Border::Rectangle(half),
@@ -98,15 +99,30 @@ fn library_geometry(shape: crate::extension::NodeShape) -> Geometry {
                 PathSegment::Close => Segment::Close,
             })
             .collect();
-        let usage = match path.paint {
-            ShapePaint::Stroke(w) => Usage::StrokeWidth(w),
-            ShapePaint::Fill => Usage::NodeFill,
-            ShapePaint::Background => Usage::NodeBackground,
-            ShapePaint::Solid => Usage::LineFill,
-        };
-        g.path(Layer::Background, segments, usage);
+        g.path(Layer::Background, segments, Usage::Library { paint: path.paint, color: path.color, dash: path.dash, cap: path.cap });
     }
+    g.texts = shape.texts.into_iter().map(|t| ShapeText { tex: t.text, at: t.at, color: None, anchor: Some(t.anchor), font: t.font }).collect();
     g
+}
+
+/// Where the point `a` of a text's box is, from the left end of its baseline (as a node's anchor
+/// with no inner sep: `mid` half an ex of its font above the baseline).
+fn text_anchor(a: crate::extension::TextAnchor, l: &Label, font: &str) -> Point {
+    use crate::extension::TextAnchor::*;
+    let (w, h, d) = (l.width(), l.height(), l.depth());
+    let x = match a {
+        West | NorthWest | SouthWest | BaseWest | MidWest => 0.0,
+        East | NorthEast | SouthEast | BaseEast | MidEast => w,
+        Center | North | South | Base | Mid => w / 2.0,
+    };
+    let y = match a {
+        North | NorthEast | NorthWest => h,
+        South | SouthEast | SouthWest => -d,
+        Center | East | West => (h - d) / 2.0,
+        Base | BaseEast | BaseWest => 0.0,
+        Mid | MidEast | MidWest => 0.5 * label::x_height(false) * 10.0 * label::font_size(font) * PT,
+    };
+    Point::new(x, y)
 }
 
 /// The node's text split at `\nodepart[options]{name}`: the parts in order, `text` first.
@@ -714,6 +730,8 @@ impl Engine {
         }
         if let Some(f) = library_shape {
             let text = boxes.first().map(|(_, b)| *b).unwrap_or_default();
+            // the node's own transformation, as it is placed below (without where it goes)
+            let picture = if self.st.node.transform_shape { Transform { e: 0.0, f: 0.0, ..self.st.transform } } else { Transform::default() };
             let input = crate::extension::ShapeInput {
                 name: shape_name.trim().to_string(),
                 width: text.wd,
@@ -721,6 +739,10 @@ impl Engine {
                 depth: text.dp,
                 inner_sep: Point::new(xsep, ysep),
                 line_width,
+                node: name.as_ref().map(|n| format!("{}{n}", self.st.name_prefix)),
+                fill: self.st.mode.fill.then(|| self.st.fill_paint_color().xcolor()),
+                draw: self.st.mode.draw.then(|| self.st.stroke_color().xcolor()),
+                transform: picture.compose(&self.st.pending),
             };
             geometry = library_geometry(f(&mut crate::extension::Context { e: self }, &input)?);
         }
@@ -820,7 +842,9 @@ impl Engine {
         // the last node, for trees (labels below do not count)
         let registered = name.as_ref().map(|n| format!("{}{n}", self.st.name_prefix));
         if self.facts.mute == 0 && shape != "coordinate" {
-            let all: Vec<&str> = texts.iter().map(|(_, t)| t.as_str()).filter(|t| !t.trim().is_empty()).collect();
+            // with the texts a library's shape draws (a chip's pin names)
+            let own = info.geometry.texts.iter().filter(|t| t.anchor.is_some()).map(|t| t.tex.as_str());
+            let all: Vec<&str> = texts.iter().map(|(_, t)| t.as_str()).chain(own).filter(|t| !t.trim().is_empty()).collect();
             self.facts.nodes.push(crate::describe::NodeFact { key, named: registered.is_some(), text: all.join(" "), at: info.center(), on_link: false });
         }
         if let Some(slot @ None) = self.tree_child_names.last_mut() {
@@ -887,11 +911,36 @@ impl Engine {
                     Usage::Stroke => (None, Some(e.stroke())),
                     Usage::TipStroke(cap, join) => (None, Some(crate::canvas::Stroke { cap: *cap, join: *join, ..e.stroke() })),
                     Usage::LineFill => (Some(Fill { paint: Paint::Solid(e.st.stroke_color()), opacity: e.st.fill_opacity, even_odd: false }), None),
-                    Usage::StrokeWidth(w) => (None, Some(crate::canvas::Stroke { width: *w, ..e.stroke() })),
-                    Usage::NodeFill => (node_fill.clone(), None),
-                    Usage::NodeBackground => {
-                        let white = Fill { paint: Paint::Solid(crate::color::Color::WHITE), opacity: e.st.fill_opacity, even_odd: false };
-                        (Some(node_fill.clone().unwrap_or(white)), None)
+                    Usage::Library { paint, color, dash, cap } => {
+                        let own = color.as_deref().and_then(|c| {
+                            let found = e.color(c);
+                            if found.is_none() {
+                                e.warn(format!("shape color '{c}' not known: the node's used"));
+                            }
+                            found
+                        });
+                        let opacity = e.st.fill_opacity;
+                        let solid = |c: crate::color::Color| Fill { paint: Paint::Solid(c), opacity, even_odd: false };
+                        match paint {
+                            ShapePaint::Stroke(w) => {
+                                let base = e.stroke();
+                                let stroke = crate::canvas::Stroke {
+                                    width: *w,
+                                    color: own.unwrap_or(base.color),
+                                    dash: dash.as_ref().map(|d| (d.clone(), 0.0)).or(base.dash.clone()),
+                                    cap: cap.map_or(base.cap, |c| match c {
+                                        LineCap::Butt => crate::canvas::Cap::Butt,
+                                        LineCap::Round => crate::canvas::Cap::Round,
+                                        LineCap::Rect => crate::canvas::Cap::Square,
+                                    }),
+                                    ..base
+                                };
+                                (None, Some(stroke))
+                            }
+                            ShapePaint::Fill => (node_fill.clone().map(|f| own.map_or(f, solid)), None),
+                            ShapePaint::Background => (Some(own.map(solid).or_else(|| node_fill.clone()).unwrap_or_else(|| solid(crate::color::Color::WHITE))), None),
+                            ShapePaint::Solid => (Some(solid(own.unwrap_or_else(|| e.st.stroke_color()))), None),
+                        }
                     }
                 };
                 if e.counts_for_size() {
@@ -947,11 +996,22 @@ impl Engine {
             }
             let mut warnings = Vec::new();
             let text = self.inline_colors(text.trim());
-            let l = label::compose_label(&text, &self.st.font, None, 'c', color, &mut warnings);
+            let font = st.font.clone().unwrap_or_else(|| self.st.font.clone());
+            let l = label::compose_label(&text, &font, None, 'c', color, &mut warnings);
             for w in warnings {
                 self.warn(w);
             }
-            items.push(Item::Text { label: l, place: t.compose(&Transform::translation(st.at.x, st.at.y)), opacity: self.st.text_opacity });
+            let origin = match st.anchor {
+                Some(a) => st.at.minus(text_anchor(a, &l, &font)),
+                None => st.at,
+            };
+            // a library's texts count in the picture's size, as TeX's boxes do
+            if st.anchor.is_some() && self.counts_for_size() {
+                for (x, y) in [(0.0, -l.depth()), (l.width(), -l.depth()), (0.0, l.height()), (l.width(), l.height())] {
+                    self.canvas.include(t.apply(origin.plus(Point::new(x, y))));
+                }
+            }
+            items.push(Item::Text { label: l, place: t.compose(&Transform::translation(origin.x, origin.y)), opacity: self.st.text_opacity });
         }
         layer_items(self, &[Layer::BehindForeground, Layer::Foreground, Layer::BeforeForeground], &mut items)?;
         Ok(items)

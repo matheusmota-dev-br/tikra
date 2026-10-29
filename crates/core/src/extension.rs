@@ -147,6 +147,17 @@ pub struct ShapeInput {
     pub inner_sep: Point,
     /// The line width in force.
     pub line_width: f64,
+    /// The node's name with its `name prefix` (`T1`), to name what the shape adds after it
+    /// (`T1-L1`); `None` for a node without one.
+    pub node: Option<String>,
+    /// The node's fill color when it is filled, and its line color when it is drawn, as xcolor
+    /// expressions (`rgb,1:red,1;green,0.5;blue,0`: braced in a key list); `None` when not.
+    pub fill: Option<String>,
+    pub draw: Option<String>,
+    /// The node's own transformation, without its position: `xscale`, `rotate`, the picture's with
+    /// `transform shape`. Mirrored when its determinant is negative. (Not what `sloped` or a
+    /// nonlinear transformation adds, which depend on where the node goes.)
+    pub transform: Transform,
 }
 
 /// A library's shape, in the node's coordinates (cm, y up): the node puts it where `at` and
@@ -164,6 +175,9 @@ pub struct NodeShape {
     pub text: Point,
     /// What it draws, in order.
     pub paths: Vec<ShapePath>,
+    /// Texts of its own, set as node text is and turned with the node (an amplifier's `+` and `−`,
+    /// a chip's pin names), drawn over its paths.
+    pub texts: Vec<ShapeText>,
     /// Points that count in the picture's size besides its paths (its text does not).
     pub extent: Vec<Point>,
 }
@@ -180,11 +194,62 @@ pub enum ShapeBorder {
     Outline(Vec<Point>),
 }
 
-/// A path of a library's shape and how it is painted.
-#[derive(Clone, Debug, PartialEq)]
+/// A path of a library's shape and how it is painted: as `paint` says, in the node's colors, solid
+/// and with the node's caps unless it says otherwise.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ShapePath {
     pub segments: Vec<PathSegment>,
     pub paint: ShapePaint,
+    /// An xcolor expression (`red`, `cyan!30`) for the stroke or fill instead of the node's.
+    pub color: Option<String>,
+    /// A stroke's dash pattern: on and off lengths in cm, as `dash pattern` (from its start).
+    pub dash: Option<Vec<f64>>,
+    /// A stroke's line caps.
+    pub cap: Option<LineCap>,
+}
+
+/// How the ends of a stroke are drawn (`line cap`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineCap {
+    #[default]
+    Butt,
+    Round,
+    /// Square, half the line width past the end.
+    Rect,
+}
+
+/// A text a library's shape draws, in the node's coordinates.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ShapeText {
+    /// TeX, as a node's text (`$+$`, `CLK`, `\textbf{=1}`).
+    pub text: String,
+    /// The point its `anchor` goes to.
+    pub at: Point,
+    pub anchor: TextAnchor,
+    /// Font commands instead of the node's (`\scriptsize`).
+    pub font: Option<String>,
+}
+
+/// The point of a text's box that goes where a [`ShapeText`] says, as a node's anchors with no
+/// inner sep: `Base…` on its baseline, `Mid…` half an ex above it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextAnchor {
+    #[default]
+    Center,
+    North,
+    South,
+    East,
+    West,
+    NorthEast,
+    NorthWest,
+    SouthEast,
+    SouthWest,
+    Base,
+    BaseEast,
+    BaseWest,
+    Mid,
+    MidEast,
+    MidWest,
 }
 
 /// A segment of a path.
@@ -198,16 +263,18 @@ pub enum PathSegment {
 }
 
 /// How a path of a library's shape is painted.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum ShapePaint {
     /// Stroked in the node's line color, this wide (cm), whether the node is `draw`n or not.
     Stroke(f64),
-    /// Filled with the node's `fill`, when it has one.
+    /// Filled with the node's `fill`, when it has one (with [`ShapePath::color`], in that color,
+    /// still only when the node is filled).
+    #[default]
     Fill,
     /// Filled with the node's `fill`, or white without one (an open terminal hides the wire under
     /// it).
     Background,
-    /// Filled with the node's line color.
+    /// Filled with the node's line color (or [`ShapePath::color`]).
     Solid,
 }
 
@@ -252,6 +319,12 @@ impl Context<'_> {
     /// `\def\name{text}` with the text as characters, local or global (`\gdef`).
     pub fn define_text(&mut self, name: &str, text: &str, global: bool) {
         self.e.tex.define_string(name, text, global);
+    }
+
+    /// `\def\name{tex}` with the TeX read as tokens (`\tikzlastnode` stays a control sequence, `@` a
+    /// letter), local or global (`\gdef`).
+    pub fn define_tex(&mut self, name: &str, tex: &str, global: bool) {
+        self.e.tex.set_meaning(&Token::cs(name), macro_tokens(tikra_tokens(tex)), global);
     }
 
     /// `\pgfkeyssetvalue{path}{text}`: the value of the key at `path`, local to the group.
@@ -299,6 +372,11 @@ impl Context<'_> {
     /// The line width in force, in cm.
     pub fn line_width(&self) -> f64 {
         self.e.st.line_width
+    }
+
+    /// Whether `transform shape` is on: nodes turn and scale with the picture.
+    pub fn transform_shape(&self) -> bool {
+        self.e.st.node.transform_shape
     }
 
     /// `\pgfarrowsdeclarealias`-like: the tip `name` means the tip specification `means`
