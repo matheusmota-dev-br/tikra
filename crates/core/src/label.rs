@@ -870,8 +870,40 @@ fn widen(mut b: MathBox, f: f32) -> MathBox {
 fn tabular(text: &str, size: f64, stretch: f64, cell: &mut dyn FnMut(&str, &mut Vec<String>) -> MathBox, warnings: &mut Vec<String>) -> Option<Vec<MathBox>> {
     let body = text.trim().strip_prefix("\\begin{tabular}")?.strip_suffix("\\end{tabular}")?;
     let body = body.trim_start().strip_prefix('{')?;
-    let close = body.find('}')?;
-    let columns: Vec<char> = body[..close].chars().filter(|c| matches!(c, 'l' | 'c' | 'r')).collect();
+    // the preamble runs to its matching brace
+    let mut depth = 0;
+    let close = body
+        .char_indices()
+        .find(|&(_, c)| {
+            match c {
+                '{' => depth += 1,
+                '}' if depth == 0 => return true,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            false
+        })?
+        .0;
+    // the columns, and whether an `@{…}` next to one takes its \tabcolsep away on that side
+    let mut items = Vec::new();
+    let mut level = 0;
+    for c in body[..close].chars() {
+        match c {
+            '{' => level += 1,
+            '}' => level -= 1,
+            '@' | 'l' | 'c' | 'r' if level == 0 => items.push(c),
+            _ => {}
+        }
+    }
+    let columns: Vec<char> = items.iter().copied().filter(|c| *c != '@').collect();
+    let mut bare_left = Vec::new();
+    let mut bare_right = Vec::new();
+    for (k, c) in items.iter().enumerate() {
+        if *c != '@' {
+            bare_left.push(k > 0 && items[k - 1] == '@');
+            bare_right.push(items.get(k + 1) == Some(&'@'));
+        }
+    }
     let body = &body[close + 1..];
     // rows at the top-level `\\`, cells at the top-level `&`
     let mut rows: Vec<Vec<String>> = vec![vec![String::new()]];
@@ -917,9 +949,11 @@ fn tabular(text: &str, size: f64, stretch: f64, cell: &mut dyn FnMut(&str, &mut 
                 Some('c') | None => room / 2.0,
                 _ => 0.0,
             };
-            line.append(&MathBox::space(sep + left));
+            let before = if bare_left.get(k) == Some(&true) { 0.0 } else { sep };
+            let after = if bare_right.get(k) == Some(&true) { 0.0 } else { sep };
+            line.append(&MathBox::space(before + left));
             line.append(&b);
-            line.append(&MathBox::space(room - left + sep));
+            line.append(&MathBox::space(room - left + after));
         }
         out.push(line);
     }
@@ -1192,7 +1226,15 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let text = long_arrows(&text);
     if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all, bold, face), bold, sc, face, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
-        return Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new(), font: face };
+        let mut label = Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new(), font: face, lift: 0.0 };
+        // a `tabular` is centered on the math axis (2.5 pt at 10 pt)
+        let n = label.lines.len();
+        if n > 0 {
+            let top = label.lines[0].height as f64 * scale;
+            let bottom = label.baseline(n - 1) - label.lines[n - 1].depth as f64 * scale;
+            label.lift = 0.25 * EM_CM * size - (top + bottom) / 2.0;
+        }
+        return label;
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
@@ -1263,7 +1305,13 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             skips[k] += 2.54 / 72.27 - gap;
         }
     }
-    Label { lines, scale, color, align: drawn, line_height, stretch, skips, font: face }
+    let mut label = Label { lines, scale, color, align: drawn, line_height, stretch, skips, font: face, lift: 0.0 };
+    // lines of their own (`align=`) are an \halign in a \vbox, on the last one's baseline; in a
+    // text width, a \vtop on the first's
+    if text_width.is_none() {
+        label.lift = -label.baseline(label.lines.len().saturating_sub(1));
+    }
+    label
 }
 
 /// The color that marks the box of picture `k` in a typeset line.
