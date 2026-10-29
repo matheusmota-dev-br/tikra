@@ -238,6 +238,21 @@ fn plot_of_expression_coordinates_and_smooth() {
 }
 
 #[test]
+fn plot_samples_at_a_list() {
+    let xs = |body: &str| points(&first_path(body).segments).iter().map(|p| p.0).collect::<Vec<_>>();
+    // the values of a `\foreach` list, `...` included, in their order
+    assert_eq!(xs(r"\draw plot[samples at={0,1,3}] (\x, {\x*\x});"), [0.0, 1.0, 3.0]);
+    assert_eq!(xs(r"\draw plot[samples at={0,0.5,...,2}] (\x, 0);"), [0.0, 0.5, 1.0, 1.5, 2.0]);
+    assert_eq!(xs(r"\draw[variable=\t, samples at={2,1}] plot (\t, 0);"), [2.0, 1.0]);
+    // `samples` or `domain` after it take over again, as in TeX; before it, they do not
+    assert_eq!(xs(r"\draw plot[samples at={0,1,3}, samples=3] (\x, 0);"), [-5.0, 0.0, 5.0]);
+    assert_eq!(xs(r"\draw plot[samples at={0,1,3}, domain=0:4] (\x, 0);").len(), 25);
+    assert_eq!(xs(r"\draw plot[samples=4, samples at={0,1,3}] (\x, 0);"), [0.0, 1.0, 3.0]);
+    let (_, w) = canvas_and_warnings(r"\draw plot[samples at={0,zz}] (\x, 0);");
+    assert!(!w.is_empty());
+}
+
+#[test]
 fn plot_errors() {
     let (_, w) = canvas_and_warnings(r"\draw plot (\x, {\doesnotexist});");
     assert!(w.iter().any(|a| a.contains("plot:")), "{w:?}");

@@ -132,6 +132,8 @@ pub struct GState {
     pub grid_step: (f64, f64),
     pub domain: (f64, f64),
     pub samples: usize,
+    /// `samples at={…}`: the values of the plot's variable, instead of the domain and samples
+    pub samples_at: Option<Vec<f64>>,
     pub variable: String,
     /// the plot handler: `sharp plot`, `smooth`, `smooth cycle`, `ycomb`, `ybar`, `const plot`…
     pub plot_handler: String,
@@ -151,6 +153,8 @@ pub struct GState {
     /// `decorate`: the path is decorated when used (reset by each path)
     pub decorate: bool,
     pub decoration: super::decorations::Settings,
+    /// `snake=…` (the snakes library of PGF 1.x): the decoration of each straight line of the path
+    pub snake: Option<String>,
     /// `\usetikzlibrary{positioning}`: a bare number in `left=…` is in the x and y vectors' units,
     /// not points
     pub positioning: bool,
@@ -311,6 +315,7 @@ impl Default for GState {
             grid_step: (1.0, 1.0),
             domain: (-5.0, 5.0),
             samples: 25,
+            samples_at: None,
             variable: "x".into(),
             plot_handler: "sharp plot".into(),
             basic_plot: ("sharp plot".into(), Vec::new()),
@@ -325,6 +330,7 @@ impl Default for GState {
             mark_color: None,
             decorate: false,
             decoration: Default::default(),
+            snake: None,
             positioning: false,
             preactions: Rc::default(),
             postactions: Rc::default(),

@@ -11,6 +11,14 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `\the<counter>` of a `\newcounter` is the counter's value, as LaTeX prints it: in an expression (`(\thea/100*360:1)`), a color (`red!\thedensity`) and a node's text (#66).
 - `\pgfmathsetcounter`, `\pgfmathaddtocounter` and `\pgfmathaddtolength`, as pgfmath does them: the value truncated toward zero for a counter, set locally (a `\foreach` body keeps it to itself, unlike `\setcounter`). A `\whiledo` on a counter they move ends (#67).
 - `\pgfmathsetlength` reads a plain number as points, as pgfmath does: `2cm+3` is 59.9pt, not 5cm (#68).
+- `pin edge={…}` given through a style of the pin or `every pin` sets the pin's edge, the last one given winning, as in TeX (#70).
+- `samples at={…}`: a plot at the values of a `\foreach` list (`0,0.25,...,6`); a later `samples` or `domain` takes over again (#71).
+- `edge from parent[…]` of a child that has children of its own is no longer lost: `edge from parent[draw=none]` hides that edge (#72).
+- The keys of PGF 1.x's `snakes` library: `snake=coil` (any decoration) decorates each straight line of the path, and `line before snake`, `line after snake`, `gap before snake`, `gap after snake`, `gap around snake`, `raise snake` and `mirror snake`; `segment amplitude` also sets the shape height without a warning (#73).
+- PGF 1.x's `set style={{name}+=[options]}` adds to a style and `set style={{name}=[options]}` defines one (#74).
+- `\tikzstyle name=[options]` with the name not in braces, as `\tikzstyle directed=[…]` (#75).
+- `dash pattern=on5pt off3pt`: no space is needed after `on` and `off` (#76).
+- `right of=a` and its kin shift by a `node distance` given after them in the same options too (#77).
 
 ## 1.7.0 - 2026-10-29
 

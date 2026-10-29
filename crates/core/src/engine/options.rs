@@ -610,7 +610,14 @@ fn dash_from(e: &mut Engine, spec: &str) -> Result<Option<Vec<f64>>, Error> {
     for unit in ["pt", "cm", "mm", "bp", "em", "ex", "in", "pc"] {
         spec = spec.replace(&format!("{unit}on"), &format!("{unit} on")).replace(&format!("{unit}off"), &format!("{unit} off"));
     }
-    let words: Vec<&str> = spec.split_whitespace().collect();
+    // nor does TeX need a space after `on` and `off` (`on5pt off3pt`)
+    let mut words: Vec<&str> = Vec::new();
+    for w in spec.split_whitespace() {
+        match ["off", "on"].iter().find(|k| w.len() > k.len() && w.starts_with(*k)) {
+            Some(k) => words.extend([&w[..k.len()], &w[k.len()..]]),
+            None => words.push(w),
+        }
+    }
     let mut v = Vec::new();
     let mut i = 0;
     while i + 1 < words.len() {
@@ -1254,6 +1261,10 @@ fn old_of(e: &mut Engine, v: Option<Vec<Token>>, angle: f64) -> Result<(), Error
     let (d, _) = node_distance(e)?;
     let (s, c) = angle.to_radians().sin_cos();
     add_transform(e, Transform::translation(d * c, d * s));
+    // a `node distance` given after it still counts: the node redoes the shift (`\tikz@of`
+    // reads the distance when the node is made)
+    let pending = e.st.pending;
+    e.st_node().old_of.push((Point::new(c, s), d, pending));
     Ok(())
 }
 keyfn!(k_above_of, |e, v| old_of(e, v, 90.0));
@@ -1273,7 +1284,7 @@ keyfn!(k_use_path, |e, v| {
     Ok(())
 });
 
-fn node_distance(e: &mut Engine) -> Result<(f64, f64), Error> {
+pub(super) fn node_distance(e: &mut Engine) -> Result<(f64, f64), Error> {
     let s = node_distance_text(e);
     let read = |e: &mut Engine, t: &str| match place_length(e, t, 1) {
         Ok(v) => v,
@@ -1720,10 +1731,24 @@ keyfn!(k_domain, |e, v| {
     if let Some((a, b)) = s.split_once(':') {
         e.st.domain = (e.number(a)?, e.number(b)?);
     }
+    // `domain` and `samples` replace a `samples at` given before them, as in TeX
+    e.st.samples_at = None;
     Ok(())
 });
 keyfn!(k_samples, |e, v| {
     e.st.samples = number(e, &v)?.map_or(25, |s| s.max(2.0) as usize).min(2000);
+    e.st.samples_at = None;
+    Ok(())
+});
+// `samples at={…}`: a `\foreach` list of the values, `...` ranges included
+keyfn!(k_samples_at, |e, v| {
+    let list = e.tex.expand_fully(v.unwrap_or_default())?;
+    let mut out = Vec::new();
+    for item in super::foreach_items(&list) {
+        let s = e.tex.expand_to_string(item)?;
+        out.push(e.number(&s)?);
+    }
+    e.st.samples_at = Some(out);
     Ok(())
 });
 keyfn!(k_variable, |e, v| {
@@ -2328,6 +2353,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
     ("/tikz/ystep", k_ystep),
     ("/tikz/domain", k_domain),
     ("/tikz/samples", k_samples),
+    ("/tikz/samples at", k_samples_at),
     ("/tikz/variable", k_variable),
     ("/tikz/smooth cycle", k_smooth_cycle),
     ("/tikz/sharp cycle", k_sharp_cycle),
@@ -2407,7 +2433,7 @@ const NATIVE: &[(&str, KeyFn)] = &[
 const DEFINITIONS: &str = r"
 \tikzset{
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
-  every label/.style={draw=none,fill=none}, every pin/.style={draw=none,fill=none}, every pin edge/.style={help lines},
+  every label/.style={draw=none,fill=none}, every pin/.style={draw=none,fill=none}, every pin edge/.style={help lines}, pin edge/.code={\gdef\tikra@pinedge{#1}},
   every edge/.style={draw}, every to/.style={}, centered/.style={anchor=center}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /handlers/first char syntax/.initial=false, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
@@ -2471,6 +2497,9 @@ const DEFINITIONS: &str = r"
   absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true, pic type/.code={},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
+% PGF 1.x's `set style={{name}=[options]}` defines a style, `{name}+=[options]` adds to one
+\def\tikra@setstyle#1#2=[#3]#4\tikra@stop{\def\tikra@temp{#2}\ifx\tikra@temp\pgfutil@empty\pgfkeysalso{#1/.style={#3}}\else\pgfkeysalso{#1/.append style={#3}}\fi}
+\tikzset{set style/.code={\tikra@setstyle#1\tikra@stop}}
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
 \newif\iftikra@ignore@size
 \tikzset{on grid/.is if=tikra@ignore@size}

@@ -565,3 +565,55 @@ fn a_placement_offset_without_unit_is_in_points_unless_positioning() {
     assert!(points < 60.0, "{points}");
     assert!(width(&doc(r"\usetikzlibrary{positioning}")) > 800.0);
 }
+
+#[test]
+fn pin_edge_from_the_pin_options_and_their_styles_the_last_one_winning() {
+    let edge = |body: &str| {
+        let c = canvas(body);
+        let s = paths(&c).into_iter().find_map(|d| d.stroke).unwrap_or_else(|| panic!("no pin edge in {body}"));
+        (s.color.hex(), (s.width / tikra::PT * 10.0).round() / 10.0, s.dash.is_some())
+    };
+    // from a style of the pin, as `\tikzstyle{…}=[pin edge={…}]` is used
+    assert_eq!(edge(r"\tikzstyle{p}=[pin edge={red,thick}] \node[pin={[p]above:a}] {x};"), ("#ff0000".into(), 0.8, false));
+    // a second `pin edge` replaces the first; what is not given comes from `every pin edge`
+    assert_eq!(edge(r"\node[pin={[pin edge={red},pin edge={dashed}]above:a}] {x};"), ("#808080".into(), 0.2, true));
+    // `every pin` comes before the pin's own options
+    assert_eq!(edge(r"\tikzset{every pin/.style={pin edge={red}}} \node[pin={[pin edge={thick}]above:a}] {x};"), ("#808080".into(), 0.8, false));
+    // given to the node itself, it does nothing
+    assert_eq!(edge(r"\node[pin edge={red},pin=above:a] {x};"), ("#808080".into(), 0.2, false));
+}
+
+#[test]
+fn quoted_labels_with_a_direction_or_options() {
+    let t = texts(&canvas(r#"\usetikzlibrary{quotes} \node["b" below left, "c" text=red] at (0,0) {x};"#));
+    // TeX: b 12.09pt left of the node's text and 13.96pt lower, c red and 11.33pt higher
+    let (x, b, c) = (t[0].1, t[1].1, t[2].1);
+    assert!(((b.e - x.e) / tikra::PT + 12.09).abs() < 0.2 && ((b.f - x.f) / tikra::PT + 13.96).abs() < 0.2, "{x:?} {b:?}");
+    assert!(((c.f - x.f) / tikra::PT - 11.33).abs() < 0.2, "{x:?} {c:?}");
+    assert_eq!(t[2].0.color.hex(), "#ff0000");
+}
+
+#[test]
+fn edge_from_parent_of_a_child_that_has_children() {
+    // `edge from parent[draw=none]` before the child's own children still hides its edge
+    let c = canvas(r"\node {a} child {node {b} edge from parent[draw=none] child {node {c}}} child {node {d} edge from parent[draw=none]};");
+    let drawn: Vec<_> = paths(&c).into_iter().filter(|d| d.stroke.is_some()).collect();
+    assert_eq!(drawn.len(), 1, "only b to c: {drawn:?}");
+}
+
+#[test]
+fn right_of_takes_the_node_distance_given_after_it() {
+    let at = |options: &str| {
+        let p = point(&format!(r"\begin{{scope}}[node distance=2cm] \coordinate (a) at (0,0); \node[{options}] (n) {{}}; \end{{scope}}"), "n.center");
+        ((p.x * 1e4).round() / 1e4, (p.y * 1e4).round() / 1e4)
+    };
+    // the positions TeX gives
+    assert_eq!(at("right of=a"), (2.0, 0.0));
+    assert_eq!(at("right of=a, node distance=3cm"), (3.0, 0.0));
+    assert_eq!(at("above of=a, node distance=1cm, xshift=1cm"), (1.0, 1.0));
+    assert_eq!(at("right of=a, xshift=1cm, node distance=0.5cm"), (1.5, 0.0));
+    // two of them both shift by the last distance: from (b) at 2cm, 4 + 4
+    assert_eq!(at(r"right of=a, node distance=4cm, right of=a"), (8.0, 0.0));
+    // in its place among the other transformations
+    assert_eq!(at("right of=a, rotate=90, xshift=1cm, node distance=3cm"), (3.0, 1.0));
+}

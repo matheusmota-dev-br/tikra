@@ -1444,8 +1444,27 @@ impl Engine {
                 self.keys_command(a, None, false)
             }
             Cmd::Tikzstyle => {
-                // \tikzstyle{name}=[options], \tikzstyle{name}+=[options]
-                let name = self.argument_string()?;
+                // \tikzstyle{name}=[options], \tikzstyle{name}+=[options]; without braces the
+                // name runs to the `=` (a `+` before it is part of the name)
+                let name = match self.tex.next_nonspace() {
+                    Some(t) if !matches!(t, Token::Char(_, Cat::Begin)) => {
+                        let mut name = vec![t];
+                        while let Some(t) = self.tex.get_token() {
+                            if t.is_char('=') {
+                                self.tex.back(t);
+                                break;
+                            }
+                            name.push(t);
+                        }
+                        tex::tokens_to_string(&name)
+                    }
+                    t => {
+                        if let Some(t) = t {
+                            self.tex.back(t);
+                        }
+                        self.argument_string()?
+                    }
+                };
                 let mut append = false;
                 if let Some(x) = self.tex.next_nonspace() {
                     if x.is_char('+') {
