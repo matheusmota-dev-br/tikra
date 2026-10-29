@@ -536,7 +536,17 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
             }
             Token::Char('[', _) => {
                 let o = e.tex.read_until_char(']', false)?;
+                let before = (e.st.color, e.st.draw_color, e.st.fill_color, e.st.text_paint_color());
                 e.process_keys(o, Some("/tikz"))?;
+                // in a `{…}` group of the path, a color is only the text's: the path, and the nodes'
+                // lines and fills, keep the path's (`{[red] to[V=1] (0,2)}` has its label red)
+                if !b.groups.is_empty() && (e.st.color, e.st.draw_color, e.st.fill_color) != (before.0, before.1, before.2) {
+                    let text = e.st.text_paint_color();
+                    (e.st.color, e.st.draw_color, e.st.fill_color) = (before.0, before.1, before.2);
+                    if text != before.3 {
+                        e.st.text_color = Some(text);
+                    }
+                }
                 e.st.apply_pending();
                 insert_path(e);
             }
