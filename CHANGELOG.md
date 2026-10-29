@@ -4,6 +4,21 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+Multi-line nodes on TeX's baseline, and path options and colors where TeX puts them.
+
+- `pin=\a:\a`, `label=\a:…`: an angle held in a macro (a `\foreach` variable) is expanded instead of ignored ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- A `to` path keeps the `+` reference point: after `to[…] +(2,0)`, `+(0,0)` is still the start ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- In the text around pictures: `\emph`, `\textit` and the like, the control space `\ `, and `\pgfversion` (3.1.12) ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- `\pgfuseimage` and `\includegraphics` of mwe's `example-image-a` draw TeX Live's placeholder ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- A color set inside a path's `{…}` group colors only its text; options in the middle of a path (`[dashed, red]`) also apply to the nodes drawn earlier on it; leaving a `current point is local` group moves back to where it began ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- standalone's `varwidth=`: a `\color` at the document's top level makes the page that wide, as TeX does ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- A node's lines (`align=`) sit on the last line's baseline, as TeX's `\vbox` does (in a `text width`, on the first), and a `tabular` on the math axis; `@{}` next to a column of a tabular takes its `\tabcolsep` away ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- Code that builds a `scene::Label` listing every field needs the new `lift` ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+
+Figures: `labels-multiline` `labels-pins-quotes` `text-alignment-boxes`
+
 ## 1.7.0 - 2026-10-29
 
 Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.
