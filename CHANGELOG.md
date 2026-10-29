@@ -4,6 +4,23 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.6.0 - 2026-10-29
+
+Labels in Times, fills without seams, and library shapes with texts and styles of their own.
+
+- Labels in `\fontfamily{ptm}` are drawn in Times (TeX Gyre Termes, in its four styles), as wide as TeX sets them and kerned as TeX kerns them (#35).
+- In bold text, `\emph` and `\textit` are bold italic, as in TeX, and the text after a formula stays bold (#35).
+- Fills side by side no longer show a seam of the background along the edge they share: grids of cells, bars and faces of solids are solid (#35).
+- A path filled and stroked at different opacities is drawn as PDF draws it: under a translucent stroke you see what is under the path, not its fill (#35).
+- `tikra::extension`: a library shape's paths may have a color, a dash pattern and line caps of their own (#32). Its shapes may draw texts of their own, turned and mirrored with the node, in its size and its words (#33). A shape knows its node's name, its fill and line colors and its transformation, and a key knows whether `transform shape` is on and can define TeX as tokens (`Context::define_tex`) (#34).
+- Code that builds a `ShapePath` or a `NodeShape` listing every field needs `..Default::default()` for the new ones (#36).
+- Colors read xcolor's extended syntax (`rgb,1:red,1;green,0.5;blue,0`).
+- Our 100% (the figures a converter can reproduce) is 2481 of 2486, up from 2476.
+
+**Matches TeX:** 2367 of 2502 figures of the manuals (94.6%).
+
+Figures: `spotlight-clipping` `fading-directions`
+
 ## 1.5.0 - 2026-10-28
 
 Node shapes drawn by a library.
