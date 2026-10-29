@@ -264,9 +264,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "mathra"
-version = "1.7.0"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2577f6a3e152eeb7beed722672ee675eb1fe387a2da57f4dcf8dca82f7b1c8f9"
+checksum = "97b5755ee2d80ddec1b5ac5f2bd58266bc0a1ad35f1c627875e01b071f29713e"
 dependencies = [
  "roxmltree",
  "serde",
