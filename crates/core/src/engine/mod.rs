@@ -100,6 +100,8 @@ pub enum Cmd {
     SetFadingForPath,
     SetFadingForPathStroked,
     SetSeed,
+    /// `\pgfmathdeclarerandomlist{name}{{a}{b}…}`
+    DeclareRandomList,
     Pic,
     Graph,
     Tikz,
@@ -217,6 +219,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
     ("pgfsetfadingforcurrentpathstroked", Cmd::SetFadingForPathStroked),
     ("tikra@setseed", Cmd::SetSeed),
+    ("pgfmathdeclarerandomlist", Cmd::DeclareRandomList),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -778,6 +781,10 @@ impl Engine {
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
+            // pgfmath's inner forms (`\pgfmathadd@`), used by documents with @ a letter
+            if *cmd == Cmd::PgfmathFunction {
+                e.tex.define(&format!("{name}@"), Meaning::Native(*cmd as u16));
+            }
         }
         // in a fading, transparent is black (`\colorlet{pgftransparent}{black}`)
         e.colors.insert("transparent".into(), Color::BLACK);
@@ -1237,6 +1244,12 @@ impl Engine {
 
     // ---------------------------------------------------------------- commands
 
+    /// Whether the command `id` only computes with pgfmath (`\pgfmathparse`, `\pgfmathadd`…): code
+    /// that may come before a point, as in `{\pgfmathrand\pgfpoint{…}{\pgfmathresult pt}}`.
+    fn is_pgfmath(id: u16) -> bool {
+        [Cmd::Pgfmathparse, Cmd::Pgfmathsetmacro, Cmd::Pgfmathtruncatemacro, Cmd::Pgfmathsetlengthmacro, Cmd::PgfmathFunction].iter().any(|c| *c as u16 == id)
+    }
+
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
         if basic::is_basic(id) {
             return self.basic_command(id);
@@ -1346,6 +1359,47 @@ impl Engine {
                 let v = self.argument_string()?;
                 let n: f64 = v.trim().parse().unwrap_or(1.0);
                 crate::expr::set_seed(n.trunc() as i64);
+                Ok(())
+            }
+            Cmd::DeclareRandomList => {
+                // global, as pgf has it: the count in `\pgfmath@randomlist@name`, the items in
+                // `\pgfmath@randomlist@name@1`… (`\pgfmathrandomitem` picks one)
+                let name = self.argument_string()?;
+                let list = self.argument()?;
+                let mut items: Vec<Vec<Token>> = Vec::new();
+                let mut depth = 0;
+                for x in list {
+                    match &x {
+                        Token::Char(_, Cat::Begin) => {
+                            depth += 1;
+                            if depth == 1 {
+                                items.push(Vec::new());
+                                continue;
+                            }
+                        }
+                        Token::Char(_, Cat::End) => {
+                            depth -= 1;
+                            if depth == 0 {
+                                continue;
+                            }
+                        }
+                        _ if depth == 0 => {
+                            // an item without braces is its one token
+                            if !x.is_space() {
+                                items.push(vec![x]);
+                            }
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    if let Some(last) = items.last_mut() {
+                        last.push(x);
+                    }
+                }
+                for (k, item) in items.iter().enumerate() {
+                    self.tex.set_meaning(&Token::cs(&format!("pgfmath@randomlist@{name}@{}", k + 1)), macro_tokens(item.clone()), true);
+                }
+                self.tex.define_string(&format!("pgfmath@randomlist@{name}"), &items.len().to_string(), true);
                 Ok(())
             }
             Cmd::Graph => {
@@ -1579,7 +1633,7 @@ impl Engine {
             // `\pgfmathadd{a}{b}` and the other functions as commands: `\pgfmathresult` is their value
             Cmd::PgfmathFunction => {
                 let name = match t {
-                    Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
+                    Token::Cs(n) => n.trim_start_matches("pgfmath").trim_end_matches('@').to_string(),
                     _ => return Ok(()),
                 };
                 let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "Mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };

@@ -3,6 +3,7 @@
 
 mod common;
 use common::*;
+use tikra::canvas::Paint;
 use tikra::scene::{Point, Transform};
 
 /// The x of the start of each path drawn by `\foreach \x in {list}`.
@@ -96,6 +97,66 @@ fn macros_def_newcommand_and_pgfmath() {
     assert!(close(end.0, 82.0) && (end.1 - 2.0).abs() < 1e-6, "{end:?}");
     let (_, w) = canvas_and_warnings(r"\pgfmathsetmacro{\x}{\doesnotexist}");
     assert!(w.iter().any(|a| a.contains("pgfmathsetmacro")), "{w:?}");
+}
+
+/// The start of the first path of a body, with no warnings.
+fn start(body: &str) -> (f64, f64) {
+    let (c, w) = canvas_and_warnings(body);
+    assert!(w.is_empty(), "{w:?}\n{body}");
+    points(&paths(&c)[0].segments)[0]
+}
+
+#[test]
+fn pgfmath_as_tex_reads_it() {
+    // functions without parentheses, lengths counted in pt, a number glued to a macro's digits
+    assert!(close_to(start(r"\def\a{30} \draw (sin \a, cos 60*2) -- (1,1);"), (0.5, 1.0)));
+    assert!(close_to(start(r"\draw (3pt*2cm, 1/10pt) -- (1,1);"), (6.0, 0.1 * tikra::PT)));
+    assert!(close_to(start(r"\def\d{6} \draw (18\d pt, 0) -- (1,1);"), (186.0 * tikra::PT, 0.0)));
+    let (c, _) = canvas_and_warnings(r"\draw (0,0) arc (0:90:1/10pt);");
+    let end = *points(&paths(&c)[0].segments).last().unwrap();
+    assert!(close_to(end, (-0.1 * tikra::PT, 0.1 * tikra::PT)), "{end:?}");
+    // an array of colors, through \pgfmathparse and \pgfmathsetmacro
+    for set in [r"\pgfmathparse{\list[1]}\let\c\pgfmathresult", r"\pgfmathsetmacro\c{\list[1]}"] {
+        let (c, w) = canvas_and_warnings(&format!(r#"\def\list{{{{"orange","blue","red"}}}} {set} \fill[\c] (0,0) rectangle (1,1);"#));
+        assert!(w.is_empty(), "{w:?}");
+        assert!(matches!(&paths(&c)[0].fill.as_ref().unwrap().paint, Paint::Solid(k) if k.hex() == "#0000ff"));
+    }
+}
+
+#[test]
+fn pgfmath_inner_commands_and_random_numbers() {
+    // `\pgfmathadd@` and the other inner forms
+    assert!(close_to(
+        start(r"\makeatletter\def\x{0} \pgfmathadd@{\x}{0.25}\let\x=\pgfmathresult \pgfmathmultiply@{\x}{4}\let\x=\pgfmathresult \draw (\x,0) -- (1,1);"),
+        (1.0, 0.0)
+    ));
+    // \pgfmathrand before the point it computes, as TeX's first number after the seed 1
+    assert!(close_to(
+        start(r"\pgfmathsetseed{1} \pgfpathmoveto{\pgfmathrand\pgfpoint{\pgfmathresult cm}{0cm}} \pgfpathlineto{\pgfpointorigin} \pgfusepath{stroke}"),
+        (-0.30379, 0.0)
+    ));
+    // an item of a random list (the second, for the seed 1), then a random integer
+    let p = start(r"\pgfmathsetseed{1} \pgfmathdeclarerandomlist{L}{{1}{{2}}3{4}} \pgfmathrandomitem{\m}{L} \pgfmathrandominteger{\n}{0}{3} \draw (\m,\n) -- (5,5);");
+    assert!(close_to(p, (2.0, 3.0)), "{p:?}");
+    assert!(close_to(start(r"\pgfmathsetseed{1} \pgfmathsetmacro\r{random(3,7)} \pgfmathrnd \draw (\r,\pgfmathresult) -- (5,5);"), (4.0, 0.10826)));
+}
+
+#[test]
+fn join_options_in_braces() {
+    // `join=with a by {style=value,…}`: the braces only group the options
+    let (c, w) = canvas_and_warnings(
+        r"\tikzset{down/.style={to path={-- ++(0,#1) -| (\tikztotarget)}}}
+          \begin{scope}[start chain] \node[on chain] (a) {a}; \node[on chain] (b) {b}; \chainin (a) [join=with b by {down=-1cm,ultra thick}]; \end{scope}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let join = paths(&c).into_iter().find(|d| d.stroke.as_ref().is_some_and(|s| close(s.width, 1.6 * tikra::PT))).expect("the join");
+    assert_eq!(points(&join.segments).len(), 4, "{:?}", join.segments);
+}
+
+#[test]
+fn decoration_aspect_is_a_macro() {
+    assert!(close_to(start(r"\draw (\pgfdecorationsegmentaspect,0) -- (1,1);"), (0.5, 0.0)));
+    assert!(close_to(start(r"\pgfkeys{/pgf/decoration/aspect=0.3} \draw (\pgfdecorationsegmentaspect,0) -- (1,1);"), (0.3, 0.0)));
 }
 
 #[test]

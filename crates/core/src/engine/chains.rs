@@ -161,6 +161,8 @@ impl Engine {
             },
             None => (None, s.strip_prefix("by").unwrap_or(s).trim().to_string()),
         };
+        // `by {skip loop=-11mm,tip}`: the braces only group the options
+        let by = crate::keys::strip_braces(&by).to_string();
         match self.st.on_chain.as_mut() {
             Some(c) => c.joins.push((with, by)),
             None => self.st.pending_joins.push((with, by)),

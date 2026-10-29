@@ -2472,6 +2472,9 @@ const DEFINITIONS: &str = r"
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
+\def\pgfmathrand{\pgfmathparse{rand}}\def\pgfmathrnd{\pgfmathparse{rnd}}
+\def\pgfmathrandominteger#1#2#3{\pgfmathtruncatemacro#1{random(#2,#3)}}
+\def\pgfmathrandomitem#1#2{\pgfmathtruncatemacro\tikra@rl{random(\csname pgfmath@randomlist@#2\endcsname)}\edef#1{\expandafter\noexpand\csname pgfmath@randomlist@#2@\tikra@rl\endcsname}}
 \newif\iftikra@ignore@size
 \tikzset{on grid/.is if=tikra@ignore@size}
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}
