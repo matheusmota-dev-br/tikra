@@ -1073,6 +1073,34 @@ impl Engine {
         }
     }
 
+    /// Runs `code` unseen, as [`crate::extension::Context::measure`]: in a group and a scope of its
+    /// own, on a canvas apart, `read` called at its end, and then the nodes, the named paths and the
+    /// layers as they were before. The box is that of what `code` drew, on the canvas.
+    pub fn run_unseen<T>(&mut self, code: Vec<Token>, read: impl FnOnce(&mut Engine) -> T) -> Result<(T, Option<(Point, Point)>), Error> {
+        let saved_canvas = std::mem::take(&mut self.canvas);
+        let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
+        let saved_layers = std::mem::take(&mut self.layers);
+        let saved_behind = std::mem::take(&mut self.behind_path);
+        let nodes = self.nodes.clone();
+        let named_paths = self.named_paths.clone();
+        let last_node = (self.last_node.clone(), self.last_node_name.clone());
+        self.begin_group();
+        self.begin_scope();
+        let r = self.run_tokens(code);
+        let value = r.is_ok().then(|| read(self));
+        self.end_scope();
+        self.end_group();
+        let drawn = std::mem::replace(&mut self.canvas, saved_canvas);
+        self.canvas_frozen = saved_frozen;
+        self.layers = saved_layers;
+        self.behind_path = saved_behind;
+        self.nodes = nodes;
+        self.named_paths = named_paths;
+        (self.last_node, self.last_node_name) = last_node;
+        r?;
+        Ok((value.expect("read after the code ran"), drawn.min.zip(drawn.max)))
+    }
+
     /// Opens a canvas item that the current pgf scope closes (a clip, a transparency group).
     pub fn open_in_scope(&mut self, item: Item) {
         let fading = matches!(item, Item::Fade { .. } | Item::FadePicture { .. });
