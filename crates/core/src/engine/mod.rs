@@ -118,6 +118,8 @@ pub enum Cmd {
     Colorlet,
     Color,
     Textcolor,
+    Pagecolor,
+    Nopagecolor,
     Pgfqbox,
     Pgfmathsetmacro,
     Pgfmathparse,
@@ -232,6 +234,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("colorlet", Cmd::Colorlet),
     ("color", Cmd::Color),
     ("textcolor", Cmd::Textcolor),
+    ("pagecolor", Cmd::Pagecolor),
+    ("nopagecolor", Cmd::Nopagecolor),
     ("pgfqbox", Cmd::Pgfqbox),
     ("pgfmathsetmacro", Cmd::Pgfmathsetmacro),
     ("pgfmathparse", Cmd::Pgfmathparse),
@@ -364,6 +368,8 @@ pub struct Engine {
     pub canvas: Canvas,
     pub nodes: HashMap<String, nodes::NodeInfo>,
     pub colors: HashMap<String, Color>,
+    /// `\pagecolor`: the color of the page behind the figure
+    page_color: Option<Color>,
     scopes: Vec<PgfScope>,
     /// how many pictures are open (`tikzpicture` inside `tikzpicture` is a scope)
     pub picture_depth: usize,
@@ -555,6 +561,7 @@ impl Clone for Engine {
             canvas: self.canvas.clone(),
             nodes: self.nodes.clone(),
             colors: self.colors.clone(),
+            page_color: self.page_color,
             scopes: self.scopes.clone(),
             picture_depth: self.picture_depth,
             pictures: self.pictures,
@@ -696,6 +703,7 @@ impl Engine {
             canvas: Canvas::default(),
             nodes: HashMap::new(),
             colors: HashMap::new(),
+            page_color: None,
             scopes: Vec::new(),
             picture_depth: 0,
             pictures: 0,
@@ -1465,6 +1473,20 @@ impl Engine {
                 // `\pgfqbox{\box}`: a box put in the picture, outside its size
                 let b = self.argument()?;
                 self.warn(format!("\\pgfqbox{{{}}}: the box is not drawn", tex::tokens_to_string(&b).trim()));
+                Ok(())
+            }
+            Cmd::Pagecolor => {
+                // `\pagecolor{olive!50}` or `\pagecolor[RGB]{200,30,30}`
+                let model = self.optional()?.map(|m| tex::tokens_to_string(&m));
+                let spec = self.argument_string()?;
+                match model.map_or_else(|| self.color(&spec), |m| color::define(&m, &spec)) {
+                    Some(c) => self.page_color = Some(c),
+                    None => self.warn(format!("\\pagecolor: unknown color '{spec}'")),
+                }
+                Ok(())
+            }
+            Cmd::Nopagecolor => {
+                self.page_color = None;
                 Ok(())
             }
             Cmd::Textcolor => {
@@ -3047,6 +3069,7 @@ pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Lib
     }
     let margin = e.canvas.margin;
     e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
+    e.canvas.page_color = e.page_color;
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
     let _ = Transform::default();
