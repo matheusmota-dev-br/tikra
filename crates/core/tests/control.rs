@@ -237,6 +237,20 @@ fn statement_without_semicolon_runs_to_the_end() {
 fn declare_function_and_globals() {
     let c = canvas(r"\begin{scope}[declare function={f(\x)=2*\x; g(\a,\b)=\a+\b; bad; noparens=1}] \draw (0,0) -- ({f(2)},{g(1,2)}); \end{scope}");
     assert!(close_to(points(&paths(&c)[0].segments)[1], (4.0, 3.0)));
+    // a macro in the body is read when the function is used
+    let c = canvas(r"\tikzset{total/.store in=\total, declare function={f(\q)=\q*\total;}, total=2} \draw (0,0) -- (f(1),0);");
+    assert!(close_to(points(&paths(&c)[0].segments)[1], (2.0, 0.0)));
+}
+
+#[test]
+fn foreach_items_in_braces_are_not_expanded() {
+    // `{\a,\b}` is two items, whatever commas `\a` holds; the ends of a range are read
+    let c = canvas(r"\def\a{(0,0) -- (1,0)}\def\b{(2,0) -- (3,0)} \foreach \p in {\a,\b} { \draw \p; } \foreach \p/\q in {\a/\b} { \draw \p \q; }");
+    assert_eq!(paths(&c).len(), 3);
+    for (list, n) in [(r"1,...,\e", 7), (r"1,\s,...,\e", 4), (r"\s,4,...,\e", 5)] {
+        let c = canvas(&format!(r"\def\s{{3}}\def\e{{7}} \foreach \x in {{{list}}} {{ \draw (\x,0) -- (\x,1); }}"));
+        assert_eq!(paths(&c).len(), n, "{list}");
+    }
 }
 
 #[test]

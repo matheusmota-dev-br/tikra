@@ -53,6 +53,14 @@ Each release has a headline (the line under its title), what changed, and the fi
 - LaTeX's boxes: `\newsavebox`, `\savebox`, `\sbox` and `lrbox` keep what they typeset (a picture, a `tabular` of pictures and words), and `\usebox` draws it in a node's text or in the document, the node as large as the box; an `overlay` picture is a box of no size, drawn around the node's center (#108).
 - With the active preview package's `\PreviewEnvironment{tikzpicture}`, a `\scalebox`, `\resizebox` or `\fbox` around a picture no longer scales or frames it: each picture is a page of its own, as TeX makes it (#109).
 - The words of a `tabular` cell in the document keep the spaces between them (#110).
+- A node or pic placed `at +(x,y)` (or `++`) is placed from the path's last point, as TikZ does, instead of being dropped with "at without a point"; `pic foreach … at +(…)` too (#114).
+- `node (a) (b) {…}` is named b, as in TikZ, instead of ending after its first name (#115).
+- In a shifted, scaled or turned scope, `let`'s `\x1` and `\y1` and the vectors `x=(node)`, `y=(node)` are in the scope's coordinates, as TeX gives them, so `(\x1,0)` lands below the point; `\p{\name}` expands its name (#116).
+- calc's `($(A)!1cm!(B)$)` measures the distance before the transformation: 3cm on the page under `scale=3`, as TeX (#117).
+- A node's text runs its `\def`, `\let`, register assignments, `\@ifnextchar` and `\setkeys` as TeX does while typesetting it, and draws a picture made by a macro after them (its `\foreach \number` included); `\relax` typesets nothing; pgf's `\c@pgf@counta`… counters and `\pgfmathloop … \repeatpgfmathloop` (#118).
+- The `pic text` and `pic text options` keys set `\tikzpictext` and `\tikzpictextoptions` (#119).
+- `\foreach \a in {\pa,\pb}` keeps its items as they are written, so a macro holding a whole path with commas is one item, as in TeX; the ends of a `...` range are still read (#120).
+- A macro in a `declare function` body is read when the function is used (#121).
 
 ## 1.7.0 - 2026-10-29
 

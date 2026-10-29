@@ -666,3 +666,64 @@ fn a_style_that_adds_to_the_text_font_ends() {
         r"\makeatletter\tikzset{add font/.code={\expandafter\def\expandafter\tikz@textfont\expandafter{\tikz@textfont#1}}}\begin{tikzpicture}[font=\sffamily]\begingroup\tikzset{add font=\bfseries}\tikz@textfont\endgroup\node[draw] {A};\end{tikzpicture}",
     );
 }
+
+#[test]
+fn at_a_relative_point_is_from_the_paths_last_point() {
+    // alone, from the origin; on a path, from its last point, which `at` does not move
+    let q = point(r"\node (n) at +(1,0) {};", "n.center");
+    assert!(close_to((q.x, q.y), (1.0, 0.0)), "{q:?}");
+    let body = r"\path (4,0) -- (5,5) node (n) at ++(1,0) {} -- +(1,0) coordinate (m);";
+    for name in ["n.center", "m"] {
+        let q = point(body, name);
+        assert!(close_to((q.x, q.y), (6.0, 5.0)), "{name}: {q:?}");
+    }
+    let q = point(r"\begin{scope}[shift={(1,1)}] \path (2,0) node (n) at +(0,1) {}; \end{scope}", "n.center");
+    assert!(close_to((q.x, q.y), (3.0, 2.0)), "{q:?}");
+    // a `+` with no point after it
+    with_warning(r"\node at +x {};", "at without a point");
+}
+
+#[test]
+fn a_second_name_replaces_the_first() {
+    // `node (a) (b)` is named b; after a coordinate's name, `(…)` is the path's next point
+    let q = point(r"\path (2,0) node (a) (b) {A};", "b.center");
+    assert!(close_to((q.x, q.y), (2.0, 0.0)), "{q:?}");
+    let q = point(r"\path (3,0) node (c) at (1,1) [red] (d) {A};", "d.center");
+    assert!(close_to((q.x, q.y), (1.0, 1.0)), "{q:?}");
+    let (_, w) = canvas_and_warnings(r"\path (2,0) node (a) (b) {A}; \draw (a) -- (1,1);");
+    assert!(w.iter().any(|w| w.contains("unknown coordinate: (a)")), "{w:?}");
+    let q = point(r"\path (4,0) coordinate (f) (5,0) coordinate (g);", "g");
+    assert!(close_to((q.x, q.y), (5.0, 0.0)), "{q:?}");
+}
+
+/// The text a body's nodes show, as the figure tells it.
+fn told(body: &str) -> String {
+    no_warnings(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).description
+}
+
+#[test]
+fn a_text_runs_its_definitions_and_assignments_as_tex_typesets_it() {
+    // definitions before a picture, whose `\foreach \number` is a variable and not TeX's \number
+    let doc = r"\newcommand\inner[1]{\def\w{#1}\begin{tikzpicture}\foreach \number in {1,2} {\draw (\number,0) -- (\number,\w);}\end{tikzpicture}}
+        \begin{tikzpicture} \node {\inner{2}}; \end{tikzpicture}";
+    let (c, w) = tikra::engine::run_document(doc).unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(c.items.iter().filter(|i| matches!(i, tikra::canvas::Item::Path { .. })).count(), 2, "{:?}", c.items);
+    // registers given values, pgfmath's loop, \relax and what is \let to it typeset nothing
+    assert!(told(r"\newcount\k \node {\k=3 \multiply\k by 2 \the\k};").contains(": 6."));
+    assert!(told(r"\newcount\k \node {\k=0 \pgfmathloop\ifnum\pgfmathcounter<4 \advance\k by \pgfmathcounter\relax\repeatpgfmathloop\the\k};").contains(": 6."));
+    assert!(told(r"\let\nothing\relax \node {a\nothing b};").contains(": ab."));
+    assert!(told(r"\node {\def\a{x}\a};").contains(": x."));
+    // a register that is not given a value is an argument, written as it is
+    with_warning(r"\begin{tikzpicture}\newcount\k \node {A\k};\end{tikzpicture}", "\\k");
+}
+
+#[test]
+fn pics_with_a_text_and_one_for_each_item_at_relative_points() {
+    let doc = r"\tikzset{box/.pic={\node (-n) [draw] {\tikzpictext};}}
+        \begin{tikzpicture} \path (1,0) pic foreach \i in {1,2} (p\i) [pic text=T\i] at +(\i,0) {box}; \end{tikzpicture}";
+    let r = no_warnings(doc);
+    assert!(r.description.contains("T1") && r.description.contains("T2"), "{}", r.description);
+    let c = canvas(r"\tikzset{box/.pic={\node (-n) {};}} \path (1,0) pic foreach \i in {1,2} (p\i) at +(\i,0) {box}; \draw (p2-n.center) -- (0,0);");
+    assert!(close_to(points(&paths(&c)[0].segments)[0], (3.0, 0.0)));
+}

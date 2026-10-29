@@ -89,6 +89,51 @@ fn calc_midpoint_sum_factors_and_rotation() {
 }
 
 #[test]
+fn calc_distance_is_measured_before_the_transformation() {
+    let at = |options: &str, b: &str| {
+        let body = format!(r"\begin{{scope}}[{options}] \coordinate (A) at (0,0); \coordinate (B) at {b}; \coordinate (C) at ($(A)!1cm!(B)$); \end{{scope}}");
+        let q = point(&body, "C");
+        (q.x, q.y)
+    };
+    assert!(close_to(at("scale=3", "(2,0)"), (3.0, 0.0)));
+    assert!(close_to(at("xscale=3", "(0,2)"), (0.0, 1.0)));
+    let s = 0.5f64.sqrt();
+    assert!(close_to(at("xscale=3", "(2,2)"), (3.0 * s, s)));
+    assert!(close_to(at("shift={(1,1)}, rotate=90", "(2,0)"), (1.0, 2.0)));
+}
+
+#[test]
+fn let_gives_points_in_the_scopes_coordinates() {
+    // a point read in a shifted scope is what it was given there, so `(\x1,0)` comes back below it
+    let body = r"\coordinate (A) at (1,0);
+        \begin{scope}[xshift=6cm] \coordinate (B) at (1,2); \path let \p1 = (B), \p2 = (A) in (\x1,0) coordinate (C) (\x2,\y2) coordinate (D); \end{scope}";
+    for (name, x) in [("C", 7.0), ("D", 1.0)] {
+        let q = point(body, name);
+        assert!(close_to((q.x, q.y), (x, 0.0)), "{name}: {q:?}");
+    }
+    let q = point(r"\begin{scope}[scale=2] \coordinate (B) at (1,1); \path let \p1 = (B) in (\x1,0) coordinate (C); \end{scope}", "C");
+    assert!(close_to((q.x, q.y), (2.0, 0.0)), "{q:?}");
+    // a name in braces is expanded
+    let q = point(r"\def\nm{a} \path let \p{\nm} = (1,2) in (\p{a}) coordinate (C);", "C");
+    assert!(close_to((q.x, q.y), (1.0, 2.0)), "{q:?}");
+}
+
+#[test]
+fn a_unit_vector_from_a_node_is_in_the_scopes_coordinates() {
+    // x=(m) in a shifted and scaled scope is the vector to m from the scope's origin
+    let body = r"\coordinate (o) at (1,0);
+        \begin{scope}[shift={(3,0)}, scale=2] \coordinate (m) at (1,0);
+          \begin{scope}[x={(m)}, y={(0,1)}] \coordinate (a) at (1,0); \end{scope}
+          \begin{scope}[x={(o)}, y={(0,1)}] \coordinate (b) at (1,0); \end{scope}
+          \begin{scope}[x={(1,0)}, y={(0,1)}] \coordinate (c) at (1,0); \end{scope}
+        \end{scope}";
+    for (name, x) in [("a", 5.0), ("b", 1.0), ("c", 5.0)] {
+        let q = point(body, name);
+        assert!(close_to((q.x, q.y), (x, 0.0)), "{name}: {q:?}");
+    }
+}
+
+#[test]
 fn calc_errors_become_warnings() {
     for bad in [r"($(A)!0.5$)", r"($(A)!0.5!$)", r"($(A)!0.5!(B$)", r"($(A)!xx!(B)$)", r"($(A$)", r"($(Z)!0.5!(A)$)"] {
         let (_, w) = canvas_and_warnings(&format!(r"\coordinate (A) at (0,0); \coordinate (B) at (1,0); \draw {bad} -- (1,1);"));

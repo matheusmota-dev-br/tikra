@@ -526,22 +526,97 @@ impl Engine {
         Ok(())
     }
 
-    /// A node's text expanded, the pgfmath commands in it run where they are, as TeX runs them
-    /// while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4.
+    /// A node's text expanded, the pgfmath commands and the definitions in it run where they are,
+    /// as TeX runs them while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4, and
+    /// `\def\a{x}\a` is x. A picture in the text is left as it is, for it to be drawn.
     fn expand_text(&mut self, tokens: Vec<Token>) -> Result<Vec<Token>, Error> {
-        const RUN: &[&str] = &["pgfmathparse", "pgfmathsetmacro", "pgfmathtruncatemacro", "pgfmathsetlengthmacro"];
+        const RUN: &[&str] = &[
+            "pgfmathparse",
+            "pgfmathsetmacro",
+            "pgfmathtruncatemacro",
+            "pgfmathsetlengthmacro",
+            "def",
+            "gdef",
+            "edef",
+            "xdef",
+            "let",
+            "advance",
+            "multiply",
+            "divide",
+            "@ifnextchar",
+            "setkeys",
+            "begin",
+            "tikz",
+        ];
+        // a \relax at the end, so that an assignment's number stops there, as at the end of TeX's
+        // box, and not after the text
+        let mut tokens = tokens;
+        tokens.push(Token::cs("relax"));
+        let end = |mut out: Vec<Token>| {
+            if out.last().is_some_and(|t| t.is_cs("relax")) {
+                out.pop();
+            }
+            Ok(out)
+        };
         let depth = self.tex.expand_start(tokens);
         let mut out = Vec::new();
         loop {
             let (more, stop) = self.tex.expand_more(depth, RUN)?;
-            out.extend(more);
-            let Some(t) = stop else { return Ok(out) };
-            if let tex::Meaning::Native(id) = self.tex.meaning(&t) {
-                let r = self.command(id, &t);
-                if let Err(e) = r {
-                    self.tex.drain_to(depth);
-                    return Err(e);
+            // \relax, and what is \let to it, typesets nothing
+            out.extend(more.into_iter().filter(|t| !matches!(t, Token::Cs(_)) || self.tex.meaning(t) != tex::Meaning::Prim(tex::Prim::Relax)));
+            let Some(t) = stop else { return end(out) };
+            if t.is_cs("begin") || t.is_cs("tikz") {
+                // `\begin{name}` as it is; from a picture on, the rest too (its `\foreach \number`
+                // is a variable, not TeX's \number)
+                let mut picture = t.is_cs("tikz");
+                out.push(t);
+                if !picture {
+                    let mut name = Vec::new();
+                    if let Some(open) = self.tex.get_token_until(depth) {
+                        if matches!(open, Token::Char(_, tex::Cat::Begin)) {
+                            while let Some(x) = self.tex.get_token_until(depth) {
+                                let end = matches!(x, Token::Char(_, tex::Cat::End));
+                                name.push(x);
+                                if end {
+                                    break;
+                                }
+                            }
+                        }
+                        picture = tex::tokens_to_string(&name) == "tikzpicture}";
+                        out.push(open);
+                        out.extend(name);
+                    }
                 }
+                if picture {
+                    while let Some(x) = self.tex.get_token_until(depth) {
+                        out.push(x);
+                    }
+                    return end(out);
+                }
+                continue;
+            }
+            let r = match self.tex.meaning(&t) {
+                tex::Meaning::Native(id) => self.command(id, &t),
+                // a register given a value (`\count=3`, `\count 3`); else it is an argument, as
+                // `\linewidth` of a `\parbox` that is written as it is
+                tex::Meaning::Count(_) | tex::Meaning::Dimen(_) | tex::Meaning::Skip(_) | tex::Meaning::Toks(_) => {
+                    let next = self.tex.next_nonspace();
+                    let value = next.as_ref().is_some_and(|n| matches!(n, Token::Char(c, _) if c.is_ascii_digit() || matches!(c, '=' | '-' | '+' | '.')));
+                    if let Some(n) = next {
+                        self.tex.back(n);
+                    }
+                    if value {
+                        self.tex.execute_basic(t).map(|_| ())
+                    } else {
+                        out.push(t);
+                        Ok(())
+                    }
+                }
+                _ => self.tex.execute_basic(t).map(|_| ()),
+            };
+            if let Err(e) = r {
+                self.tex.drain_to(depth);
+                return Err(e);
             }
         }
     }
