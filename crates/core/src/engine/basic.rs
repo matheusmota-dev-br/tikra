@@ -129,6 +129,7 @@ enum B {
     DeclarePlotHandler,
     UsePlotHandler,
     SysAnimate,
+    GetLastXY,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -264,6 +265,7 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfdeclareplothandler", B::DeclarePlotHandler),
     ("tikra@plothandler", B::UsePlotHandler),
     ("tikra@sysanimate", B::SysAnimate),
+    ("pgfgetlastxy", B::GetLastXY),
 ];
 
 /// The basic layer's definitions made in TeX: the switches of the `…attime` transformations, the
@@ -661,6 +663,9 @@ impl Engine {
     fn pgf_use(&mut self, actions: &str) -> Result<(), Error> {
         let segs = std::mem::take(&mut self.pgf_path.segments);
         let quick = std::mem::take(&mut self.pgf_path.quick);
+        if let Some(p) = self.pgf_path.last {
+            self.last_xy = p;
+        }
         self.pgf_path = PgfPath::default();
         let frozen = self.canvas_frozen;
         self.canvas_frozen |= quick;
@@ -1366,6 +1371,17 @@ impl Engine {
                 let s: String = digits.iter().rev().collect();
                 if let Some(name) = target.iter().find(|t| matches!(t, Token::Cs(_))) {
                     self.tex.set_meaning(name, super::macro_from(&s), false);
+                }
+            }
+            B::GetLastXY => {
+                // \pgfgetlastxy{\x}{\y}: the last point of the path, on the canvas, in pt
+                let p = self.pgf_path.last.unwrap_or(self.last_xy);
+                for v in [p.x, p.y] {
+                    let target = self.argument()?;
+                    if let Some(name) = target.iter().find(|t| matches!(t, Token::Cs(_))) {
+                        let sp = (v / crate::PT * 65536.0).round() as i64;
+                        self.tex.set_meaning(name, super::macro_from(&crate::tex::dimen::show(sp)), false);
+                    }
                 }
             }
             B::ToDigitList => {

@@ -165,6 +165,8 @@ pub enum Cmd {
     SpyEnd,
     /// `\quad` and `\qquad` between pictures
     Quad,
+    /// `\tikz@checkunit{value}`
+    CheckUnit,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -213,6 +215,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
     ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
     ("pgf@sys@tonumber", Cmd::ToNumber),
+    ("tikz@checkunit", Cmd::CheckUnit),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
     ("pgfsetfadingforcurrentpathstroked", Cmd::SetFadingForPathStroked),
@@ -436,6 +439,8 @@ pub struct Engine {
     pub turn_from: (crate::scene::Point, crate::scene::Point),
     /// where the path's subpath started (`current subpath start`)
     pub subpath_start: crate::scene::Point,
+    /// the last point of the last path, on the canvas (`\pgfgetlastxy`); it outlives scopes
+    pub last_xy: crate::scene::Point,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// fadings drawn as pictures (`\pgfdeclarefading`, `tikzfadingfrompicture`)
@@ -598,6 +603,7 @@ impl Clone for Engine {
             path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
+            last_xy: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
             behind_path: Vec::new(),
             tree_child_names: self.tree_child_names.clone(),
@@ -740,6 +746,7 @@ impl Engine {
             path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
+            last_xy: Default::default(),
             tree_edge_out: None,
             behind_path: Vec::new(),
             tree_child_names: Vec::new(),
@@ -1148,7 +1155,15 @@ impl Engine {
 
     /// Text for pgfmath: macros expanded, registers replaced by their values.
     pub fn math_string(&mut self, tokens: Vec<Token>) -> Result<String, Error> {
-        let t = self.tex.expand_fully(tokens)?;
+        let mut t = self.tex.expand_fully(tokens)?;
+        // `\numexpr …\relax` and `\dimexpr …\relax` read as TeX reads them where pgfmath reads a number
+        while let Some(i) = t.iter().position(|x| matches!(x, Token::Cs(_)) && matches!(self.tex.meaning(x), Meaning::Prim(Prim::Numexpr | Prim::Dimexpr))) {
+            let dim = self.tex.meaning(&t[i]) == Meaning::Prim(Prim::Dimexpr);
+            let (v, rest) = self.tex.expr_of(t.split_off(i + 1), dim)?;
+            t.pop();
+            t.extend(tex::string_tokens(&if dim { tex::dimen::show(v) } else { v.to_string() }));
+            t.extend(rest);
+        }
         let mut s = String::new();
         // `\pgf@sys@tonumber\reg`: the register without its unit
         let mut bare = false;
@@ -1172,6 +1187,16 @@ impl Engine {
                     }
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
+                }
+                // pgf's `\pgf@xx`, `\pgf@xy`, `\pgf@yx`, `\pgf@yy`: the parts of the x and y vectors, in pt
+                Meaning::Undefined if matches!(x, Token::Cs(n) if matches!(&**n, "pgf@xx" | "pgf@xy" | "pgf@yx" | "pgf@yy")) => {
+                    let Token::Cs(n) = x else { unreachable!() };
+                    let v = if n.starts_with("pgf@x") { self.st.x } else { self.st.y };
+                    let v = if n.ends_with('x') { v.x } else { v.y };
+                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                        s.push('*');
+                    }
+                    s.push_str(&format!("{}pt", v / crate::PT));
                 }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),
             }
@@ -1686,6 +1711,12 @@ impl Engine {
                     let last = encodings.split(',').map(str::trim).rfind(|e| !e.is_empty()).unwrap_or("OT1");
                     crate::label::set_kerning(if last == "T1" { mathra::layout::kerning::TextKerning::T1 } else { mathra::layout::kerning::TextKerning::Ot1 });
                 }
+                // the paper's size, from the class options or geometry's
+                if cmd == Cmd::Documentclass || (cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "geometry")) {
+                    if let Some(o) = &o {
+                        self.tex.paper_options(&tex::tokens_to_string(o));
+                    }
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;
@@ -1824,6 +1855,15 @@ impl Engine {
                     self.st.ambient_size = self.st.font_size;
                     self.st.font.push_str(&format!("\\{n}"));
                 }
+                Ok(())
+            }
+            Cmd::CheckUnit => {
+                // \tikz@checkunit{value}: \iftikz@isdimension is true when the value, read by
+                // pgfmath, has a unit (`1cm`, `2*3pt`, a length register), false for a plain number
+                let a = self.argument()?;
+                let s = self.math_string(a)?;
+                let unit = crate::expr::eval_length(&s, &self.vars()).is_ok_and(|(_, unit)| unit);
+                self.tex.set_meaning(&Token::cs("iftikz@isdimension"), Meaning::Prim(if unit { Prim::Iftrue } else { Prim::Iffalse }), false);
                 Ok(())
             }
             Cmd::Quad => {
@@ -2008,6 +2048,7 @@ impl Engine {
             let margin = self.canvas.margin;
             self.canvas = Canvas { margin, ..Canvas::default() };
             self.canvas_frozen = false;
+            self.last_xy = Point::default();
         }
         self.picture_depth += 1;
         self.begin_group();

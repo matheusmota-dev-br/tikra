@@ -11,6 +11,7 @@
 //! with full access to the token stream, the way `tikz.code.tex` reads its input.
 
 pub mod dimen;
+mod xstring;
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hasher};
@@ -230,8 +231,14 @@ pub enum Prim {
     Ifthenelse,
     Whiledo,
     Ifstrequal,
+    /// etoolbox's `\ifstrempty`, `\ifblank`, `\ifdefempty` (the kind by the name used)
+    Ifstrempty,
     Ifboolean,
     Newboolean,
+    /// `\g@addto@macro`, etoolbox's `\appto` and its kin, babel's `\addto` (the kind by the name used)
+    Addtomacro,
+    /// the xstring package's commands (by the name used)
+    Xstring,
     Setboolean,
     Wd,
     Ht,
@@ -319,6 +326,7 @@ impl Prim {
                 | Ifthenelse
                 | Whiledo
                 | Ifstrequal
+                | Ifstrempty
                 | Ifboolean
                 | Documentarguments
                 | Documentif
@@ -427,6 +435,90 @@ impl Default for Tex {
 
 /// Registers reserved before `\newcount` hands out new ones (pgf uses low numbers as scratch).
 const FIRST_FREE_REGISTER: u32 = 256;
+
+/// The register of the first of [`LATEX_LENGTHS`] (the others follow it).
+const FIRST_LATEX_LENGTH: u32 = 180;
+
+/// LaTeX's lengths and their values in `article` at 10pt on letter paper, as TeX shows them;
+/// `\paperwidth` and `\paperheight` first.
+const LATEX_LENGTHS: &[(&str, &str)] = &[
+    ("paperwidth", "614.295pt"),
+    ("paperheight", "794.96999pt"),
+    ("textheight", "550pt"),
+    ("vsize", "550pt"),
+    ("oddsidemargin", "62pt"),
+    ("evensidemargin", "62pt"),
+    ("topmargin", "16pt"),
+    ("headheight", "12pt"),
+    ("headsep", "25pt"),
+    ("footskip", "30pt"),
+    ("marginparwidth", "65pt"),
+    ("marginparsep", "11pt"),
+    ("marginparpush", "5pt"),
+    ("hoffset", "0pt"),
+    ("voffset", "0pt"),
+    ("maxdepth", "5pt"),
+    ("topskip", "10pt"),
+    ("columnsep", "10pt"),
+    ("columnseprule", "0pt"),
+    ("parskip", "0pt"),
+    ("tabcolsep", "6pt"),
+    ("arraycolsep", "5pt"),
+    ("arrayrulewidth", "0.4pt"),
+    ("doublerulesep", "2pt"),
+    ("footnotesep", "6.65pt"),
+    ("jot", "3pt"),
+    ("lineskip", "1pt"),
+    ("lineskiplimit", "0pt"),
+    ("emergencystretch", "0pt"),
+    ("labelsep", "5pt"),
+    ("labelwidth", "20.00003pt"),
+    ("leftmargin", "25.00003pt"),
+    ("rightmargin", "0pt"),
+    ("itemindent", "0pt"),
+    ("listparindent", "0pt"),
+    ("itemsep", "4pt"),
+    ("parsep", "4pt"),
+    ("topsep", "8pt"),
+    ("partopsep", "2pt"),
+    ("smallskipamount", "3pt"),
+    ("medskipamount", "6pt"),
+    ("bigskipamount", "12pt"),
+    ("floatsep", "12pt"),
+    ("textfloatsep", "20pt"),
+    ("intextsep", "12pt"),
+    ("abovedisplayskip", "10pt"),
+    ("belowdisplayskip", "10pt"),
+    ("captionmargin", "0pt"),
+];
+
+/// Those of [`LATEX_LENGTHS`] that are glue (`\skip` registers).
+const SKIPS: &[&str] = &[
+    "topskip",
+    "parskip",
+    "itemsep",
+    "parsep",
+    "topsep",
+    "partopsep",
+    "smallskipamount",
+    "medskipamount",
+    "bigskipamount",
+    "floatsep",
+    "textfloatsep",
+    "intextsep",
+    "abovedisplayskip",
+    "belowdisplayskip",
+];
+
+/// LaTeX's paper sizes: name, width, height.
+const PAPERS: &[(&str, &str, &str)] = &[
+    ("letterpaper", "614.295pt", "794.96999pt"),
+    ("a4paper", "597.50787pt", "845.04684pt"),
+    ("a5paper", "421.10078pt", "597.50787pt"),
+    ("b5paper", "500.7685pt", "711.3189pt"),
+    ("legalpaper", "614.295pt", "1011.78pt"),
+    ("executivepaper", "523.95749pt", "758.83499pt"),
+];
 
 impl Tex {
     pub fn new() -> Tex {
@@ -589,6 +681,19 @@ impl Tex {
             ("ifthenelse", Ifthenelse),
             ("whiledo", Whiledo),
             ("ifstrequal", Ifstrequal),
+            ("ifstrempty", Ifstrempty),
+            ("ifblank", Ifstrempty),
+            ("ifdefempty", Ifstrempty),
+            ("g@addto@macro", Addtomacro),
+            ("addto", Addtomacro),
+            ("appto", Addtomacro),
+            ("gappto", Addtomacro),
+            ("eappto", Addtomacro),
+            ("xappto", Addtomacro),
+            ("preto", Addtomacro),
+            ("gpreto", Addtomacro),
+            ("epreto", Addtomacro),
+            ("xpreto", Addtomacro),
             ("boolean", Ifboolean),
             ("newboolean", Newboolean),
             ("setboolean", Setboolean),
@@ -605,6 +710,9 @@ impl Tex {
         for (name, p) in list {
             self.meanings.insert(Rc::from(*name), Meaning::Prim(*p));
         }
+        for name in xstring::COMMANDS {
+            self.meanings.insert(Rc::from(*name), Meaning::Prim(Xstring));
+        }
         // the mark \noexpand and \unexpanded put before a token; on its own it does nothing
         self.meanings.insert(Rc::from("tikra@noexpand"), Meaning::Prim(Relax));
         // a few plain and LaTeX macros, defined the way they are there
@@ -620,6 +728,10 @@ impl Tex {
         // the preview package's setup, as in `\PreviewEnvironment{tikzpicture}\setlength\PreviewBorder{5pt}`:
         // the figure is already all that is drawn
         self.define_text(r"\def\PreviewEnvironment#1{}\def\PreviewMacro#1{}");
+        // etoolbox's toggles: each one a macro that takes the first or the second of two branches
+        self.define_text(
+            r"\def\newtoggle#1{\expandafter\let\csname tikra@toggle@#1\endcsname\@secondoftwo}\def\providetoggle#1{\ifcsname tikra@toggle@#1\endcsname\else\newtoggle{#1}\fi}\def\toggletrue#1{\expandafter\let\csname tikra@toggle@#1\endcsname\@firstoftwo}\let\togglefalse\newtoggle\def\settoggle#1#2{\csname toggle#2\endcsname{#1}}\def\iftoggle#1{\csname tikra@toggle@#1\endcsname}\def\nottoggle#1#2#3{\iftoggle{#1}{#3}{#2}}",
+        );
         for i in 0..10u32 {
             self.dimens.insert(i, 0);
             self.counts.insert(i, 0);
@@ -655,6 +767,39 @@ impl Tex {
         self.meanings.insert(Rc::from("unitlength"), Meaning::Dimen(245));
         self.dimens.insert(245, 65536);
         self.meanings.insert(Rc::from("PreviewBorder"), Meaning::Dimen(244));
+        // LaTeX's page layout and list lengths, as `article` sets them at 10pt on letter paper (glue
+        // at its natural size), and the caption package's \captionmargin
+        for (i, (name, value)) in LATEX_LENGTHS.iter().enumerate() {
+            let r = FIRST_LATEX_LENGTH + i as u32;
+            let skip = SKIPS.contains(name);
+            self.meanings.insert(Rc::from(*name), if skip { Meaning::Skip(r) } else { Meaning::Dimen(r) });
+            let v = self.dimen_of(string_tokens(value)).expect("a length");
+            self.dimens.insert(r, v);
+        }
+    }
+
+    /// `\paperwidth` and `\paperheight` from the paper options of `\documentclass` or the geometry
+    /// package (`a4paper`, `paper=a5paper`, `landscape`); none of them leaves them as they are.
+    pub fn paper_options(&mut self, options: &str) {
+        let mut landscape = false;
+        let mut size = None;
+        for o in options.split(',').map(str::trim) {
+            let o = o.strip_prefix("paper").and_then(|p| p.trim_start().strip_prefix('=')).map_or(o, str::trim);
+            match PAPERS.iter().find(|(n, ..)| *n == o) {
+                Some(&(_, w, h)) => size = Some((w, h)),
+                None => landscape |= o == "landscape",
+            }
+        }
+        if size.is_none() && !landscape {
+            return;
+        }
+        let (w, h) = match size {
+            Some((w, h)) => (self.dimen_of(string_tokens(w)).expect("a length"), self.dimen_of(string_tokens(h)).expect("a length")),
+            None => (self.dimens[&FIRST_LATEX_LENGTH], self.dimens[&(FIRST_LATEX_LENGTH + 1)]),
+        };
+        let (w, h) = if landscape { (w.max(h), w.min(h)) } else { (w, h) };
+        self.set_dimen(FIRST_LATEX_LENGTH, w, true);
+        self.set_dimen(FIRST_LATEX_LENGTH + 1, h, true);
     }
 
     /// A Tex that only reads tokens, with `@` a letter (for text written by tikra itself).
@@ -785,6 +930,26 @@ impl Tex {
         let r = self.scan_int();
         self.drain_to(depth);
         r
+    }
+
+    /// Reads `\numexpr …` (or `\dimexpr …` if `dim`, in sp) from the start of `tokens`, the command
+    /// itself already taken: its value and the tokens after it.
+    pub fn expr_of(&mut self, tokens: Vec<Token>, dim: bool) -> Result<(i64, Vec<Token>), Error> {
+        let depth = self.input.len();
+        let end = Token::cs("tikra@endexpr");
+        let mut v = tokens;
+        v.push(end.clone());
+        self.push_frame(v);
+        let r = if dim { self.scan_dimexpr() } else { self.scan_numexpr() };
+        let mut rest = Vec::new();
+        while let Some(t) = self.get_token_until(depth) {
+            if t == end {
+                break;
+            }
+            rest.push(t);
+        }
+        self.drain_to(depth);
+        Ok((r?, rest))
     }
 
     pub fn back(&mut self, t: Token) {
@@ -1480,6 +1645,21 @@ impl Tex {
                 let yes = self.read_undelimited()?;
                 let no = self.read_undelimited()?;
                 self.push_tokens(if a == b { yes } else { no });
+            }
+            Ifstrempty => {
+                // etoolbox, nothing expanded: \ifstrempty{text} (no tokens at all), \ifblank{text}
+                // (spaces only), \ifdefempty{\m} (a macro without parameters and with an empty body)
+                let name = show_token(t);
+                let name = name.trim_start_matches('\\');
+                let arg = self.read_undelimited()?;
+                let test = match name {
+                    "ifstrempty" => arg.is_empty(),
+                    "ifblank" => arg.iter().all(Token::is_space),
+                    _ => arg.first().is_some_and(|m| matches!(self.meaning(m), Meaning::Macro(m) if m.params.is_empty() && m.body.is_empty())),
+                };
+                let yes = self.read_undelimited()?;
+                let no = self.read_undelimited()?;
+                self.push_tokens(if test { yes } else { no });
             }
             Ifboolean => {
                 let name = tokens_to_string(&self.read_undelimited()?);
@@ -2354,6 +2534,11 @@ impl Tex {
                             self.back(x);
                         }
                     }
+                    // \thename: the value in arabic numerals
+                    let mut the = vec![Token::cs("arabic"), Token::Char('{', Cat::Begin)];
+                    the.extend(string_tokens(n.trim()));
+                    the.push(Token::Char('}', Cat::End));
+                    self.define_macro(&format!("the{}", n.trim()), the, true);
                     Token::Cs(Rc::from(format!("c@{}", n.trim()).as_str()))
                 } else {
                     let t = self.read_undelimited()?;
@@ -2402,6 +2587,28 @@ impl Tex {
                 let n = tokens_to_string(&self.read_undelimited()?);
                 let v = tokens_to_string(&self.read_undelimited()?);
                 self.push_tokens([Token::Cs(Rc::from(format!("{}{}", n.trim(), v.trim().to_lowercase()).as_str()))]);
+            }
+            Xstring => self.xstring(show_token(t).trim_start_matches('\\'))?,
+            Addtomacro => {
+                // \g@addto@macro\m{tokens}: the tokens put at the end of \m's body, unexpanded, for
+                // the whole document; etoolbox's \appto (\preto at the start), with \g… global and
+                // \e…, \x… (global) the tokens expanded; babel's \addto is global. An undefined \m
+                // is defined.
+                let name = show_token(t);
+                let name = name.trim_start_matches('\\');
+                let target = self.read_undelimited()?;
+                let tokens = self.read_undelimited()?;
+                let Some(m) = target.into_iter().find(|x| !x.is_space()) else { return Ok(true) };
+                let tokens = if name.starts_with(['e', 'x']) { self.expand_fully(tokens)? } else { tokens };
+                let global = !matches!(name, "appto" | "preto" | "eappto" | "epreto");
+                let (params, old) = match self.meaning(&m) {
+                    Meaning::Macro(old) => (old.params.clone(), old.body.clone()),
+                    _ => (Vec::new(), Vec::new()),
+                };
+                let new = tokens.into_iter().map(Body::Tok);
+                let body = if name.ends_with("preto") { new.chain(old).collect() } else { old.into_iter().chain(new).collect() };
+                let def = Macro { params, body, optional: None, protected: false };
+                self.set_meaning(&m, Meaning::Macro(Rc::new(def)), global);
             }
             Setlength | Addtolength => {
                 let target = self.read_undelimited()?;

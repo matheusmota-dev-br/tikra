@@ -4,6 +4,18 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- `\g@addto@macro`, etoolbox's `\appto`, `\gappto`, `\eappto`, `\xappto`, `\preto` and kin, and babel's `\addto` add to a macro as TeX does (#89).
+- `\numexpr …\relax` and `\dimexpr …\relax` in a pgfmath expression or a coordinate are read as TeX reads them (#90).
+- `\newcounter{name}` defines `\thename` (#66).
+- `\pgfgetlastxy{\x}{\y}`: the last point of the last path, in pt (#91).
+- etoolbox's `\ifstrempty`, `\ifblank` and `\ifdefempty` (#92), and its toggles: `\newtoggle`, `\providetoggle`, `\toggletrue`, `\togglefalse`, `\settoggle`, `\iftoggle`, `\nottoggle` (#93).
+- xstring's `\StrLen`, `\StrLeft`, `\StrRight`, `\StrMid`, `\StrChar`, `\StrBefore`, `\StrBehind`, `\StrCut`, `\StrBetween`, `\StrSubstitute`, `\StrDel`, `\StrCount`, `\IfSubStr`, `\IfStrEq`, `\IfBeginWith` and `\IfEndWith` (#94).
+- pgfkeys' `/K/.is family`: the key `/K` goes to that path (#95).
+- TikZ's `\tikz@checkunit` (with `\iftikz@isdimension`), `\pgf@xx`, `\pgf@xy`, `\pgf@yx`, `\pgf@yy` in an expression, and `\tikz@textfont` (#96).
+- LaTeX's page lengths: `\paperwidth` and `\paperheight` (letter paper, or the size of the class or geometry's `a4paper`, `a5paper`… and `landscape`), `\textheight`, `\oddsidemargin`, `\topmargin`, `\headheight`, `\parskip`, `\columnsep` and the others `article` sets, and the caption package's `\captionmargin`: usable in coordinates, and `\setlength` no longer warns about them (#97).
+
 ## 1.7.0 - 2026-10-29
 
 Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.
