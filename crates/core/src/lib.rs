@@ -134,6 +134,7 @@ pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
 
 /// [`convert_with`], with libraries from outside tikra defined next to TikZ's own (see [`extension`]).
 pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'static extension::Library]) -> Result<Output, Error> {
+    label::set_kerning(mathra::layout::kerning::TextKerning::Ot1);
     let mut early = Vec::new();
     // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
     let repaired = mathra::input::latex::undo_doubled_backslashes(code);

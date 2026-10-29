@@ -710,9 +710,21 @@ fn tex_extents(mut b: MathBox) -> MathBox {
     b
 }
 
+thread_local! {
+    /// How text is kerned: as TeX's OT1 fonts, or T1 ones after `\usepackage[T1]{fontenc}`.
+    static KERNING: std::cell::Cell<mathra::layout::kerning::TextKerning> = const { std::cell::Cell::new(mathra::layout::kerning::TextKerning::Ot1) };
+}
+
+/// Text from now on kerned as `kerning` says (a figure starts with OT1).
+pub fn set_kerning(kerning: mathra::layout::kerning::TextKerning) {
+    KERNING.with(|k| k.set(kerning));
+}
+
 /// `sc`: in small capitals (the node font's `\scshape`).
 fn typeset(text: &str, bold: bool, sc: bool, face: mathra::font::MathFont, warnings: &mut Vec<String>) -> MathBox {
-    let options = mathra::Options { display: false, ..Default::default() };
+    // (Times is kerned by `times`, as TeX's `ptm`)
+    let kerning = if face == FONT { KERNING.with(|k| k.get()) } else { mathra::layout::kerning::TextKerning::None };
+    let options = mathra::Options { display: false, text_kerning: kerning, ..Default::default() };
     let text = if sc { format!("\\textsc{{{text}}}") } else { text.to_string() };
     let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
     match mathra::typeset_in_font(&tex, &options, face) {

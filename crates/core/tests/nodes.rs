@@ -490,3 +490,20 @@ fn a_matrix_cell_reads_named_points_in_its_own_coordinates() {
         assert!(near(q, x, y), "{name}: {q:?}");
     }
 }
+
+#[test]
+fn text_is_kerned_as_the_documents_fonts_are() {
+    let width = |code: &str| -> f64 {
+        let svg = tikra::convert(code).unwrap().svg;
+        svg.split("viewBox=\"").nth(1).unwrap().split(' ').nth(2).unwrap().parse().unwrap()
+    };
+    let node = r"\begin{tikzpicture}\node[draw, inner sep=0] {va};\end{tikzpicture}";
+    let ot1 = width(node);
+    let t1 = width(&format!("\\documentclass{{standalone}}\\usepackage[T1]{{fontenc}}\\usepackage{{tikz}}\\begin{{document}}{node}\\end{{document}}"));
+    let spaced = width(r"\begin{tikzpicture}\node[draw, inner sep=0] {v a};\end{tikzpicture}");
+    // cmr10 kerns `va` by 0.278pt, ec-lmr10 by 0.556pt
+    assert!((ot1 - t1 - 0.278).abs() < 0.02, "{ot1} {t1}");
+    assert!(spaced > ot1);
+    // the next figure is OT1 again
+    assert_eq!(width(node), ot1);
+}

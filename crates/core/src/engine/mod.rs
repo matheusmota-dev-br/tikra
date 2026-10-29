@@ -1642,6 +1642,13 @@ impl Engine {
                 if cmd == Cmd::Usetikzlibrary && a.split(',').any(|l| l.trim() == "mindmap") {
                     self.st.decoration.angle = 20.0;
                 }
+                // `\usepackage[T1]{fontenc}`: text kerned as the T1 fonts kern it (the last encoding
+                // listed is the one in force)
+                if cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "fontenc") {
+                    let encodings = o.as_ref().map(|o| self.tex.expand_to_string(o.clone())).transpose()?.unwrap_or_default();
+                    let last = encodings.split(',').map(str::trim).rfind(|e| !e.is_empty()).unwrap_or("OT1");
+                    crate::label::set_kerning(if last == "T1" { mathra::layout::kerning::TextKerning::T1 } else { mathra::layout::kerning::TextKerning::Ot1 });
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;
