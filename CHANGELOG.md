@@ -4,8 +4,12 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
-## Unreleased
+## 1.7.0 - 2026-10-29
 
+Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.
+
+- In the playground, each point the code names gets a handle on the figure: dragging it rewrites the numbers that move it, in the code. A demo drags the figure by itself; "Interactive HTML" downloads the figure as one page that works offline, as does `scripts/interactive-html.mjs`. A range comment can give a step: `% -4..4:0.1` (#40).
+- `Output::points`: every node and coordinate the author named, where it is in the SVG, and `Output::origin`, where the picture's (0,0) landed; both are in the wasm `render` JSON (#40).
 - A color ending in `!` is read as xcolor reads it: `red!50!` is `red!50!white`, and `red!` is red (#41).
 - The preview package's setup (`\PreviewEnvironment{tikzpicture}`, `\setlength\PreviewBorder{5pt}`) is no longer drawn as text or warned about (#42).
 - pgfmath's `Mod` (never negative: `Mod(-7,3)` is 2) and `\pgfmathMod`, and a quoted string as the value of `?:` (`Mod(\k,2) ? "pink" : "purple!50"`), also in `\pgfmathsetmacro` (#43).
@@ -26,6 +30,12 @@ Each release has a headline (the line under its title), what changed, and the fi
 - Colors in xcolor's cmyk (`cyan`, `magenta`, `yellow`, `olive`, the dvipsnames, `\definecolor{x}{cmyk}{…}`) are drawn as Ghostscript draws them from TeX's PDF, through its ICC profiles: `cyan` is #00aeef, `cyan!30!white` #abe1fa (`tools/cmyk/table.py`). Mixes are in their first color's model, as xcolor mixes them (`white!70!cyan` is cmyk, `red!50!cyan` rgb), and so are complements and the extended syntax's `cmyk,1:…` and `gray,1:…` (#53).
 - `tikra::color::Color` has a `model`: code that builds one with `Color { r, g, b }` uses `Color::rgb(r, g, b)` (#53).
 - `tikra::extension`: `Context::measure` runs code without drawing it and gives the box of what it drew, with what a closure read before its nodes are forgotten (a subcircuit placed by one of its anchors) (#53).
+- Labels are set by mathra 1.8.0: inside text, `\hspace{…}` adds its space and `\phantom`, `\hphantom` and `\vphantom` leave the room of their argument, and text is kerned by TeX's OT1 or T1 fonts.
+- Our 100% (the figures a converter can reproduce) is 2480 of 2486, down from 2481.
+
+**Matches TeX:** 2370 of 2502 figures of the manuals (94.7%).
+
+Figures: `inscribed-angle-theorem` `bezier-control-points` `parallelogram-rule`
 
 ## 1.6.0 - 2026-10-29
 
