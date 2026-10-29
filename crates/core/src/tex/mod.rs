@@ -620,6 +620,11 @@ impl Tex {
         // the preview package's setup, as in `\PreviewEnvironment{tikzpicture}\setlength\PreviewBorder{5pt}`:
         // the figure is already all that is drawn
         self.define_text(r"\def\PreviewEnvironment#1{}\def\PreviewMacro#1{}");
+        // amsmath's `\DeclareMathOperator{\p}{p}`: `\p` is the operator's name in upright letters
+        // (starred, with limits above and below)
+        self.define_text(
+            r"\def\DeclareMathOperator{\@ifnextchar*{\tikra@operator@star}{\tikra@operator}}\def\tikra@operator#1#2{\def#1{\operatorname{#2}}}\def\tikra@operator@star*#1#2{\def#1{\operatorname*{#2}}}",
+        );
         for i in 0..10u32 {
             self.dimens.insert(i, 0);
             self.counts.insert(i, 0);

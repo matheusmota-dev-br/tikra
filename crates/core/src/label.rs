@@ -467,13 +467,80 @@ fn hboxes(text: &str, size: f64, stretch: f64) -> String {
     out
 }
 
-/// Splits into lines at top-level `\\` and `\par`, each with the space (pt) added after it:
-/// `\\[2pt]`, or the `\vskip 1em` after a `\par`.
-fn manual_lines(text: &str, size: f64) -> Vec<(String, f64)> {
+/// Whether each character of `c` is at the text's top level: outside braces, math (`$…$`, `$$…$$`,
+/// `\(…\)`, `\[…\]`) and environments, as there a `\\` is a row of the array or the alignment, not
+/// a line of the node. Lists and the centering ones (`itemize`, `center`) are text: their lines
+/// are the node's. A control symbol (`\\`, `\$`) is one with its backslash.
+fn top_level(c: &[char]) -> Vec<bool> {
+    scan(c).0
+}
+
+/// Whether the end of `text` is in math (`$…`, `\(…`, `\[…`): what is put there is read as math.
+pub fn in_math(text: &str) -> bool {
+    scan(&text.chars().collect::<Vec<_>>()).1
+}
+
+/// `top_level`, and whether math is open at the end.
+fn scan(c: &[char]) -> (Vec<bool>, bool) {
+    const TEXT: &[&str] = &["itemize", "enumerate", "description", "center", "flushleft", "flushright"];
+    let mut top = vec![true; c.len()];
+    let (mut level, mut envs) = (0, 0);
+    // what closes the math the text is in
+    let mut math: Option<&str> = None;
+    let mut i = 0;
+    while i < c.len() {
+        let here = level == 0 && envs == 0 && math.is_none();
+        let mut step = 1;
+        match (c[i], c.get(i + 1).copied()) {
+            ('{', _) => level += 1,
+            ('}', _) => level -= 1,
+            ('$', next) => {
+                let close = if next == Some('$') { "$$" } else { "$" };
+                step = close.len();
+                math = match math {
+                    None => Some(close),
+                    Some(m) if m == close => None,
+                    m => m,
+                };
+            }
+            ('\\', Some(o @ ('(' | '['))) if math.is_none() => {
+                math = Some(if o == '(' { "\\)" } else { "\\]" });
+                step = 2;
+            }
+            ('\\', Some(x)) if x.is_ascii_alphabetic() => {
+                let name: String = c[i + 1..].iter().take_while(|x| x.is_ascii_alphabetic()).collect();
+                step = 1 + name.len();
+                if name == "begin" || name == "end" {
+                    let rest: String = c[i + step..].iter().collect();
+                    if let Some(env) = rest.strip_prefix('{').and_then(|r| r.split_once('}')).map(|(e, _)| e.trim().trim_end_matches('*')) {
+                        if !TEXT.contains(&env) {
+                            envs += if name == "begin" { 1 } else { -1 };
+                        }
+                    }
+                }
+            }
+            ('\\', Some(x)) => {
+                if math.is_some_and(|m| m == format!("\\{x}")) {
+                    math = None;
+                }
+                step = 2;
+            }
+            _ => {}
+        }
+        for t in &mut top[i..(i + step).min(c.len())] {
+            *t = here;
+        }
+        i += step;
+    }
+    (top, math.is_some())
+}
+
+/// Splits into lines at top-level `\\`, `\par` and, in a `paragraph` (a `text width`), `\newline`,
+/// each with the space (pt) added after it: `\\[2pt]`, or the `\vskip 1em` after a `\par`.
+fn manual_lines(text: &str, size: f64, paragraph: bool) -> Vec<(String, f64)> {
     let c: Vec<char> = text.chars().collect();
+    let top = top_level(&c);
     let mut lines = vec![(String::new(), 0.0)];
-    let mut level = 0;
-    let mut math = false;
     let mut i = 0;
     // a dimension from `i`: up to the char `end`, or a number and a unit of two letters
     let skip = |i: usize, end: Option<char>| -> (f64, usize) {
@@ -489,13 +556,14 @@ fn manual_lines(text: &str, size: f64) -> Vec<(String, f64)> {
         let v = dimension(&rest[..len], size).map_or(0.0, |(v, _)| v);
         (v, i + rest[..len].chars().count())
     };
+    let word = |i: usize, name: &str| {
+        let n = name.chars().count();
+        c[i + 1..].iter().take(n).copied().eq(name.chars()) && !c.get(i + 1 + n).is_some_and(|x| x.is_ascii_alphabetic())
+    };
     while i < c.len() {
         match c[i] {
-            '{' => level += 1,
-            '}' => level -= 1,
-            '$' => math = !math,
             // `\par` ends a paragraph, and a line
-            '\\' if level == 0 && !math && c[i + 1..].starts_with(&['p', 'a', 'r']) && !c.get(i + 4).is_some_and(|x| x.is_ascii_alphabetic()) => {
+            '\\' if top[i] && word(i, "par") => {
                 i += 4;
                 let mut j = i;
                 while c.get(j).is_some_and(|x| x.is_whitespace()) {
@@ -509,7 +577,21 @@ fn manual_lines(text: &str, size: f64) -> Vec<(String, f64)> {
                 lines.push((String::new(), 0.0));
                 continue;
             }
-            '\\' if level == 0 && !math && c.get(i + 1) == Some(&'\\') => {
+            // `\newline` breaks a paragraph's line (in a `text width`) as `\\` does; out of one,
+            // in TikZ's alignment of lines, it does nothing (and the spaces after it go, as after
+            // any control word)
+            '\\' if top[i] && word(i, "newline") => {
+                i += 8;
+                if paragraph {
+                    lines.push((String::new(), 0.0));
+                } else {
+                    while c.get(i) == Some(&' ') {
+                        i += 1;
+                    }
+                }
+                continue;
+            }
+            '\\' if top[i] && c.get(i + 1) == Some(&'\\') => {
                 i += 2;
                 if c.get(i) == Some(&'[') {
                     let (v, next) = skip(i + 1, Some(']'));
@@ -527,29 +609,25 @@ fn manual_lines(text: &str, size: f64) -> Vec<(String, f64)> {
     lines.into_iter().map(|(l, v)| (l.trim().to_string(), v)).collect()
 }
 
-/// Words separated by spaces outside `$…$` and braces.
+/// Words separated by spaces at the top level (outside braces, math and environments).
 /// The pieces a line may break between, each with whether a space comes before it: the words,
 /// and the parts of a hyphenated word (`Fixed-` `Parameter`), as TeX may break after a hyphen.
 fn words(line: &str) -> Vec<(String, bool)> {
     let mut out = Vec::new();
     let mut current = String::new();
-    let mut level = 0;
-    let mut math = false;
     let mut space = false;
     let c: Vec<char> = line.chars().collect();
+    let top = top_level(&c);
     for (i, &ch) in c.iter().enumerate() {
         match ch {
-            '{' => level += 1,
-            '}' => level -= 1,
-            '$' => math = !math,
-            ' ' if level == 0 && !math => {
+            ' ' if top[i] => {
                 if !current.is_empty() {
                     out.push((std::mem::take(&mut current), space));
                 }
                 space = true;
                 continue;
             }
-            '-' if level == 0 && !math && i > 0 && c[i - 1].is_alphabetic() && c.get(i + 1).is_some_and(|x| x.is_alphabetic()) => {
+            '-' if top[i] && i > 0 && c[i - 1].is_alphabetic() && c.get(i + 1).is_some_and(|x| x.is_alphabetic()) => {
                 current.push(ch);
                 out.push((std::mem::take(&mut current), space));
                 space = false;
@@ -1131,6 +1209,42 @@ fn list_lines(
     out
 }
 
+/// A text that is all a paragraph box, `\parbox[t]{4cm}{…}` or `\begin{minipage}{4cm}…\end{minipage}`
+/// (its position and height options aside): its width, and its text.
+pub fn paragraph_box(text: &str) -> Option<(String, String)> {
+    // a `{…}` group at the start (spaces skipped): what it holds and what follows
+    fn group(s: &str) -> Option<(&str, &str)> {
+        let s = s.trim_start().strip_prefix('{')?;
+        let mut level = 0;
+        for (i, c) in s.char_indices() {
+            match c {
+                '{' => level += 1,
+                '}' if level == 0 => return Some((&s[..i], &s[i + 1..])),
+                '}' => level -= 1,
+                _ => {}
+            }
+        }
+        None
+    }
+    // the `[t]`, `[3cm]`, `[b]` options
+    fn options(mut s: &str) -> &str {
+        while let Some((_, rest)) = s.trim_start().strip_prefix('[').and_then(|r| r.split_once(']')) {
+            s = rest;
+        }
+        s
+    }
+    let t = text.trim();
+    if let Some(rest) = t.strip_prefix("\\parbox") {
+        let (width, rest) = group(options(rest))?;
+        let (body, rest) = group(rest)?;
+        return rest.trim().is_empty().then(|| (width.to_string(), body.to_string()));
+    }
+    let rest = t.strip_prefix("\\begin{minipage}")?.strip_suffix("\\end{minipage}")?;
+    let (width, body) = group(options(rest))?;
+    // (one minipage, not two side by side)
+    (!body.contains("\\begin{minipage}")).then(|| (width.to_string(), body.to_string()))
+}
+
 /// amsmath's `\implies`, `\impliedby` and `\iff`: long arrows with thick spaces around them.
 fn long_arrows(text: &str) -> String {
     let mut out = text.to_string();
@@ -1196,11 +1310,11 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
-    let manual = manual_lines(&text, size);
+    let manual = manual_lines(&text, size, text_width.is_some());
     // lines aligned without a text width are the cells of an `\halign`, each a group: a size
     // command in one is that line's alone, and the baselines are the node font's apart
     // (from the text before its size commands go)
-    let raw = manual_lines(text_raw, size);
+    let raw = manual_lines(text_raw, size, text_width.is_some());
     let sizes: Vec<f64> = if raw.len() == manual.len() { raw.iter().map(|(l, _)| font_size(&format!("{font} {l}"))).collect() } else { vec![size; manual.len()] };
     let per_line = text_width.is_none() && sizes.windows(2).any(|w| w[0] != w[1]);
     let fam = family(text_raw, font, bold);
@@ -1215,14 +1329,14 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             // the rules run to the height and depth of the rest of the line
             let bare = typeset(&families(&rules(&line, size, None), all, bold, face), bold, sc, face, &mut Vec::new());
             let pt = 10.0 * size / 1000.0;
-            families(&rules(&line, size, Some((bare.height as f64 * pt, bare.depth as f64 * pt))), all, bold, face)
+            rules(&line, size, Some((bare.height as f64 * pt, bare.depth as f64 * pt)))
         } else {
-            families(&line, all, bold, face)
+            line
         };
         match text_width {
             None => {
                 // (a line in another size is in that size's design width too)
-                let b = scaled(typeset(&line, bold, sc, face, warnings), (sizes[k] / size) as f32);
+                let b = scaled(typeset(&families(&line, all, bold, face), bold, sc, face, warnings), (sizes[k] / size) as f32);
                 boxes.push(widen(b, (design_width(10.0 * sizes[k], fam) / design_width(10.0 * size, fam)) as f32));
             }
             Some(max) => {
@@ -1234,7 +1348,8 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
                     k == 0 && lead_glue,
                     size,
                     &units,
-                    &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, face, warnings),
+                    // (the family word by word: a line in it is one formula, which would not break)
+                    &mut |w: &str, warnings: &mut Vec<String>| typeset(&families(w, all, bold, face), bold, sc, face, warnings),
                     warnings,
                 );
                 for (b, skip) in lines {
@@ -1415,5 +1530,63 @@ mod tests {
         // the items 2.5 em in, and space around them
         assert!(r.lines[1].width > r.lines[0].width, "{} {}", r.lines[1].width, r.lines[0].width);
         assert!(r.skips[0] > 0.0 && r.skips[1] > 0.0);
+    }
+
+    #[test]
+    fn lines_break_at_the_top_level_only() {
+        let lines = |t: &str, paragraph: bool| manual_lines(t, 1.0, paragraph).into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+        // the `\\` of an array, a display, an alignment and a matrix are their rows
+        for t in [
+            r"$\begin{array}{c} a \\ b \end{array}$",
+            r"\[ a \\ b \]",
+            r"\( a \\ b \)",
+            r"$$ a \\ b $$",
+            r"\begin{align*} a &= b \\ c &= d \end{align*}",
+            r"\begin{tabular}{c} a \\ b \end{tabular}",
+            r"{a \\ b}",
+        ] {
+            assert_eq!(lines(t, false).len(), 1, "{t}");
+        }
+        // a list and a centered text are lines of the node; `\$` is no math
+        assert_eq!(lines(r"x \begin{center} a \\ b \end{center}", false).len(), 2);
+        assert_eq!(lines(r"\$5 \\ \$6", false), ["\\$5", "\\$6"]);
+        // a `$` inside `$$…$$`, a `\]` inside `$…$` and a `\begin` with no name do not end them
+        assert_eq!(lines(r"$$ a \text{$b$} \\ c $$ \\ d", false).len(), 2);
+        assert_eq!(lines(r"$a \] \\ b$ \\ c", false).len(), 2);
+        assert_eq!(lines(r"\begin x \\ y", false).len(), 2);
+        // `\newline` breaks a paragraph's line; elsewhere it is nothing, nor the spaces after it
+        assert_eq!(lines(r"one\newline two", true), ["one", "two"]);
+        assert_eq!(lines(r"one\newline two", false), ["onetwo"]);
+        assert_eq!(lines(r"one\newlines", true).len(), 1);
+        assert!(in_math("a $b") && in_math(r"\[ b") && !in_math(r"\[ b \]") && !in_math(r"a \$"));
+    }
+
+    #[test]
+    fn words_keep_math_and_environments_whole() {
+        let words = |t: &str| words(t).into_iter().map(|(w, _)| w).collect::<Vec<_>>();
+        assert_eq!(words(r"see \[ a + b \] and $c d$"), ["see", r"\[ a + b \]", "and", "$c d$"]);
+        assert_eq!(words(r"x \begin{matrix} a & b \end{matrix} y").len(), 3);
+    }
+
+    #[test]
+    fn paragraph_boxes() {
+        let pb = |t: &str| paragraph_box(t).map(|(w, b)| (w, b.trim().to_string()));
+        assert_eq!(pb(r"\parbox[t]{2cm}{\centering a b}"), Some(("2cm".into(), r"\centering a b".into())));
+        assert_eq!(pb(r"\parbox{3cm}{a {b} c}"), Some(("3cm".into(), "a {b} c".into())));
+        assert_eq!(pb(r"\begin{minipage}[b][1cm]{4cm} a b \end{minipage}"), Some(("4cm".into(), "a b".into())));
+        // text after the box, a box not closed, two minipages, or no box: not a paragraph box
+        for t in [r"\parbox{2cm}{a} b", r"\parbox{2cm}{a", r"\begin{minipage}{1cm}a\end{minipage}\begin{minipage}{1cm}b\end{minipage}", "a b"] {
+            assert_eq!(pb(t), None, "{t}");
+        }
+    }
+
+    #[test]
+    fn a_text_in_another_family_wraps() {
+        let mut w = Vec::new();
+        for font in ["\\sffamily", "\\ttfamily", "\\itshape"] {
+            let r = compose_label("No flow from the first component", font, Some(2.0), 'c', Color::BLACK, &mut w);
+            assert!(r.lines.len() >= 3, "{font}: {}", r.lines.len());
+        }
+        assert!(w.is_empty(), "{w:?}");
     }
 }

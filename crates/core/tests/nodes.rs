@@ -245,6 +245,8 @@ fn text_color_font_width_alignment() {
     assert_eq!(r.color.hex(), "#0000ff");
     let wrapped = r"\node[draw, text width=1cm, align=left] {a sentence with several words};";
     assert!(label(wrapped).0.lines.len() > 1);
+    // in another family too (each word in it, not the line as one formula)
+    assert!(label(r"\node[text width=1cm, font=\sffamily] {a sentence with several words};").0.lines.len() > 1);
     // the text width and the inner sep (.3333em) on both sides
     let (w, _) = border_size(wrapped);
     assert!((w - (1.0 + 2.0 * 0.3333 * 10.0 * tikra::PT)).abs() < 1e-4, "{w}");
@@ -308,6 +310,44 @@ fn text_with_sizes_circled_and_grouped_words() {
     // with text width, $…$ and {…} are not split
     let (l, _) = label(r"\node[text width=1cm] {$a + b$ {c d} e};");
     assert!(l.lines.len() >= 2);
+}
+
+#[test]
+fn rows_of_math_in_text_are_not_lines_of_the_node() {
+    // an array's `\\` is its own: one line of text, and the `\\` after it a line of the node
+    let (l, _) = label(r"\node[align=center] {x $\begin{array}{c} a \\ b \end{array}$ y \\ z};");
+    assert_eq!(l.lines.len(), 2);
+    // and so are those of a display and of an alignment (mathra sets them as a whole)
+    for text in [r"\[ a \\ b \]", r"\begin{align*} a &= b \\ c &= d \end{align*}"] {
+        assert_eq!(label(&format!(r"\node[align=center] {{{text}}};")).0.lines.len(), 1, "{text}");
+    }
+    // a color inside math is a color of math, not a formula of its own
+    no_warnings(r"\begin{tikzpicture} \node {$\begin{matrix} a \\ \textcolor{red}{b} \end{matrix}$}; \end{tikzpicture}");
+}
+
+#[test]
+fn newline_breaks_a_paragraphs_line() {
+    // in a text width, as `\\`; out of one TeX sets the words together
+    let (l, _) = label(r"\node[text width=3cm] {one\newline two};");
+    assert_eq!(l.lines.len(), 2);
+    let (l, _) = label(r"\node[align=center] {one\newline two};");
+    assert_eq!(l.lines.len(), 1);
+}
+
+#[test]
+fn a_paragraph_box_in_text_wraps_to_its_width() {
+    let text = "several words that do not fit in two centimeters";
+    for body in [format!(r"\parbox[t]{{2cm}}{{\centering {text}}}"), format!(r"\begin{{minipage}}{{2cm}}{text}\end{{minipage}}"), format!(r"\parbox{{2cm}}{{\raggedleft {text}}}")]
+    {
+        let node = format!(r"\node[draw] {{{body}}};");
+        assert!(label(&node).0.lines.len() >= 3, "{body}");
+        // as wide as the box and the inner sep (.3333em) on both sides
+        let (w, _) = border_size(&node);
+        assert!((w - (2.0 + 2.0 * 0.3333 * 10.0 * tikra::PT)).abs() < 1e-4, "{body}: {w}");
+    }
+    // a width tikra does not know is left as it is
+    let (_, w) = canvas_and_warnings(r"\node {\parbox{zz}{a b}};");
+    assert!(w.iter().any(|a| a.contains("parbox")), "{w:?}");
 }
 
 #[test]

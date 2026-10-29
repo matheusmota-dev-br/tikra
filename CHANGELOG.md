@@ -26,6 +26,14 @@ Each release has a headline (the line under its title), what changed, and the fi
 - pgfmath's random numbers: `random()`, `random(m)` and `random(a,b)` from the same seed as TeX, `\pgfmathrand` and `\pgfmathrnd` (also inside a point argument, before the point), `\pgfmathrandominteger`, `\pgfmathdeclarerandomlist` and `\pgfmathrandomitem` (#63).
 - `\pgfdecorationsegmentaspect` in decoration code: the value of `aspect` (#64).
 - `join=with a by {options}`: the braces only group the options (#65).
+- A node's text breaks into lines only at the `\\` of the text itself. A `\\` inside `\[ … \]`, `\( … \)`, `$$ … $$` or an environment (`align*`, `matrix`, `tabular`) belongs to it and goes to mathra whole, and `text width` keeps those in one piece when it wraps (#80).
+- `\textcolor{…}{…}` inside math in a node colors that part of the formula instead of breaking it (#81).
+- The repair of TikZ escaped for Markdown no longer fires on display math (`\[ … \]`) or on a `\\` before `\end`: it now undoes `\[` only after a TikZ command (`\draw\[red\]`) or before one (#82).
+- amsmath's `\DeclareMathOperator{\p}{p}` (and starred) defines `\p` for labels (#83).
+- `\newline` in a node's text ends the line in a `text width`, as `\\` does; out of one it does nothing, as in TeX (#84).
+- `text width` wraps text in another family (`font=\sffamily`, `\ttfamily`, `\itshape`), which was set on one line (#85).
+- A node's text that is all a `\parbox[t]{2cm}{…}` or a `minipage` wraps to that width, justified unless it begins with `\centering`, `\raggedright` or `\raggedleft` (#86).
+- `\geometry{…}` is no longer printed, and `\resizebox{7cm}{!}{…}` (and `\resizebox*`) around pictures scales them to that size as graphicx does, instead of printing its arguments (#87).
 
 ## 1.7.0 - 2026-10-29
 
