@@ -1,10 +1,10 @@
 //! The SVG driver: writes a [`Canvas`] as SVG, the way pgf's drivers write PDF. SVG user units are
 //! big points (1 cm = 28.3465 bp), the unit of PDF, so the picture has the size TeX gives it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use mathra::font::GlyphId;
+use mathra::font::{GlyphId, MathFont};
 use mathra::layout::Item as MathItem;
 
 use crate::canvas::{Canvas, Cap, Fill, Item, Join, Paint, Shading, Stroke};
@@ -98,7 +98,7 @@ struct Defs {
     text: String,
     count: usize,
     /// glyphs drawn inside definitions (a pattern's tile)
-    glyphs: Vec<GlyphId>,
+    glyphs: Vec<(MathFont, GlyphId)>,
     /// the page's lower left corner (SVG units): patterns tile from there, as in PDF
     corner: (f64, f64),
 }
@@ -307,22 +307,31 @@ fn label_matrix(t: &Transform) -> String {
     format!("matrix({} {} {} {} {} {})", num(t.a, 5), num(-t.b, 5), num(-t.c, 5), num(t.d, 5), n(t.e * BP), n(-t.f * BP))
 }
 
+/// The id of a glyph's definition: `tr-g` and its number in the label font, `tr-gt` in Times.
+fn glyph_id(font: MathFont, g: GlyphId) -> String {
+    if font == crate::label::FONT {
+        format!("tr-g{}", g.0)
+    } else {
+        format!("tr-gt{}", g.0)
+    }
+}
+
 /// The items of a mathra box with its baseline at `origin` (label cm, y up), `scale` cm per unit,
 /// glyphs `stretch` times as wide.
-fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64, glyphs: &mut Vec<GlyphId>) -> String {
+fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64, font: MathFont, glyphs: &mut Vec<(MathFont, GlyphId)>) -> String {
     let mut s = String::new();
     let k = scale * BP;
     let inner = |x: f64, y: f64| -> (f64, f64) { ((origin.x + x * scale) * BP, -(origin.y + y * scale) * BP) };
     for item in &c.items {
         match item {
             MathItem::Glyph { id, x, y, scale: gs, color, flip } => {
-                glyphs.push(*id);
+                glyphs.push((font, *id));
                 let (px, py) = inner(*x as f64, *y as f64);
                 let f = *gs as f64 * k;
                 // a mirrored glyph (`\reflectbox`) is drawn leftward from its x
                 let fx = if *flip { -f * stretch } else { f * stretch };
                 let fill = color.as_ref().map(|c| format!(r#" fill="{c}""#)).unwrap_or_default();
-                let _ = write!(s, r##"<use href="#tr-g{}" transform="translate({} {}) scale({} {})"{fill}/>"##, id.0, n(px), n(py), num(fx, 5), num(-f, 5));
+                let _ = write!(s, r##"<use href="#{}" transform="translate({} {}) scale({} {})"{fill}/>"##, glyph_id(font, *id), n(px), n(py), num(fx, 5), num(-f, 5));
             }
             MathItem::Rule { x, y, width, height, color } => {
                 let (px, py) = inner(*x as f64, (*y + *height) as f64);
@@ -361,7 +370,7 @@ fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64
 }
 
 /// A label's lines: the first baseline at y = 0, the others below, aligned within the label's width.
-fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
+fn label(l: &Label, glyphs: &mut Vec<(MathFont, GlyphId)>) -> String {
     let width = l.width();
     let mut s = String::new();
     for (k, line) in l.lines.iter().enumerate() {
@@ -371,7 +380,7 @@ fn label(l: &Label, glyphs: &mut Vec<GlyphId>) -> String {
             'r' => width - w,
             _ => (width - w) / 2.0,
         };
-        s.push_str(&math_box(line, Point::new(x, l.baseline(k)), l.scale, l.stretch, glyphs));
+        s.push_str(&math_box(line, Point::new(x, l.baseline(k)), l.scale, l.stretch, l.font, glyphs));
     }
     s
 }
@@ -433,15 +442,152 @@ impl Steps {
     }
 }
 
+/// The straight edges of a path of lines only, each subpath closed; `None` with a curve.
+fn line_edges(segments: &[Segment]) -> Option<Vec<(Point, Point)>> {
+    let mut edges = Vec::new();
+    let (mut start, mut last) = (None, None);
+    let close = |edges: &mut Vec<(Point, Point)>, start: Option<Point>, last: Option<Point>| {
+        if let (Some(a), Some(b)) = (last, start) {
+            edges.push((a, b));
+        }
+    };
+    for s in segments {
+        match s {
+            Segment::MoveTo(p) => {
+                close(&mut edges, start, last);
+                (start, last) = (Some(*p), Some(*p));
+            }
+            Segment::LineTo(p) => {
+                edges.push((last?, *p));
+                last = Some(*p);
+            }
+            Segment::Close => {
+                close(&mut edges, start, last);
+                last = start;
+            }
+            Segment::CurveTo(..) => return None,
+        }
+    }
+    close(&mut edges, start, last);
+    Some(edges.into_iter().filter(|(a, b)| (a.x - b.x).hypot(a.y - b.y) > 1e-9).collect())
+}
+
+/// Seams: where two opaque fills of one color each, drawn in the same place of the picture, share
+/// an edge, a rasterizer antialiases each against what is under it, and that shows through as a
+/// line along the edge (a PDF rasterizer does not: it extends fills a little). For each such
+/// fill (by its index in `items`), the edges it shares with a fill drawn after it, and how wide a
+/// stroke of its color along them may be: the one after covers the stroke's half on its side,
+/// the other half is on the fill's own side.
+fn seams(items: &[Item]) -> HashMap<usize, (Vec<(Point, Point)>, f64)> {
+    /// A fill that may share an edge: its item, where it is drawn, its edges, the narrower side of
+    /// its box and a point inside it (of a convex fill: which side of an edge the fill is on).
+    struct Side {
+        item: usize,
+        place: usize,
+        edges: Vec<(Point, Point)>,
+        narrow: f64,
+        inside: Point,
+    }
+    type Key = (i64, i64);
+    let key = |p: Point| -> Key { ((p.x * 1e6).round() as i64, (p.y * 1e6).round() as i64) };
+    let edge_key = |(a, b): (Point, Point)| {
+        let (a, b) = (key(a), key(b));
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+    // the fills; per edge, the ones that have it
+    let mut fills: Vec<Side> = Vec::new();
+    let mut owners: HashMap<(usize, (Key, Key)), Vec<usize>> = HashMap::new();
+    // what is drawn in one group, transformation or clip
+    let mut place = 0;
+    for (i, item) in items.iter().enumerate() {
+        match item {
+            Item::Path { segments, fill: Some(Fill { paint: Paint::Solid(_), opacity, .. }), stroke: None } if *opacity >= 1.0 => {
+                let Some(edges) = line_edges(segments) else { continue };
+                let (min, max) = edges
+                    .iter()
+                    .flat_map(|(a, b)| [*a, *b])
+                    .fold(((f64::MAX, f64::MAX), (f64::MIN, f64::MIN)), |(lo, hi), p| ((lo.0.min(p.x), lo.1.min(p.y)), (hi.0.max(p.x), hi.1.max(p.y))));
+                for e in &edges {
+                    owners.entry((place, edge_key(*e))).or_default().push(fills.len());
+                }
+                let inside = Point { x: (min.0 + max.0) / 2.0, y: (min.1 + max.1) / 2.0 };
+                fills.push(Side { item: i, place, edges, narrow: (max.0 - min.0).min(max.1 - min.1), inside });
+            }
+            Item::Path { .. } | Item::Text { .. } | Item::Image { .. } => {}
+            _ => place += 1,
+        }
+    }
+    let mut out = HashMap::new();
+    let side_of = |(a, b): (Point, Point), p: Point| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    // whether a fill with these edges has an angle under 90° at an end of the edge `e`
+    let sharp = |edges: &[(Point, Point)], e: (Point, Point)| {
+        [(e.0, e.1), (e.1, e.0)].iter().any(|&(p, q)| {
+            edges
+                .iter()
+                .filter_map(|&(a, b)| {
+                    if key(a) == key(p) {
+                        Some(b)
+                    } else if key(b) == key(p) {
+                        Some(a)
+                    } else {
+                        None
+                    }
+                })
+                .filter(|&r| key(r) != key(q))
+                .any(|r| (q.x - p.x) * (r.x - p.x) + (q.y - p.y) * (r.y - p.y) > 1e-12)
+        })
+    };
+    for (k, Side { item, place, edges, narrow, inside }) in fills.iter().enumerate() {
+        let mut shared = Vec::new();
+        let mut width = f64::MAX;
+        for e in edges {
+            // one after, on the other side of the edge: one that folds back over this fill would
+            // not cover the stroke's half outside it
+            // and with a right or wider angle at both ends, in both: the stroke's square ends stay
+            // inside the two (they would stick out of a sharp corner)
+            let beside = |&&j: &&usize| j > k && side_of(*e, *inside) * side_of(*e, fills[j].inside) < 0.0 && !sharp(edges, *e) && !sharp(&fills[j].edges, *e);
+            if let Some(later) = owners[&(*place, edge_key(*e))].iter().find(beside) {
+                shared.push(*e);
+                width = width.min(narrow.min(fills[*later].narrow) / 2.0);
+            }
+        }
+        if !shared.is_empty() && width > 0.0 {
+            out.insert(*item, (shared, width));
+        }
+    }
+    out
+}
+
+/// The widest stroke that covers a seam, in cm: 2 bp, two pixels at 100 dpi.
+const SEAM: f64 = 2.0 / BP;
+
 /// The items as SVG elements, into `body`; their definitions (gradients, clips, masks) into `defs`.
-fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<GlyphId>, steps: &mut Steps) {
-    for item in items {
+fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<(MathFont, GlyphId)>, steps: &mut Steps) {
+    let seams = seams(items);
+    for (i, item) in items.iter().enumerate() {
         match item {
             Item::Path { segments, fill, stroke } => {
                 if segments.is_empty() || (fill.is_none() && stroke.is_none()) {
                     continue;
                 }
                 let d = path_data(segments);
+                if let (Some((edges, width)), Some(f @ Fill { paint: Paint::Solid(c), .. })) = (seams.get(&i), fill) {
+                    let fa = fill_attributes(f, defs);
+                    let seam: Vec<Segment> = edges.iter().flat_map(|(a, b)| [Segment::MoveTo(*a), Segment::LineTo(*b)]).collect();
+                    let _ = write!(
+                        body,
+                        r#"<g{}><path d="{d}"{fa}/><path d="{}" fill="none" stroke="{}" stroke-width="{}"/></g>"#,
+                        steps.next(false),
+                        path_data(&seam),
+                        c.hex(),
+                        n(width.min(SEAM) * BP)
+                    );
+                    continue;
+                }
                 let mut a = String::new();
                 // filled and stroked at one opacity: PDF paints the two as one group, so the stroke
                 // does not darken the fill under it; SVG's `opacity` of the element does the same
@@ -449,6 +595,21 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                     (Some(f), Some(s)) if f.opacity < 1.0 && (f.opacity - s.opacity).abs() < 1e-9 => Some(f.opacity),
                     _ => None,
                 };
+                // at different opacities, PDF's group is a knockout one: a stroke that lets through
+                // shows what is under the path, not the fill; the fill is masked out under the stroke
+                if let (Some(f), Some(s), None) = (fill, stroke, shared) {
+                    if s.opacity < 1.0 {
+                        let id = defs.id("m");
+                        let cut = stroke_attributes(&Stroke { color: crate::color::Color::BLACK, opacity: 1.0, ..s.clone() });
+                        let _ = write!(
+                            defs.text,
+                            r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="white"/><path d="{d}" fill="none"{cut}/></mask>"#
+                        );
+                        let fa = fill_attributes(f, defs);
+                        let _ = write!(body, r#"<g{}><path d="{d}"{fa} mask="url(#{id})"/><path d="{d}" fill="none"{}/></g>"#, steps.next(false), stroke_attributes(s));
+                        continue;
+                    }
+                }
                 let (fill, stroke) = match shared {
                     Some(_) => (fill.clone().map(|f| Fill { opacity: 1.0, ..f }), stroke.clone().map(|s| Stroke { opacity: 1.0, ..s })),
                     None => (fill.clone(), stroke.clone()),
@@ -579,11 +740,11 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     let mut steps = Steps { on: steps || animate, animate, count: 0 };
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps);
     glyphs.append(&mut defs.glyphs);
-    let font = crate::label::FONT.get();
     let mut seen = HashSet::new();
-    for g in glyphs {
-        if seen.insert(g.0) {
-            let _ = write!(defs.text, r#"<path id="tr-g{}" d="{}"/>"#, g.0, font.outline(g));
+    for (font, g) in glyphs {
+        if seen.insert((font, g.0)) {
+            let d = if font == crate::label::TIMES && crate::times::is_termes(g) { crate::times::outline(g) } else { font.get().outline(g) };
+            let _ = write!(defs.text, r#"<path id="{}" d="{d}"/>"#, glyph_id(font, g));
         }
     }
     // the words' ids are the figure's own: a page with many figures labels each by its own words

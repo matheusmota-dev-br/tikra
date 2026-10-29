@@ -76,4 +76,4 @@ The same core is a Python module, a Rust crate and a command-line tool, and ever
 
 ## License
 
-The code is MIT or Apache-2.0; the fonts embedded through mathra are Latin Modern Math, under the GUST Font License, and STIX Two Math, under the SIL Open Font License 1.1.
+The code is MIT or Apache-2.0; the fonts embedded through mathra are Latin Modern Math, under the GUST Font License, and STIX Two Math, under the SIL Open Font License 1.1; tikra's own TeX Gyre Termes (labels in Times) is under the GUST Font License.

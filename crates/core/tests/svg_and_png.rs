@@ -51,7 +51,7 @@ fn empty_canvas_has_minimum_size() {
     assert!(svg.contains("viewBox"));
     // a text whose label has no lines
     let mut c = Canvas::default();
-    let label = Label { lines: Vec::new(), scale: 1.0, color: Color::BLACK, align: 'c', line_height: 0.0, stretch: 1.0, skips: Vec::new() };
+    let label = Label { lines: Vec::new(), scale: 1.0, color: Color::BLACK, align: 'c', line_height: 0.0, stretch: 1.0, skips: Vec::new(), font: tikra::label::FONT };
     assert_eq!(label.depth(), 0.0);
     assert_eq!(label.height(), 0.0);
     c.push(Item::Text { label, place: Transform::default(), opacity: 1.0 });
@@ -110,6 +110,18 @@ fn a_filled_and_stroked_path_at_one_opacity_is_one_group() {
 }
 
 #[test]
+fn a_stroke_that_lets_through_shows_what_is_under_the_path_not_its_fill() {
+    // PDF paints fill and stroke as a knockout group: under a translucent stroke, the fill is not there
+    let out = no_warnings(r"\tikz \filldraw[fill=yellow, draw opacity=0.5, line width=4mm] (0,0) rectangle (2,2);");
+    assert!(out.svg.contains("<mask") && out.svg.contains("stroke-opacity"), "{}", out.svg);
+    let image = resvg::tiny_skia::Pixmap::decode_png(&tikra::png(&out.svg, 100.0, true).unwrap()).unwrap();
+    // the stroke's inner half (over the fill) is the same gray as its outer half (over the white)
+    let (inner, outer) = (image.pixel(10, 40).unwrap(), image.pixel(5, 40).unwrap());
+    assert_eq!((inner.red(), inner.green(), inner.blue()), (outer.red(), outer.green(), outer.blue()));
+    assert_eq!(inner.blue(), inner.red());
+}
+
+#[test]
 fn the_lines_of_a_label_take_its_color() {
     // a molecule's bonds are lines in currentColor: the label sets color, not only fill
     let svg = no_warnings(r"\tikz \node[text=red] {$\chemfig{H_3C-OH}$};").svg;
@@ -157,4 +169,16 @@ fn without_steps(svg: &str) -> String {
         }
     }
     s
+}
+
+#[test]
+fn fills_side_by_side_leave_no_seam_between_them() {
+    // two squares meeting inside a pixel: the white under them does not show along their edge
+    let out = no_warnings(r"\tikz[x=0.25cm] { \fill[red] (0,0) rectangle (1,1); \fill[red] (1,0) rectangle (2,1); }");
+    let image = resvg::tiny_skia::Pixmap::decode_png(&tikra::png(&out.svg, 100.0, true).unwrap()).unwrap();
+    let row: Vec<u8> = (3..image.width() - 3).map(|x| image.pixel(x, image.height() / 2).unwrap().green()).collect();
+    assert!(row.iter().all(|&g| g < 10), "{row:?}");
+    // a fill folded back over another one gets no stroke: it would stick out of both
+    let svg = no_warnings(r"\tikz { \fill[red] (0,0) -- (1,0) -- (1,1) -- cycle; \fill[blue] (0,0) -- (1,0) -- (0.5,0.5) -- cycle; }").svg;
+    assert!(!svg.contains("<g><path"), "{svg}");
 }
