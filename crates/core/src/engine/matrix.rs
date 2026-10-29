@@ -5,6 +5,9 @@
 //! cells are drawn again in place. `matrix of nodes` makes each cell a node named `m-r-c`, with
 //! `|[options]|` for that cell's options.
 
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use crate::canvas::Canvas;
 use crate::scene::{Point, Transform};
 use crate::tex::{self, Cat, Meaning, Token};
@@ -336,10 +339,31 @@ impl Engine {
         }
         .unwrap_or_default();
         // second pass: the cells in place
+        // TeX sets a cell in a box at the origin and moves the box afterwards: in the cell, a named
+        // point is where it is in the cell's own coordinates. A point from outside the matrix moves
+        // with the cell; one made in another cell is where it was in that cell, moved with this one.
+        let mut made_in: HashMap<String, Point> = HashMap::new();
         for (r, row) in rows.iter().enumerate() {
             for (c, cell) in row.iter().enumerate() {
                 let t = placed.compose(&Transform::translation(xs[c], ys[r]));
-                self.draw_cell(name.as_deref(), &settings, r + 1, c + 1, cell, t)?;
+                let origin = t.apply(Point::default());
+                let mut moved = HashMap::with_capacity(self.nodes.len());
+                for (n, info) in self.nodes.iter_mut() {
+                    let d = origin.minus(made_in.get(n).copied().unwrap_or_default());
+                    moved.insert(n.clone(), (Rc::clone(&info.geometry), info.transform));
+                    info.transform = Transform::translation(d.x, d.y).compose(&info.transform);
+                }
+                let res = self.draw_cell(name.as_deref(), &settings, r + 1, c + 1, cell, t);
+                // the points from before back where they were; the ones the cell made stay
+                for (n, info) in self.nodes.iter_mut() {
+                    match moved.remove(n) {
+                        Some((g, before)) if Rc::ptr_eq(&g, &info.geometry) => info.transform = before,
+                        _ => {
+                            made_in.insert(n.clone(), origin);
+                        }
+                    }
+                }
+                res?;
             }
         }
         if !after.is_empty() {

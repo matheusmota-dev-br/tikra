@@ -4,6 +4,10 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- In a `\matrix` cell, a named point is read in the cell's own coordinates, as TeX sets the cell before moving it into place: `(A)` from outside the matrix moves with the cell, and a node from another cell is where it was in that cell (#47).
+
 ## 1.6.0 - 2026-10-29
 
 Labels in Times, fills without seams, and library shapes with texts and styles of their own.
