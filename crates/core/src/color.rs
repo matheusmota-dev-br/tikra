@@ -100,10 +100,15 @@ fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
     let mut color = lookup(parts[0])?;
     let mut i = 1;
     while i < parts.len() {
+        // a trailing `!` with no percentage leaves the color as it is (`red!` is red)
+        if parts[i].is_empty() && i + 1 == parts.len() {
+            break;
+        }
         let p: f64 = parts[i].parse::<f64>().ok()? / 100.0;
+        // a missing or empty name is white: `red!50`, `red!50!` and `red!50!white` are the same
         let other = match parts.get(i + 1) {
-            Some(n) => lookup(n)?,
-            None => Color::WHITE,
+            Some(n) if !n.is_empty() => lookup(n)?,
+            _ => Color::WHITE,
         };
         color = Color::mix(color, other, p);
         i += 2;
@@ -141,6 +146,11 @@ mod tests {
         assert_eq!(parse("blue!10", &d).unwrap().hex(), "#e6e6ff");
         assert_eq!(parse("orange!80!black", &d).unwrap().hex(), "#cc6600");
         assert_eq!(parse("gray!20", &d).unwrap().hex(), "#e6e6e6");
+        // an empty name is white, and a trailing `!` changes nothing, as in xcolor
+        assert_eq!(parse("red!50!", &d), parse("red!50!white", &d));
+        assert_eq!(parse("blue!50!!", &d), parse("blue!50", &d));
+        assert_eq!(parse("red!", &d), parse("red", &d));
+        assert_eq!(parse("red!30!blue!50!", &d).unwrap().hex(), parse("red!30!blue!50!white", &d).unwrap().hex());
         assert_eq!(define("HTML", "FF8800").unwrap().hex(), "#ff8800");
     }
 

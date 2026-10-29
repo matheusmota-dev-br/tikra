@@ -119,3 +119,13 @@ fn an_ellipse_callout_goes_around_through_east() {
         }
     }
 }
+
+#[test]
+fn a_rectangle_callout_smaller_than_its_pointer_is_drawn() {
+    // the text is narrower than the pointer's width: there is no room to keep its base away from
+    // the corners, which must not stop the drawing
+    for at in [90, 270, 180, 0] {
+        let p = paths(&format!(r"\node[rectangle callout, draw, inner sep=0pt, callout relative pointer={{({at}:1cm)}}] {{\tiny .}};"));
+        assert!(!p.is_empty(), "{at}");
+    }
+}

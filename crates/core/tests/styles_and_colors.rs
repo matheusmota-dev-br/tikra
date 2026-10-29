@@ -305,3 +305,45 @@ fn radius_option_is_not_the_value_of_the_radius_key() {
     let (lo, hi) = bounds(&t.segments);
     assert!(close(hi.x - lo.x, 2.0), "{lo:?} {hi:?}");
 }
+
+#[test]
+fn pgfmath_picks_a_quoted_string() {
+    // a color chosen by a condition, as in `\pgfmathparse{Mod(\k,2) ? "pink" : "purple!50"}`
+    let r = no_warnings(
+        r#"\begin{tikzpicture}
+            \pgfmathparse{Mod(3,2) ? "red" : "blue!50"}\draw[\pgfmathresult] (0,0) -- (1,0);
+            \pgfmathparse{0 ? "red" : 1 == 2 ? "green" : "blue"}\draw[\pgfmathresult] (0,1) -- (1,1);
+            \pgfmathsetmacro{\c}{2 > 1 ? "orange" : "black"}\draw[\c] (0,2) -- (1,2);
+          \end{tikzpicture}"#,
+    );
+    for c in ["#ff0000", "#0000ff", "#ff8000"] {
+        assert!(r.svg.contains(&format!("stroke=\"{c}\"")), "{c}");
+    }
+    // a `?` inside the first branch, and parentheses around the condition
+    let r = no_warnings(r#"\begin{tikzpicture}\pgfmathparse{(1) ? (0 ? "red" : "green") : "blue"}\draw[\pgfmathresult] (0,0) -- (1,0);\end{tikzpicture}"#);
+    assert!(r.svg.contains("stroke=\"#00ff00\""));
+    let r = no_warnings(r#"\begin{tikzpicture}\pgfmathparse{1 ? 0 ? "red" : "green" : "blue"}\draw[\pgfmathresult] (0,0) -- (1,0);\end{tikzpicture}"#);
+    assert!(r.svg.contains("stroke=\"#00ff00\""));
+    // parentheses at both ends that are not one pair
+    let r = no_warnings(r#"\begin{tikzpicture}\pgfmathparse{(0) ? "red" : ("blue")}\draw[\pgfmathresult] (0,0) -- (1,0);\end{tikzpicture}"#);
+    assert!(r.svg.contains("stroke=\"#0000ff\""));
+    // a string in arithmetic is not a number
+    with_warning(r#"\begin{tikzpicture}\pgfmathparse{"red" + 1}\end{tikzpicture}"#, "a string where a number is expected");
+}
+
+#[test]
+fn pgfmath_mod_as_a_command() {
+    // `\pgfmathMod{-7}{3}` is 2, as `Mod(-7,3)`
+    let at = |x: &str| no_warnings(&format!(r"\begin{{tikzpicture}}{x}\draw (0,0) -- (\pgfmathresult,0);\end{{tikzpicture}}")).svg;
+    let path = |svg: String| svg[svg.find("<path").unwrap()..].to_string();
+    assert_eq!(path(at(r"\pgfmathMod{-7}{3}")), path(at(r"\pgfmathparse{2}")));
+}
+
+#[test]
+fn a_shift_reads_length_registers() {
+    // as a coordinate on the path does: `\newdimen\R` in `shift={(0,\R)}`
+    let shifted = |o: &str| no_warnings(&format!(r"\newdimen\R \R=1cm \begin{{tikzpicture}}\draw[{o}] (0,0) -- (1,0);\end{{tikzpicture}}")).svg;
+    let path = |svg: String| svg[svg.find("<path").unwrap()..].to_string();
+    assert_eq!(path(shifted(r"shift={(0,\R)}")), path(shifted("shift={(0,1cm)}")));
+    assert_eq!(path(shifted(r"shift={(-60:{2*\R})}")), path(shifted("shift={(-60:2cm)}")));
+}

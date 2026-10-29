@@ -87,6 +87,74 @@ fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool),
     Ok((v, p.units))
 }
 
+/// pgfmath's strings: `cond ? "pink" : "purple!50"` is `pink` or `purple!50`. `Some` when the value
+/// the expression picks is a quoted string; `None` for one without quotes (evaluated as a number).
+pub fn eval_string(text: &str, vars: &Variables) -> Result<Option<String>, Error> {
+    let mut t = text.trim();
+    // each `?` picks one side, so a chain of them is walked in a loop, without recursion
+    loop {
+        if !t.contains('"') {
+            return Ok(None);
+        }
+        // `(0 ? "red" : "green")`: parentheses around the whole of it
+        if let Some(inner) = t.strip_prefix('(').and_then(|r| r.strip_suffix(')')).filter(|i| balanced(i)) {
+            t = inner.trim();
+            continue;
+        }
+        if let Some(inner) = t.strip_prefix('"').and_then(|r| r.strip_suffix('"')).filter(|i| !i.contains('"')) {
+            return Ok(Some(inner.to_string()));
+        }
+        let Some((q, c)) = top_ternary(t) else {
+            return Err(Error::Expression(format!("a string where a number is expected: '{t}'")));
+        };
+        t = if eval(&t[..q], vars)? != 0.0 { t[q + 1..c].trim() } else { t[c + 1..].trim() };
+    }
+}
+
+/// Whether no `)` in `t` closes more than was opened in it (outside quotes).
+fn balanced(t: &str) -> bool {
+    let (mut depth, mut quoted) = (0i32, false);
+    for ch in t.chars() {
+        match ch {
+            '"' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+/// The byte offsets of the first `?` outside parentheses and quotes, and of its `:`.
+fn top_ternary(t: &str) -> Option<(usize, usize)> {
+    let (mut depth, mut quoted, mut q, mut open) = (0i32, false, None, 0);
+    for (i, ch) in t.char_indices() {
+        match ch {
+            '"' => quoted = !quoted,
+            _ if quoted => {}
+            '(' | '{' | '[' => depth += 1,
+            ')' | '}' | ']' => depth -= 1,
+            '?' if depth == 0 => {
+                q = q.or(Some(i));
+                open += 1;
+            }
+            ':' if depth == 0 && q.is_some() => {
+                open -= 1;
+                if open == 0 {
+                    return Some((q?, i));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Like `eval`, but a number without a unit is returned as is (the caller's default unit)
 /// and one with a unit is converted to cm. Returns (value, had_unit).
 pub fn eval_length(text: &str, vars: &Variables) -> Result<(f64, bool), Error> {
@@ -521,6 +589,8 @@ impl Parser<'_> {
                     "max" => args.iter().copied().fold(f64::NEG_INFINITY, f64::max),
                     "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
                     "mod" => a % args.get(1).copied().unwrap_or(1.0),
+                    // `Mod` never negative: Mod(-7,3) = 2, where mod(-7,3) = -1
+                    "Mod" => a.rem_euclid(args.get(1).copied().unwrap_or(1.0)),
                     // the fpu's veclen is its sqrt(a^2 + b^2)
                     "veclen" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a * a + args.get(1).map_or(0.0, |b| b * b)),
                     "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
