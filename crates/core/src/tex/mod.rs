@@ -809,6 +809,11 @@ impl Tex {
         }
     }
 
+    /// Drops all the input left (`\end{document}`: TeX reads no further).
+    pub fn clear_input(&mut self) {
+        self.input.clear();
+    }
+
     /// Whether input is left (at any depth).
     pub fn has_input(&mut self) -> bool {
         if let Some(t) = self.get_token() {

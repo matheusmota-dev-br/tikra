@@ -218,3 +218,17 @@ fn pagecolor_paints_the_page_behind_the_figure() {
     let r = with_warning(&doc(r"\pagecolor{nocolor}"), "\\pagecolor: unknown color 'nocolor'");
     assert!(!r.svg.contains("<rect"));
 }
+
+#[test]
+fn nothing_after_end_document_and_no_title_without_maketitle() {
+    // TeX reads no further than \end{document}, and \title, \author and \date only keep their text
+    let drawing = |svg: &str| svg[svg.find("</metadata>").unwrap()..].to_string();
+    let plain = no_warnings(r"\documentclass{article}\usepackage{tikz}\begin{document}\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}\end{document}");
+    let r = no_warnings(
+        r"\documentclass{article}\usepackage{tikz}
+          \title{A title}\author{Someone}\date{Today}
+          \begin{document}\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}\end{document}
+          Notes after the end. \begin{tikzpicture}\draw (0,0) circle (1);\end{tikzpicture}",
+    );
+    assert_eq!(drawing(&r.svg), drawing(&plain.svg));
+}

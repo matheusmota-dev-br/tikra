@@ -301,6 +301,10 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pagestyle", Cmd::Ignore1),
     ("thispagestyle", Cmd::Ignore1),
     ("caption", Cmd::Ignore1),
+    // what `\maketitle` would set: tikra sets no title
+    ("title", Cmd::Ignore1),
+    ("author", Cmd::Ignore1),
+    ("date", Cmd::Ignore1),
     ("tikzsetnextfilename", Cmd::Ignore1),
     ("pgfplotstableset", Cmd::Ignore1),
     ("tiny", Cmd::FontSize),
@@ -782,7 +786,7 @@ impl Engine {
         // in a fading, transparent is black (`\colorlet{pgftransparent}{black}`)
         e.colors.insert("transparent".into(), Color::BLACK);
         e.colors.insert("pgftransparent".into(), Color::BLACK);
-        e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
+        e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeys@novalue}\def\pgfkeys@novalue{}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
         nonlinear::define(&mut e);
         calendar::define(&mut e);
@@ -2407,6 +2411,10 @@ impl Engine {
                 }
                 if name == "tabular" && self.picture_depth == 0 {
                     self.layout.push(Layout::TabEnd);
+                }
+                // what follows `\end{document}` is never typeset
+                if name == "document" {
+                    self.tex.clear_input();
                 }
             }
         }

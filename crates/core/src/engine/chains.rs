@@ -232,7 +232,11 @@ impl Engine {
             let mut v = tikra_tokens("on chain,every chain in/.try,");
             v.extend(options);
             self.process_keys(v, Some("/tikz"))?;
-            self.chain_node_found()
+            let (names, joins) = self.chain_node_found()?;
+            // `after node path` of the options, then the joins, as after a node
+            let mut path = std::mem::take(&mut self.st.after_node_path);
+            path.extend(joins);
+            Ok((names, path))
         })();
         self.end_group();
         let (names, path) = r?;

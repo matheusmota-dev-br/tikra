@@ -104,11 +104,41 @@ pub fn eval_string(text: &str, vars: &Variables) -> Result<Option<String>, Error
         if let Some(inner) = t.strip_prefix('"').and_then(|r| r.strip_suffix('"')).filter(|i| !i.contains('"')) {
             return Ok(Some(inner.to_string()));
         }
+        // `{"red","blue"}[1]`: an array of strings, indexed from 0
+        if let Some((list, index)) = t.strip_prefix('{').and_then(|r| r.strip_suffix(']')).and_then(|r| r.rsplit_once("}[")) {
+            let k = eval(index, vars)?.trunc();
+            let items = top_items(list);
+            let Some(item) = (k >= 0.0).then(|| items.get(k as usize)).flatten() else {
+                return Err(Error::Expression(format!("index {k} out of the array {{{list}}}")));
+            };
+            t = item.trim();
+            continue;
+        }
         let Some((q, c)) = top_ternary(t) else {
             return Err(Error::Expression(format!("a string where a number is expected: '{t}'")));
         };
         t = if eval(&t[..q], vars)? != 0.0 { t[q + 1..c].trim() } else { t[c + 1..].trim() };
     }
+}
+
+/// The items of an array's list, at its commas outside quotes, braces and parentheses.
+fn top_items(list: &str) -> Vec<&str> {
+    let (mut items, mut from) = (Vec::new(), 0);
+    let (mut depth, mut quoted) = (0i32, false);
+    for (k, ch) in list.char_indices() {
+        match ch {
+            '"' => quoted = !quoted,
+            '{' | '(' if !quoted => depth += 1,
+            '}' | ')' if !quoted => depth -= 1,
+            ',' if !quoted && depth == 0 => {
+                items.push(&list[from..k]);
+                from = k + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&list[from..]);
+    items
 }
 
 /// Whether no `)` in `t` closes more than was opened in it (outside quotes).

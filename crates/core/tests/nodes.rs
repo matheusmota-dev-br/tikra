@@ -565,3 +565,39 @@ fn a_placement_offset_without_unit_is_in_points_unless_positioning() {
     assert!(points < 60.0, "{points}");
     assert!(width(&doc(r"\usetikzlibrary{positioning}")) > 800.0);
 }
+
+#[test]
+fn below_of_takes_the_node_distance_the_node_ends_with() {
+    let at = |options: &str| {
+        let p = point(&format!(r"\node (a) {{A}}; \node[{options}] (b) {{B}};"), "b.center");
+        (p.x, p.y)
+    };
+    // a node distance given after `below of` still counts
+    assert!(close_to(at("below of=a, node distance=3cm"), (0.0, -3.0)), "{:?}", at("below of=a, node distance=3cm"));
+    // the directions add up, all at the last distance
+    assert!(close_to(at("below of=a, right of=a, node distance=2cm"), (2.0, -2.0)));
+    assert!(close_to(at("below of=a, node distance=2cm, right of=a, node distance=3cm"), (3.0, -3.0)));
+    assert!(close_to(at("below of=a, below of=a"), (0.0, -2.0)));
+    // a diagonal one is that far along its angle; `v and h`: the vertical one for below
+    let s = 0.5f64.sqrt();
+    assert!(close_to(at("below right of=a"), (s, -s)));
+    assert!(close_to(at("below of=a, node distance=2cm and 3cm"), (0.0, -2.0)));
+}
+
+#[test]
+fn a_label_angle_may_come_from_a_macro() {
+    // as the expression it expands to, not the default 90
+    let (_, by_macro) = label(r"\def\a{100} \node[label=\a+80:x] at (0,0) {};");
+    let (_, plain) = label(r"\node[label=180:x] at (0,0) {};");
+    assert!(close(by_macro.e, plain.e) && close(by_macro.f, plain.f), "{by_macro:?} {plain:?}");
+}
+
+#[test]
+fn a_word_too_long_for_the_text_width_goes_to_a_line_of_its_own() {
+    // TeX's last pass breaks before it, leaving that line too long, even at the end (a word
+    // with a slash is not hyphenated)
+    let (l, _) = label(r"\node[text width=3em] {AB CDEFG/HIJKL};");
+    assert_eq!(l.lines.len(), 2);
+    let (l, _) = label(r"\node[text width=3em] {CDEFG/HIJKL AB};");
+    assert_eq!(l.lines.len(), 2);
+}

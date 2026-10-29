@@ -43,6 +43,8 @@ pub struct NodeSetup {
     pub fit_rotate: f64,
     /// `circle through`: the point on the circle (canvas)
     pub through: Option<Point>,
+    /// `below of=…` and the like: the sum of their directions
+    pub old_of: Point,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -558,6 +560,7 @@ impl Engine {
             "rectangle".to_string()
         };
         self.process_keys(tikra_tokens(&format!("every {shape_name} node/.try")), Some("/tikz"))?;
+        super::options::old_of_shift(self)?;
         let name = spec.name.clone().or_else(|| self.st.node.name.clone()).or_else(|| self.set_member_name());
         // what the system layer's animations give the node at the snapshot time
         if let Some(options) = name.as_ref().and_then(|n| self.sys_animations.remove(n)) {
@@ -1088,7 +1091,8 @@ impl Engine {
         let s = tex::tokens_to_string(&v);
         // the angle is up to the first top-level colon
         let (angle_text, text_tokens) = match split_colon(&v) {
-            Some((a, b)) => (tex::tokens_to_string(&a).trim().to_string(), b),
+            // (expanded: `pin=\angle+15:text` is at the angle the macro gives)
+            Some((a, b)) => (self.math_string(a)?.trim().to_string(), b),
             None => (String::new(), v.clone()),
         };
         let _ = s;

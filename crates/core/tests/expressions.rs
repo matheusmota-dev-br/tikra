@@ -1,6 +1,6 @@
 //! pgfmath expressions through the public API: functions, constants, units and errors.
 
-use tikra::expr::{eval, eval_length, unit_cm, Variables};
+use tikra::expr::{eval, eval_length, eval_string, unit_cm, Variables};
 
 fn close(text: &str, expected: f64) {
     let mut v = Variables::new();
@@ -77,4 +77,15 @@ fn errors_inside_subexpressions() {
     for t in ["(1+)", "2*", "2/", "2^", "-", "max(1,)", "sin(1+)", "{1*}"] {
         assert!(eval(t, &v).is_err(), "{t}");
     }
+}
+
+#[test]
+fn an_array_of_strings_is_indexed_from_zero() {
+    let mut v = Variables::new();
+    v.insert("x".into(), 2.0);
+    let pick = |t: &str| eval_string(t, &v);
+    assert_eq!(pick(r#"{"red","green","blue"}[1]"#).unwrap().as_deref(), Some("green"));
+    // the index is an expression
+    assert_eq!(pick(r#"{"red","green","blue"}[x-1]"#).unwrap().as_deref(), Some("green"));
+    assert!(pick(r#"{"red","green"}[2]"#).is_err());
 }
