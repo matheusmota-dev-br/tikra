@@ -20,6 +20,13 @@ impl Color {
         format!("#{:02x}{:02x}{:02x}", c(self.r), c(self.g), c(self.b))
     }
 
+    /// The color as an xcolor expression that holds it exactly, in xcolor's extended syntax:
+    /// `rgb,1:red,1;green,0.5;blue,0`.
+    pub fn xcolor(&self) -> String {
+        let v = |x: f64| format!("{}", (x.clamp(0.0, 1.0) * 1e4).round() / 1e4);
+        format!("rgb,1:red,{};green,{};blue,{}", v(self.r), v(self.g), v(self.b))
+    }
+
     fn mix(a: Color, b: Color, p: f64) -> Color {
         Color { r: a.r * p + b.r * (1.0 - p), g: a.g * p + b.g * (1.0 - p), b: a.b * p + b.b * (1.0 - p) }
     }
@@ -75,6 +82,19 @@ pub fn parse(expr: &str, defined: &HashMap<String, Color>) -> Option<Color> {
 }
 
 fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
+    // xcolor's extended syntax: `model,div:color,factor;color,factor…`, the colors weighted by their
+    // factors and the sum divided by `div` (the model is the space of the mix: the same in rgb)
+    if let Some((head, mix)) = e.split_once(':') {
+        let div: f64 = head.split_once(',')?.1.trim().parse().ok().filter(|d: &f64| *d > 0.0)?;
+        let mut sum = Color { r: 0.0, g: 0.0, b: 0.0 };
+        for part in mix.split(';') {
+            let (name, factor) = part.rsplit_once(',')?;
+            let c = parse(name, defined)?;
+            let f: f64 = factor.trim().parse().ok()?;
+            sum = Color { r: sum.r + c.r * f, g: sum.g + c.g * f, b: sum.b + c.b * f };
+        }
+        return Some(Color { r: sum.r / div, g: sum.g / div, b: sum.b / div });
+    }
     let parts: Vec<&str> = e.split('!').map(str::trim).collect();
     let lookup = |n: &str| defined.get(n).copied().or_else(|| named(n)).or_else(|| brewer::color(n));
     let mut color = lookup(parts[0])?;
@@ -122,5 +142,18 @@ mod tests {
         assert_eq!(parse("orange!80!black", &d).unwrap().hex(), "#cc6600");
         assert_eq!(parse("gray!20", &d).unwrap().hex(), "#e6e6e6");
         assert_eq!(define("HTML", "FF8800").unwrap().hex(), "#ff8800");
+    }
+
+    #[test]
+    fn extended_syntax_holds_a_color() {
+        let d = HashMap::new();
+        let c = parse("orange!80!black", &d).unwrap();
+        assert_eq!(c.xcolor(), "rgb,1:red,0.8;green,0.4;blue,0");
+        assert_eq!(parse(&c.xcolor(), &d), Some(c));
+        // weights and a divisor, as xcolor mixes them
+        assert_eq!(parse("rgb,2:red,1;blue,1", &d).unwrap().hex(), "#800080");
+        for bad in ["rgb:red,1", "rgb,0:red,1", "rgb,1:red", "rgb,1:nothing,1", "rgb,1:red,x"] {
+            assert_eq!(parse(bad, &d), None, "{bad}");
+        }
     }
 }

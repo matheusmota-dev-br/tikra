@@ -72,7 +72,7 @@ fn tokens_split_as_tex_does() {
     assert_eq!(keys, ["pos", "near end"]);
 }
 
-use tikra::extension::{NodeShape, PathSegment, Point, ShapeBorder, ShapeInput, ShapePaint, ShapePath};
+use tikra::extension::{LineCap, NodeShape, PathSegment, Point, ShapeBorder, ShapeInput, ShapePaint, ShapePath, ShapeText, TextAnchor};
 
 /// `flag`: a pole from the node's point up 1 cm with a triangle at its top, filled with the node's
 /// fill and outlined twice as wide as the lines; a solid dot at the foot. Its anchors are `foot`
@@ -98,12 +98,13 @@ fn flag(cx: &mut Context, input: &ShapeInput) -> Result<NodeShape, Error> {
         border: ShapeBorder::Outline(vec![p(-0.1, 0.0), p(0.6, 0.0), p(0.6, 1.0), p(-0.1, 1.0)]),
         text: p(0.7, 0.5 - input.height / 2.0),
         paths: vec![
-            ShapePath { segments: triangle.clone(), paint: ShapePaint::Fill },
-            ShapePath { segments: vec![PathSegment::MoveTo(p(0.0, 0.0)), PathSegment::LineTo(p(0.0, 1.0))], paint: ShapePaint::Stroke(input.line_width) },
-            ShapePath { segments: triangle, paint: ShapePaint::Stroke(w) },
-            ShapePath { segments: dot, paint: ShapePaint::Solid },
+            ShapePath { segments: triangle.clone(), paint: ShapePaint::Fill, ..Default::default() },
+            ShapePath { segments: vec![PathSegment::MoveTo(p(0.0, 0.0)), PathSegment::LineTo(p(0.0, 1.0))], paint: ShapePaint::Stroke(input.line_width), ..Default::default() },
+            ShapePath { segments: triangle, paint: ShapePaint::Stroke(w), ..Default::default() },
+            ShapePath { segments: dot, paint: ShapePaint::Solid, ..Default::default() },
         ],
         extent: Vec::new(),
+        texts: Vec::new(),
     })
 }
 
@@ -114,8 +115,8 @@ fn post(_cx: &mut Context, _input: &ShapeInput) -> Result<NodeShape, Error> {
     Ok(NodeShape {
         border: ShapeBorder::Rectangle(p(0.5, 0.25)),
         paths: vec![
-            ShapePath { segments: square, paint: ShapePaint::Background },
-            ShapePath { segments: vec![PathSegment::MoveTo(p(-0.5, -0.25)), PathSegment::LineTo(p(0.5, 0.25))], paint: ShapePaint::Stroke(0.05) },
+            ShapePath { segments: square, paint: ShapePaint::Background, ..Default::default() },
+            ShapePath { segments: vec![PathSegment::MoveTo(p(-0.5, -0.25)), PathSegment::LineTo(p(0.5, 0.25))], paint: ShapePaint::Stroke(0.05), ..Default::default() },
         ],
         ..NodeShape::default()
     })
@@ -206,4 +207,169 @@ fn a_library_shape_makes_room_for_its_extent() {
 #[test]
 fn a_library_shape_is_known_only_with_its_library() {
     assert!(!convert(r"\node[shape=flag] {};", &[]).warnings.is_empty());
+}
+
+thread_local! {
+    /// What each `badge` was made from, in this test's thread.
+    static SEEN: std::cell::RefCell<Vec<ShapeInput>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `badge`: a square outlined red, dashed and with round caps; filled blue when the node is
+/// filled; a green background, a solid dot in an unknown color; `+` left of its center and `CLK`
+/// in `\tiny` ending at its right side on the baseline.
+fn badge(_cx: &mut Context, input: &ShapeInput) -> Result<NodeShape, Error> {
+    SEEN.with(|s| s.borrow_mut().push(input.clone()));
+    let p = Point::new;
+    let square =
+        vec![PathSegment::MoveTo(p(-0.5, -0.5)), PathSegment::LineTo(p(0.5, -0.5)), PathSegment::LineTo(p(0.5, 0.5)), PathSegment::LineTo(p(-0.5, 0.5)), PathSegment::Close];
+    let dot = vec![PathSegment::MoveTo(p(0.0, 0.0)), PathSegment::LineTo(p(0.1, 0.0)), PathSegment::LineTo(p(0.1, 0.1)), PathSegment::Close];
+    Ok(NodeShape {
+        border: ShapeBorder::Rectangle(p(0.5, 0.5)),
+        paths: vec![
+            ShapePath { segments: square.clone(), paint: ShapePaint::Background, color: Some("green".into()), ..Default::default() },
+            ShapePath { segments: square.clone(), paint: ShapePaint::Fill, color: Some("blue".into()), ..Default::default() },
+            ShapePath { segments: square, paint: ShapePaint::Stroke(0.02), color: Some("red!50!black".into()), dash: Some(vec![0.1, 0.05]), cap: Some(LineCap::Round) },
+            ShapePath { segments: dot, paint: ShapePaint::Solid, color: Some("no such color".into()), ..Default::default() },
+        ],
+        texts: vec![
+            ShapeText { text: "$+$".into(), at: p(0.0, 0.0), anchor: TextAnchor::East, ..Default::default() },
+            ShapeText { text: "CLK".into(), at: p(2.0, 0.0), anchor: TextAnchor::BaseEast, font: Some("\\tiny".into()) },
+        ],
+        ..NodeShape::default()
+    })
+}
+
+/// `remember`: `\tikramemo` is `\tikzlastnode`, as tokens, everywhere; `\tikrashape` says whether
+/// `transform shape` is on.
+fn remember(cx: &mut Context, _value: Option<Tokens>) -> Result<(), Error> {
+    cx.define_tex("tikramemo", "\\tikzlastnode", true);
+    let on = cx.transform_shape();
+    cx.define_text("tikrashape", if on { "on" } else { "off" }, true);
+    cx.declare_shape("badge", badge);
+    cx.declare_shape("compass", compass);
+    Ok(())
+}
+
+static BADGES: Library = Library { name: "badges", definitions: || String::new(), keys: &[("/tikz/remember", remember)] };
+
+#[test]
+fn a_library_shape_path_has_its_own_color_dash_and_caps() {
+    let r = convert(r"\node[remember, shape=badge, fill=yellow] {};", &[&BADGES]);
+    // the stroke in its color, dashed and round; the fill and background in theirs
+    assert!(r.svg.contains(r##"stroke="#800000""##) && r.svg.contains("stroke-dasharray=\"2.835 1.417\"") && r.svg.contains(r#"stroke-linecap="round""#), "{}", r.svg);
+    assert!(r.svg.contains(r##"fill="#0000ff""##) && r.svg.contains(r##"fill="#00ff00""##), "{}", r.svg);
+    // an unknown color: the node's, with a warning
+    assert!(r.warnings.iter().any(|w| w.contains("no such color")), "{:?}", r.warnings);
+    // not filled: no fill in its color, the background still in its own
+    let plain = convert(r"\node[remember, shape=badge] {};", &[&BADGES]);
+    assert!(!plain.svg.contains(r##"fill="#0000ff""##) && plain.svg.contains(r##"fill="#00ff00""##), "{}", plain.svg);
+    // butt and rect caps, and a solid in the line color
+    assert!(!plain.svg.contains("stroke-linecap=\"square\""));
+}
+
+#[test]
+fn a_library_shape_draws_texts_turned_with_the_node() {
+    let r = convert(r"\node[remember, shape=badge] {};", &[&BADGES]);
+    // two texts besides the node's empty one, in the figure's words
+    assert_eq!(r.svg.matches("<g transform=").count(), 2, "{}", r.svg);
+    assert!(r.svg.contains("CLK"), "{}", r.svg);
+    // `CLK` past the square makes room for itself: the picture is wider than the square
+    let width = |svg: &str| -> f64 { svg.split("viewBox=\"").nth(1).unwrap().split(' ').nth(2).unwrap().parse().unwrap() };
+    assert!(width(&r.svg) > 2.0 * 28.3465, "{}", width(&r.svg));
+    // mirrored with the node: the texts' placement turns too
+    let mirrored = convert(r"\node[remember, shape=badge, xscale=-1] {};", &[&BADGES]);
+    let places = |svg: &str| svg.match_indices("<g transform=\"").map(|(i, _)| svg[i + 14..].split('"').next().unwrap().to_string()).collect::<Vec<_>>();
+    assert_ne!(places(&r.svg), places(&mirrored.svg));
+    assert!(places(&mirrored.svg).iter().all(|p| p.starts_with("matrix(-1")), "{:?}", places(&mirrored.svg));
+}
+
+#[test]
+fn a_library_shape_knows_its_node() {
+    SEEN.with(|s| s.borrow_mut().clear());
+    let r =
+        convert(r"\begin{scope}[name prefix=S-] \node[remember, shape=badge, fill=red!50, draw=blue, xscale=-1] (T1) {}; \end{scope} \node[remember, shape=badge] {};", &[&BADGES]);
+    assert!(r.warnings.iter().all(|w| w.contains("no such color")), "{:?}", r.warnings);
+    let seen = SEEN.with(|s| s.borrow().clone());
+    assert_eq!(seen[0].node.as_deref(), Some("S-T1"));
+    assert_eq!(seen[0].fill.as_deref(), Some("rgb,1:red,1;green,0.5;blue,0.5"));
+    assert_eq!(seen[0].draw.as_deref(), Some("rgb,1:red,0;green,0;blue,1"));
+    assert!(seen[0].transform.a < 0.0, "{:?}", seen[0].transform);
+    assert_eq!((seen[1].node.as_deref(), seen[1].fill.as_deref(), seen[1].draw.as_deref()), (None, None, None));
+    // the colors work as colors again
+    let again = convert(&format!(r"\fill[{{{}}}] (0,0) circle (1);", seen[0].fill.as_deref().unwrap()), &[]);
+    assert!(again.svg.contains(r##"fill="#ff8080""##) && again.warnings.is_empty(), "{:?}", again.warnings);
+    // `transform shape` scales the shape with the picture
+    SEEN.with(|s| s.borrow_mut().clear());
+    convert(r"\begin{scope}[scale=2, transform shape] \node[remember, shape=badge] {}; \end{scope}", &[&BADGES]);
+    assert_eq!(SEEN.with(|s| s.borrow()[0].transform.a), 2.0);
+}
+
+#[test]
+fn a_library_defines_tex_and_knows_transform_shape() {
+    // \tikramemo is \tikzlastnode itself: it names the last node
+    let r = convert(r"\node[remember] (A) at (1,0) {}; \draw[red] (0,0) -- (\tikramemo);", &[&BADGES]);
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    // read where the key runs: on in the first node, off in the second
+    let r = convert(r"\node[transform shape, remember] {\tikrashape}; \node[remember] at (2,0) {\tikrashape};", &[&BADGES]);
+    let words = r.svg.split("<desc").nth(1).unwrap().split("</desc>").next().unwrap().to_string();
+    assert!(words.contains("on") && words.contains("off"), "{words}");
+}
+
+/// Every text anchor, in this order, for `gx` at the origin; strokes with butt and rect caps.
+const ANCHORS: [TextAnchor; 15] = [
+    TextAnchor::Center,
+    TextAnchor::North,
+    TextAnchor::South,
+    TextAnchor::East,
+    TextAnchor::West,
+    TextAnchor::NorthEast,
+    TextAnchor::NorthWest,
+    TextAnchor::SouthEast,
+    TextAnchor::SouthWest,
+    TextAnchor::Base,
+    TextAnchor::BaseEast,
+    TextAnchor::BaseWest,
+    TextAnchor::Mid,
+    TextAnchor::MidEast,
+    TextAnchor::MidWest,
+];
+
+fn compass(_cx: &mut Context, _input: &ShapeInput) -> Result<NodeShape, Error> {
+    let line = vec![PathSegment::MoveTo(Point::new(-1.0, 0.0)), PathSegment::LineTo(Point::new(1.0, 0.0))];
+    Ok(NodeShape {
+        paths: [LineCap::Butt, LineCap::Rect]
+            .into_iter()
+            .map(|c| ShapePath { segments: line.clone(), paint: ShapePaint::Stroke(0.1), cap: Some(c), ..Default::default() })
+            .collect(),
+        texts: ANCHORS.iter().map(|&anchor| ShapeText { text: "gx".into(), anchor, ..Default::default() }).collect(),
+        ..NodeShape::default()
+    })
+}
+
+#[test]
+fn a_library_shape_text_goes_where_its_anchor_says() {
+    let r = convert(r"\node[remember, shape=compass] {};", &[&BADGES]);
+    assert!(r.svg.contains(r#"stroke-linecap="square""#), "{}", r.svg);
+    // where each `gx` starts (the left end of its baseline), in SVG units (y down), all for one point
+    let at: Vec<(f64, f64)> = r
+        .svg
+        .match_indices("<g transform=\"translate(")
+        .map(|(i, _)| {
+            let v: Vec<f64> = r.svg[i + 24..].split(')').next().unwrap().split(' ').map(|n| n.parse().unwrap()).collect();
+            (v[0], v[1])
+        })
+        .collect();
+    assert_eq!(at.len(), 15, "{}", r.svg);
+    let a = |k: TextAnchor| at[ANCHORS.iter().position(|&x| x == k).unwrap()];
+    use TextAnchor::*;
+    // west of the point, the box starts there; east, it ends there; centered between
+    let x0 = a(West).0;
+    for (w, c, e) in [(West, Center, East), (NorthWest, North, NorthEast), (SouthWest, South, SouthEast), (BaseWest, Base, BaseEast), (MidWest, Mid, MidEast)] {
+        assert!(a(w).0 == x0 && a(e).0 < a(c).0 && a(c).0 < x0 && ((a(c).0 - x0) * 2.0 - (a(e).0 - x0)).abs() < 2e-3, "{w:?} {c:?} {e:?}: {at:?}");
+        assert!(a(w).1 == a(c).1 && a(c).1 == a(e).1, "{at:?}");
+    }
+    // the baseline below the point by the height for north, half of height less depth for center,
+    // half an ex for mid, not at all for base, above it by the depth for south (y down)
+    assert!(a(North).1 > a(Center).1 && a(North).1 > a(Mid).1 && a(Mid).1 > a(Base).1 && a(Center).1 > a(Base).1 && a(Base).1 > a(South).1, "{at:?}");
+    assert!(a(Mid).1 != a(Center).1, "{at:?}");
 }

@@ -178,12 +178,8 @@ pub enum Usage {
     LineFill,
     /// stroked as the node's lines are, with these caps and joins (an arrow tip the shape draws)
     TipStroke(crate::canvas::Cap, crate::canvas::Join),
-    /// stroked as the node's lines are but this wide (a library's shape)
-    StrokeWidth(f64),
-    /// filled with the node's fill, never stroked (a library's shape)
-    NodeFill,
-    /// filled with the node's fill, or white without one (a library's shape)
-    NodeBackground,
+    /// a library's shape's path: painted as it says, in its color, dash pattern and caps if it has them
+    Library { paint: crate::extension::ShapePaint, color: Option<String>, dash: Option<Vec<f64>>, cap: Option<crate::extension::LineCap> },
 }
 
 #[derive(Debug, Clone)]
@@ -193,13 +189,16 @@ pub struct ShapePath {
     pub usage: Usage,
 }
 
-/// A text that a shape typesets itself (an IEC gate's symbol): TeX, where the origin of its box goes,
-/// and its color if not the node's.
+/// A text that a shape typesets itself (an IEC gate's symbol, a library's texts): TeX, where the
+/// origin of its box goes (or, with an anchor, that point of its box), its color if not the node's
+/// and its font if not the node's.
 #[derive(Debug, Clone)]
 pub struct ShapeText {
     pub tex: String,
     pub at: Point,
     pub color: Option<String>,
+    pub anchor: Option<crate::extension::TextAnchor>,
+    pub font: Option<String>,
 }
 
 /// A shape, computed for one node, in the node's coordinate system.
