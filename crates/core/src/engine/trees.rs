@@ -196,7 +196,8 @@ impl Engine {
             statement.extend(body);
         }
         statement.extend(tikra_tokens(";"));
-        self.tree_edge_out = None;
+        // the parent's own `edge from parent[…]`, read before this child, waits for it to finish
+        let outer = self.tree_edge_out.take();
         self.tree_child_names.push(None);
         let r = self.run_tokens(statement);
         let named = self.tree_child_names.pop().flatten().filter(|n| !n.is_empty());
@@ -204,7 +205,7 @@ impl Engine {
         let child_name = named.unwrap_or_else(|| format!("{parent}-{k}"));
         self.tex.set_meaning(&Token::cs("tikzchildnode"), macro_from(&child_name), false);
         // the edge from the parent, in the parent's coordinate system
-        let (edge_options, edge_nodes) = self.tree_edge_out.take().unwrap_or_default();
+        let (edge_options, edge_nodes) = std::mem::replace(&mut self.tree_edge_out, outer).unwrap_or_default();
         let pa = self.st.parent_anchor.clone();
         let ca = self.st.child_anchor.clone();
         self.tex.define_string("tikzparentanchor", &pa, false);

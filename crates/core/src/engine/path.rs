@@ -652,6 +652,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "cycle" => {
                         if let Some(p0) = b.subpath_start {
                             if let Some(op) = pending_op.take() {
+                                let start = b.segs.len();
                                 // `-| cycle`: by the corner, then closed
                                 if op == "-|" || op == "|-" {
                                     let a = b.point();
@@ -661,6 +662,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 }
                                 let from = b.point();
                                 b.segs.push(Segment::Close);
+                                snake(e, b, start)?;
                                 b.last = Some(OnPath::Segment(from, None, p0));
                                 b.current = Some(Coord { p: p0, node: None });
                                 place_mid_nodes(e, b, Some(0.5))?;
@@ -674,7 +676,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             continue;
                         }
                         let r = target(e, b, depth, "rectangle")?;
+                        let start = b.segs.len();
                         rectangle_to(e, b, r);
+                        snake(e, b, start)?;
                         pending_op = None;
                         place_mid_nodes(e, b, Some(0.5))?;
                     }
@@ -871,12 +875,15 @@ fn skip_rest(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
 fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts: Vec<Token>, r: Coord) -> Result<(), Error> {
     match op.as_deref() {
         Some("--") => {
+            let start = b.segs.len();
             line_to(e, b, r);
+            snake(e, b, start)?;
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("-|") | Some("|-") => {
             let a = b.point();
             let corner = if op.as_deref() == Some("-|") { Point::new(r.p.x, a.y) } else { Point::new(a.x, r.p.y) };
+            let first = b.segs.len();
             let touched = e.facts.touched.take();
             line_to(e, b, Coord { p: corner, node: None });
             e.facts.touched = touched;
@@ -892,11 +899,14 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
             };
             // pos runs along both legs: 0.5, the default, is the corner
             b.last = Some(OnPath::Corner(start, corner, end));
+            snake(e, b, first)?;
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("to") => to(e, b, to_opts, r)?,
         Some("rectangle") => {
+            let start = b.segs.len();
             rectangle_to(e, b, r);
+            snake(e, b, start)?;
             place_mid_nodes(e, b, Some(0.5))?;
         }
         _ => {
@@ -963,6 +973,49 @@ fn line_to(e: &mut Engine, b: &mut Builder, r: Coord) {
     b.last = Some(OnPath::Segment(pa, None, pb));
     note_link(e, b, &r);
     b.current = Some(r);
+}
+
+/// `snake=…`: each straight line the path got from `start` on (a closing one too) becomes that
+/// decoration of it, as the snakes library does with each line.
+fn snake(e: &mut Engine, b: &mut Builder, start: usize) -> Result<(), Error> {
+    let Some(name) = e.st.snake.clone() else { return Ok(()) };
+    let added = b.segs.split_off(start.min(b.segs.len()));
+    let end = |s: &Segment| match s {
+        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+        Segment::Close => None,
+    };
+    let mut first = b.segs.iter().rev().find_map(|s| if let Segment::MoveTo(p) = s { Some(*p) } else { None });
+    let mut at = b.segs.last().and_then(end).or(first);
+    e.begin_group();
+    e.st.snake = None;
+    e.st.decoration.name = Some(name);
+    let r = (|| {
+        for s in added {
+            let target = match s {
+                Segment::LineTo(p) => p,
+                Segment::Close => first.unwrap_or_default(),
+                other => {
+                    if let Segment::MoveTo(p) = other {
+                        first = Some(p);
+                    }
+                    at = end(&other).or(at);
+                    b.segs.push(other);
+                    continue;
+                }
+            };
+            let from = at.unwrap_or(target);
+            let decorated = e.decorate_segments(&[Segment::MoveTo(from), Segment::LineTo(target)], None)?;
+            // the decoration goes on from where the path is, in the same subpath
+            b.segs.extend(decorated.into_iter().skip_while(|d| matches!(d, Segment::MoveTo(p) if p.minus(from).norm() < 1e-9)));
+            if matches!(s, Segment::Close) {
+                b.segs.push(Segment::Close);
+            }
+            at = Some(target);
+        }
+        Ok(())
+    })();
+    e.end_group();
+    r
 }
 
 fn curve_to(e: &mut Engine, b: &mut Builder, c1: Point, c2: Point, r: Coord) {
@@ -1109,8 +1162,9 @@ fn to_path(e: &mut Engine, b: &mut Builder, r: Coord) -> Result<(), Error> {
         return operations(e, b, None);
     }
     if !e.st.to.curve {
+        let start = b.segs.len();
         line_to(e, b, r);
-        return Ok(());
+        return snake(e, b, start);
     }
     e.process_keys(tikra_tokens("every curve to/.try"), Some("/tikz"))?;
     let (start, c1, c2, end) = to_curve(e, &from, &r)?;
@@ -1943,8 +1997,8 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
             Some(t) if t.is_char('(') => {
                 let tokens = read_coordinate_tokens(e)?;
                 let name = Token::cs(&var);
-                for k in 0..n {
-                    let v = d0 + (d1 - d0) * k as f64 / (n - 1) as f64;
+                let values = e.st.samples_at.clone().unwrap_or_else(|| (0..n).map(|k| d0 + (d1 - d0) * k as f64 / (n - 1) as f64).collect());
+                for v in values {
                     e.tex.set_meaning(&name, macro_from(&super::pgf_number(v)), false);
                     let text = e.math_string(tokens.clone())?;
                     match e.coordinate(&text) {

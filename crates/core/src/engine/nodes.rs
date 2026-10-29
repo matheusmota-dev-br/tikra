@@ -43,6 +43,9 @@ pub struct NodeSetup {
     pub fit_rotate: f64,
     /// `circle through`: the point on the circle (canvas)
     pub through: Option<Point>,
+    /// `right of=a` and its kin: their direction, the node distance they shifted by, and the
+    /// pending transformation right after their shift
+    pub old_of: Vec<(Point, f64, Transform)>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -538,6 +541,13 @@ impl Engine {
         let outer_name_path = self.st.name_path.clone();
         self.process_keys(tikra_tokens("every node/.try"), Some("/tikz"))?;
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
+        // `right of=a` shifts by the node distance the node ends up with, given after it too: each
+        // shift is redone with it, in its place among the transformations
+        for (u, d0, after) in std::mem::take(&mut self.st.node.old_of).into_iter().rev() {
+            let d = super::options::node_distance(self)?.0;
+            let shift = Transform::translation(u.x * (d - d0), u.y * (d - d0));
+            self.st.pending = after.compose(&shift).compose(&after.inverse()).compose(&self.st.pending);
+        }
         // the node begin hook: a node on a chain takes its place and names there
         let (chain_names, joins) = self.chain_node_found()?;
         let mut after = std::mem::take(&mut self.st.after_node_path);
@@ -1107,17 +1117,12 @@ impl Engine {
                 }
             }
         }
-        // `pin edge={…}`: options of the pin's edge, not of its label
-        let mut edge_options = Vec::new();
         let items = keys::split_list(&opts);
-        let taken = |i: &keys::Item| (i.value.is_none() && directions.contains(&i.key.as_str())) || i.key == "pin edge";
+        let taken = |i: &keys::Item| i.value.is_none() && directions.contains(&i.key.as_str());
         if items.iter().any(taken) {
             let mut rest = Vec::new();
             for i in items {
-                if i.key == "pin edge" {
-                    edge_options.push(Token::other(','));
-                    edge_options.extend(i.value.unwrap_or_default());
-                } else if i.value.is_none() && directions.contains(&i.key.as_str()) {
+                if i.value.is_none() && directions.contains(&i.key.as_str()) {
                     if i.key != "direction shorthands" {
                         given = Some(i.key.clone());
                     }
@@ -1179,16 +1184,20 @@ impl Engine {
         };
         let mut options = tikra_tokens(&format!("every {}/.try,anchor={anchor},", if pin { "pin" } else { "label" }));
         options.extend(opts);
+        // `pin edge={…}` among the label's options or styles sets the options of its edge, the
+        // last one given winning
+        self.tex.set_meaning(&Token::cs("tikra@pinedge"), super::macro_from(""), true);
         let items = self.node(NodeSpec { options, name: None, at: Some(at), text: text_tokens, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         if pin {
             // the pin edge: an edge from the node to the pin's label (arrows, decorations…)
             let Some(label) = self.last_node.clone() else { return Ok(items) };
+            let edge_options = super::spy::macro_body(self, "tikra@pinedge");
             let saved = (self.last_node.clone(), self.last_node_name.clone());
             self.nodes.insert("tikra@pin@node".into(), info.clone());
             self.nodes.insert("tikra@pin@label".into(), label);
             self.begin_group();
             self.st.transform = Transform::default();
-            let mut path = tikra_tokens("\\path (tikra@pin@node) edge[every pin edge/.try");
+            let mut path = tikra_tokens("\\path (tikra@pin@node) edge[every pin edge/.try,");
             path.extend(edge_options);
             path.extend(tikra_tokens("] (tikra@pin@label);"));
             let r = self.run_tokens(path);

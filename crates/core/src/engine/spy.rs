@@ -51,7 +51,7 @@ pub const DEFINITIONS: &str = r"
 ";
 
 /// The text of a parameterless macro (`\tikz@lib@spy@lens`), as tokens.
-fn macro_body(e: &Engine, name: &str) -> Vec<Token> {
+pub(super) fn macro_body(e: &Engine, name: &str) -> Vec<Token> {
     match e.tex.meaning_of(name) {
         Meaning::Macro(m) => tex::substitute(&m.body, &[]),
         _ => Vec::new(),
