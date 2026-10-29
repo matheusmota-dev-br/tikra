@@ -65,6 +65,7 @@
       </div>
       <div class="params" id="params" aria-label="Numbers in the code" hidden></div>
       <div class="chips" id="chips" aria-label="Examples"></div>
+      <div class="chips drag-chips" id="drag-chips" aria-label="Examples to drag"><span>Drag on the figure</span></div>
     </div>
 
     <div class="card out">
@@ -85,6 +86,7 @@
         <button class="button" id="download-video" type="button" hidden>Download video</button>
         <button class="button" id="download" type="button">Download SVG</button>
         <button class="button" id="download-animated" type="button">Animated SVG</button>
+        <button class="button" id="download-interactive" type="button" hidden title="One HTML file: drag the figure's named points, no network needed">Interactive HTML</button>
         <button class="button" id="download-png" type="button">Download PNG</button>
         <button class="button" id="copy-svg" type="button">Copy SVG</button>
         <button class="button" id="copy-link" type="button">Copy link</button>
@@ -235,6 +237,8 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
 <script src="pkg/corpus.js"></script>
 <script src="animate.js"></script>
 <script src="params.js"></script>
+<script src="interactive.js"></script>
+<script src="interactive-page.js"></script>
 <script src="pkg/conformance.js"></script>
 <script>
 (function () {
@@ -319,7 +323,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   // the figure building itself in a loop, until it is stopped or the code changes
   let stopLoop = null;
   function stopAnimation() {
-    if (stopLoop) { stopLoop(); stopLoop = null; }
+    if (stopLoop) { stopLoop(); stopLoop = null; interactive?.show(); }
     $("animate").textContent = "▶ Animate";
   }
 
@@ -353,11 +357,12 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   function goToStep(k) {
     if (!stepped) return;
     stopAnimation();
+    interactive?.stop({ redraw: false });
     k = Math.max(0, Math.min(stepped.count, k));
     $("step").value = String(k);
     showStep(k);
     // the whole figure is the plain SVG; a part of it, the numbered one with the rest hidden
-    if (k === stepped.count) { preview.innerHTML = last.svg; return; }
+    if (k === stepped.count) { showFigure(); return; }
     if (!preview.querySelector("svg[data-steps]")) preview.innerHTML = stepped.svg;
     for (const el of preview.querySelectorAll("[data-step]")) el.style.visibility = Number(el.dataset.step) < k ? "" : "hidden";
   }
@@ -365,6 +370,22 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   // a slider for each number the code defines (\def\r{0.7}): moving it writes the number in the
   // code, and the figure follows
   let refreshParams = () => {};
+
+  // the figure in the preview: with a handle on each point the code names (\coordinate (tip) …)
+  // that its numbers move, dragged to change them; the plain SVG otherwise
+  let interactive = null;
+  function showFigure() {
+    if (interactive?.update(tex.value)) return;
+    interactive?.destroy();
+    interactive = null;
+    if (last.points?.length && tikraParams.find(tex.value).length) {
+      try {
+        interactive = tikraInteractive.mount(preview, { code: tex.value, render: (c) => convert(c), change: (c) => { tex.value = c; update(); } });
+        return;
+      } catch { interactive = null; }
+    }
+    preview.innerHTML = last.svg;
+  }
 
   function update() {
     highlight();
@@ -374,7 +395,8 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     refreshParams();
     try {
       last = convert(tex.value);
-      preview.innerHTML = last.svg;
+      showFigure();
+      $("download-interactive").hidden = !interactive;
       scheduleStats();
       scheduleSteps();
       for (const w of last.warnings) {
@@ -385,6 +407,9 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       }
     } catch (e) {
       last = null;
+      interactive?.destroy();
+      interactive = null;
+      $("download-interactive").hidden = true;
       scheduleSteps();
       preview.innerHTML = tex.value.trim() ? "" : '<span class="status">Type some TikZ on the left.</span>';
       if (tex.value.trim()) {
@@ -421,9 +446,11 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     panel.innerHTML = `<pre>${escape(last.svg)}</pre>`;
   }
 
+  // an example: when its points can be dragged, it shows itself being dragged until touched
   function load(src) {
     tex.value = src;
     update();
+    interactive?.play();
   }
 
   function flash(button, label) {
@@ -489,6 +516,14 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   showInstall(0);
   $("install-copy").onclick = async (e) => { await navigator.clipboard.writeText($("install-cmd").textContent); flash(e.target, "Copied"); };
 
+  // the figures whose numbers move a point they name: dragged on the figure itself
+  for (const figure of CORPUS.filter((f) => f.topic === "parameters" && /\\coordinate\s*\(/.test(f.tex))) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = caption(figure.name);
+    b.onclick = () => load(figure.tex);
+    $("drag-chips").append(b);
+  }
   for (const name of CHIPS) {
     const figure = CORPUS.find((f) => f.name === name);
     if (!figure) continue;
@@ -508,6 +543,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   $("animate").onclick = () => {
     if (stopLoop) return stopAnimation();
     if (!last) return;
+    interactive?.stop({ redraw: false });
     if (stepped) { $("step").value = String(stepped.count); showStep(stepped.count); }
     stopLoop = tikraAnimation.loop(preview, convert(tex.value, true).svg, last.svg);
     $("animate").textContent = "■ Stop";
@@ -549,6 +585,23 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   // the SVG that builds itself, with its own play button and bar to drag
   $("download-animated").onclick = () => {
     if (last) save(new Blob([tikraAnimation.withControls(convert(tex.value, true).svg)], { type: "image/svg+xml" }), "figure-animated.svg");
+  };
+  // the figure as one HTML file, its points dragged, tikra inside: the page's own scripts, read
+  // back over HTTP (a page opened from disk cannot read them)
+  $("download-interactive").onclick = async (e) => {
+    if (!last) return;
+    const b = e.target;
+    b.disabled = true;
+    try {
+      const text = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(url); return r.text(); };
+      const [glue, wasm, params, script] = await Promise.all(["pkg/tikra_wasm.js", "pkg/tikra_wasm_bytes.js", "params.js", "interactive.js"].map(text));
+      const html = tikraInteractivePage({ code: interactive?.code() ?? tex.value, title: last.alt, glue, wasm, params, interactive: script });
+      save(new Blob([html], { type: "text/html" }), "figure-interactive.html");
+    } catch {
+      alert("The interactive HTML is made from the page's own files: open the page over HTTP (serve site/), not from disk.");
+    } finally {
+      b.disabled = false;
+    }
   };
   $("download-png").onclick = () => {
     if (!last) return;

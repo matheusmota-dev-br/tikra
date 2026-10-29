@@ -456,6 +456,26 @@ fn turned_and_scaled_boxes_in_a_label() {
 }
 
 #[test]
+fn named_points_in_the_svg() {
+    // a coordinate, a node and one named twice (the last place wins), in the SVG's own units
+    let out = no_warnings(r"\begin{tikzpicture}[scale=2]\coordinate (a) at (1,2); \node (b) at (-1,0) {b}; \coordinate (a) at (3,1); \fill (a) circle (1pt);\end{tikzpicture}");
+    let names: Vec<&str> = out.points.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["a", "b"]);
+    let (a, b) = (&out.points[0], &out.points[1]);
+    // the circle drawn at (a) starts at its center (a move to it, then the circle around)
+    let d = out.svg.split(r#"<path d="M"#).last().unwrap();
+    let xy: Vec<f64> = d.split([' ', 'M']).filter_map(|t| t.parse().ok()).take(2).collect();
+    assert!((xy[0] - a.x).abs() < 0.01 && (xy[1] - a.y).abs() < 0.01, "{a:?} {xy:?}");
+    // from (a) to (b): 8 cm left and 2 cm down, y down in SVG
+    let cm = 72.0 / 2.54;
+    assert!((b.x - a.x + 8.0 * cm).abs() < 1e-3 && (b.y - a.y - 2.0 * cm).abs() < 1e-3, "{a:?} {b:?}");
+    // the origin: (a) is (6 cm, 2 cm) from it
+    assert!((a.x - out.origin.0 - 6.0 * cm).abs() < 1e-3 && (a.y - out.origin.1 + 2.0 * cm).abs() < 1e-3, "{a:?} {:?}", out.origin);
+    // a figure with no names has none
+    assert!(no_warnings(r"\tikz \draw (0,0) -- (1,1);").points.is_empty());
+}
+
+#[test]
 fn a_matrix_cell_reads_named_points_in_its_own_coordinates() {
     // TeX sets each cell at the origin and moves it afterwards: (A), from outside, is A in the cell;
     // (B), from the first cell, is where it was in that cell. Values from TeX Live 2025, in cm.

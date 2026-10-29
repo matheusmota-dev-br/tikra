@@ -161,6 +161,13 @@ pub struct Canvas {
     pub local: Vec<(Option<Point>, Option<Point>)>,
     /// `overlay` is on: nothing grows the bounding box.
     pub overlay: bool,
+    /// Every node and coordinate the author named, where its center is (cm), in the order they
+    /// were placed: the points a page can hang handles, hints or answers on. They move with the
+    /// picture when it is set on the page.
+    pub named: Vec<(String, Point)>,
+    /// Where the first picture's origin was set on the page (cm): each picture is moved so that
+    /// its box starts where the line does.
+    pub origin: Option<Point>,
     /// `\pagecolor`: painted behind the figure, margin included.
     pub page_color: Option<Color>,
 }

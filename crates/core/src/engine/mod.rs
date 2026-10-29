@@ -2901,6 +2901,8 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                         it.translate(d);
                         out.items.push(it);
                     }
+                    out.named.extend(b.canvas.named.iter().map(|(n, p)| (n.clone(), p.plus(d))));
+                    out.origin.get_or_insert(d);
                     // (what glue moved left of the line's start, `\hskip-1cm`, is off the page)
                     out.include(Point::new((min.x + d.x).max(0.0), min.y + d.y));
                     out.include(max.plus(d));

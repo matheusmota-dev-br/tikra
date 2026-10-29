@@ -841,6 +841,9 @@ impl Engine {
         }
         // the last node, for trees (labels below do not count)
         let registered = name.as_ref().map(|n| format!("{}{n}", self.st.name_prefix));
+        if let Some(n) = &registered {
+            self.canvas.named.push((n.clone(), info.center()));
+        }
         if self.facts.mute == 0 && shape != "coordinate" {
             // with the texts a library's shape draws (a chip's pin names)
             let own = info.geometry.texts.iter().filter(|t| t.anchor.is_some()).map(|t| t.tex.as_str());

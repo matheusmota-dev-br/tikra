@@ -6,7 +6,8 @@
   \draw[->] (-0.2,0) -- (8.6,0) node[right] {$x$};
   \draw[->] (0,-0.2) -- (0,4.2) node[above] {$y$};
   \draw[orange!80!black, very thick, domain=0:\range, samples=80] plot (\x, {\x*tan(\ang) - 9.8*\x*\x/(2*\v*\v*cos(\ang)*cos(\ang))});
-  \draw[->, thick] (0,0) -- (\ang:{\v/6}) node[above] {$v$};
+  \coordinate (velocity) at (\ang:{\v/6}); % its tip: drag it to change the angle and the speed
+  \draw[->, thick] (0,0) -- (velocity) node[above] {$v$};
   \draw (0.6,0) arc (0:\ang:0.6);
   \node[right] at ({\ang/2}:0.6) {$\theta$};
   \fill (\range,0) circle (1.5pt) node[below] {$R$};
