@@ -583,7 +583,11 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 e.end_group();
                 if let Some(c) = b.groups.pop() {
                     if local {
-                        b.current = c;
+                        // the path goes on from there: a move, when the group went elsewhere
+                        match c {
+                            Some(c) if b.current.as_ref().is_some_and(|now| now.p != c.p) => b.move_to(c),
+                            c => b.current = c,
+                        }
                     }
                 }
             }
