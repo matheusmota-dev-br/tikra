@@ -19,6 +19,13 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `\tikzstyle name=[options]` with the name not in braces, as `\tikzstyle directed=[…]` (#75).
 - `dash pattern=on5pt off3pt`: no space is needed after `on` and `off` (#76).
 - `right of=a` and its kin shift by a `node distance` given after them in the same options too (#77).
+- pgfmath functions without parentheses, read as TeX reads them: `sin 30`, `cos \x`, `sin 2*30` (sin(2) times 30), `sin 30^2` (#59).
+- An array of strings in pgfmath, `{"orange","blue"}[\i]`, gives the string in `\pgfmathparse` and `\pgfmathsetmacro` (#60).
+- Lengths in an expression count in points, as pgfmath counts them: `1/10pt` is 0.1pt (it was 2.8cm) and `3pt*2cm` is 170.7pt (#61).
+- pgfmath's inner commands, `\pgfmathadd@`, `\pgfmathmultiply@`, `\pgfmathsin@`…, used with `\makeatletter` (#62).
+- pgfmath's random numbers: `random()`, `random(m)` and `random(a,b)` from the same seed as TeX, `\pgfmathrand` and `\pgfmathrnd` (also inside a point argument, before the point), `\pgfmathrandominteger`, `\pgfmathdeclarerandomlist` and `\pgfmathrandomitem` (#63).
+- `\pgfdecorationsegmentaspect` in decoration code: the value of `aspect` (#64).
+- `join=with a by {options}`: the braces only group the options (#65).
 
 ## 1.7.0 - 2026-10-29
 

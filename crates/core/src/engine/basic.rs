@@ -456,6 +456,13 @@ impl Engine {
                         self.tex.expand(&t, &m)?;
                         continue;
                     }
+                    // pgfmath's computations before the point run first
+                    if let Meaning::Native(id) = m {
+                        if Engine::is_pgfmath(id) {
+                            self.command(id, &t)?;
+                            continue;
+                        }
+                    }
                     return Err(Error::Figure(format!("not a point: {}", tex::show_token(&t))));
                 }
             }

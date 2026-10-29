@@ -75,8 +75,21 @@ fn eval_at(text: &str, vars: &Variables, depth: usize) -> Result<f64, Error> {
     eval_units(text, vars, depth).map(|(v, _)| v)
 }
 
-/// The value, and whether a unit appeared in the expression (pgfmath's "units declared").
+/// The value, and whether a unit appeared in the expression (pgfmath's "units declared"). With
+/// units, the value is in cm unless `vars.in_pt`.
 fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool), Error> {
+    let (v, units) = eval_pt(text, vars, depth)?;
+    if !units || vars.in_pt {
+        return Ok((v, units));
+    }
+    // back to cm, without the rounding error of the way through pt (`14cm` is 14, not 13.999…)
+    let cm = v * crate::PT;
+    Ok(((cm * 1e9).round() / 1e9, units))
+}
+
+/// The value with lengths in pt, as pgfmath computes it: a length is its number of pt, so `1/10pt`
+/// is 0.1 and `3pt*2cm` is 3 times 56.9 (pt, since units appeared).
+fn eval_pt(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool), Error> {
     let mut p = Parser { c: text.chars().collect(), pos: 0, vars, depth, units: false };
     p.skip_spaces();
     let v = p.ternary()?;
@@ -90,24 +103,36 @@ fn eval_units(text: &str, vars: &Variables, depth: usize) -> Result<(f64, bool),
 /// pgfmath's strings: `cond ? "pink" : "purple!50"` is `pink` or `purple!50`. `Some` when the value
 /// the expression picks is a quoted string; `None` for one without quotes (evaluated as a number).
 pub fn eval_string(text: &str, vars: &Variables) -> Result<Option<String>, Error> {
-    let mut t = text.trim();
-    // each `?` picks one side, so a chain of them is walked in a loop, without recursion
+    let mut t = text.trim().to_string();
+    // each `?` and each array picks one part, so a chain of them is walked in a loop, without recursion
     loop {
         if !t.contains('"') {
             return Ok(None);
         }
         // `(0 ? "red" : "green")`: parentheses around the whole of it
         if let Some(inner) = t.strip_prefix('(').and_then(|r| r.strip_suffix(')')).filter(|i| balanced(i)) {
-            t = inner.trim();
+            t = inner.trim().to_string();
             continue;
         }
         if let Some(inner) = t.strip_prefix('"').and_then(|r| r.strip_suffix('"')).filter(|i| !i.contains('"')) {
             return Ok(Some(inner.to_string()));
         }
-        let Some((q, c)) = top_ternary(t) else {
+        // `{"red", "blue"}[1]`: an array of strings, indexed
+        if t.starts_with('{') {
+            let mut p = Parser { c: t.chars().collect(), pos: 0, vars, depth: 0, units: false };
+            if let Some(end) = p.array_end() {
+                let element = p.array_element(end)?;
+                p.skip_spaces();
+                if p.pos == p.c.len() {
+                    t = element;
+                    continue;
+                }
+            }
+        }
+        let Some((q, c)) = top_ternary(&t) else {
             return Err(Error::Expression(format!("a string where a number is expected: '{t}'")));
         };
-        t = if eval(&t[..q], vars)? != 0.0 { t[q + 1..c].trim() } else { t[c + 1..].trim() };
+        t = if eval(&t[..q], vars)? != 0.0 { t[q + 1..c].trim() } else { t[c + 1..].trim() }.to_string();
     }
 }
 
@@ -388,9 +413,23 @@ impl Parser<'_> {
         None
     }
 
+    /// The value of `text`, a part of this expression (an array's element, a declared function's
+    /// body), its lengths in pt.
+    fn sub(&mut self, text: &str, vars: &Variables) -> Result<f64, Error> {
+        let (v, units) = eval_pt(text, vars, self.depth + 1)?;
+        self.units |= units;
+        Ok(v)
+    }
+
     /// The array from here to `end` indexed by the `[…]` after it (from 0), one array in another
     /// for each index: the value of the element.
     fn index_array(&mut self, end: usize) -> Result<f64, Error> {
+        let element = self.array_element(end)?;
+        self.sub(&element, self.vars)
+    }
+
+    /// The text of the element that the indices after the array (from here to `end`) pick.
+    fn array_element(&mut self, end: usize) -> Result<String, Error> {
         let mut element: String = self.c[self.pos..end].iter().collect();
         self.pos = end;
         loop {
@@ -423,7 +462,7 @@ impl Parser<'_> {
             }
             element = items.get(i.max(0.0) as usize).ok_or_else(|| Error::Expression(format!("index {i} out of the array '{inner}'")))?.trim().to_string();
         }
-        eval_at(&element, self.vars, self.depth + 1)
+        Ok(element)
     }
 
     fn atom(&mut self) -> Result<f64, Error> {
@@ -466,7 +505,7 @@ impl Parser<'_> {
                 if let Some(f) = unit_cm_in(&rest, self.vars) {
                     if !self.c.get(self.pos + 2).is_some_and(|c| c.is_ascii_alphabetic()) {
                         self.pos += 2;
-                        v *= f;
+                        v *= if self.vars.in_pt { f } else { f / crate::PT };
                         self.units = true;
                     }
                 }
@@ -505,7 +544,14 @@ impl Parser<'_> {
                     }
                     // a function without arguments: declared (`declare function={C=4;}`) or pgfmath's
                     if let Some(body) = self.vars.functions.get(&name).filter(|f| f.0.is_empty()).map(|f| f.1.clone()) {
-                        return eval_at(&body, self.vars, self.depth + 1);
+                        return self.sub(&body, self.vars);
+                    }
+                    // `sin 30`, `cos \x`: the function of the operand after it, sign included
+                    // (`sin 2*30` is sin(2) times 30, `sin 30^2` is sin(30) squared)
+                    if ONE_ARGUMENT.contains(&name.as_str()) {
+                        let units_before = self.units;
+                        let a = self.unary()?;
+                        return self.call(&name, vec![a], units_before);
                     }
                     return match name.as_str() {
                         "rand" => Ok(pseudo_random_signed()),
@@ -520,8 +566,13 @@ impl Parser<'_> {
                 }
                 self.pos += 1;
                 let units_before = self.units;
-                let mut args = vec![self.ternary()?];
                 self.skip_spaces();
+                let mut args = Vec::new();
+                // `random()` has no argument
+                if !(name == "random" && self.peek() == Some(')')) {
+                    args.push(self.ternary()?);
+                    self.skip_spaces();
+                }
                 while self.peek() == Some(',') {
                     self.pos += 1;
                     args.push(self.ternary()?);
@@ -531,106 +582,163 @@ impl Parser<'_> {
                     return Err(Error::Expression(format!("missing ')' in {name}(…)")));
                 }
                 self.pos += 1;
-                if let Some((params, body)) = self.vars.functions.get(&name).cloned() {
-                    let mut locals = self.vars.clone();
-                    for (p, v) in params.iter().zip(&args) {
-                        locals.insert(p.clone(), *v);
-                    }
-                    return eval_at(&body, &locals, self.depth + 1);
-                }
-                let rad = self.vars.trig_rad;
-                // the argument of a trigonometric function, in degrees; an angle given back
-                let deg = |x: f64| if rad { x.to_degrees() } else { x };
-                let angle = |x: f64| if rad { x.to_radians() } else { x };
-                let g = |x: f64| deg(x).to_radians();
-                let a = args[0];
-                if rad {
-                    match name.as_str() {
-                        "sin" | "cos" | "sec" | "cosec" => {
-                            return Ok(match name.as_str() {
-                                "sin" => sin_degrees(deg(a)),
-                                "cos" => cos_degrees(deg(a)),
-                                "sec" => 1.0 / sin_degrees(deg(a) + 90.0),
-                                _ => 1.0 / sin_degrees(deg(a)),
-                            })
-                        }
-                        "asin" | "acos" | "atan" | "atan2" => {
-                            return Ok(angle(match name.as_str() {
-                                "asin" => a.asin().to_degrees(),
-                                "acos" => a.acos().to_degrees(),
-                                "atan" => a.atan().to_degrees(),
-                                _ => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
-                            }))
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(match name.as_str() {
-                    "sin" => sin_degrees(a),
-                    "cos" => cos_degrees(a),
-                    "tan" => g(a).tan(),
-                    "asin" => a.asin().to_degrees(),
-                    "acos" => a.acos().to_degrees(),
-                    "atan" => a.atan().to_degrees(),
-                    "atan2" => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
-                    "sqrt" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a),
-                    "sqrt" => a.sqrt(),
-                    "abs" => a.abs(),
-                    "exp" if self.vars.fpu => crate::engine::pgfplots::fpu::exp(a),
-                    "exp" => a.exp(),
-                    "ln" => a.ln(),
-                    "log10" => a.log10(),
-                    "floor" => a.floor(),
-                    "ceil" => a.ceil(),
-                    "round" => a.round(),
-                    "deg" => a.to_degrees(),
-                    "rad" => a.to_radians(),
-                    "min" => args.iter().copied().fold(f64::INFINITY, f64::min),
-                    "max" => args.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-                    "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
-                    "mod" => a % args.get(1).copied().unwrap_or(1.0),
-                    // `Mod` never negative: Mod(-7,3) = 2, where mod(-7,3) = -1
-                    "Mod" => a.rem_euclid(args.get(1).copied().unwrap_or(1.0)),
-                    // the fpu's veclen is its sqrt(a^2 + b^2)
-                    "veclen" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a * a + args.get(1).map_or(0.0, |b| b * b)),
-                    "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
-                    // n! of the integer part, as pgfmath has it
-                    "factorial" => (1..=a.trunc().max(0.0) as u64).map(|k| k as f64).product(),
-                    // pgfmath's hyperbolic and other functions
-                    "sinh" => a.sinh(),
-                    "cosh" => a.cosh(),
-                    "tanh" => a.tanh(),
-                    "cot" => 1.0 / g(a).tan(),
-                    "sec" => 1.0 / sin_degrees(a + 90.0),
-                    "cosec" => 1.0 / sin_degrees(a),
-                    "log2" => a.log2(),
-                    "int" => a.trunc(),
-                    "frac" => a - a.trunc(),
-                    "real" => a,
-                    // its value without the units its argument declared (a ratio of lengths)
-                    "scalar" => {
-                        self.units = units_before;
-                        a
-                    }
-                    "neg" => -a,
-                    "sign" => {
-                        if a > 0.0 {
-                            1.0
-                        } else if a < 0.0 {
-                            -1.0
-                        } else {
-                            0.0
-                        }
-                    }
-                    "iseven" => f64::from(a.trunc() % 2.0 == 0.0),
-                    "isodd" => f64::from(a.trunc() % 2.0 != 0.0),
-                    other => return Err(Error::Expression(format!("unknown function: {other}"))),
-                })
+                self.call(&name, args, units_before)
             }
             Some(c) => Err(Error::Expression(format!("unexpected character: '{c}'"))),
             None => Err(Error::Expression("empty expression".into())),
         }
     }
+
+    /// The function `name` of `args` (one at least, but for `random()`); `units_before`: whether
+    /// units had appeared before its arguments.
+    fn call(&mut self, name: &str, args: Vec<f64>, units_before: bool) -> Result<f64, Error> {
+        if let Some((params, body)) = self.vars.functions.get(name).cloned() {
+            let mut locals = self.vars.clone();
+            for (p, v) in params.iter().zip(&args) {
+                locals.insert(p.clone(), *v);
+            }
+            return self.sub(&body, &locals);
+        }
+        // pgfmath's random integers, from the generator `rnd` uses: `random(m)` in 1..m,
+        // `random(a, b)` in a..b; `random()` is `rnd`
+        if name == "random" {
+            return Ok(match args[..] {
+                [] => pseudo_random(),
+                [m] => random_integer(1, m as i64),
+                [a, b, ..] => random_integer(a as i64, b as i64),
+            });
+        }
+        let rad = self.vars.trig_rad;
+        // the argument of a trigonometric function, in degrees; an angle given back
+        let deg = |x: f64| if rad { x.to_degrees() } else { x };
+        let angle = |x: f64| if rad { x.to_radians() } else { x };
+        let g = |x: f64| deg(x).to_radians();
+        let a = args[0];
+        if rad {
+            match name {
+                "sin" | "cos" | "sec" | "cosec" => {
+                    return Ok(match name {
+                        "sin" => sin_degrees(deg(a)),
+                        "cos" => cos_degrees(deg(a)),
+                        "sec" => 1.0 / sin_degrees(deg(a) + 90.0),
+                        _ => 1.0 / sin_degrees(deg(a)),
+                    })
+                }
+                "asin" | "acos" | "atan" | "atan2" => {
+                    return Ok(angle(match name {
+                        "asin" => a.asin().to_degrees(),
+                        "acos" => a.acos().to_degrees(),
+                        "atan" => a.atan().to_degrees(),
+                        _ => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
+                    }))
+                }
+                _ => {}
+            }
+        }
+        Ok(match name {
+            "sin" => sin_degrees(a),
+            "cos" => cos_degrees(a),
+            "tan" => g(a).tan(),
+            "asin" => a.asin().to_degrees(),
+            "acos" => a.acos().to_degrees(),
+            "atan" => a.atan().to_degrees(),
+            "atan2" => args.get(1).map_or(0.0, |x| a.atan2(*x).to_degrees()),
+            "sqrt" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a),
+            "sqrt" => a.sqrt(),
+            "abs" => a.abs(),
+            "exp" if self.vars.fpu => crate::engine::pgfplots::fpu::exp(a),
+            "exp" => a.exp(),
+            "ln" => a.ln(),
+            "log10" => a.log10(),
+            "floor" => a.floor(),
+            "ceil" => a.ceil(),
+            "round" => a.round(),
+            "deg" => a.to_degrees(),
+            "rad" => a.to_radians(),
+            "min" => args.iter().copied().fold(f64::INFINITY, f64::min),
+            "max" => args.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            "pow" => a.powf(args.get(1).copied().unwrap_or(1.0)),
+            "mod" => a % args.get(1).copied().unwrap_or(1.0),
+            // `Mod` never negative: Mod(-7,3) = 2, where mod(-7,3) = -1
+            "Mod" => a.rem_euclid(args.get(1).copied().unwrap_or(1.0)),
+            // the fpu's veclen is its sqrt(a^2 + b^2)
+            "veclen" if self.vars.fpu => crate::engine::pgfplots::fpu::sqrt(a * a + args.get(1).map_or(0.0, |b| b * b)),
+            "veclen" => a.hypot(args.get(1).copied().unwrap_or(0.0)),
+            // n! of the integer part, as pgfmath has it
+            "factorial" => (1..=a.trunc().max(0.0) as u64).map(|k| k as f64).product(),
+            // pgfmath's hyperbolic and other functions
+            "sinh" => a.sinh(),
+            "cosh" => a.cosh(),
+            "tanh" => a.tanh(),
+            "cot" => 1.0 / g(a).tan(),
+            "sec" => 1.0 / sin_degrees(a + 90.0),
+            "cosec" => 1.0 / sin_degrees(a),
+            "log2" => a.log2(),
+            "int" => a.trunc(),
+            "frac" => a - a.trunc(),
+            "real" => a,
+            // its value without the units its argument declared (a ratio of lengths)
+            "scalar" => {
+                self.units = units_before;
+                a
+            }
+            "neg" => -a,
+            "sign" => {
+                if a > 0.0 {
+                    1.0
+                } else if a < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                }
+            }
+            "iseven" => f64::from(a.trunc() % 2.0 == 0.0),
+            "isodd" => f64::from(a.trunc() % 2.0 != 0.0),
+            other => return Err(Error::Expression(format!("unknown function: {other}"))),
+        })
+    }
+}
+
+/// pgfmath's functions of one argument, which may also be written without parentheses (`sin 30`).
+const ONE_ARGUMENT: &[&str] = &[
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "sqrt",
+    "abs",
+    "exp",
+    "ln",
+    "log10",
+    "log2",
+    "floor",
+    "ceil",
+    "round",
+    "deg",
+    "rad",
+    "factorial",
+    "sinh",
+    "cosh",
+    "tanh",
+    "cot",
+    "sec",
+    "cosec",
+    "int",
+    "frac",
+    "real",
+    "scalar",
+    "neg",
+    "sign",
+    "iseven",
+    "isodd",
+];
+
+/// An integer of `a..=b` from pgf's generator: its number modulo the count, from `a`.
+fn random_integer(a: i64, b: i64) -> f64 {
+    let (lo, hi) = (a.min(b), a.max(b));
+    (lo + next_random() % (hi - lo + 1)) as f64
 }
 
 #[cfg(test)]

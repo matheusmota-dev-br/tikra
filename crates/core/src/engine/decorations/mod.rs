@@ -273,6 +273,8 @@ keyfn!(k_angle, |e, v| {
 keyfn!(k_aspect, |e, v| {
     if let Some(v) = v {
         e.st.decoration.aspect = e.number_of(v)?;
+        // the number, for decoration code to read
+        e.tex.define_string("pgfdecorationsegmentaspect", &super::pgf_number(e.st.decoration.aspect), false);
     }
     Ok(())
 });
@@ -450,6 +452,7 @@ pub const KEYS: &[(&str, super::options::KeyFn)] = &[
 
 /// The keys pgf defines as values and styles (`.initial`, `.style`), from its own definitions.
 pub const DEFINITIONS: &str = r"
+\def\pgfdecorationsegmentaspect{0.5}
 \pgfkeys{/pgf/decoration/.cd,
   pre/.initial=lineto, post/.initial=lineto, pre length/.initial=0pt, post length/.initial=0pt,
   start radius/.initial=2.5pt, end radius/.initial=2.5pt, radius/.style={/pgf/decoration/start radius={#1},/pgf/decoration/end radius={#1}},
