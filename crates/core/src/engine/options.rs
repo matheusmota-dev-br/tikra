@@ -1973,7 +1973,7 @@ fn shade_color(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<crate::color::C
     e.color(&s).ok_or_else(|| Error::Figure(format!("unknown color '{s}'")))
 }
 fn mix(a: crate::color::Color, b: crate::color::Color) -> crate::color::Color {
-    crate::color::Color { r: (a.r + b.r) / 2.0, g: (a.g + b.g) / 2.0, b: (a.b + b.b) / 2.0 }
+    crate::color::Color::rgb((a.r + b.r) / 2.0, (a.g + b.g) / 2.0, (a.b + b.b) / 2.0)
 }
 keyfn!(k_shading, |e, v| {
     e.st.shading = text(e, &v)?;

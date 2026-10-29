@@ -21,7 +21,7 @@ fn svg_with_opacities_dashes_and_drawn_nodes() {
             \node[draw, rounded corners=1mm, minimum size=1cm] at (9,0) {};
           \end{tikzpicture}",
     );
-    for fragment in ["fill-opacity=\"0.4\"", "stroke-opacity=\"0.6\"", "stroke-dasharray", "#ffff00", "<use href=\"#tr-g"] {
+    for fragment in ["fill-opacity=\"0.4\"", "stroke-opacity=\"0.6\"", "stroke-dasharray", "#fff200", "<use href=\"#tr-g"] {
         assert!(r.svg.contains(fragment), "{fragment}");
     }
 }

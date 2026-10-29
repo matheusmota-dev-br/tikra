@@ -1796,7 +1796,7 @@ fn native(e: &mut Engine, path: &str, f: KeyFn) {
 /// Defines the pgfplots keys (after TikZ's).
 pub fn define(e: &mut Engine) {
     // what the colormap gives each point; set while a plot is drawn
-    e.colors.insert("mapped color".into(), crate::color::Color::BLACK);
+    e.colors.insert("mapped color".into(), crate::color::Color::rgb(0.0, 0.0, 0.0));
     for (path, f) in NATIVE {
         native(e, path, *f);
     }

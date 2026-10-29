@@ -26,18 +26,19 @@ pub struct Linear {
 
 impl Linear {
     pub fn from(black: Color, white: Color) -> Linear {
-        Linear { base: black, slope: Color { r: white.r - black.r, g: white.g - black.g, b: white.b - black.b } }
+        Linear { base: black, slope: Color::rgb(white.r - black.r, white.g - black.g, white.b - black.b) }
     }
     pub fn at(&self, m: Color) -> Color {
         let c = |b: f64, s: f64, m: f64| (b + s * m).clamp(0.0, 1.0);
-        Color { r: c(self.base.r, self.slope.r, m.r), g: c(self.base.g, self.slope.g, m.g), b: c(self.base.b, self.slope.b, m.b) }
+        Color::rgb(c(self.base.r, self.slope.r, m.r), c(self.base.g, self.slope.g, m.g), c(self.base.b, self.slope.b, m.b))
     }
 }
 
 /// The state's colors as functions of `mapped color`: (draw, fill) after `f` runs in a group.
 pub fn mapped_colors(e: &mut Engine, mut f: impl FnMut(&mut Engine) -> Result<(), Error>) -> Result<(Linear, Linear, super::super::GState), Error> {
     let mut states = Vec::new();
-    for m in [Color::BLACK, Color::WHITE] {
+    // (pgfplots's `mapped color` is an rgb color)
+    for m in [Color::rgb(0.0, 0.0, 0.0), Color::rgb(1.0, 1.0, 1.0)] {
         e.colors.insert("mapped color".into(), m);
         e.begin_group();
         let r = f(e);
@@ -47,7 +48,7 @@ pub fn mapped_colors(e: &mut Engine, mut f: impl FnMut(&mut Engine) -> Result<()
         states.push(st);
     }
     // what is drawn later with `mapped color` (nodes near coords) gets TeX's black
-    e.colors.insert("mapped color".into(), Color::BLACK);
+    e.colors.insert("mapped color".into(), Color::rgb(0.0, 0.0, 0.0));
     let draw = Linear::from(states[0].stroke_color(), states[1].stroke_color());
     let fill = Linear::from(states[0].fill_paint_color(), states[1].fill_paint_color());
     Ok((draw, fill, states.swap_remove(1)))
@@ -55,11 +56,11 @@ pub fn mapped_colors(e: &mut Engine, mut f: impl FnMut(&mut Engine) -> Result<()
 
 /// A color as a function of `mapped color`.
 fn mapped_named(e: &mut Engine, name: &str) -> Option<Linear> {
-    e.colors.insert("mapped color".into(), Color::BLACK);
+    e.colors.insert("mapped color".into(), Color::rgb(0.0, 0.0, 0.0));
     let a = e.color(name)?;
-    e.colors.insert("mapped color".into(), Color::WHITE);
+    e.colors.insert("mapped color".into(), Color::rgb(1.0, 1.0, 1.0));
     let b = e.color(name);
-    e.colors.insert("mapped color".into(), Color::BLACK);
+    e.colors.insert("mapped color".into(), Color::rgb(0.0, 0.0, 0.0));
     Some(Linear::from(a, b?))
 }
 
@@ -869,11 +870,11 @@ fn gouraud(tri: &[(Point, f64); 3], cm: &super::colormap::Colormap, range: [f64;
 
 fn mean(v: &[Color]) -> Color {
     let n = v.len().max(1) as f64;
-    Color { r: v.iter().map(|c| c.r).sum::<f64>() / n, g: v.iter().map(|c| c.g).sum::<f64>() / n, b: v.iter().map(|c| c.b).sum::<f64>() / n }
+    Color::rgb(v.iter().map(|c| c.r).sum::<f64>() / n, v.iter().map(|c| c.g).sum::<f64>() / n, v.iter().map(|c| c.b).sum::<f64>() / n)
 }
 
 fn blend(v: &[Color], w: &[f64]) -> Color {
-    let mut c = Color { r: 0.0, g: 0.0, b: 0.0 };
+    let mut c = Color::rgb(0.0, 0.0, 0.0);
     for (k, x) in v.iter().zip(w) {
         c.r += k.r * x;
         c.g += k.g * x;
@@ -903,12 +904,12 @@ pub fn explicit_color(e: &Engine, s: &str) -> Option<Color> {
     let nums: Vec<f64> = rest.split(',').filter_map(|x| x.trim().trim_start_matches('(').trim_end_matches(')').trim().parse().ok()).collect();
     let n = |i: usize| nums.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
     Some(match model {
-        "color" => return e.color(rest),
-        "rgb" => Color { r: n(0), g: n(1), b: n(2) },
-        "rgb255" => Color { r: nums.first()? / 255.0, g: nums.get(1)? / 255.0, b: nums.get(2)? / 255.0 },
-        "gray" => Color { r: n(0), g: n(0), b: n(0) },
-        "cmyk" => Color { r: (1.0 - n(0)) * (1.0 - n(3)), g: (1.0 - n(1)) * (1.0 - n(3)), b: (1.0 - n(2)) * (1.0 - n(3)) },
-        "cmy" => Color { r: 1.0 - n(0), g: 1.0 - n(1), b: 1.0 - n(2) },
+        "color" => return e.color(rest).map(|c| c.to_rgb()),
+        "rgb" => Color::rgb(n(0), n(1), n(2)),
+        "rgb255" => Color::rgb(nums.first()? / 255.0, nums.get(1)? / 255.0, nums.get(2)? / 255.0),
+        "gray" => Color::rgb(n(0), n(0), n(0)),
+        "cmyk" => Color::rgb((1.0 - n(0)) * (1.0 - n(3)), (1.0 - n(1)) * (1.0 - n(3)), (1.0 - n(2)) * (1.0 - n(3))),
+        "cmy" => Color::rgb(1.0 - n(0), 1.0 - n(1), 1.0 - n(2)),
         "wave" => wave(*nums.first()?),
         _ => return None,
     })
@@ -937,5 +938,5 @@ fn wave(l: f64) -> Color {
         1.0
     };
     let c = |v: f64| (v * f).clamp(0.0, 1.0).powf(0.8);
-    Color { r: c(r), g: c(g), b: c(b) }
+    Color::rgb(c(r), c(g), c(b))
 }

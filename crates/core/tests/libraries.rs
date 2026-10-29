@@ -122,8 +122,8 @@ fn a_copy_shadow_has_the_colors_of_the_node() {
     let it = drawn(items(r"\node[copy shadow,fill=red,draw=blue] {A};"));
     match &it[0] {
         Item::Path { fill: Some(f), stroke: Some(s), .. } => {
-            assert_eq!(f.paint, Paint::Solid(tikra::color::Color { r: 1.0, g: 0.0, b: 0.0 }));
-            assert_eq!(s.color, tikra::color::Color { r: 0.0, g: 0.0, b: 1.0 });
+            assert_eq!(f.paint, Paint::Solid(tikra::color::Color::rgb(1.0, 0.0, 0.0)));
+            assert_eq!(s.color, tikra::color::Color::rgb(0.0, 0.0, 1.0));
         }
         other => panic!("{other:?}"),
     }
