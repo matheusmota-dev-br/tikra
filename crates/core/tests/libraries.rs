@@ -248,18 +248,25 @@ fn a_spy_reads_its_point_when_the_scope_ends() {
 
 #[test]
 fn a_functional_shading_is_sampled_under_its_path_only() {
-    // the path shows the middle of the shading's box: its 64 cells across are there, not over the
-    // whole box (a cell reaches 0.3 of one over the next)
-    let it = items(r"\shade[shading=color wheel] (0,0) rectangle (5,5);");
-    let widths: Vec<f64> = it
-        .iter()
-        .filter_map(|i| match i {
-            Item::Path { segments, fill: Some(f), .. } if matches!(f.paint, Paint::Solid(_)) => Some(point(&segments[1]).x - first_point(segments).x),
-            _ => None,
-        })
-        .collect();
-    let narrowest = widths.iter().copied().fold(f64::MAX, f64::min);
-    assert!(narrowest < 1.31 * 5.0 / 64.0, "{narrowest}");
+    // the path shows the middle of the shading's box: its 64 rows are there, not over the whole
+    // box, and each row's cells reach over the whole next row, which draws on them: no seam shows
+    // between rows thinner than a pixel
+    for shade in [r"\shade[shading=color wheel] (0,0) rectangle (5,5);", r"\shade[upper left=red,upper right=green,lower left=blue,lower right=yellow] (0,0) rectangle (5,5);"] {
+        let cells: Vec<(f64, f64)> = items(shade)
+            .iter()
+            .filter_map(|i| match i {
+                Item::Path { segments, fill: Some(f), .. } if matches!(f.paint, Paint::Solid(_)) => Some((first_point(segments).y, point(&segments[2]).y)),
+                _ => None,
+            })
+            .collect();
+        let mut starts: Vec<f64> = cells.iter().map(|c| c.0).collect();
+        starts.sort_by(f64::total_cmp);
+        starts.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        let row = 5.0 / 64.0;
+        assert!(starts.windows(2).all(|w| (w[1] - w[0] - row).abs() < 1e-6), "{shade}: {starts:?}");
+        let top = starts.last().unwrap() + row;
+        assert!(cells.iter().all(|&(y0, y1)| y1 - y0 > 2.0 * row - 1e-6 || (y1 - top).abs() < 1e-6), "{shade}: {cells:?}");
+    }
 }
 
 #[test]

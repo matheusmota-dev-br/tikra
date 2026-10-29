@@ -355,8 +355,9 @@ impl Prepared {
         if fine {
             items.push(rect(lo.x, lo.y, hi.x, hi.y, Color::WHITE));
         }
-        // each row's cells reach over the next rows (the next one draws on them): no seam shows
-        let over = if fine { 3.0 } else { 0.3 };
+        // each row's cells reach over the whole next row (which draws on them), and each cell over
+        // the next one: no seam shows, even where a cell is thinner than a pixel
+        let over = if fine { 3.0 } else { 1.0 };
         // the rows since the last one that was not all white
         let mut white_rows = usize::MAX;
         for j in 0..n {
@@ -380,7 +381,7 @@ impl Prepared {
                     end += 1;
                 }
                 let (x0, y0) = (lo.x + i as f64 * w, lo.y + j as f64 * h);
-                let x1 = lo.x + end as f64 * w + if end < n { 0.3 * w } else { 0.0 };
+                let x1 = lo.x + end as f64 * w + if end < n { w } else { 0.0 };
                 let y1 = (y0 + h * (1.0 + over)).min(hi.y);
                 items.push(rect(x0, y0, x1, y1, color));
                 i = end;
