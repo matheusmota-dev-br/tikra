@@ -113,6 +113,18 @@ fn markings_with_arrows_and_nodes() {
 }
 
 #[test]
+fn mark_distance_is_written_as_tex_writes_a_dimension() {
+    // `120.0pt`, as `\the` writes it: a mark is drawn only if the text is that
+    let (items, w) = picture(
+        r"\def\want{120.0pt}
+          \path[decoration={markings, mark=at position 120pt with {\edef\d{\pgfkeysvalueof{/pgf/decoration/mark info/distance from start}}
+            \edef\d{\detokenize\expandafter{\d}}\edef\w{\detokenize\expandafter{\want}}\ifx\d\w \fill (0,0) circle (1pt);\fi}}, decorate] (0,0) -- (10,0);",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(paths(&items).len(), 1);
+}
+
+#[test]
 fn marks_between_positions() {
     let (items, _) = picture(r"\path[decoration={markings, mark=between positions 0 and 1 step 0.25 with {\fill (0,0) circle (1pt);}}, decorate] (0,0) -- (4,0);");
     assert_eq!(paths(&items).len(), 5);
