@@ -213,6 +213,7 @@ pub fn retarget(mut b: MathBox, bold: bool) -> MathBox {
         Item::Glyph { x, .. } | Item::Rule { x, .. } => *x,
         Item::Line { x1, .. } => *x1,
         Item::Ellipse { cx, .. } => *cx,
+        Item::Transformed { matrix, .. } => matrix[4],
     };
     order.sort_by(|&i, &j| x_of(&b.items[i]).total_cmp(&x_of(&b.items[j])));
     let mut shift = 0.0f32;
@@ -256,6 +257,8 @@ pub fn retarget(mut b: MathBox, bold: bool) -> MathBox {
                 *x2 += shift;
             }
             Item::Ellipse { cx, .. } => *cx += shift,
+            // (a turned or scaled box keeps STIX Two's letters)
+            Item::Transformed { matrix, .. } => matrix[4] += shift,
         }
     }
     b.width += shift;

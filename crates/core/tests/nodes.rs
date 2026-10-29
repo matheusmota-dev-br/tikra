@@ -441,3 +441,16 @@ fn times_moves_what_else_a_label_holds_with_its_letters() {
     let alone = ids(&no_warnings(r"\tikz \node[font=\fontfamily{ptm}] {$\alpha$};").svg);
     assert!(!alone.is_empty() && alone.iter().all(|&g| g < 0xC000), "{alone:?}");
 }
+
+#[test]
+fn turned_and_scaled_boxes_in_a_label() {
+    // graphicx's boxes (mathra 1.7): drawn through their map, in Latin Modern and in Times, and in
+    // a line of a size of its own
+    for font in ["", r"\fontfamily{ptm}"] {
+        let out = no_warnings(&format!(r"\tikz \node[font={font}, align=center] {{\rotatebox{{90}}{{AB}} x\\ \Large \scalebox{{2}}[1]{{Q}} y}};"));
+        assert_eq!(out.svg.matches(r#"<g transform="matrix("#).count(), 2, "{font}: {}", out.svg);
+    }
+    // turned a quarter: the map's first column is (0, 1), (0, -1) in SVG's y down
+    let svg = no_warnings(r"\tikz \node {\rotatebox{90}{AB}};").svg;
+    assert!(svg.contains(r#"<g transform="matrix(0 -1 1 0 "#), "{svg}");
+}

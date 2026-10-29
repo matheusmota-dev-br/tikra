@@ -15,9 +15,10 @@ Labels in Times, fills without seams, and library shapes with texts and styles o
 - `tikra::extension`: a library shape's paths may have a color, a dash pattern and line caps of their own (#32). Its shapes may draw texts of their own, turned and mirrored with the node, in its size and its words (#33). A shape knows its node's name, its fill and line colors and its transformation, and a key knows whether `transform shape` is on and can define TeX as tokens (`Context::define_tex`) (#34).
 - Code that builds a `ShapePath` or a `NodeShape` listing every field needs `..Default::default()` for the new ones (#36).
 - Colors read xcolor's extended syntax (`rgb,1:red,1;green,0.5;blue,0`).
+- Labels are set by mathra 1.7.0: `\phi` (and `\epsilon`, `\vartheta`, `\varrho`, `\varpi`) in math italic as TeX sets them; `\textsubscript`, `\textsuperscript`, `\ensuremath` and `\boldmath` inside text; siunitx ranges; graphicx's `\scalebox`, `\rotatebox`, `\resizebox` and `\raisebox`, drawn turned and scaled in the label.
 - Our 100% (the figures a converter can reproduce) is 2481 of 2486, up from 2476.
 
-**Matches TeX:** 2367 of 2502 figures of the manuals (94.6%).
+**Matches TeX:** 2368 of 2502 figures of the manuals (94.6%).
 
 Figures: `spotlight-clipping` `fading-directions`
 

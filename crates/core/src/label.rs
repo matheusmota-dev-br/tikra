@@ -865,6 +865,8 @@ fn widen(mut b: MathBox, f: f32) -> MathBox {
                 *cx *= f;
                 *rx *= f;
             }
+            // (moved with the box; what it holds is widened when drawn, as glyphs are)
+            Item::Transformed { matrix, .. } => matrix[4] *= f,
         }
     }
     b.width *= f;
@@ -1298,6 +1300,8 @@ fn scaled(mut b: MathBox, f: f32) -> MathBox {
                 *ry *= f;
                 *thickness *= f;
             }
+            // what it holds, mapped f times as large
+            Item::Transformed { matrix, .. } => matrix.iter_mut().for_each(|m| *m *= f),
         }
     }
     b.width *= f;
