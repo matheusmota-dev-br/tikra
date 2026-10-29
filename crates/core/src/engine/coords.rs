@@ -255,13 +255,19 @@ impl Engine {
             }
             "canvas polar" | "polar" | "xyz polar" => {
                 let angle = get("angle").map(|v| self.number(&v)).transpose()?.unwrap_or(0.0);
-                let (rx, ry) = match (get("radius"), get("x radius"), get("y radius")) {
-                    (Some(r), _, _) => {
-                        let v = if system == "canvas polar" { self.length(&r)? } else { self.number(&r)? };
-                        (v, v)
+                // the keys in order: `radius` sets both radii, a later `x radius` changes one again
+                let (mut rx, mut ry) = (0.0, 0.0);
+                for (k, v) in &items {
+                    if !matches!(k.as_str(), "radius" | "x radius" | "y radius") {
+                        continue;
                     }
-                    (None, x, y) => (x.map(|v| self.number(&v)).transpose()?.unwrap_or(0.0), y.map(|v| self.number(&v)).transpose()?.unwrap_or(0.0)),
-                };
+                    let r = if system == "canvas polar" { self.length(v)? } else { self.number(v)? };
+                    match k.as_str() {
+                        "radius" => (rx, ry) = (r, r),
+                        "x radius" => rx = r,
+                        _ => ry = r,
+                    }
+                }
                 let (s, c) = angle.to_radians().sin_cos();
                 let local = if system == "canvas polar" { Point::new(rx * c, ry * s) } else { self.st.x.scale(rx * c).plus(self.st.y.scale(ry * s)) };
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
@@ -428,11 +434,13 @@ impl Engine {
                         target = a.plus(Transform::rotation(ang).apply(b.minus(a)));
                     }
                     let (v, unit) = crate::expr::eval_length(&t_text, &self.vars())?;
+                    // a distance is measured before the transformation (`scale=3` makes it 3 times as
+                    // long), and one toward the point itself goes up: the direction of no length is (0,1)
+                    let toward = |d: Point| if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(0.0, 1.0) };
                     last = Some(if unit {
-                        // a distance is measured before the transformation (`scale=3` makes it 3 times as long)
                         let inv = self.st.transform.inverse();
                         let (la, lt) = (inv.apply(a), inv.apply(target));
-                        self.st.transform.apply(la.plus(lt.minus(la).scale(v / lt.minus(la).norm().max(1e-12))))
+                        self.st.transform.apply(la.plus(toward(lt.minus(la)).scale(v)))
                     } else {
                         a.lerp(target, v)
                     });

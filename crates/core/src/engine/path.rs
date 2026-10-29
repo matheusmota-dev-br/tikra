@@ -1085,7 +1085,11 @@ fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, P
         // the ends are the nodes' borders at the angles out and in
         let a = na.as_ref().and_then(|n| n.anchor(&out.to_string())).unwrap_or(from.p);
         let b = nb.as_ref().and_then(|n| n.anchor(&inn.to_string())).unwrap_or(r.p);
-        let (ko, ki) = to_distances(e, a, b);
+        // the angles and the distance are in the picture's coordinate system: under `xscale` or a
+        // slant, the controls go where the transformation takes them
+        let t = e.st.transform;
+        let inverse = t.inverse();
+        let (ko, ki) = to_distances(e, inverse.apply(a), inverse.apply(b));
         // `(p)`, or `+(d)` from the end it belongs to
         let control = |e: &mut Engine, c: Option<Vec<Token>>, base: Point| -> Result<Option<Point>, Error> {
             let Some(v) = c else { return Ok(None) };
@@ -1097,8 +1101,8 @@ fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, P
             let p = e.coordinate(&text)?.p;
             Ok(Some(if plus > 0 { base.plus(p.minus(e.st.transform.apply(Point::default()))) } else { p }))
         };
-        let c1 = control(e, e.st.to.out_control.clone(), from.p)?.unwrap_or_else(|| a.plus(polar(out, ko)));
-        let c2 = control(e, e.st.to.in_control.clone(), r.p)?.unwrap_or_else(|| b.plus(polar(inn, ki)));
+        let c1 = control(e, e.st.to.out_control.clone(), from.p)?.unwrap_or_else(|| a.plus(t.linear(polar(out, ko))));
+        let c2 = control(e, e.st.to.in_control.clone(), r.p)?.unwrap_or_else(|| b.plus(t.linear(polar(inn, ki))));
         return Ok((None, c1, c2, None));
     }
     // relative: the angles are measured from the line between the ends
@@ -1110,12 +1114,15 @@ fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, P
     };
     let first = na.as_ref().map_or(a0, |n| n.border_toward(rotate(b0, a0, out)));
     let second = nb.as_ref().map_or(b0, |n| n.border_toward(rotate(a0, b0, 180.0 + inn)));
-    let (ko, ki) = to_distances(e, first, second);
-    let d = second.minus(first);
+    // the controls in the picture's coordinate system, as for absolute angles
+    let t = e.st.transform;
+    let (fl, sl) = (t.inverse().apply(first), t.inverse().apply(second));
+    let (ko, ki) = to_distances(e, fl, sl);
+    let d = sl.minus(fl);
     let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
     let turn = |v: Point| Point::new(u.x * v.x - u.y * v.y, u.y * v.x + u.x * v.y);
-    let c1 = first.plus(turn(polar(out, ko)));
-    let c2 = second.plus(turn(polar(inn, ki)));
+    let c1 = t.apply(fl.plus(turn(polar(out, ko))));
+    let c2 = t.apply(sl.plus(turn(polar(inn, ki))));
     Ok((na.map(|_| first), c1, c2, Some(second)))
 }
 
@@ -2250,7 +2257,8 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
     let bend = match bend {
         Some((p, true)) => Some(p.minus(a).plus(saved)),
         Some((p, false)) => Some(p),
-        None => height.map(|h| saved.plus(Point::new(0.0, h))),
+        // the height is a y vector of the picture: `scale` and `yscale` stretch it too
+        None => height.map(|h| saved.plus(e.st.transform.linear(Point::new(0.0, h)))),
     };
     // \pgfpathparabola: to the bend with its vertex there, then on to the end with its vertex at the bend
     let (bend_vector, end_vector) = match bend {

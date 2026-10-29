@@ -61,6 +61,22 @@ Each release has a headline (the line under its title), what changed, and the fi
 - The `pic text` and `pic text options` keys set `\tikzpictext` and `\tikzpictextoptions` (#119).
 - `\foreach \a in {\pa,\pb}` keeps its items as they are written, so a macro holding a whole path with commas is one item, as in TeX; the ends of a `...` range are still read (#120).
 - A macro in a `declare function` body is read when the function is used (#121).
+- `parabola height` is scaled with the picture, as the bend is a point of it (#123).
+- `\spy on (point)` expands the macros in its point when the spy scope ends (#124).
+- `let \p1=…`: `\x1` and `\y1` are in the picture's coordinates, so `(\x1,\y1)` under `scale` is the point again (#125).
+- `xyz polar cs` and `polar cs` read `radius`, `x radius` and `y radius` in order: the last one given wins (#126).
+- `to[out=…,in=…]` and `bend` curves are computed in the picture's coordinates: they turn, slant and stretch with it (#127).
+- A functional shading on a path is sampled only under the path: more than twice as fine (#128).
+- Nothing after `\end{document}` is typeset (#129).
+- `\title`, `\author` and `\date` are no longer typeset as text (#130).
+- `below of=…` and the other old placement keys take the node distance the node ends up with, also when it is given after them (#131).
+- With `text width`, a word too long for the last line goes to a line of its own, as TeX's last pass does (#132).
+- calc: a distance toward the point itself (`$(a)!1cm!(a)$`) goes up, as TeX's direction of no length (#133).
+- `\chainin [options]` keeps the `after node path` its options set (joins of one's own), and `\pgfkeysnovalue` expands to nothing instead of forever (#134).
+- Matrix delimiters no longer take the cells' `nodes={…}` style (#135).
+- pgfmath: an array of strings, `{"red","blue"}[1]`, gives its item (#136).
+- The angle of `label=` and `pin=` may come from a macro (`label=\a+15:text`), instead of silently becoming 90 (#137).
+- `\draw[circle connection bar] (a) edge (b)` is outlined and `\fill[color,…]` fills it in that color; a mind map's edges stay filled with the concept colors (#138).
 
 ## 1.7.0 - 2026-10-29
 

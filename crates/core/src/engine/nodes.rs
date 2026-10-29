@@ -43,9 +43,9 @@ pub struct NodeSetup {
     pub fit_rotate: f64,
     /// `circle through`: the point on the circle (canvas)
     pub through: Option<Point>,
-    /// `right of=a` and its kin: their direction, the node distance they shifted by, and the
-    /// pending transformation right after their shift
-    pub old_of: Vec<(Point, f64, Transform)>,
+    /// `right of=a` and its kin: their direction, the node distance they shifted by (vertical,
+    /// horizontal), and the pending transformation right after their shift
+    pub old_of: Vec<(Point, (f64, f64), Transform)>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -630,9 +630,9 @@ impl Engine {
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
         // `right of=a` shifts by the node distance the node ends up with, given after it too: each
         // shift is redone with it, in its place among the transformations
-        for (u, d0, after) in std::mem::take(&mut self.st.node.old_of).into_iter().rev() {
-            let d = super::options::node_distance(self)?.0;
-            let shift = Transform::translation(u.x * (d - d0), u.y * (d - d0));
+        for (u, (v0, h0), after) in std::mem::take(&mut self.st.node.old_of).into_iter().rev() {
+            let (v, h) = super::options::node_distance(self)?;
+            let shift = Transform::translation(u.x * (h - h0), u.y * (v - v0));
             self.st.pending = after.compose(&shift).compose(&after.inverse()).compose(&self.st.pending);
         }
         // the node begin hook: a node on a chain takes its place and names there
@@ -1204,7 +1204,8 @@ impl Engine {
         let s = tex::tokens_to_string(&v);
         // the angle is up to the first top-level colon
         let (angle_text, text_tokens) = match split_colon(&v) {
-            Some((a, b)) => (tex::tokens_to_string(&a).trim().to_string(), b),
+            // (expanded: `pin=\angle+15:text` is at the angle the macro gives)
+            Some((a, b)) => (self.math_string(a)?.trim().to_string(), b),
             None => (String::new(), v.clone()),
         };
         let _ = s;

@@ -369,3 +369,17 @@ fn xcolor_named_sets_from_the_preamble() {
     // \xdefinecolor defines a color as \definecolor does
     assert_eq!(gray(r"\documentclass{article}\usepackage{tikz}\xdefinecolor{Gray}{RGB}{175,193,36}"), "#afc124");
 }
+
+#[test]
+fn nothing_after_end_document_and_no_title_without_maketitle() {
+    // TeX reads no further than \end{document}, and \title, \author and \date only keep their text
+    let drawing = |svg: &str| svg[svg.find("</metadata>").unwrap()..].to_string();
+    let plain = no_warnings(r"\documentclass{article}\usepackage{tikz}\begin{document}\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}\end{document}");
+    let r = no_warnings(
+        r"\documentclass{article}\usepackage{tikz}
+          \title{A title}\author{Someone}\date{Today}
+          \begin{document}\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}\end{document}
+          Notes after the end. \begin{tikzpicture}\draw (0,0) circle (1);\end{tikzpicture}",
+    );
+    assert_eq!(drawing(&r.svg), drawing(&plain.svg));
+}

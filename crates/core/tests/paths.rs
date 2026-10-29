@@ -564,3 +564,64 @@ fn svg_path_data_in_quotes() {
     let scaled = first_path(r#"\draw svg[scale=2] "M0,0 L20,10";"#).segments;
     assert!(matches!(scaled[1], Segment::LineTo(p) if close(p.x, 40.0 * tikra::PT)), "{scaled:?}");
 }
+
+#[test]
+fn parabola_height_is_scaled_with_the_picture() {
+    // the bend is a point of the picture: twice as high under scale=2
+    let t = first_path(r"\begin{scope}[scale=2] \draw (0,0) parabola[parabola height=1cm] +(2,0); \end{scope}");
+    let p = points(&t.segments);
+    assert!(close_to(p[1], (2.0, 2.0)), "the bend in {p:?}");
+}
+
+#[test]
+fn let_points_are_in_the_picture_coordinates() {
+    // \x1 of (1,1) under scale=2 is 1cm: (\x1,0) is scaled again, to 2cm
+    let t = first_path(r"\begin{scope}[scale=2] \draw let \p1=(1,1) in (0,0) -- (\x1,0); \end{scope}");
+    assert!(close_to(points(&t.segments)[1], (2.0, 0.0)), "{:?}", points(&t.segments));
+    // in a shifted, turned and scaled scope, (\x1,\y1) of a named point is that point again
+    let c = canvas(r"\coordinate (a) at (1,1); \begin{scope}[xshift=1cm,rotate=90,scale=2] \draw let \p1=(a) in (0,0) -- (\x1,\y1); \end{scope}");
+    let p = points(&paths(&c)[0].segments);
+    assert!(close_to(p[1], (1.0, 1.0)), "{p:?}");
+}
+
+fn pt(p: Point) -> (f64, f64) {
+    (p.x, p.y)
+}
+
+#[test]
+fn polar_radius_keys_are_read_in_order() {
+    // `radius` sets both radii; a later `x radius` sets one of them again, and the other way round
+    assert!(close_to(pt(point("", "xyz polar cs:angle=180,radius=1,x radius=2")), (-2.0, 0.0)));
+    assert!(close_to(pt(point("", "xyz polar cs:angle=0,x radius=2,radius=1")), (1.0, 0.0)));
+    assert!(close_to(pt(point("", "polar cs:angle=90,radius=1,y radius=3")), (0.0, 3.0)));
+}
+
+#[test]
+fn to_curves_follow_the_transformation() {
+    let controls = |body: &str| match first_path(body).segments[1] {
+        Segment::CurveTo(c1, c2, _) => (pt(c1), pt(c2)),
+        s => panic!("{s:?}"),
+    };
+    // the distance is measured in the picture's units (3 there, so 0.3915·3 = 1.1745), not on the
+    // page, where xscale makes it 6
+    let (c1, c2) = controls(r"\begin{scope}[xscale=2] \draw (0,0) to[out=-90,in=-90] (3,0); \end{scope}");
+    assert!(close_to(c1, (0.0, -1.1745)) && close_to(c2, (6.0, -1.1745)), "{c1:?} {c2:?}");
+    // the angles turn with the picture
+    let (c1, _) = controls(r"\begin{scope}[rotate=90] \draw (0,0) to[out=0,in=180] (1,0); \end{scope}");
+    assert!(close_to(c1, (0.0, 0.3915)), "{c1:?}");
+    // and slant with it
+    let (c1, _) = controls(r"\begin{scope}[xslant=1] \draw (0,0) to[out=90,in=90] (1,0); \end{scope}");
+    assert!(close_to(c1, (0.3915, 0.3915)), "{c1:?}");
+    // so do the bends, measured from the line in the picture's units
+    let (c1, _) = controls(r"\begin{scope}[xscale=2] \draw (0,0) to[bend left=30] (3,0); \end{scope}");
+    let (s, c) = 30f64.to_radians().sin_cos();
+    assert!(close_to(c1, (2.0 * 1.1745 * c, 1.1745 * s)), "{c1:?}");
+}
+
+#[test]
+fn calc_distance_toward_the_point_itself_goes_up() {
+    // a direction of no length is (0,1), turned or not
+    let body = r"\coordinate (a) at (1,1);";
+    assert!(close_to(pt(point(body, "$(a)!0.5cm!(a)$")), (1.0, 1.5)));
+    assert!(close_to(pt(point(body, "$(a)!0.5cm!90:(a)$")), (1.0, 1.5)));
+}

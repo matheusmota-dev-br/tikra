@@ -1266,13 +1266,15 @@ fn old_of(e: &mut Engine, v: Option<Vec<Token>>, angle: f64) -> Result<(), Error
     let Some(node) = e.lookup_node(name.trim()) else { return Err(Error::Figure(format!("{name}: no such node"))) };
     set_value(e, "/tikz/anchor", "center");
     e.st_node().at = Some(node.center());
-    let (d, _) = node_distance(e)?;
+    // the directions add up (`below of=a, right of=a` is diagonal); the distance is the node
+    // distance the node ends up with, set before or after
     let (s, c) = angle.to_radians().sin_cos();
-    add_transform(e, Transform::translation(d * c, d * s));
+    let (v, h) = node_distance(e)?;
+    add_transform(e, Transform::translation(h * c, v * s));
     // a `node distance` given after it still counts: the node redoes the shift (`\tikz@of`
     // reads the distance when the node is made)
     let pending = e.st.pending;
-    e.st_node().old_of.push((Point::new(c, s), d, pending));
+    e.st_node().old_of.push((Point::new(c, s), (v, h), pending));
     Ok(())
 }
 keyfn!(k_above_of, |e, v| old_of(e, v, 90.0));

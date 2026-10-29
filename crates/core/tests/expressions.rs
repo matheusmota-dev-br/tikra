@@ -146,3 +146,14 @@ fn random_integers_from_the_seed() {
     assert_eq!(eval("random()", &v).unwrap(), 0.69621);
     assert!(eval("random(", &v).is_err());
 }
+
+#[test]
+fn an_array_of_strings_is_indexed_from_zero() {
+    let mut v = Variables::new();
+    v.insert("x".into(), 2.0);
+    let pick = |t: &str| eval_string(t, &v);
+    assert_eq!(pick(r#"{"red","green","blue"}[1]"#).unwrap().as_deref(), Some("green"));
+    // the index is an expression
+    assert_eq!(pick(r#"{"red","green","blue"}[x-1]"#).unwrap().as_deref(), Some("green"));
+    assert!(pick(r#"{"red","green"}[2]"#).is_err());
+}

@@ -6,8 +6,10 @@
 //! A child's edge is a `circle connection bar`: a bar from the parent's circle to the child's with
 //! a widening cap at each end, filled with the concept color and not stroked. When the child has a
 //! `concept color` of its own, the bar is shaded from the parent's color to the child's between the
-//! two circles (`circle connection bar switch color=from (a) to (b)`). The bar is also a decoration
-//! (`decoration=circle connection bar`, with `start radius`, `end radius`, `amplitude`, `angle`).
+//! two circles (`circle connection bar switch color=from (a) to (b)`). A bar on a path that draws
+//! or fills (`\draw[circle connection bar] (a) edge (b)`) is painted as that path says. The bar
+//! is also a decoration (`decoration=circle connection bar`, with `start radius`, `end radius`,
+//! `amplitude`, `angle`).
 
 use crate::canvas::{Fill, Item, Paint, Shading};
 use crate::scene::{Point, Segment, Transform};
@@ -34,14 +36,15 @@ pub fn is_mindmap(id: u16) -> bool {
 /// The library's styles. `\tikra@conceptcolor` is the concept color; `concept color` also makes
 /// the edge to the parent switch from the parent's color to the new one.
 pub const DEFINITIONS: &str = r"
-\def\tikra@conceptcolor{black}\def\tikra@barfrom{}\def\tikra@barto{}
+\def\tikra@conceptcolor{black}\def\tikra@barfrom{}\def\tikra@barto{}\def\tikra@barconcept{}
 \tikzset{
   concept/.style={circle,fill=\tikra@conceptcolor,draw=\tikra@conceptcolor,every concept},
   every concept/.style={},
   concept color/.code={\edef\tikra@temp{\noexpand\tikzset{edge from parent path={(\noexpand\tikzparentnode)
-    to[circle connection bar switch color=from (\tikra@conceptcolor) to (#1)] (\noexpand\tikzchildnode)}}}\tikra@temp
+    to[tikra@concept bar,circle connection bar switch color=from (\tikra@conceptcolor) to (#1)] (\noexpand\tikzchildnode)}}}\tikra@temp
     \def\tikra@conceptcolor{#1}},
-  tikz@concept@setting/.style={edge from parent path={(\tikzparentnode) to[circle connection bar] (\tikzchildnode)}},
+  tikz@concept@setting/.style={edge from parent path={(\tikzparentnode) to[tikra@concept bar,circle connection bar] (\tikzchildnode)}},
+  tikra@concept bar/.code={\def\tikra@barconcept{1}},
   tikz@concept@color@set/.style={},
   extra concept/.style={concept color=black!50,level 2 concept,concept,every extra concept},
   every extra concept/.style={},
@@ -178,7 +181,17 @@ impl Engine {
         if self.counts_for_size() {
             self.canvas.include_path(&segments);
         }
-        self.canvas.push(Item::Path { segments, fill: Some(Fill { paint, opacity: self.st.fill_opacity, even_odd: false }), stroke: None });
+        // a child's edge, or a bar on a path that neither fills nor draws, is filled with the
+        // concept colors; on a path that does, the bar is filled and drawn as that path is
+        // (`\draw[circle connection bar] (a) edge (b)` outlines it)
+        let tree = self.tex.expand_to_string(vec![Token::cs("tikra@barconcept")])?.trim() == "1";
+        let (fill, stroke) = if tree || !(self.st.mode.fill || self.st.mode.draw) {
+            (Some(Fill { paint, opacity: self.st.fill_opacity, even_odd: false }), None)
+        } else {
+            let fill = self.st.mode.fill.then(|| Fill { paint: Paint::Solid(self.st.fill_paint_color()), opacity: self.st.fill_opacity, even_odd: false });
+            (fill, self.st.mode.draw.then(|| self.stroke()))
+        };
+        self.canvas.push(Item::Path { segments, fill, stroke });
         Ok(())
     }
 }
@@ -203,5 +216,30 @@ mod tests {
         .unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
         assert!(canvas.items.iter().any(|i| matches!(i, Item::Path { fill: Some(Fill { paint: Paint::Shading(_), .. }), .. })));
+    }
+
+    #[test]
+    fn a_bar_of_ones_own_is_painted_as_its_path() {
+        let bars = |path: &str| {
+            let (canvas, warnings) = super::super::run_document(&format!(
+                r"\tikz[mindmap,concept color=red] {{\node[concept] (a) at (0,0) {{}}; \node[concept] (b) at (6,0) {{}}; {path}[circle connection bar] (a) edge (b);}}"
+            ))
+            .unwrap();
+            assert!(warnings.is_empty(), "{warnings:?}");
+            // the two concepts, then the bar
+            canvas.items.into_iter().filter(|i| matches!(i, Item::Path { .. })).skip(2).collect::<Vec<_>>()
+        };
+        // `\draw` outlines it, unfilled; `\fill` fills it in its own color
+        assert!(matches!(&bars(r"\draw")[..], [Item::Path { fill: None, stroke: Some(_), .. }]), "{:?}", bars(r"\draw"));
+        let blue = crate::color::Color::rgb(0.0, 0.0, 1.0);
+        assert!(matches!(&bars(r"\fill[blue]")[..], [Item::Path { fill: Some(Fill { paint: Paint::Solid(c), .. }), .. }] if *c == blue), "{:?}", bars(r"\fill[blue]"));
+        // on a path that neither fills nor draws, it is filled with the concept color
+        let (canvas, _) =
+            super::super::run_document(r"\tikz {\node[circle,draw] (a) at (0,0) {}; \node[circle,draw] (b) at (6,0) {}; \path (a) to[circle connection bar] (b);}").unwrap();
+        assert!(matches!(canvas.items.last(), Some(Item::Path { fill: Some(_), stroke: None, .. })), "{:?}", canvas.items.last());
+        // a child's edge is still filled with the concept color
+        let (canvas, _) = super::super::run_document(r"\tikz[mindmap,concept color=red] \node[concept] {Root} child {node[concept] {Child}};").unwrap();
+        let red = crate::color::Color::rgb(1.0, 0.0, 0.0);
+        assert!(canvas.items.iter().any(|i| matches!(i, Item::Path { fill: Some(Fill { paint: Paint::Solid(c), .. }), stroke: None, segments } if *c == red && segments.iter().filter(|s| matches!(s, Segment::Close)).count() == 3)));
     }
 }
