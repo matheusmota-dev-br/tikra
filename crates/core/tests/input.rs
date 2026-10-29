@@ -209,7 +209,8 @@ fn pagecolor_paints_the_page_behind_the_figure() {
     let view = &view[..view.find('"').unwrap()];
     let [x, y, w, h]: [&str; 4] = view.split(' ').collect::<Vec<_>>().try_into().unwrap();
     let body = &r.svg[r.svg.find("</defs>").unwrap()..];
-    assert!(body.starts_with(&format!(r##"</defs><rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#dfdf80"/>"##)), "{body}");
+    // olive and yellow are cmyk: TeX's PDF shows (230,220,138)
+    assert!(body.starts_with(&format!(r##"</defs><rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#e6dc8a"/>"##)), "{body}");
     assert!(!r.svg.contains("<use"), "no text: {}", r.svg);
     // a color model, and \nopagecolor taking it away
     assert!(no_warnings(&doc(r"\pagecolor[RGB]{200,30,30}")).svg.contains(r##"fill="#c81e1e"/>"##));
