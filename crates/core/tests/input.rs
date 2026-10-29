@@ -218,3 +218,26 @@ fn pagecolor_paints_the_page_behind_the_figure() {
     let r = with_warning(&doc(r"\pagecolor{nocolor}"), "\\pagecolor: unknown color 'nocolor'");
     assert!(!r.svg.contains("<rect"));
 }
+
+#[test]
+fn xcolor_named_sets_from_the_preamble() {
+    // `Gray` is cmyk in the dvipsnames and rgb in the svgnames: each option defines its colors over
+    // those before it, the class's options first, as xcolor takes them
+    let gray = |pre: &str| {
+        let r = no_warnings(&format!(r"{pre}\begin{{document}}\begin{{tikzpicture}}\fill[Gray] (0,0) circle (1);\end{{tikzpicture}}\end{{document}}"));
+        let at = r.svg.find("fill=\"#").unwrap() + 6;
+        r.svg[at..at + 7].to_string()
+    };
+    let (dvips, svg) = ("#939598", "#808080");
+    assert_eq!(gray(r"\documentclass{article}\usepackage{tikz}"), dvips);
+    assert_eq!(gray(r"\documentclass[svgnames]{article}\usepackage{tikz}"), svg);
+    assert_eq!(gray(r"\documentclass{article}\usepackage[dvipsnames,svgnames]{xcolor}"), svg);
+    assert_eq!(gray(r"\documentclass{article}\usepackage[svgnames,dvipsnames]{xcolor}"), dvips);
+    assert_eq!(gray(r"\documentclass[dvipsnames]{article}\usepackage[svgnames]{xcolor}"), svg);
+    // options of another package are not xcolor's
+    assert_eq!(gray(r"\documentclass{article}\usepackage[svgnames]{other}"), dvips);
+    assert_eq!(gray(r"\PassOptionsToPackage{svgnames}{xcolor}\documentclass{article}\usepackage{tikz}"), svg);
+    assert_eq!(gray(r"\PassOptionsToPackage{svgnames}{other}\documentclass{article}\usepackage{tikz}"), dvips);
+    // \xdefinecolor defines a color as \definecolor does
+    assert_eq!(gray(r"\documentclass{article}\usepackage{tikz}\xdefinecolor{Gray}{RGB}{175,193,36}"), "#afc124");
+}

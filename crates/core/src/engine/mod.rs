@@ -135,6 +135,7 @@ pub enum Cmd {
     Usetikzlibrary,
     Usepackage,
     Documentclass,
+    PassOptionsToPackage,
     Ignore1,
     Ignore2,
     Hspace,
@@ -235,6 +236,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("foreach", Cmd::Foreach),
     ("definecolor", Cmd::Definecolor),
     ("providecolor", Cmd::Definecolor),
+    ("xdefinecolor", Cmd::Definecolor),
     ("colorlet", Cmd::Colorlet),
     ("color", Cmd::Color),
     ("textcolor", Cmd::Textcolor),
@@ -282,6 +284,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("usepackage", Cmd::Usepackage),
     ("RequirePackage", Cmd::Usepackage),
     ("documentclass", Cmd::Documentclass),
+    ("PassOptionsToPackage", Cmd::PassOptionsToPackage),
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
@@ -1686,10 +1689,25 @@ impl Engine {
                     let last = encodings.split(',').map(str::trim).rfind(|e| !e.is_empty()).unwrap_or("OT1");
                     crate::label::set_kerning(if last == "T1" { mathra::layout::kerning::TextKerning::T1 } else { mathra::layout::kerning::TextKerning::Ot1 });
                 }
+                // xcolor takes the class's options too (tikz loads xcolor)
+                if cmd == Cmd::Documentclass || a.split(',').any(|p| p.trim() == "xcolor") {
+                    if let Some(o) = &o {
+                        let options = self.tex.expand_to_string(o.clone())?;
+                        self.load_color_sets(&options);
+                    }
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;
                     }
+                }
+                Ok(())
+            }
+            Cmd::PassOptionsToPackage => {
+                let options = self.argument_string()?;
+                let packages = self.argument_string()?;
+                if packages.split(',').any(|p| p.trim() == "xcolor") {
+                    self.load_color_sets(&options);
                 }
                 Ok(())
             }
@@ -1884,6 +1902,14 @@ impl Engine {
     }
 
     /// The `border` option of `\documentclass[border=…]{standalone}`.
+    /// xcolor's `dvipsnames`, `svgnames` and `x11names`: each defines its colors, over those of
+    /// the same name before it (the options are taken in their order, the class's first).
+    fn load_color_sets(&mut self, options: &str) {
+        for set in options.split(',').filter_map(color::sets::Set::of_option) {
+            self.colors.extend(set.colors().into_iter().map(|(n, c)| (n.to_string(), c)));
+        }
+    }
+
     fn standalone_options(&mut self, o: Vec<Token>) -> Result<(), Error> {
         for item in crate::keys::split_list(&o) {
             if item.key == "border" {

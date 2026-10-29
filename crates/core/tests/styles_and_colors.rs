@@ -203,6 +203,35 @@ fn xcolor_parsing() {
 }
 
 #[test]
+fn xcolor_named_sets() {
+    use color::sets::Set;
+    let d = HashMap::new();
+    let hex = |e: &str| color::parse(e, &d).unwrap().hex();
+    // as \extractcolorspecs gives them: the dvipsnames in cmyk, drawn as Ghostscript draws cmyk
+    let set = |s: Set, n: &str| s.color(n).unwrap();
+    assert_eq!(set(Set::Dvips, "BrickRed").model, color::Model::Cmyk([0.0, 0.89, 0.94, 0.28]));
+    assert_eq!(set(Set::Svg, "DimGray"), Color::rgb(0.41, 0.41, 0.41));
+    assert_eq!(set(Set::X11, "Red3"), Color::rgb(0.804, 0.0, 0.0));
+    assert_eq!(set(Set::X11, "Gold2"), Color::rgb(0.932, 0.79, 0.0));
+    // every color of a set is found by its name
+    for (s, n) in [(Set::Dvips, 68), (Set::Svg, 151), (Set::X11, 317)] {
+        let colors = s.colors();
+        assert_eq!(colors.len(), n);
+        for (name, c) in colors {
+            assert_eq!(s.color(name), Some(c), "{name}");
+        }
+    }
+    assert_eq!(Set::Svg.color("Red3"), None);
+    assert_eq!(Set::of_option(" x11names "), Some(Set::X11));
+    assert_eq!(Set::of_option("usenames"), None);
+    // in a document that loads no set (where TeX stops), the dvipsnames first, then the others
+    assert_eq!(hex("Gray"), "#939598");
+    assert_eq!(hex("DimGray"), "#696969");
+    assert_eq!(hex("Red3!50"), "#e68080");
+    assert!(color::parse("Red5", &d).is_none());
+}
+
+#[test]
 fn color_definitions() {
     assert_eq!(color::define("rgb", "1,0.5,0").unwrap().hex(), "#ff8000");
     assert_eq!(color::define("RGB", "255,128,0").unwrap().hex(), "#ff8000");
