@@ -199,6 +199,9 @@ pub struct ShapeText {
     pub color: Option<String>,
     pub anchor: Option<crate::extension::TextAnchor>,
     pub font: Option<String>,
+    /// Degrees counterclockwise around `at`, and whether the node's rotation is undone for it.
+    pub turn: f64,
+    pub upright: bool,
 }
 
 /// A shape, computed for one node, in the node's coordinate system.

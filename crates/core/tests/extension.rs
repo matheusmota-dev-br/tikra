@@ -233,7 +233,19 @@ fn badge(_cx: &mut Context, input: &ShapeInput) -> Result<NodeShape, Error> {
         ],
         texts: vec![
             ShapeText { text: "$+$".into(), at: p(0.0, 0.0), anchor: TextAnchor::East, ..Default::default() },
-            ShapeText { text: "CLK".into(), at: p(2.0, 0.0), anchor: TextAnchor::BaseEast, font: Some("\\tiny".into()) },
+            ShapeText { text: "CLK".into(), at: p(2.0, 0.0), anchor: TextAnchor::BaseEast, font: Some("\\tiny".into()), ..Default::default() },
+        ],
+        ..NodeShape::default()
+    })
+}
+
+/// `tag`: `A` turned a quarter, and `B` kept upright.
+fn tag(_cx: &mut Context, _input: &ShapeInput) -> Result<NodeShape, Error> {
+    let p = Point::new;
+    Ok(NodeShape {
+        texts: vec![
+            ShapeText { text: "A".into(), at: p(1.0, 0.0), anchor: TextAnchor::North, turn: 90.0, ..Default::default() },
+            ShapeText { text: "B".into(), at: p(-1.0, 0.0), anchor: TextAnchor::Center, upright: true, ..Default::default() },
         ],
         ..NodeShape::default()
     })
@@ -247,6 +259,7 @@ fn remember(cx: &mut Context, _value: Option<Tokens>) -> Result<(), Error> {
     cx.define_text("tikrashape", if on { "on" } else { "off" }, true);
     cx.declare_shape("badge", badge);
     cx.declare_shape("compass", compass);
+    cx.declare_shape("tag", tag);
     Ok(())
 }
 
@@ -281,6 +294,23 @@ fn a_library_shape_draws_texts_turned_with_the_node() {
     let places = |svg: &str| svg.match_indices("<g transform=\"").map(|(i, _)| svg[i + 14..].split('"').next().unwrap().to_string()).collect::<Vec<_>>();
     assert_ne!(places(&r.svg), places(&mirrored.svg));
     assert!(places(&mirrored.svg).iter().all(|p| p.starts_with("matrix(-1")), "{:?}", places(&mirrored.svg));
+}
+
+#[test]
+fn a_library_shape_text_turns_or_stays_upright() {
+    let places = |body: &str| {
+        let svg = convert(body, &[&BADGES]).svg;
+        svg.match_indices("<g transform=\"").map(|(i, _)| svg[i + 14..].split('"').next().unwrap().to_string()).collect::<Vec<_>>()
+    };
+    // `A` along a side, `B` as it is
+    let plain = places(r"\node[remember, shape=tag] {};");
+    assert!(plain[0].starts_with("matrix(0 -1 1 0"), "{plain:?}");
+    assert!(plain[1].starts_with("translate("), "{plain:?}");
+    // the node turned: `A` turns with it, `B` stays upright but moves
+    let turned = places(r"\node[remember, shape=tag, rotate=90] {};");
+    assert!(turned[0].starts_with("matrix(-1 0 0 -1"), "{turned:?}");
+    assert!(turned[1].starts_with("translate("), "{turned:?}");
+    assert_ne!(plain[1], turned[1]);
 }
 
 #[test]

@@ -101,7 +101,7 @@ fn library_geometry(shape: crate::extension::NodeShape) -> Geometry {
             .collect();
         g.path(Layer::Background, segments, Usage::Library { paint: path.paint, color: path.color, dash: path.dash, cap: path.cap });
     }
-    g.texts = shape.texts.into_iter().map(|t| ShapeText { tex: t.text, at: t.at, color: None, anchor: Some(t.anchor), font: t.font }).collect();
+    g.texts = shape.texts.into_iter().map(|t| ShapeText { tex: t.text, at: t.at, color: None, anchor: Some(t.anchor), font: t.font, turn: t.turn, upright: t.upright }).collect();
     g
 }
 
@@ -1008,13 +1008,24 @@ impl Engine {
                 Some(a) => st.at.minus(text_anchor(a, &l, &font)),
                 None => st.at,
             };
+            // turned around its point, less the node's own turn when it stays upright
+            let mut turn = st.turn;
+            if st.upright && t.a * t.d - t.b * t.c > 0.0 {
+                turn -= t.b.atan2(t.a).to_degrees();
+            }
+            let place = if turn.abs() < 1e-9 {
+                t.compose(&Transform::translation(origin.x, origin.y))
+            } else {
+                let d = origin.minus(st.at);
+                t.compose(&Transform::translation(st.at.x, st.at.y)).compose(&Transform::rotation(turn)).compose(&Transform::translation(d.x, d.y))
+            };
             // a library's texts count in the picture's size, as TeX's boxes do
             if st.anchor.is_some() && self.counts_for_size() {
                 for (x, y) in [(0.0, -l.depth()), (l.width(), -l.depth()), (0.0, l.height()), (l.width(), l.height())] {
-                    self.canvas.include(t.apply(origin.plus(Point::new(x, y))));
+                    self.canvas.include(place.apply(Point::new(x, y)));
                 }
             }
-            items.push(Item::Text { label: l, place: t.compose(&Transform::translation(origin.x, origin.y)), opacity: self.st.text_opacity });
+            items.push(Item::Text { label: l, place, opacity: self.st.text_opacity });
         }
         layer_items(self, &[Layer::BehindForeground, Layer::Foreground, Layer::BeforeForeground], &mut items)?;
         Ok(items)

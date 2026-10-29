@@ -228,6 +228,11 @@ pub struct ShapeText {
     pub anchor: TextAnchor,
     /// Font commands instead of the node's (`\scriptsize`).
     pub font: Option<String>,
+    /// Degrees counterclockwise, around `at`, in the node's coordinates (a label along a side).
+    pub turn: f64,
+    /// Kept upright when the node turns: its place follows the node, its box does not turn with
+    /// it (a turned chip's pin numbers).
+    pub upright: bool,
 }
 
 /// The point of a text's box that goes where a [`ShapeText`] says, as a node's anchors with no
