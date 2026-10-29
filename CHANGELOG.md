@@ -4,6 +4,12 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- `\calendar[name=cal, …]` names its days `cal-2000-01-20`, as `\calendar (cal)` does (#99).
+- `\ifdate` and a calendar's `if (…)` run the tests a document defines as `/pgf/calendar/<name>/.code`, with the date in `\pgfcalendarifdateyear`, `…month`, `…day`, `…weekday`, `…julian` and `\pgfcalendarmatchestrue` (#100).
+- Calendar layouts of the document's own can use pgf's `\c@pgf@counta` … `\c@pgf@countd` and the library's `\tikz@lib@cal@xshift`, `…yshift`, `…month@xshift`, `…month@yshift`, `…width`; such a layout no longer stops tikra with "nesting went past 64 levels" (#101).
+
 ## 1.7.0 - 2026-10-29
 
 Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.

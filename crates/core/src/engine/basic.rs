@@ -273,6 +273,8 @@ const COMMANDS: &[(&str, B)] = &[
 /// their keys make a timeline, which `\pgfsysanimate` turns into the attribute's value at the
 /// snapshot time, given to the object the id refers to.
 pub const DEFINITIONS: &str = r"
+% pgf's scratch counts, which documents borrow
+\newcount\c@pgf@counta \newcount\c@pgf@countb \newcount\c@pgf@countc \newcount\c@pgf@countd
 \newif\ifpgfslopedattime \newif\ifpgfallowupsidedownattime \newif\ifpgfresetnontranslationattime
 \def\pgfhorizontaltransformationadjustment{1}\def\pgfverticaltransformationadjustment{1}
 \newenvironment{pgflowlevelscope}[1]{\pgfscope\pgflowlevel{#1}}{\endpgfscope}
