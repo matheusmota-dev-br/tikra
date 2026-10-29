@@ -2508,7 +2508,6 @@ const DEFINITIONS: &str = r"
   pic text/.code={\def\tikzpictext{#1}}, pic text options/.code={\def\tikzpictextoptions{#1}},
 }
 \def\tikzoption#1{\@ifnextchar[{\tikra@optiondefault{#1}}{\tikra@option{#1}}}\def\tikra@option#1#2{\tikzset{#1/.code={#2}}}\def\tikra@optiondefault#1[#2]#3{\tikzset{#1/.code={#3},#1/.default={#2}}}\let\tikz@textfont\pgfutil@empty\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
-\newcount\c@pgf@counta\newcount\c@pgf@countb\newcount\c@pgf@countc\newcount\c@pgf@countd
 % PGF 1.x's `set style={{name}=[options]}` defines a style, `{name}+=[options]` adds to one
 \def\tikra@setstyle#1#2=[#3]#4\tikra@stop{\def\tikra@temp{#2}\ifx\tikra@temp\pgfutil@empty\pgfkeysalso{#1/.style={#3}}\else\pgfkeysalso{#1/.append style={#3}}\fi}
 \tikzset{set style/.code={\tikra@setstyle#1\tikra@stop}}
