@@ -4,7 +4,7 @@ Hand-made figures, one folder per topic, used by the gallery of the site, by the
 
 | Folder | What its figures show |
 |---|---|
-| `parameters/` | Figures with numbers to change (`\def\n{6} % 3..12`): the site gives each a slider |
+| `parameters/` | Figures with numbers to change (`\def\n{6} % 3..12`): the site gives each a slider (a step after a colon: `-4..4:0.1`), and each point the code names (`\coordinate (C) at (\cx,\cy);`) that they move a handle to drag on the figure |
 | `geometry/` | Points, lines, circles, angles, transformations and coordinates |
 | `plots-2d/` | TikZ plots and pgfplots axes in two dimensions |
 | `plots-3d/` | Surfaces, meshes, curves and heat maps with pgfplots |
