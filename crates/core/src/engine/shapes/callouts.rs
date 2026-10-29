@@ -106,7 +106,8 @@ pub fn rectangle_callout(input: &mut Input) -> Geometry {
     // where the pointer joins the rectangle, kept away from the corners
     let b = border_rectangle(p.minus(c), Point::new(xt, yt));
     let angle = angle_between(Point::new(0.0, 0.0), b);
-    let (xa, ya) = (xt - width, yt - width);
+    // a box narrower than the pointer leaves it no room: its base stays at the middle of the side
+    let (xa, ya) = ((xt - width).max(0.0), (yt - width).max(0.0));
     let (mut xb, mut yb) = (b.x, b.y);
     let (mut xc, mut yc) = (0.0, 0.0);
     let corner = |x: f64, y: f64| angle_between(Point::new(0.0, 0.0), Point::new(x, y));

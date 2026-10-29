@@ -246,6 +246,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmathmax", Cmd::PgfmathFunction),
     ("pgfmathmin", Cmd::PgfmathFunction),
     ("pgfmathmod", Cmd::PgfmathFunction),
+    ("pgfmathMod", Cmd::PgfmathFunction),
     ("pgfmathpow", Cmd::PgfmathFunction),
     ("pgfmathveclen", Cmd::PgfmathFunction),
     ("pgfmathatan2", Cmd::PgfmathFunction),
@@ -1502,6 +1503,13 @@ impl Engine {
                 // lengths in pt, as pgfmath counts them
                 let mut vars = self.vars();
                 vars.in_pt = true;
+                if cmd == Cmd::Pgfmathsetmacro {
+                    if let Ok(Some(s)) = crate::expr::eval_string(&text, &vars) {
+                        self.tex.set_meaning(&name, macro_from(&s), false);
+                        self.tex.define_string("pgfmathresult", &s, false);
+                        return Ok(());
+                    }
+                }
                 let v = crate::expr::eval_length(&text, &vars).map(|(v, _)| v);
                 match v {
                     Ok(v) if v.is_finite() => {
@@ -1523,8 +1531,13 @@ impl Engine {
                 let text = self.math_string(expr)?;
                 let mut vars = self.vars();
                 vars.in_pt = true;
-                match crate::expr::eval_length(&text, &vars).map(|(v, _)| v) {
-                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
+                let value = match crate::expr::eval_string(&text, &vars) {
+                    Ok(Some(s)) => Ok(s),
+                    Ok(None) => crate::expr::eval_length(&text, &vars).map(|(v, _)| pgf_number(v)),
+                    Err(e) => Err(e),
+                };
+                match value {
+                    Ok(v) => self.tex.define_string("pgfmathresult", &v, false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }
                 Ok(())
@@ -1535,7 +1548,7 @@ impl Engine {
                     Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
                     _ => return Ok(()),
                 };
-                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
+                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "Mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
                 let mut args = Vec::new();
                 for _ in 0..n {
                     let a = self.argument()?;

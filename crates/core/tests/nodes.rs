@@ -454,3 +454,19 @@ fn turned_and_scaled_boxes_in_a_label() {
     let svg = no_warnings(r"\tikz \node {\rotatebox{90}{AB}};").svg;
     assert!(svg.contains(r#"<g transform="matrix(0 -1 1 0 "#), "{svg}");
 }
+
+#[test]
+fn a_matrix_cell_reads_named_points_in_its_own_coordinates() {
+    // TeX sets each cell at the origin and moves it afterwards: (A), from outside, is A in the cell;
+    // (B), from the first cell, is where it was in that cell. Values from TeX Live 2025, in cm.
+    let body = r"\coordinate (A) at (1,0);
+        \matrix[column sep=1cm] at (5,5) {
+          \draw (A) -- (0,0) node (p) {}; \coordinate (B) at (0,0); &
+          \draw (A) -- (B) node (q) {}; \coordinate (C) at (A); \\
+        };";
+    let near = |p: Point, x: f64, y: f64| (p.x - x).abs() < 1e-3 && (p.y - y).abs() < 1e-3;
+    for (name, x, y) in [("A", 1.0, 0.0), ("B", 3.49290, 5.0), ("p", 3.49290, 5.0), ("q", 5.61709, 5.0), ("C", 6.61709, 5.0)] {
+        let q = point(body, name);
+        assert!(near(q, x, y), "{name}: {q:?}");
+    }
+}
