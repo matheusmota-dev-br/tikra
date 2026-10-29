@@ -83,8 +83,8 @@ Every example of the TikZ manual and of the pgfplots manual is drawn by pdflatex
 
 | | Figures | Drawn as TeX draws them |
 |---|---:|---:|
-| Every figure of the manuals | 2502 | 2365 (94.5%) |
-| Our 100%: the ones a converter can reproduce | 2486 | 2476 (99.6%) |
+| Every figure of the manuals | 2502 | 2367 (94.6%) |
+| Our 100%: the ones a converter can reproduce | 2486 | 2481 (99.8%) |
 
 "Our 100%" leaves out what no converter can reproduce (random numbers without a seed, image files, gnuplot, the day's date) and counts the figures that differ only by antialiasing (how Ghostscript and tikra put lines, letters and pattern tiles on the pixels) as drawn; the list is checked by eye ([unreproducible.json](https://github.com/matheusmota-dev-br/tikra/blob/main/tools/conformance/unreproducible.json)). tikra converts a figure in about half a millisecond, against about 0.7 s for pdflatex.
 
@@ -104,7 +104,7 @@ TikZ and pgf as the manuals describe them, through a small TeX interpreter (macr
 
 The details, and what is left out, are in [`spec/subset.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md) and [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).
 
-Labels: node text is typeset by mathra in Latin Modern Math, with `$…$` and `\(…\)` for math, `\textbf`, `\textit`, `\texttt`, `\textsc` and `\scshape`, `\textcolor`, `\\` for line breaks and `\tiny`…`\Huge`. Math follows mathra's default locale (English).
+Labels: node text is typeset by mathra in Latin Modern Math (in `\fontfamily{ptm}`, Times: TeX Gyre Termes, at TeX's widths), with `$…$` and `\(…\)` for math, `\textbf`, `\textit`, `\texttt`, `\textsc` and `\scshape`, `\textcolor`, `\\` for line breaks and `\tiny`…`\Huge`. Math follows mathra's default locale (English).
 
 ## The figure in words
 
@@ -194,4 +194,4 @@ tikra reads the languages of [TikZ and pgf](https://github.com/pgf-tikz/pgf), by
 
 ## Licenses
 
-Code: MIT or Apache-2.0. Labels are set in Latin Modern Math, the OpenType version of TeX's Computer Modern (GUST Font License), which comes from mathra with its STIX Two Math (SIL OFL 1.1); the Python and npm packages carry both license texts.
+Code: MIT or Apache-2.0. Labels are set in Latin Modern Math, the OpenType version of TeX's Computer Modern (GUST Font License), which comes from mathra with its STIX Two Math (SIL OFL 1.1), and labels in Times in TeX Gyre Termes (GUST Font License, [crates/core/src/fonts](https://github.com/matheusmota-dev-br/tikra/blob/main/crates/core/src/fonts/README.md)); the Python and npm packages carry the license texts.

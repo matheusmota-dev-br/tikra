@@ -4,14 +4,14 @@ How far tikra is from TikZ itself: every example of the TikZ manual (pgf 3.1.11a
 manual (1.18.2), drawn by pdflatex (TeX Live 2025) and by tikra, and compared. How it works and how
 to run it: [tools/conformance](../tools/conformance/README.md).
 
-**2365 of 2502 figures (94.5%) match TeX**; 120 are close, 17 differ and 0 fail in tikra. 130 of the ones that do not match came out with no warning.
+**2367 of 2502 figures (94.6%) match TeX**; 120 are close, 15 differ and 0 fail in tikra. 128 of the ones that do not match came out with no warning.
 
-**Our 100%: 2476 of 2486 (99.6%)**. It leaves out the 16 figures no converter can reproduce (9 with random numbers TeX draws anew on every run, 3 with an image file or external program, 4 with the day's date), and counts as done 114 that differ only by antialiasing. The list, checked by eye: [unreproducible.json](../tools/conformance/unreproducible.json).
+**Our 100%: 2481 of 2486 (99.8%)**. It leaves out the 16 figures no converter can reproduce (9 with random numbers TeX draws anew on every run, 3 with an image file or external program, 4 with the day's date), and counts as done 117 that differ only by antialiasing. The list, checked by eye: [unreproducible.json](../tools/conformance/unreproducible.json).
 
 | | Figures | Match | Close | Different | Fails | Mean F1 |
 |---|---:|---:|---:|---:|---:|---:|
-| All | 2502 | 2365 (94.5%) | 120 (4.8%) | 17 (0.7%) | 0 (0.0%) | 0.98 |
-| TikZ manual | 1864 | 1739 (93.3%) | 112 (6.0%) | 13 (0.7%) | 0 (0.0%) | 0.98 |
+| All | 2502 | 2367 (94.6%) | 120 (4.8%) | 15 (0.6%) | 0 (0.0%) | 0.98 |
+| TikZ manual | 1864 | 1741 (93.4%) | 112 (6.0%) | 11 (0.6%) | 0 (0.0%) | 0.98 |
 | pgfplots manual | 638 | 626 (98.1%) | 8 (1.3%) | 4 (0.6%) | 0 (0.0%) | 0.99 |
 
 *Match*: same shape (F1 ≥ 0.9 on the edges, with 0.5 mm of tolerance), no missing or extra piece, the same colors and size. *Close*: F1 ≥ 0.75.
@@ -26,10 +26,10 @@ The same 192 figures (a fixed sample of the manuals), one at a time, on Darwin a
 | | Median per figure | p95 |
 |---|---:|---:|
 | pdflatex (texlive/texlive:latest) | 647 ms | 1031 ms |
-| tikra, TikZ to SVG | 0.96 ms | 8.58 ms |
+| tikra, TikZ to SVG | 0.85 ms | 6.55 ms |
 
-Median ratio: tikra is **719× faster**. pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user
-waits for; tikra's is the conversion inside a running process: the first figure of a process also builds the engine, 15.7 ms more.
+Median ratio: tikra is **835× faster**. pdflatex time includes starting TeX and loading the libraries of the manual, which is what a user
+waits for; tikra's is the conversion inside a running process: the first figure of a process also builds the engine, 26.2 ms more.
 
 ## By chapter
 
@@ -38,7 +38,7 @@ Sorted by how many figures do not match, the work left.
 | Chapter | Figures | Match | Close | Different | Fails | Mean F1 |
 |---|---:|---:|---:|---:|---:|---:|
 | Shape Library <sub>tikz</sub> | 97 | 72 (74.2%) | 25 (25.8%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
-| Transparency <sub>tikz</sub> | 47 | 30 (63.8%) | 13 (27.7%) | 4 (8.5%) | 0 (0.0%) | 0.90 |
+| Transparency <sub>tikz</sub> | 47 | 31 (66.0%) | 13 (27.7%) | 3 (6.4%) | 0 (0.0%) | 0.91 |
 | Specifying Coordinates <sub>tikz</sub> | 68 | 56 (82.4%) | 12 (17.6%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
 | Coordinate, Canvas, and Nonlinear Transformations <sub>tikz</sub> | 38 | 29 (76.3%) | 9 (23.7%) | 0 (0.0%) | 0 (0.0%) | 0.93 |
 | Circuit Libraries <sub>tikz</sub> | 64 | 57 (89.1%) | 5 (7.8%) | 2 (3.1%) | 0 (0.0%) | 0.97 |
@@ -58,7 +58,6 @@ Sorted by how many figures do not match, the work left.
 | Quick Commands <sub>tikz</sub> | 3 | 1 (33.3%) | 2 (66.7%) | 0 (0.0%) | 0 (0.0%) | 0.87 |
 | Style Sheets and Legends <sub>tikz</sub> | 85 | 83 (97.6%) | 2 (2.4%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Lindenmayer System Drawing Library <sub>tikz</sub> | 6 | 4 (66.7%) | 2 (33.3%) | 0 (0.0%) | 0 (0.0%) | 0.96 |
-| Math Library <sub>tikz</sub> | 6 | 4 (66.7%) | 1 (16.7%) | 1 (16.7%) | 0 (0.0%) | 0.94 |
 | Additional Mathematical Commands <sub>tikz</sub> | 3 | 1 (33.3%) | 0 (0.0%) | 2 (66.7%) | 0 (0.0%) | 0.33 |
 | Animations <sub>tikz</sub> | 24 | 23 (95.8%) | 1 (4.2%) | 0 (0.0%) | 0 (0.0%) | 1.00 |
 | Creating Plots <sub>tikz</sub> | 7 | 6 (85.7%) | 0 (0.0%) | 1 (14.3%) | 0 (0.0%) | 0.96 |
@@ -66,6 +65,7 @@ Sorted by how many figures do not match, the work left.
 | Automata Drawing Library <sub>tikz</sub> | 8 | 7 (87.5%) | 1 (12.5%) | 0 (0.0%) | 0 (0.0%) | 0.98 |
 | Calendar Library <sub>tikz</sub> | 41 | 40 (97.6%) | 0 (0.0%) | 1 (2.4%) | 0 (0.0%) | 0.99 |
 | Fitting Library <sub>tikz</sub> | 4 | 3 (75.0%) | 1 (25.0%) | 0 (0.0%) | 0 (0.0%) | 0.97 |
+| Math Library <sub>tikz</sub> | 6 | 5 (83.3%) | 1 (16.7%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Matrix Library <sub>tikz</sub> | 14 | 13 (92.9%) | 1 (7.1%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Arrows <sub>tikz</sub> | 104 | 103 (99.0%) | 1 (1.0%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
 | Decorated Paths <sub>tikz</sub> | 31 | 30 (96.8%) | 1 (3.2%) | 0 (0.0%) | 0 (0.0%) | 0.99 |
@@ -171,22 +171,22 @@ Warnings, by how many figures they appear in (the varying part replaced by …):
 | 2 | `fill between: soft clip … not understood: ignored` |
 | 2 | `axis without data: drew the default window from N to N` |
 | 1 | `E-REC-N column N: unsupported text command: \pgfuseimage; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \pgfimage; written as is` |
 | 1 | `environment colormixin not supported: content read as statements` |
+| 1 | `E-REC-N column N: unsupported text command: \pgfimage; written as is` |
 | 1 | `\pgfpathcurvebetweentime not supported: … ignored` |
 | 1 | `\pgfplotgnuplot not supported: … ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderrectangle; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderellipse; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointintersectionofcircles; statement ignored` |
 | 1 | `\pgfqbox{\mybox}: the box is not drawn` |
-| 1 | `\pgftransparencygroup not supported: … ignored` |
-| 1 | `unrecognized path fragment: …` |
+| 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
+| 1 | `\endpgftransparencygroup not supported: … ignored` |
 | 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
+| 1 | `unrecognized path fragment: …` |
 | 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
-| 1 | `\endpgftransparencygroup not supported: … ignored` |
+| 1 | `\pgftransparencygroup not supported: … ignored` |
+| 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
 | 1 | `\pgfmathparse: expression: unexpected character: …` |
 | 1 | `E-REC-N column N: unsupported text command: \-; written as is` |

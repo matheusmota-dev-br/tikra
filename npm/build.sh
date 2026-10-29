@@ -24,7 +24,7 @@ sed -e 's/^export function wrap/function wrap/' npm/src/wrap.js > "$out/node/wra
 echo 'module.exports = { wrap };' >> "$out/node/wrap.cjs"
 cp npm/src/index.d.ts "$out/index.d.ts"
 cp npm/src/index.d.ts "$out/index.d.cts"
-cp npm/README.md LICENSE-MIT LICENSE-APACHE crates/python/licenses/OFL-STIXTwoMath.txt crates/python/licenses/GUST-FONT-LICENSE-LatinModernMath.txt "$out/"
+cp npm/README.md LICENSE-MIT LICENSE-APACHE crates/python/licenses/OFL-STIXTwoMath.txt crates/python/licenses/GUST-FONT-LICENSE-LatinModernMath.txt crates/python/licenses/GUST-FONT-LICENSE-TeXGyreTermes.txt "$out/"
 cp npm/package.json "$out/package.json"
 rm -rf "$tmp"
 echo "npm/pkg: $(node -p "require('./npm/package.json').name + '@' + require('./npm/package.json').version")"

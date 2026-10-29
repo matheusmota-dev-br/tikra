@@ -28,6 +28,7 @@ pub mod label;
 pub mod scene;
 #[doc(hidden)]
 pub mod tex;
+mod times;
 
 use std::fmt;
 

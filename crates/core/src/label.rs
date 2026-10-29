@@ -14,6 +14,9 @@ const EM_CM: f64 = 10.0 * 2.54 / 72.27;
 
 /// The font labels are set in: Latin Modern Math, the Computer Modern that TeX sets the figures in.
 pub const FONT: mathra::font::MathFont = mathra::font::MathFont::LatinModern;
+/// The font text in Times (`\fontfamily{ptm}`) is laid out in: STIX Two Math, whose letters are a
+/// Times; they are drawn in TeX Gyre Termes (`times`).
+pub const TIMES: mathra::font::MathFont = mathra::font::MathFont::StixTwo;
 
 /// Size factor of the LaTeX font commands (10pt = 1).
 pub fn font_size(text: &str) -> f64 {
@@ -205,12 +208,15 @@ fn typewriter(t: &str) -> String {
 
 /// Text in another family (`\texttt{…}`, `\textit{…}`, `\emph{…}`, `\textsf{…}`, or all of it
 /// under `\ttfamily`, `\itshape`, `\sffamily`) as the math font's letters of that family, the
-/// closest it has to TeX's typewriter, italic and sans serif fonts; its spaces kept.
-fn families(text: &str, all: Option<&str>) -> String {
+/// closest it has to TeX's typewriter, italic and sans serif fonts; its spaces kept. In `bold`
+/// text (`\bfseries`), italic is bold italic, as TeX's `\emph` there. In Times, the words are apart by
+/// the text's space (a quarter em), not math's `\ ` (a third).
+fn families(text: &str, all: Option<&str>, bold: bool, face: mathra::font::MathFont) -> String {
     let set = |t: &str, family: &str| -> String {
         if family == "mathtt" {
             return typewriter(t);
         }
+        let family = if bold && family == "mathit" { "mathbfit" } else { family };
         // digits in sans serif as the math font's sans-serif digits (`\mathsf` keeps them roman)
         let digits = |p: &str| -> String {
             if family != "mathsf" {
@@ -242,6 +248,8 @@ fn families(text: &str, all: Option<&str>) -> String {
         let parts: Vec<String> = t.split(' ').filter(|p| !p.is_empty()).map(word).collect();
         if parts.is_empty() {
             String::new()
+        } else if face == TIMES {
+            parts.iter().map(|p| format!("${p}$")).collect::<Vec<_>>().join(" ")
         } else {
             format!("${}$", parts.join("\\ "))
         }
@@ -702,15 +710,56 @@ fn tex_extents(mut b: MathBox) -> MathBox {
     b
 }
 
+/// Bold text: each run of text between the math in `\textbf` of its own (mathra sets the text after
+/// a formula inside one `\textbf` in the upright weight).
+fn bold_runs(text: &str) -> String {
+    let mut out = String::new();
+    let (mut run, mut math) = (String::new(), false);
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                run.push(c);
+                if let Some(&next) = chars.peek() {
+                    run.push(next);
+                    chars.next();
+                }
+            }
+            '$' => {
+                if math {
+                    out.push_str(&format!("${run}$"));
+                } else if !run.is_empty() {
+                    out.push_str(&format!("\\textbf{{{run}}}"));
+                }
+                run.clear();
+                math = !math;
+            }
+            _ => run.push(c),
+        }
+    }
+    match (math, run.is_empty()) {
+        (_, true) => {}
+        // an unclosed formula is left as it came
+        (true, false) => out.push_str(&format!("${run}")),
+        (false, false) => out.push_str(&format!("\\textbf{{{run}}}")),
+    }
+    out
+}
+
 /// `sc`: in small capitals (the node font's `\scshape`).
-fn typeset(text: &str, bold: bool, sc: bool, warnings: &mut Vec<String>) -> MathBox {
+fn typeset(text: &str, bold: bool, sc: bool, face: mathra::font::MathFont, warnings: &mut Vec<String>) -> MathBox {
     let options = mathra::Options { display: false, ..Default::default() };
     let text = if sc { format!("\\textsc{{{text}}}") } else { text.to_string() };
-    let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
-    match mathra::typeset_in_font(&tex, &options, FONT) {
+    let tex = if bold { format!("\\text{{{}}}", bold_runs(&text)) } else { format!("\\text{{{text}}}") };
+    match mathra::typeset_in_font(&tex, &options, face) {
         Ok((c, applied)) => {
             warnings.extend(applied.into_iter().map(|a| format!("{} {}", a.rule, a.description)));
-            tex_extents(c)
+            // (TeX's metrics are Computer Modern's; Times' letters are drawn in Termes)
+            if face == FONT {
+                tex_extents(c)
+            } else {
+                crate::times::retarget(c, bold)
+            }
         }
         // even in tolerant mode mathra refuses some input (nesting past its limit)
         Err(e) => {
@@ -1121,14 +1170,18 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let scale = EM_CM * size / 1000.0;
     let sc = font.contains("\\scshape");
     let all = [("\\ttfamily", "mathtt"), ("\\itshape", "mathit"), ("\\sffamily", "mathsf")].into_iter().find(|(c, _)| font.contains(c) || text.contains(c)).map(|(_, f)| f);
+    // Times is one design scaled to every size, as STIX Two is: Computer Modern's widths of its
+    // other design sizes do not apply
+    let face = if [font, text].iter().any(|t| t.contains("\\fontfamily{ptm}")) { TIMES } else { FONT };
+    let design_width = |pt: f64, family: char| if face == FONT { design_width(pt, family) } else { 1.0 };
     let mut stretch = design_width(10.0 * size, family(text, font, bold));
-    if sc {
+    if sc && face == FONT {
         // cmcsc10 is an extended design: its capitals are about 9% wider than cmr10's, so a word in
         // small capitals is 1.079 times as wide as the label font sets it (59.17pt for
         // "Complexity" in TeX against 54.83)
         stretch *= 1.079;
     }
-    if all == Some("mathit") {
+    if all == Some("mathit") && face == FONT {
         // text italic (cmti) is narrower than the math italic it is drawn with: by 0.943 on the
         // lowercase letters of English text, weighted by how often they come
         stretch *= 0.943;
@@ -1141,9 +1194,9 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let lead_glue = text.trim_start().starts_with("\\hskip");
     let text = if all == Some("mathtt") { clean(text) } else { ligatures(&clean(text)) };
     let text = long_arrows(&text);
-    if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all), bold, sc, w), warnings) {
+    if let Some(rows) = tabular(&text, size, stretch, &mut |cell: &str, w: &mut Vec<String>| typeset(&families(cell, all, bold, face), bold, sc, face, w), warnings) {
         let lines = rows.into_iter().map(|b| widen(b, stretch as f32)).collect();
-        return Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new() };
+        return Label { lines, scale, color, align: drawn, line_height: 1.2 * EM_CM * size, stretch, skips: Vec::new(), font: face };
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
@@ -1163,16 +1216,16 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
-            let bare = typeset(&families(&rules(&line, size, None), all), bold, sc, &mut Vec::new());
+            let bare = typeset(&families(&rules(&line, size, None), all, bold, face), bold, sc, face, &mut Vec::new());
             let pt = 10.0 * size / 1000.0;
-            families(&rules(&line, size, Some((bare.height as f64 * pt, bare.depth as f64 * pt))), all)
+            families(&rules(&line, size, Some((bare.height as f64 * pt, bare.depth as f64 * pt))), all, bold, face)
         } else {
-            families(&line, all)
+            families(&line, all, bold, face)
         };
         match text_width {
             None => {
                 // (a line in another size is in that size's design width too)
-                let b = scaled(typeset(&line, bold, sc, warnings), (sizes[k] / size) as f32);
+                let b = scaled(typeset(&line, bold, sc, face, warnings), (sizes[k] / size) as f32);
                 boxes.push(widen(b, (design_width(10.0 * sizes[k], fam) / design_width(10.0 * size, fam)) as f32));
             }
             Some(max) => {
@@ -1184,7 +1237,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
                     k == 0 && lead_glue,
                     size,
                     &units,
-                    &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, warnings),
+                    &mut |w: &str, warnings: &mut Vec<String>| typeset(w, bold, sc, face, warnings),
                     warnings,
                 );
                 for (b, skip) in lines {
@@ -1209,7 +1262,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             skips[k] += 2.54 / 72.27 - gap;
         }
     }
-    Label { lines, scale, color, align: drawn, line_height, stretch, skips }
+    Label { lines, scale, color, align: drawn, line_height, stretch, skips, font: face }
 }
 
 /// The box `f` times as large, its items too.

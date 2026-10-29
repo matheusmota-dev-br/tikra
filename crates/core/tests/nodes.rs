@@ -393,3 +393,51 @@ fn lines_too_tall_for_the_baselines_are_a_lineskip_apart() {
     let gap = -l.baseline(1) - (l.lines[0].depth + l.lines[1].height) as f64 * l.scale;
     assert!((gap - 2.54 / 72.27).abs() < 1e-6, "{gap}");
 }
+
+#[test]
+fn text_in_times_is_as_wide_as_tex_sets_it() {
+    // widths TeX's ptm gives (\settowidth, in pt), against the node's text box: inner and outer
+    // sep 0, so its west and east anchors are the text's ends
+    let pt = 2.54 / 72.27;
+    let width = |font: &str, text: &str| {
+        let body = format!(r"\node[inner sep=0, outer sep=0, font=\fontfamily{{ptm}}{font}] (n) {{{text}}};");
+        (point(&body, "n.east").x - point(&body, "n.west").x) / pt
+    };
+    let sentence = "The quick brown fox jumps over the lazy dog ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    for (font, tex) in [("", 358.01787), (r"\bfseries", 378.44699), (r"\itshape", 344.95752), (r"\bfseries\itshape", 360.567)] {
+        let w = width(&format!(r"\fontsize{{10}}{{12}}{font}"), sentence);
+        assert!((w - tex).abs() < 0.05, "{font}: {w} against TeX's {tex}");
+    }
+    // bold upright, an italic letter (bold italic, as \emph in \bfseries) and bold again
+    let w = width(r"\fontencoding{T1}\fontsize{45}{45}\bfseries", r"Ti\emph{k}Z");
+    assert!((w - 94.22916).abs() < 0.05, "{w}");
+    // drawn in Termes: its glyphs are defined apart from the label font's
+    let svg = no_warnings(r"\tikz \node[font=\fontfamily{ptm}] {Times};").svg;
+    assert!(svg.contains(r#"id="tr-gt"#) && !svg.contains(r#"id="tr-g1"#), "{svg}");
+}
+
+#[test]
+fn bold_text_stays_bold_after_a_formula() {
+    let svg = |text: &str| no_warnings(&format!(r"\tikz \node[font=\bfseries] {{{text}}};")).svg;
+    let glyphs = |s: &str| s.match_indices("<use href=\"#").map(|(i, _)| s[i + 12..].split('"').next().unwrap().to_string()).collect::<Vec<_>>();
+    let g = glyphs(&svg("Z$x$Z"));
+    assert_eq!(g[0], g[2], "{g:?}");
+    // a formula left open is drawn as mathra takes it, after the bold text
+    let out = figure(r"\tikz \node[font=\bfseries] {Z $x};");
+    assert!(out.svg.contains("<use"), "{}", out.svg);
+}
+
+#[test]
+fn times_moves_what_else_a_label_holds_with_its_letters() {
+    // a rule, a cancel line and a circled letter in Times: they keep their place among the
+    // letters, and a math symbol Termes lacks stays in STIX Two
+    let out = no_warnings(r"\tikz \node[font=\fontfamily{ptm}\bfseries] {AV. $\underline{W} \textcircled{c} \cancel{x} \alpha$};");
+    assert!(out.svg.contains("<rect") && out.svg.contains("<line") && out.svg.contains("<ellipse"), "{}", out.svg);
+    // Termes' glyphs (from 0xC000 on) and STIX Two's (the alpha) side by side
+    let ids = |svg: &str| -> Vec<u32> { svg.match_indices(r#"id="tr-gt"#).filter_map(|(i, _)| svg[i + 9..].split('"').next()?.parse().ok()).collect() };
+    let both = ids(&out.svg);
+    assert!(both.iter().any(|&g| g >= 0xC000) && both.iter().any(|&g| g < 0xC000), "{both:?}");
+    // a label of nothing Termes has is mathra's as it is
+    let alone = ids(&no_warnings(r"\tikz \node[font=\fontfamily{ptm}] {$\alpha$};").svg);
+    assert!(!alone.is_empty() && alone.iter().all(|&g| g < 0xC000), "{alone:?}");
+}

@@ -116,6 +116,8 @@ pub struct Label {
     /// Space added after each line besides the baselines' distance (`\\[2pt]`), in cm; may be
     /// shorter than the lines.
     pub skips: Vec<f64>,
+    /// The font its glyphs are of.
+    pub font: mathra::font::MathFont,
 }
 
 impl Label {

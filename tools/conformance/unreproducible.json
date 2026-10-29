@@ -154,7 +154,10 @@
       "pgfplots/pgfplots.reference.scaling:651",
       "pgfplots/pgfplots.libs.smithchart:218",
       "pgfplots/pgfplots.libs.smithchart:286",
-      "tikz/pgfmanual-en-tikz-actions:1345"
+      "tikz/pgfmanual-en-tikz-actions:1345",
+      "tikz/pgfmanual-en-tikz-transparency:717",
+      "tikz/pgfmanual-en-library-shapes:1825",
+      "tikz/pgfmanual-en-tikz-transparency:456"
     ]
   }
 }
