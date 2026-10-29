@@ -1153,6 +1153,8 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
     if let Some(s) = b.to_start.take() {
         b.move_to(s);
     }
+    // what the target set for a `+(…)` after it: a user's to path, whatever its points, does not change it
+    let relative_base = b.relative_base;
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
@@ -1168,6 +1170,7 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
         run_hook(e, "tikz@atend@to")
     })();
     e.end_group();
+    b.relative_base = relative_base;
     res
 }
 

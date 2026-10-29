@@ -2472,6 +2472,7 @@ const DEFINITIONS: &str = r"
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
+\def\pgfversion{3.1.12}
 \newif\iftikra@ignore@size
 \tikzset{on grid/.is if=tikra@ignore@size}
 \def\pgfsetmatrixcolumnsep#1{\tikzset{column sep={#1}}}

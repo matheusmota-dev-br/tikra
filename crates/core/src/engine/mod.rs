@@ -995,6 +995,24 @@ impl Engine {
             self.layout.push(if self.in_table() { Layout::Row } else { Layout::Break });
             return Ok(());
         }
+        if self.picture_depth == 0 && name == " " {
+            // `\ `: an interword space, also after a command that eats the spaces after it
+            self.layout.push(Layout::Space);
+            return Ok(());
+        }
+        if self.picture_depth == 0 && TEXT_STYLES.contains(&name) {
+            // `Ti\emph{k}Z`: set with the word it is in, as a node's text is
+            let arg = self.argument()?;
+            let text = format!("\\{name}{{{}}}", tex::tokens_to_string(&self.tex.expand_fully(arg)?));
+            match self.layout.last() {
+                Some(Layout::Word(i)) => self.words[*i].1.push_str(&text),
+                _ => {
+                    self.layout.push(Layout::Word(self.words.len()));
+                    self.words.push((self.st.font.clone(), text));
+                }
+            }
+            return Ok(());
+        }
         if self.picture_depth > 0 {
             let rest = self.skip_statement()?;
             self.warn(format!("\\{name} not supported: '{}' ignored", rest.chars().take(40).collect::<String>().trim()));
@@ -2775,6 +2793,10 @@ pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
     }
     out
 }
+
+/// The text commands that change the style of their argument, set in the text around the pictures
+/// as in a node's text.
+const TEXT_STYLES: &[&str] = &["emph", "textit", "textbf", "textsl", "textsc", "texttt", "textsf", "textrm", "textup", "textmd", "textnormal"];
 
 /// TeX's interword space and line spacing for Computer Modern at 10 pt, in cm.
 const SPACE: f64 = 3.33333 * crate::PT;
