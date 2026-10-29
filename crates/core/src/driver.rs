@@ -364,6 +364,23 @@ fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64
                     n(*thickness as f64 * k)
                 );
             }
+            MathItem::Transformed { matrix: m, items } => {
+                // the items drawn from this origin, then mapped as the box says: (x, y) in the box's
+                // units goes to (a·x + c·y + e, b·x + d·y + f), y up; in SVG units, y down
+                let inside = mathra::layout::MathBox { items: items.clone(), ..mathra::layout::MathBox::empty() };
+                let [a, b, c, d, e, f] = m.map(f64::from);
+                let _ = write!(
+                    s,
+                    r#"<g transform="matrix({} {} {} {} {} {})">{}</g>"#,
+                    num(a, 5),
+                    num(-b, 5),
+                    num(-c, 5),
+                    num(d, 5),
+                    n((origin.x + e * scale) * BP),
+                    n(-(origin.y + f * scale) * BP),
+                    math_box(&inside, Point::new(0.0, 0.0), scale, stretch, font, glyphs)
+                );
+            }
         }
     }
     s

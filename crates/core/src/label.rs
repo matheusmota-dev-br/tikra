@@ -710,47 +710,11 @@ fn tex_extents(mut b: MathBox) -> MathBox {
     b
 }
 
-/// Bold text: each run of text between the math in `\textbf` of its own (mathra sets the text after
-/// a formula inside one `\textbf` in the upright weight).
-fn bold_runs(text: &str) -> String {
-    let mut out = String::new();
-    let (mut run, mut math) = (String::new(), false);
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                run.push(c);
-                if let Some(&next) = chars.peek() {
-                    run.push(next);
-                    chars.next();
-                }
-            }
-            '$' => {
-                if math {
-                    out.push_str(&format!("${run}$"));
-                } else if !run.is_empty() {
-                    out.push_str(&format!("\\textbf{{{run}}}"));
-                }
-                run.clear();
-                math = !math;
-            }
-            _ => run.push(c),
-        }
-    }
-    match (math, run.is_empty()) {
-        (_, true) => {}
-        // an unclosed formula is left as it came
-        (true, false) => out.push_str(&format!("${run}")),
-        (false, false) => out.push_str(&format!("\\textbf{{{run}}}")),
-    }
-    out
-}
-
 /// `sc`: in small capitals (the node font's `\scshape`).
 fn typeset(text: &str, bold: bool, sc: bool, face: mathra::font::MathFont, warnings: &mut Vec<String>) -> MathBox {
     let options = mathra::Options { display: false, ..Default::default() };
     let text = if sc { format!("\\textsc{{{text}}}") } else { text.to_string() };
-    let tex = if bold { format!("\\text{{{}}}", bold_runs(&text)) } else { format!("\\text{{{text}}}") };
+    let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
     match mathra::typeset_in_font(&tex, &options, face) {
         Ok((c, applied)) => {
             warnings.extend(applied.into_iter().map(|a| format!("{} {}", a.rule, a.description)));
@@ -865,6 +829,8 @@ fn widen(mut b: MathBox, f: f32) -> MathBox {
                 *cx *= f;
                 *rx *= f;
             }
+            // (moved with the box; what it holds is widened when drawn, as glyphs are)
+            Item::Transformed { matrix, .. } => matrix[4] *= f,
         }
     }
     b.width *= f;
@@ -1298,6 +1264,8 @@ fn scaled(mut b: MathBox, f: f32) -> MathBox {
                 *ry *= f;
                 *thickness *= f;
             }
+            // what it holds, mapped f times as large
+            Item::Transformed { matrix, .. } => matrix.iter_mut().for_each(|m| *m *= f),
         }
     }
     b.width *= f;
