@@ -130,6 +130,9 @@ pub enum Cmd {
     Pgfmathsetlengthmacro,
     Pgfmathsetcount,
     Pgfmathsetlength,
+    Pgfmathaddtolength,
+    Pgfmathsetcounter,
+    Pgfmathaddtocounter,
     Pgfmathdeclarefunction,
     Pgfmathprintnumber,
     Usetikzlibrary,
@@ -275,6 +278,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmathsetlengthmacro", Cmd::Pgfmathsetlengthmacro),
     ("pgfmathsetcount", Cmd::Pgfmathsetcount),
     ("pgfmathsetlength", Cmd::Pgfmathsetlength),
+    ("pgfmathaddtolength", Cmd::Pgfmathaddtolength),
+    ("pgfmathsetcounter", Cmd::Pgfmathsetcounter),
+    ("pgfmathaddtocounter", Cmd::Pgfmathaddtocounter),
     ("pgfmathdeclarefunction", Cmd::Pgfmathdeclarefunction),
     ("pgfmathprintnumber", Cmd::Pgfmathprintnumber),
     ("usetikzlibrary", Cmd::Usetikzlibrary),
@@ -1605,22 +1611,34 @@ impl Engine {
                 }
                 Ok(())
             }
-            Cmd::Pgfmathsetcount | Cmd::Pgfmathsetlength => {
+            Cmd::Pgfmathsetcount | Cmd::Pgfmathsetlength | Cmd::Pgfmathaddtolength | Cmd::Pgfmathsetcounter | Cmd::Pgfmathaddtocounter => {
                 let target = self.argument()?;
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                let Some(name) = target.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
-                match self.tex.meaning(&name) {
+                let add = matches!(cmd, Cmd::Pgfmathaddtolength | Cmd::Pgfmathaddtocounter);
+                // lengths in pt, as pgfmath counts them
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                // a LaTeX counter is the register `\c@name`; pgfmath sets it locally, unlike `\setcounter`
+                let m = if matches!(cmd, Cmd::Pgfmathsetcounter | Cmd::Pgfmathaddtocounter) {
+                    self.tex.meaning_of(&format!("c@{}", tex::tokens_to_string(&target).trim()))
+                } else {
+                    let Some(name) = target.iter().find(|x| !x.is_space()) else { return Ok(()) };
+                    self.tex.meaning(name)
+                };
+                match m {
                     Meaning::Count(r) => {
-                        let v = crate::expr::eval(&text, &self.vars())?;
-                        self.tex.set_count(r, v.trunc() as i64, false);
+                        // the value is truncated before it is added
+                        let v = crate::expr::eval(&text, &vars)?.trunc() as i64;
+                        let old = if add { self.tex.counts.get(&r).copied().unwrap_or(0) } else { 0 };
+                        self.tex.set_count(r, old + v, false);
                     }
                     Meaning::Dimen(r) | Meaning::Skip(r) => {
-                        let (v, u) = crate::expr::eval_length(&text, &self.vars())?;
-                        let pt = if u { v / crate::PT } else { v };
-                        self.tex.set_dimen(r, (pt * 65536.0).round() as i64, false);
+                        let pt = crate::expr::eval_length(&text, &vars)?.0;
+                        let old = if add { self.tex.dimens.get(&r).copied().unwrap_or(0) } else { 0 };
+                        self.tex.set_dimen(r, old + (pt * 65536.0).round() as i64, false);
                     }
-                    _ => {}
+                    _ => self.warn(format!("{}: no register or counter '{}'", tex::show_token(t), tex::tokens_to_string(&target).trim())),
                 }
                 Ok(())
             }

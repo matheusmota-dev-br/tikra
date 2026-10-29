@@ -8,6 +8,9 @@ Each release has a headline (the line under its title), what changed, and the fi
 
 - xcolor's named color sets: every color of the dvipsnames (`BrickRed`, `MidnightBlue`), svgnames (`DimGray`, `Gold`) and x11names (`Red3`, `Gold2`), with the values TeX gives them. A set loaded with `\usepackage[…]{xcolor}`, a class option or `\PassOptionsToPackage{…}{xcolor}` defines its colors over those before it, as in xcolor (`Gray` is the svgnames' after `[dvipsnames,svgnames]`); in a document that loads no set, where TeX stops on the name, the name is still drawn, the dvipsnames' first (#56).
 - `\xdefinecolor` defines a color as `\definecolor` does (#57).
+- `\the<counter>` of a `\newcounter` is the counter's value, as LaTeX prints it: in an expression (`(\thea/100*360:1)`), a color (`red!\thedensity`) and a node's text (#66).
+- `\pgfmathsetcounter`, `\pgfmathaddtocounter` and `\pgfmathaddtolength`, as pgfmath does them: the value truncated toward zero for a counter, set locally (a `\foreach` body keeps it to itself, unlike `\setcounter`). A `\whiledo` on a counter they move ends (#67).
+- `\pgfmathsetlength` reads a plain number as points, as pgfmath does: `2cm+3` is 59.9pt, not 5cm (#68).
 
 ## 1.7.0 - 2026-10-29
 
