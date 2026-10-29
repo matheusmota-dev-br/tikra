@@ -1,9 +1,10 @@
 // A slider for each number a figure's code defines: \def\r{0.7}, \pgfmathsetmacro{\r}{0.7},
 // \newcommand{\r}{0.7}. Moving one writes the number in the code, and the page draws it again.
-// A comment on the same line can give the slider's range: \def\n{6} % sides, 3..12
+// A comment on the same line can give the slider's range, and its step after a colon:
+// \def\n{6} % sides, 3..12   \def\x{1} % x of P, -4..4:0.1
 var tikraParams = (() => {
   const PARAM = /\\(?:def\s*(\\[a-zA-Z@]+)|pgfmathsetmacro\s*\{?\s*(\\[a-zA-Z@]+)\s*\}?|(?:re)?newcommand\s*\{?\s*(\\[a-zA-Z@]+)\s*\}?)\s*\{\s*(-?\d*\.?\d+)\s*\}/g;
-  const HINT = /^[^\n%]*%[^\n]*?(-?\d*\.?\d+)\s*\.\.\s*(-?\d*\.?\d+)/;
+  const HINT = /^[^\n%]*%[^\n]*?(-?\d*\.?\d+)\s*\.\.\s*(-?\d*\.?\d+)(?:\s*:\s*(\d*\.?\d+))?/;
   // the code with its comments blanked out, the same length: a \def in a comment is no number
   const strip = (src) => src.replace(/(^|[^\\])%[^\n]*/g, (m, c) => c + " ".repeat(m.length - c.length));
 
@@ -16,7 +17,8 @@ var tikraParams = (() => {
       const at = m.index + m[0].lastIndexOf(m[4]);
       const hint = HINT.exec(code.slice(m.index + m[0].length));
       const lo = hint && Number(hint[1]), hi = hint && Number(hint[2]);
-      out.push({ name, value: Number(m[4]), at, length: m[4].length, text: m[4], hint: hint && lo < hi ? [lo, hi] : null });
+      const by = hint?.[3] ? Number(hint[3]) : null;
+      out.push({ name, value: Number(m[4]), at, length: m[4].length, text: m[4], hint: hint && lo < hi ? [lo, hi] : null, by: by > 0 ? by : null });
     }
     return out;
   }
@@ -26,7 +28,7 @@ var tikraParams = (() => {
   function initial(p) {
     const v = p.value, whole = Number.isInteger(v);
     let [lo, hi] = p.hint ?? (v === 0 ? [-1, 1] : v > 0 ? [whole && v >= 3 ? 1 : 0, 2 * v] : [2 * v, 0]);
-    const step = whole && Number.isInteger(lo) && Number.isInteger(hi) && hi - lo >= 6 ? 1 : (hi - lo) / 200;
+    const step = p.by ?? (whole && Number.isInteger(lo) && Number.isInteger(hi) && hi - lo >= 6 ? 1 : (hi - lo) / 200);
     return { lo, hi, step };
   }
   // the number as the slider gives it, with no more decimals than its step has
@@ -85,5 +87,5 @@ var tikraParams = (() => {
     return refresh;
   }
 
-  return { find, mount };
+  return { find, mount, initial };
 })();
