@@ -4,6 +4,12 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- LaTeX's boxes: `\newsavebox`, `\savebox`, `\sbox` and `lrbox` keep what they typeset (a picture, a `tabular` of pictures and words), and `\usebox` draws it in a node's text or in the document, the node as large as the box; an `overlay` picture is a box of no size, drawn around the node's center (#108).
+- With the active preview package's `\PreviewEnvironment{tikzpicture}`, a `\scalebox`, `\resizebox` or `\fbox` around a picture no longer scales or frames it: each picture is a page of its own, as TeX makes it (#109).
+- The words of a `tabular` cell in the document keep the spaces between them (#110).
+
 ## 1.7.0 - 2026-10-29
 
 Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.

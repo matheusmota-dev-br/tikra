@@ -616,16 +616,22 @@ impl Engine {
         // a text that is a picture: its box (its baseline at its bottom), drawn where the text goes
         self.text_picture = None;
         if texts.len() == 1 {
-            if let Some(p) = self.text_image(&texts[0].1)? {
-                self.text_picture = Some(p);
+            if let Some((drawn, lo, hi)) = self.text_image(&texts[0].1)? {
+                self.text_picture = Some((drawn, lo, hi, 0.0));
+                texts[0].1.clear();
+            } else if let Some(b) = self.text_box(&texts[0].1) {
+                // a saved box (`\usebox{\name}`): where it was set, its baseline where it was
+                let origin = Point::new(0.0, b.baseline);
+                let (lo, hi) = (b.canvas.min.unwrap_or(origin), b.canvas.max.unwrap_or(origin));
+                self.text_picture = Some((b.canvas.items, lo, hi, b.baseline - lo.y));
                 texts[0].1.clear();
             }
         }
         let whole = texts.first().map(|(_, t)| t.trim().to_string()).unwrap_or_default();
         let tikz = whole.strip_prefix("\\tikz").is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphabetic()));
         if texts.len() == 1 && (tikz || (whole.starts_with("\\begin{tikzpicture}") && whole.ends_with("\\end{tikzpicture}"))) {
-            if let Some(p) = self.inner_picture(spec.text.clone())? {
-                self.text_picture = Some(p);
+            if let Some((drawn, lo, hi)) = self.inner_picture(spec.text.clone())? {
+                self.text_picture = Some((drawn, lo, hi, 0.0));
                 texts[0].1.clear();
             }
         }
@@ -670,8 +676,8 @@ impl Engine {
                 if let Some((_, w, h)) = &self.text_shading {
                     (wd, ht, dp) = (2.0 * w, 2.0 * h, 0.0);
                 }
-                if let Some((_, lo, hi)) = &self.text_picture {
-                    (wd, ht, dp) = (hi.x - lo.x, hi.y - lo.y, 0.0);
+                if let Some((_, lo, hi, depth)) = &self.text_picture {
+                    (wd, ht, dp) = (hi.x - lo.x, hi.y - lo.y - depth, *depth);
                 }
                 if let Some(b) = self.forced_box.take() {
                     (wd, ht, dp) = b;
@@ -972,9 +978,9 @@ impl Engine {
                 self.canvas.include(t.apply(*p));
             }
         }
-        if let Some((drawn, lo, _)) = self.text_picture.take() {
+        if let Some((drawn, lo, _, depth)) = self.text_picture.take() {
             if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
-                let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y));
+                let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y - depth));
                 items.push(Item::Transform { transform: place });
                 items.extend(drawn);
                 items.push(Item::End);

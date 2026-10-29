@@ -29,6 +29,7 @@ pub mod path;
 pub mod patterns;
 pub mod pgfplots;
 pub mod pics;
+pub mod saveboxes;
 pub mod shadings;
 pub mod shapes;
 pub mod spy;
@@ -148,6 +149,14 @@ pub enum Cmd {
     EndOnLayer,
     NamePrefix,
     Tikzfading,
+    /// LaTeX's boxes: `\newsavebox`, `\savebox` and `\sbox`, `\usebox`
+    Newsavebox,
+    Savebox,
+    Usebox,
+    /// the active preview package's `\PreviewEnvironment`, and `\scalebox`, `\resizebox` and
+    /// `\fbox` when it takes the pictures out of them
+    PreviewEnvironment,
+    Unboxed,
     SetLayers,
     Frame,
     /// `\arrow` and `\arrowreversed` of markings
@@ -296,6 +305,12 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("tikra@frame", Cmd::Frame),
     ("tikra@nameprefix", Cmd::NamePrefix),
     ("tikzfading", Cmd::Tikzfading),
+    ("newsavebox", Cmd::Newsavebox),
+    ("savebox", Cmd::Savebox),
+    ("sbox", Cmd::Savebox),
+    ("usebox", Cmd::Usebox),
+    ("tikra@previewenvironment", Cmd::PreviewEnvironment),
+    ("tikra@unboxed", Cmd::Unboxed),
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
@@ -465,9 +480,9 @@ pub struct Engine {
     pub forced_box: Option<(f64, f64, f64)>,
     /// the shading a node's text is (`\pgfuseshading{name}`), with its half width and height (cm)
     pub text_shading: Option<(String, f64, f64)>,
-    /// the picture a node's text is (`\begin{tikzpicture}…\end{tikzpicture}`, `\tikz…`): what it
-    /// draws and its box's corners (cm)
-    pub text_picture: Option<(Vec<Item>, Point, Point)>,
+    /// the picture a node's text is (`\begin{tikzpicture}…\end{tikzpicture}`, `\tikz…`,
+    /// `\usebox`): what it draws, its box's corners, and its depth below the baseline (cm)
+    pub text_picture: Option<(Vec<Item>, Point, Point, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
@@ -483,6 +498,8 @@ pub struct Engine {
     layout: Vec<Layout>,
     /// the words of the text around the pictures, each with the font it starts in
     words: Vec<(String, String)>,
+    /// the boxes `\savebox`, `\sbox` and `lrbox` keep, by their names (`\newsavebox`)
+    saved_boxes: HashMap<String, PictureBox>,
     /// keys run so far
     /// `/handlers/first char syntax` was set: keys are checked for a handler of their first character.
     pub first_char_syntax: bool,
@@ -510,6 +527,9 @@ struct PictureBox {
     canvas: Canvas,
     baseline: f64,
 }
+
+/// What a part of the document typesets on its own: its pictures, how they are laid out, its words.
+type Apart = (Vec<PictureBox>, Vec<Layout>, Vec<(String, String)>);
 
 /// What a document puts between pictures: TeX typesets them in lines, like words.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -626,6 +646,7 @@ impl Clone for Engine {
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
             words: self.words.clone(),
+            saved_boxes: self.saved_boxes.clone(),
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
@@ -768,6 +789,7 @@ impl Engine {
             boxes: Vec::new(),
             layout: Vec::new(),
             words: Vec::new(),
+            saved_boxes: HashMap::new(),
             current_key: String::new(),
             axis: None,
             frame: None,
@@ -1686,6 +1708,15 @@ impl Engine {
                     let last = encodings.split(',').map(str::trim).rfind(|e| !e.is_empty()).unwrap_or("OT1");
                     crate::label::set_kerning(if last == "T1" { mathra::layout::kerning::TextKerning::T1 } else { mathra::layout::kerning::TextKerning::Ot1 });
                 }
+                // `\usepackage[active]{preview}`, then `\PreviewEnvironment{tikzpicture}`: each picture
+                // is a page of its own, out of the boxes around it (`\scalebox`, `\resizebox`, `\fbox`)
+                if cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "preview") {
+                    let options = o.as_ref().map(|o| self.tex.expand_to_string(o.clone())).transpose()?.unwrap_or_default();
+                    if options.split(',').any(|o| o.trim() == "active") {
+                        let m = self.tex.meaning_of("tikra@previewenvironment");
+                        self.tex.set_meaning(&Token::cs("PreviewEnvironment"), m, false);
+                    }
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;
@@ -1709,6 +1740,11 @@ impl Engine {
             }
             Cmd::Frame => self.frame_macros(),
             Cmd::Tikzfading => self.tikzfading(),
+            Cmd::Newsavebox => self.new_save_box(),
+            Cmd::Savebox => self.save_box(t.is_cs("savebox")),
+            Cmd::Usebox => self.use_box(),
+            Cmd::PreviewEnvironment => self.preview_environment(),
+            Cmd::Unboxed => self.unboxed(t),
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
@@ -2310,6 +2346,10 @@ impl Engine {
                 // its \end is read with its body
                 self.tex.env_stack.pop();
                 self.fading_from_picture()
+            }
+            "lrbox" => {
+                self.tex.env_stack.pop();
+                self.lrbox()
             }
             "tabular" if self.picture_depth == 0 => {
                 // `\begin{tabular}[pos]{rl}`: the pictures in the cells, set as TeX sets an \halign
@@ -3028,6 +3068,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             }
             Layout::Word(i) => Some((labels[*i].width(), labels[*i].height(), labels[*i].depth())),
             Layout::Skip(w) => Some((*w, 0.0, 0.0)),
+            Layout::Space => Some((SPACE, 0.0, 0.0)),
             _ => None,
         }
     };
@@ -3048,7 +3089,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             match layout[i] {
                 Layout::Cell => rows.last_mut().expect("a row").push(Vec::new()),
                 Layout::Row => rows.push(vec![Vec::new()]),
-                Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
+                Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) | Layout::Space => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
                 // the line's width stays known
                 Layout::Width(w) if !out.contains(&Layout::Width(w)) => out.push(Layout::Width(w)),
                 Layout::Vbox if !out.contains(&Layout::Vbox) => out.push(Layout::Vbox),
@@ -3057,6 +3098,14 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             i += 1;
         }
         i += 1;
+        // the spaces between words stay, those at a cell's ends do not
+        for cell in rows.iter_mut().flatten() {
+            while cell.last() == Some(&Layout::Space) {
+                cell.pop();
+            }
+            let first = cell.iter().position(|l| *l != Layout::Space).unwrap_or(cell.len());
+            cell.drain(..first);
+        }
         // `\\` before `\end{tabular}` ends the last row: nothing after it
         if rows.len() > 1 && rows.last().is_some_and(|r| r.iter().all(Vec::is_empty)) {
             rows.pop();
@@ -3103,6 +3152,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
                             cx += label.width();
                         }
                         Layout::Skip(s) => cx += s,
+                        Layout::Space => cx += SPACE,
                         _ => {}
                     }
                 }
