@@ -12,6 +12,7 @@ A figure becomes a **scene**: paths (straight segments, cubic curves, closings) 
 - **Unit:** a number without a unit is cm (or the scope's `x=`/`y=` vector); with a unit it is converted (`pt`, `mm`, `in`, `em`).
 - **Transforms:** `scale`, `rotate`, `shift`, `xshift`, `yshift` apply to coordinates and to the corners of `rectangle` (which rotates along), but not to node sizes, as in TikZ.
 - **Nodes inside a segment:** in `-- node {a} (B)` and `to node {a} (B)` the node goes to the middle of the segment (`pos=0.5`); after `-|` or `|-`, to the corner. An explicit `pos`, `near start` and so on still wins.
+- **Pictures in text:** LaTeX's `picture` environment (`\put`, `\multiput`, `\line`, `\circle`, `\circle*`, `\thicklines`, `\linethickness`, in `\unitlength`) is drawn in its box among the words, its circles in the sizes of LaTeX's circle font.
 - **Lines between nodes** (`(A) -- (B)` with named nodes) leave from and arrive at the shape's **border**, not its center.
 - **Nodes:** default `inner sep` of 0.3333 em; a rectangle is text + 2 × inner sep, at least `minimum width/height`; a circle through half the diagonal; a diamond with `aspect`. `above` puts the `south` anchor on the point, and so on; `below=of A` measures the distance border to border (`node distance`). `base`, `base west`, `base east` and `text` sit on the first text line's baseline.
 - **Widths:** `ultra thin` 0.1 pt … `thin` 0.4 pt (default) … `ultra thick` 1.6 pt.

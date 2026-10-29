@@ -17,6 +17,8 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `left=30`, `above=.2`…: a bare number is in points, as TikZ reads it, and in the x and y vectors' units only with the `positioning` library (#52).
 - Code that builds a `ShapeText` listing every field needs `..Default::default()` for the new ones (#39).
 - Labels in Latin Modern are kerned as TeX kerns them: by the OT1 fonts (`cmr10`, `cmbx10`) by default and the T1 ones (`ec-lmr10`, `ec-lmbx10`) after `\usepackage[T1]{fontenc}` (`va`, `AV`, `To`) (#48; mathra#81). 3 more figures match TeX.
+- LaTeX's `picture` environment in a text: `\begin{picture}(w,h)(x,y)` with `\put`, `\multiput`, `\line`, `\circle`, `\circle*`, `\thinlines`, `\thicklines` and `\linethickness`, in `\unitlength`, drawn as LaTeX draws it (#53).
+- `\begingroup`, `\endgroup` and `\relax` in a text no longer leave the space after them.
 
 ## 1.6.0 - 2026-10-29
 

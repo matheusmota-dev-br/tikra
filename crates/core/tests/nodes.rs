@@ -311,6 +311,21 @@ fn text_with_sizes_circled_and_grouped_words() {
 }
 
 #[test]
+fn picture_environment_in_text() {
+    // the manual of CircuiTikZ's \fourdots: a cross and four dots, 4 units of 0.8mm square
+    let doc = r"\newcommand{\fourdots}{\begingroup\setlength{\unitlength}{0.8mm}%
+        \begin{picture}(4,4)(-2,-2)
+        \put(-2,0){\line(1,0){4}} \put(0,-2){\line(0,1){4}}
+        \multiput(-1,1)(2,0){2}{\circle*{1}} \multiput(-1,-1)(2,0){2}{\circle*{1}}
+        \end{picture}\endgroup}
+        \begin{tikzpicture} \node[inner sep=0pt] {a\fourdots b}; \end{tikzpicture}";
+    let r = no_warnings(doc);
+    assert_eq!(r.svg.matches("<ellipse").count(), 4, "{}", r.svg);
+    let (l, _) = label(r"\node {\setlength{\unitlength}{1cm}\begin{picture}(2,1)\put(0,0){\line(1,0){2}}\end{picture}};");
+    assert!((l.width() - 2.0).abs() < 1e-3 && (l.height() - 1.0).abs() < 1e-3 && l.depth().abs() < 1e-3, "{} {} {}", l.width(), l.height(), l.depth());
+}
+
+#[test]
 fn baseline_anchors() {
     let body =
         r"\node[draw, anchor=base west] (a) at (1,2) {xg}; \node[anchor=base] (b) at (5,2) {x}; \node[anchor=base east] (c) at (9,2) {x}; \node[anchor=text] (d) at (12,2) {x};";
