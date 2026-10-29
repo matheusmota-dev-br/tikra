@@ -595,7 +595,8 @@ fn add_transform(e: &mut Engine, t: Transform) {
 
 /// A point for `shift=`: in the coordinate system the shift happens in.
 fn shift_vector(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<Point, Error> {
-    let s = text(e, v)?;
+    // read as a coordinate on a path is: a length register (`\newdimen\R`) is its value
+    let s = e.math_string(v.clone().unwrap_or_default())?;
     let inner = s.trim().trim_start_matches('{').trim_end_matches('}').trim().trim_start_matches('(').trim_end_matches(')').to_string();
     let p = e.coordinate(&inner)?.p;
     // in the coordinate system as it is: shifts given before (still pending) do not change it
