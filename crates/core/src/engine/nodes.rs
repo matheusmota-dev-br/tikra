@@ -1088,7 +1088,8 @@ impl Engine {
         let s = tex::tokens_to_string(&v);
         // the angle is up to the first top-level colon
         let (angle_text, text_tokens) = match split_colon(&v) {
-            Some((a, b)) => (tex::tokens_to_string(&a).trim().to_string(), b),
+            // expanded: `pin=\a:\a` in a `\foreach` is at the angle `\a` holds
+            Some((a, b)) => (self.tex.expand_to_string(a.clone()).unwrap_or_else(|_| tex::tokens_to_string(&a)).trim().to_string(), b),
             None => (String::new(), v.clone()),
         };
         let _ = s;
