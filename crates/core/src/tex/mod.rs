@@ -614,6 +614,11 @@ impl Tex {
         self.define_text(r"\def\@ifundefined#1{\ifcsname#1\endcsname\expandafter\ifx\csname#1\endcsname\relax\expandafter\expandafter\expandafter\@firstoftwo\else\expandafter\expandafter\expandafter\@secondoftwo\fi\else\expandafter\@firstoftwo\fi}");
         self.define_text(r"\let\pgfutil@ifundefined\@ifundefined\def\@namedef#1{\expandafter\def\csname#1\endcsname}\def\@nameuse#1{\csname#1\endcsname}");
         self.define_text(r"\def\loop#1\repeat{\def\body{#1}\iterate}\def\iterate{\body\let\next\iterate\else\let\next\relax\fi\next}\let\repeat\fi");
+        // pgfmath's loop: as \loop, with \pgfmathcounter counting the rounds from 1
+        self.define_text(
+            r"\def\pgfmathloop#1\repeatpgfmathloop{\def\pgfmathcounter{1}\def\tikra@mathloop@body{#1}\tikra@mathloop}\let\repeatpgfmathloop\fi
+              \def\tikra@mathloop{\tikra@mathloop@body\edef\pgfmathcounter{\the\numexpr\pgfmathcounter+1\relax}\let\next\tikra@mathloop\else\let\next\relax\fi\next}",
+        );
         self.define_text(
             r"\def\obeyspaces{}\def\protect{}\def\nobreak{}\def\noindent{}\def\indent{}\def\leavevmode{}\def\unskip{}\def\strut{}\def\quad{\ }\def\qquad{\ \ }\def\enspace{\ }",
         );
@@ -631,6 +636,10 @@ impl Tex {
         self.meanings.insert(Rc::from("pgfutil@tempdimb"), Meaning::Dimen(253));
         self.meanings.insert(Rc::from("pgfutil@tempcnta"), Meaning::Count(252));
         self.meanings.insert(Rc::from("pgfutil@tempcntb"), Meaning::Count(253));
+        // pgf's scratch counters, which code of a figure's own uses too
+        for (i, c) in ["a", "b", "c", "d"].iter().enumerate() {
+            self.meanings.insert(Rc::from(format!("c@pgf@count{c}")), Meaning::Count(244 + i as u32));
+        }
         self.meanings.insert(Rc::from("m@ne"), Meaning::CharDef(-1));
         self.meanings.insert(Rc::from("z@"), Meaning::Dimen(250));
         self.meanings.insert(Rc::from("@ne"), Meaning::CharDef(1));
@@ -1803,9 +1812,9 @@ impl Tex {
     }
 
     /// Expands what `expand_start` began, to its end or to the first unexpandable control sequence
-    /// named in `stops`: what it expanded to, and that control sequence, after which the input
-    /// is what follows it (for the caller to read its arguments and run it, as TeX would while
-    /// typesetting, and then to call again).
+    /// named in `stops` or register (whose assignment it begins): what it expanded to, and that
+    /// control sequence, after which the input is what follows it (for the caller to read its
+    /// arguments and run it, as TeX would while typesetting, and then to call again).
     pub fn expand_more(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
         let r = self.expand_frame_until(depth, stops);
         if r.is_err() {
@@ -1820,6 +1829,9 @@ impl Tex {
             let Some(t) = self.get_token_until(depth) else { break };
             if let Token::Cs(name) = &t {
                 if stops.contains(&name.as_ref()) && !self.meaning(&t).is_expandable() {
+                    return Ok((out, Some(t)));
+                }
+                if !stops.is_empty() && matches!(self.meaning(&t), Meaning::Count(_) | Meaning::Dimen(_) | Meaning::Skip(_) | Meaning::Toks(_)) {
                     return Ok((out, Some(t)));
                 }
             }

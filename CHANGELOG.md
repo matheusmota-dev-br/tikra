@@ -4,6 +4,17 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- A node or pic placed `at +(x,y)` (or `++`) is placed from the path's last point, as TikZ does, instead of being dropped with "at without a point"; `pic foreach … at +(…)` too (#114).
+- `node (a) (b) {…}` is named b, as in TikZ, instead of ending after its first name (#115).
+- In a shifted, scaled or turned scope, `let`'s `\x1` and `\y1` and the vectors `x=(node)`, `y=(node)` are in the scope's coordinates, as TeX gives them, so `(\x1,0)` lands below the point; `\p{\name}` expands its name (#116).
+- calc's `($(A)!1cm!(B)$)` measures the distance before the transformation: 3cm on the page under `scale=3`, as TeX (#117).
+- A node's text runs its `\def`, `\let`, register assignments, `\@ifnextchar` and `\setkeys` as TeX does while typesetting it, and draws a picture made by a macro after them (its `\foreach \number` included); `\relax` typesets nothing; pgf's `\c@pgf@counta`… counters and `\pgfmathloop … \repeatpgfmathloop` (#118).
+- The `pic text` and `pic text options` keys set `\tikzpictext` and `\tikzpictextoptions` (#119).
+- `\foreach \a in {\pa,\pb}` keeps its items as they are written, so a macro holding a whole path with commas is one item, as in TeX; the ends of a `...` range are still read (#120).
+- A macro in a `declare function` body is read when the function is used (#121).
+
 ## 1.7.0 - 2026-10-29
 
 Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.

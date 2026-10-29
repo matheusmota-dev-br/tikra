@@ -428,7 +428,14 @@ impl Engine {
                         target = a.plus(Transform::rotation(ang).apply(b.minus(a)));
                     }
                     let (v, unit) = crate::expr::eval_length(&t_text, &self.vars())?;
-                    last = Some(if unit { a.plus(target.minus(a).scale(v / target.minus(a).norm().max(1e-12))) } else { a.lerp(target, v) });
+                    last = Some(if unit {
+                        // a distance is measured before the transformation (`scale=3` makes it 3 times as long)
+                        let inv = self.st.transform.inverse();
+                        let (la, lt) = (inv.apply(a), inv.apply(target));
+                        self.st.transform.apply(la.plus(lt.minus(la).scale(v / lt.minus(la).norm().max(1e-12))))
+                    } else {
+                        a.lerp(target, v)
+                    });
                     let consumed: String = tc[..end].iter().collect();
                     i += 1 + t_end + 1 + (after.chars().count() - target_text.chars().count()) + consumed.chars().count();
                 }

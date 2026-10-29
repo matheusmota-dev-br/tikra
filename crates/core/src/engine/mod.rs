@@ -1189,13 +1189,48 @@ impl Engine {
         let sans = self.st.font.contains("\\sffamily");
         crate::expr::Variables {
             values: HashMap::new(),
-            functions: (*self.st.functions).clone(),
+            functions: self.functions_now(),
             font_scale: Some(self.st.ambient_size / 10.0),
             in_pt: false,
             sans,
             trig_rad: self.st.trig_rad,
             fpu: false,
         }
+    }
+
+    /// The declared functions, the macros in their bodies replaced by what they hold now, as pgfmath
+    /// reads a body when the function is used (`f(\q)=\q*\total;`, `\total` set later).
+    fn functions_now(&self) -> HashMap<String, (Vec<String>, String)> {
+        let mut functions = (*self.st.functions).clone();
+        for (params, body) in functions.values_mut() {
+            // a macro may hold others: a few rounds
+            for _ in 0..8 {
+                let mut out = String::new();
+                let mut changed = false;
+                let mut rest = body.as_str();
+                while let Some(i) = rest.find('\\') {
+                    out.push_str(&rest[..i]);
+                    let name: String = rest[i + 1..].chars().take_while(|c| c.is_ascii_alphabetic() || *c == '@').collect();
+                    match self.tex.meaning_of(&name) {
+                        tex::Meaning::Macro(m) if !name.is_empty() && m.params.is_empty() && !params.contains(&name) => {
+                            out.push_str(&tex::tokens_to_string(&tex::substitute(&m.body, &[])));
+                            changed = true;
+                        }
+                        _ => {
+                            out.push('\\');
+                            out.push_str(&name);
+                        }
+                    }
+                    rest = &rest[i + 1 + name.len()..];
+                }
+                out.push_str(rest);
+                *body = out;
+                if !changed {
+                    break;
+                }
+            }
+        }
+        functions
     }
 
     /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).
@@ -2449,6 +2484,32 @@ impl Engine {
         Ok(Some(self.math_text_value(pick)?.unwrap_or_else(|| pick.trim().to_string())))
     }
 
+    /// The list of a `\foreach`, for `foreach_items`: a macro that holds it, expanded; or a group,
+    /// whose items stay as they are written (`{\a,\b}` is two items, whatever `\a` holds) but for
+    /// the ends of a `...` range.
+    pub fn foreach_list(&mut self) -> Result<Vec<Token>, Error> {
+        let list = match self.tex.next_nonspace() {
+            Some(Token::Char(_, Cat::Begin)) => self.tex.read_group_body()?,
+            Some(t) => return self.tex.expand_fully(vec![t]),
+            None => return Ok(Vec::new()),
+        };
+        let items = foreach_split(&list);
+        let dots = |i: usize| items.get(i).is_some_and(|p| tex::tokens_to_string(p).trim() == "...");
+        let mut out = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                out.push(Token::other(','));
+            }
+            // `\a,\b,...,\c`: the step comes from the two before the dots
+            if dots(i + 1) || dots(i + 2) || (i > 0 && dots(i - 1)) {
+                out.extend(self.tex.expand_fully(item.clone())?);
+            } else {
+                out.extend(item.iter().cloned());
+            }
+        }
+        Ok(out)
+    }
+
     /// `\foreach \x/\y [count=\i, evaluate=\x as \v using …, remember=\x as \lastx (initially 0)] in {list} body`
     fn foreach(&mut self) -> Result<(), Error> {
         // variables up to `[` or `in`
@@ -2474,13 +2535,7 @@ impl Engine {
             }
         }
         let names: Vec<Token> = vars.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-        // the list: a group, or a macro that holds it
-        let list_tokens = match self.tex.next_nonspace() {
-            Some(Token::Char(_, Cat::Begin)) => self.tex.read_group_body()?,
-            Some(t) => vec![t],
-            None => Vec::new(),
-        };
-        let list = self.tex.expand_fully(list_tokens)?;
+        let list = self.foreach_list()?;
         let items = foreach_items(&list);
         // options after the list too: \foreach \x in {…} [count=\i]
         if let Some(t) = self.tex.next_nonspace() {
@@ -2708,8 +2763,8 @@ fn split_slash(item: &[Token]) -> Vec<Vec<Token>> {
     parts.into_iter().map(|p| tex::strip_outer_braces(crate::keys::trim(&p).to_vec())).collect()
 }
 
-/// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
-pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
+/// A `\foreach` list cut at its commas, the items as they are written.
+fn foreach_split(list: &[Token]) -> Vec<Vec<Token>> {
     let mut raw: Vec<Vec<Token>> = Vec::new();
     let mut current: Vec<Token> = Vec::new();
     let mut depth = 0usize;
@@ -2730,7 +2785,12 @@ pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
         current.push(t.clone());
     }
     raw.push(current);
-    let raw: Vec<Vec<Token>> = raw.into_iter().map(|p| tex::strip_outer_braces(crate::keys::trim(&p).to_vec())).filter(|p| !p.is_empty()).collect();
+    raw
+}
+
+/// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
+pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
+    let raw: Vec<Vec<Token>> = foreach_split(list).into_iter().map(|p| tex::strip_outer_braces(crate::keys::trim(&p).to_vec())).filter(|p| !p.is_empty()).collect();
     let text = |v: &[Token]| tex::tokens_to_string(v).trim().to_string();
     let mut out: Vec<Vec<Token>> = Vec::new();
     let mut i = 0;

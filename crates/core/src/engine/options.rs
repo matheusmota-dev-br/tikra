@@ -1030,6 +1030,12 @@ fn unit_vector(e: &mut Engine, v: &Option<Vec<Token>>, axis: usize) -> Result<Po
         e.st.transform = Transform::default();
         let r = e.coordinate(&inner);
         e.st.transform = saved;
+        // a node's point as the transformation makes it (`x=(a.east)` in a shifted scope is the
+        // vector to the anchor from the scope's origin)
+        let name = inner.split_once('.').map_or(inner.as_str(), |(n, _)| n).trim();
+        if e.lookup_node(name).is_some() {
+            return Ok(saved.inverse().apply(r?.p));
+        }
         return Ok(r?.p);
     }
     let m = e.length(t)?;
@@ -2469,6 +2475,7 @@ const DEFINITIONS: &str = r"
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
   absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true, pic type/.code={},
+  pic text/.code={\def\tikzpictext{#1}}, pic text options/.code={\def\tikzpictextoptions{#1}},
 }
 \def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
