@@ -167,15 +167,15 @@ Warnings, by how many figures they appear in (the varying part replaced by …):
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointborderellipse; statement ignored` |
 | 1 | `\pgfpathcircle: figure: not a point: \pgfpointintersectionofcircles; statement ignored` |
 | 1 | `\pgfqbox{\mybox}: the box is not drawn` |
-| 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
 | 1 | `\pgftransparencygroup not supported: … ignored` |
-| 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
-| 1 | `unrecognized path fragment: …` |
-| 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
-| 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \node; written as is` |
+| 1 | `\endpgftransparencygroup not supported: … ignored` |
 | 1 | `E-REC-N column N: unsupported text command: \end; written as is` |
 | 1 | `E-REC-N column N: unsupported text command: \begin; written as is` |
-| 1 | `\endpgftransparencygroup not supported: … ignored` |
+| 1 | `E-REC-N column N: unsupported text command: \endpgftransparencygroup; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \pgftransparencygroup; written as is` |
+| 1 | `E-REC-N column N: unsupported text command: \pgfsetfillopacity; written as is` |
+| 1 | `unrecognized path fragment: …` |
 | 1 | `\pgfmathparse: expression: unexpected character: …` |
 | 1 | `E-REC-N column N: unsupported text command: \-; written as is` |
 | 1 | `\pgfmathrandominteger not supported: … ignored` |

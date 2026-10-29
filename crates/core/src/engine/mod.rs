@@ -1642,6 +1642,9 @@ impl Engine {
                 if cmd == Cmd::Usetikzlibrary && a.split(',').any(|l| l.trim() == "mindmap") {
                     self.st.decoration.angle = 20.0;
                 }
+                if cmd == Cmd::Usetikzlibrary && a.split(',').any(|l| l.trim() == "positioning") {
+                    self.st.positioning = true;
+                }
                 // `\usepackage[T1]{fontenc}`: text kerned as the T1 fonts kern it (the last encoding
                 // listed is the one in force)
                 if cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "fontenc") {

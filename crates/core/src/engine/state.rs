@@ -151,6 +151,9 @@ pub struct GState {
     /// `decorate`: the path is decorated when used (reset by each path)
     pub decorate: bool,
     pub decoration: super::decorations::Settings,
+    /// `\usetikzlibrary{positioning}`: a bare number in `left=…` is in the x and y vectors' units,
+    /// not points
+    pub positioning: bool,
     /// `preaction=` and `postaction=` options, in order (reset by each path)
     pub preactions: Rc<Vec<Vec<crate::tex::Token>>>,
     pub postactions: Rc<Vec<Vec<crate::tex::Token>>>,
@@ -322,6 +325,7 @@ impl Default for GState {
             mark_color: None,
             decorate: false,
             decoration: Default::default(),
+            positioning: false,
             preactions: Rc::default(),
             postactions: Rc::default(),
             functions: Rc::new(HashMap::new()),

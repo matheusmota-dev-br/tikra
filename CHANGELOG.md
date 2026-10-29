@@ -14,6 +14,7 @@ Each release has a headline (the line under its title), what changed, and the fi
 - In a `\matrix` cell, a named point is read in the cell's own coordinates, as TeX sets the cell before moving it into place: `(A)` from outside the matrix moves with the cell, and a node from another cell is where it was in that cell (#47).
 - `\pagecolor{…}` (and `\pagecolor[model]{…}`) paints the page behind the figure, margin included, as TeX does, instead of being drawn as text; `\nopagecolor` takes it away (#50).
 - `tikra::extension`: a shape's text can be turned around its point (`ShapeText::turn`, a label along a side) and kept upright when its node turns (`ShapeText::upright`, a turned chip's pin numbers) (#39).
+- `left=30`, `above=.2`…: a bare number is in points, as TikZ reads it, and in the x and y vectors' units only with the `positioning` library (#52).
 - Code that builds a `ShapeText` listing every field needs `..Default::default()` for the new ones (#39).
 - Labels in Latin Modern are kerned as TeX kerns them: by the OT1 fonts (`cmr10`, `cmbx10`) by default and the T1 ones (`ec-lmr10`, `ec-lmbx10`) after `\usepackage[T1]{fontenc}` (`va`, `AV`, `To`) (#48; mathra#81). 3 more figures match TeX.
 

@@ -507,3 +507,18 @@ fn text_is_kerned_as_the_documents_fonts_are() {
     // the next figure is OT1 again
     assert_eq!(width(node), ot1);
 }
+
+#[test]
+fn a_placement_offset_without_unit_is_in_points_unless_positioning() {
+    let width = |code: &str| -> f64 {
+        let svg = tikra::convert(code).unwrap().svg;
+        svg.split("viewBox=\"").nth(1).unwrap().split(' ').nth(2).unwrap().parse().unwrap()
+    };
+    let picture = r"\begin{tikzpicture}\draw (0,0) circle (1pt) node[left=30]{LO};\end{tikzpicture}";
+    let points = width(picture);
+    let doc = |library: &str| format!("\\documentclass{{standalone}}\\usepackage{{tikz}}{library}\\begin{{document}}{picture}\\end{{document}}");
+    assert!((width(&doc("")) - points).abs() < 1e-6);
+    // 30 pt across, or 30 cm with the positioning library, as TeX
+    assert!(points < 60.0, "{points}");
+    assert!(width(&doc(r"\usetikzlibrary{positioning}")) > 800.0);
+}

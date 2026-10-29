@@ -1165,6 +1165,13 @@ fn placement(e: &mut Engine, dir: &str, v: Option<Vec<Token>>) -> Result<(), Err
         (dv, dh)
     } else if let Some((a, b)) = dist.split_once(" and ") {
         (place_length(e, a, 1)?, place_length(e, b, 0)?)
+    } else if target.is_none() && !e.st.positioning {
+        // TikZ's own `left=30`: a length, a bare number in points (the positioning library reads it
+        // in the vectors' units)
+        let s = e.math_string(tikra_tokens(dist.trim()))?;
+        let (v, unit) = crate::expr::eval_length(&s, &e.vars())?;
+        let m = if unit { v } else { v * crate::PT };
+        (m, m)
     } else {
         let m = place_length(e, &dist, 1)?;
         (m, if target.is_some() { m } else { place_length(e, &dist, 0)? })
