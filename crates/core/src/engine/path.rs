@@ -239,6 +239,9 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         fresh_link: false,
     };
     operations(e, &mut b, None)?;
+    if b.current.is_some() {
+        e.last_xy = b.point();
+    }
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
     let mut segs = std::mem::take(&mut b.segs);

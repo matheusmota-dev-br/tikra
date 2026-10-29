@@ -53,7 +53,7 @@ Packages, run by `.github/workflows/ci.yml` on every pull request:
 | `npm/test/*.test.*` | 8 | The packed npm package, installed in a scratch project: ESM and `require`, every input form, `render` and its figure in words, `png` options, errors as `Error`, `version()`. |
 | `crates/python/tests/test_tikra.py` | 8 | The Python module as installed: every input form, `render` and its figure in words, `png` (bytes, `dpi`, `background`), `ValueError`, versions. `pypi.yml` runs it against each built wheel and the sdist. |
 
-Unit tests, inside the modules: `describe.rs` (numbers, text and math as spoken, an axis with nothing to tell, plural forms, every language's phrases against English's placeholders, a chart in Portuguese), `color.rs` (mixes), `expr.rs` (basic expressions), `label.rs` (wrapping and font size). Plus the documentation example in `lib.rs`.
+Unit tests, inside the modules: `describe.rs` (numbers, text and math as spoken, an axis with nothing to tell, plural forms, every language's phrases against English's placeholders, a chart in Portuguese), `color.rs` (mixes), `expr.rs` (basic expressions), `label.rs` (wrapping and font size), `tex/tests.rs` (TeX itself: macros, registers, conditionals, LaTeX commands, etoolbox, xstring, the page lengths). Plus the documentation example in `lib.rs`.
 
 ## Coverage
 

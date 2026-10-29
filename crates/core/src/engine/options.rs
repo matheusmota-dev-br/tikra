@@ -427,7 +427,9 @@ impl Engine {
             }
             ".default" => self.tex.set_meaning(&Token::cs(&macro_name(&format!("{base}/.@def"))), macro_tokens(v), false),
             ".initial" => self.tex.set_meaning(&Token::cs(&macro_name(base)), macro_tokens(v), false),
-            ".value required" | ".value forbidden" | ".show code" | ".show value" | ".is family" | ".activate family" | ".deactivate family" | ".belongs to family" => {}
+            // `/K/.is family`: the key `/K` makes `/K` the default path
+            ".is family" => self.define_code(base, 0, tikra_tokens(&format!("\\pgfkeysalso{{{base}/.cd}}"))),
+            ".value required" | ".value forbidden" | ".show code" | ".show value" | ".activate family" | ".deactivate family" | ".belongs to family" => {}
             ".store in" | ".estore in" => {
                 let target: Vec<Token> = v.into_iter().filter(|t| !t.is_space()).collect();
                 let mut body = vec![Token::cs(if h == ".store in" { "def" } else { "edef" })];
@@ -2533,6 +2535,7 @@ const DEFINITIONS: &str = r"
 \def\tikra@onbg#1{\pgfonlayer{background}\pgftransformreset#1\endpgfonlayer}
 \def\tikz@picture@start{\tikzset{every picture/.try}}
 \def\tikz@scope@options{\tikzset{every scope/.try}}
+\newif\iftikz@isdimension\let\tikz@textfont\pgfutil@empty
 ";
 
 /// Defines every native key and TikZ's own styles.

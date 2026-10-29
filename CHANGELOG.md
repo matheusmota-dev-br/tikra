@@ -41,6 +41,15 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `\tikzoption{name}[default]{code}` defines the key with its default value (#104).
 - An anchor that is an expression, `(a.200+360/5)`, is the angle it gives, as pgf evaluates it (#105).
 - The `svg` path operation takes its data in quotes too: `svg "M0,0 L20,10"` (#106).
+- `\g@addto@macro`, etoolbox's `\appto`, `\gappto`, `\eappto`, `\xappto`, `\preto` and kin, and babel's `\addto` add to a macro as TeX does (#89).
+- `\numexpr …\relax` and `\dimexpr …\relax` in a pgfmath expression or a coordinate are read as TeX reads them (#90).
+- `\newcounter{name}` defines `\thename` (#66).
+- `\pgfgetlastxy{\x}{\y}`: the last point of the last path, in pt (#91).
+- etoolbox's `\ifstrempty`, `\ifblank` and `\ifdefempty` (#92), and its toggles: `\newtoggle`, `\providetoggle`, `\toggletrue`, `\togglefalse`, `\settoggle`, `\iftoggle`, `\nottoggle` (#93).
+- xstring's `\StrLen`, `\StrLeft`, `\StrRight`, `\StrMid`, `\StrChar`, `\StrBefore`, `\StrBehind`, `\StrCut`, `\StrBetween`, `\StrSubstitute`, `\StrDel`, `\StrCount`, `\IfSubStr`, `\IfStrEq`, `\IfBeginWith` and `\IfEndWith` (#94).
+- pgfkeys' `/K/.is family`: the key `/K` goes to that path (#95).
+- TikZ's `\tikz@checkunit` (with `\iftikz@isdimension`), `\pgf@xx`, `\pgf@xy`, `\pgf@yx`, `\pgf@yy` in an expression, and `\tikz@textfont` (#96).
+- LaTeX's page lengths: `\paperwidth` and `\paperheight` (letter paper, or the size of the class or geometry's `a4paper`, `a5paper`… and `landscape`), `\textheight`, `\oddsidemargin`, `\topmargin`, `\headheight`, `\parskip`, `\columnsep` and the others `article` sets, and the caption package's `\captionmargin`: usable in coordinates, and `\setlength` no longer warns about them (#97).
 
 ## 1.7.0 - 2026-10-29
 
