@@ -34,6 +34,9 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `text width` wraps text in another family (`font=\sffamily`, `\ttfamily`, `\itshape`), which was set on one line (#85).
 - A node's text that is all a `\parbox[t]{2cm}{…}` or a `minipage` wraps to that width, justified unless it begins with `\centering`, `\raggedright` or `\raggedleft` (#86).
 - `\geometry{…}` is no longer printed, and `\resizebox{7cm}{!}{…}` (and `\resizebox*`) around pictures scales them to that size as graphicx does, instead of printing its arguments (#87).
+- `\calendar[name=cal, …]` names its days `cal-2000-01-20`, as `\calendar (cal)` does (#99).
+- `\ifdate` and a calendar's `if (…)` run the tests a document defines as `/pgf/calendar/<name>/.code`, with the date in `\pgfcalendarifdateyear`, `…month`, `…day`, `…weekday`, `…julian` and `\pgfcalendarmatchestrue` (#100).
+- Calendar layouts of the document's own can use pgf's `\c@pgf@counta` … `\c@pgf@countd` and the library's `\tikz@lib@cal@xshift`, `…yshift`, `…month@xshift`, `…month@yshift`, `…width`; such a layout no longer stops tikra with "nesting went past 64 levels" (#101).
 
 ## 1.7.0 - 2026-10-29
 
