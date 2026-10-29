@@ -264,9 +264,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "mathra"
-version = "1.7.1"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97b5755ee2d80ddec1b5ac5f2bd58266bc0a1ad35f1c627875e01b071f29713e"
+checksum = "d473aea6456d8d0da19fa2643521c61adb2bc70398c3e235f6f405a8fecdb159"
 dependencies = [
  "roxmltree",
  "serde",
@@ -645,7 +645,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tikra"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "mathra",
  "resvg",
@@ -655,14 +655,14 @@ dependencies = [
 
 [[package]]
 name = "tikra-cli"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "tikra",
 ]
 
 [[package]]
 name = "tikra-python"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "pyo3",
  "tikra",
@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "tikra-wasm"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "serde_json",
  "tikra",
