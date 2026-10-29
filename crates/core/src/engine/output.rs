@@ -224,11 +224,8 @@ impl Engine {
             .compose(&crate::scene::Transform::rotation(a))
             .compose(&crate::scene::Transform::scaling(sx.max(1e-9), sy.max(1e-9)));
         let st = &self.st;
-        let blend = |x: crate::color::Color, y: crate::color::Color, t: f64| crate::color::Color {
-            r: x.r * t + y.r * (1.0 - t),
-            g: x.g * t + y.g * (1.0 - t),
-            b: x.b * t + y.b * (1.0 - t),
-        };
+        let blend =
+            |x: crate::color::Color, y: crate::color::Color, t: f64| crate::color::Color::rgb(x.r * t + y.r * (1.0 - t), x.g * t + y.g * (1.0 - t), x.b * t + y.b * (1.0 - t));
         let (white, black) = (crate::color::Color::WHITE, crate::color::Color::BLACK);
         match st.shading.as_str() {
             "ball" => crate::canvas::Shading::Radial {

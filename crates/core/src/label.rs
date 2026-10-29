@@ -3,6 +3,7 @@
 
 mod hyphen;
 mod paragraph;
+mod picture;
 
 use mathra::layout::MathBox;
 
@@ -133,6 +134,20 @@ fn clean(text: &str) -> String {
                 }
                 if c.get(i..i + 2).is_some_and(|u| ["pt", "em", "ex", "cm", "mm"].contains(&u.iter().collect::<String>().as_str())) {
                     i += 2;
+                }
+                continue;
+            }
+            // `\begingroup … \endgroup` a group, `\relax` nothing: the spaces after them go, as
+            // TeX skips those after a control word
+            if matches!(name.as_str(), "begingroup" | "endgroup" | "relax") {
+                out.push_str(match name.as_str() {
+                    "begingroup" => "{",
+                    "endgroup" => "}",
+                    _ => "",
+                });
+                i += 1 + name.len();
+                while c.get(i) == Some(&' ') {
+                    i += 1;
                 }
                 continue;
             }
@@ -710,9 +725,21 @@ fn tex_extents(mut b: MathBox) -> MathBox {
     b
 }
 
+thread_local! {
+    /// How text is kerned: as TeX's OT1 fonts, or T1 ones after `\usepackage[T1]{fontenc}`.
+    static KERNING: std::cell::Cell<mathra::layout::kerning::TextKerning> = const { std::cell::Cell::new(mathra::layout::kerning::TextKerning::Ot1) };
+}
+
+/// Text from now on kerned as `kerning` says (a figure starts with OT1).
+pub fn set_kerning(kerning: mathra::layout::kerning::TextKerning) {
+    KERNING.with(|k| k.set(kerning));
+}
+
 /// `sc`: in small capitals (the node font's `\scshape`).
 fn typeset(text: &str, bold: bool, sc: bool, face: mathra::font::MathFont, warnings: &mut Vec<String>) -> MathBox {
-    let options = mathra::Options { display: false, ..Default::default() };
+    // (Times is kerned by `times`, as TeX's `ptm`)
+    let kerning = if face == FONT { KERNING.with(|k| k.get()) } else { mathra::layout::kerning::TextKerning::None };
+    let options = mathra::Options { display: false, text_kerning: kerning, ..Default::default() };
     let text = if sc { format!("\\textsc{{{text}}}") } else { text.to_string() };
     let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
     match mathra::typeset_in_font(&tex, &options, face) {
@@ -1155,6 +1182,9 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     let mut boxes = Vec::new();
     // a text that is one group (`{upper line \\ lower line}`): what it groups
     let text = crate::keys::strip_braces(text);
+    // pictures (`\begin{picture}…`) as `\tikrapicture{k}`, set as boxes of their size below
+    let (text, pictures) = if text.contains("\\begin{picture}") { picture::extract(text, warnings) } else { (text.to_string(), Vec::new()) };
+    let text = text.as_str();
     let text_raw = text;
     // the text after glue (`\hskip0pt`, as mindmap concepts begin): its first word may be hyphenated
     let lead_glue = text.trim_start().starts_with("\\hskip");
@@ -1180,6 +1210,7 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     }
     for (k, (line, after)) in manual.into_iter().enumerate() {
         let line = if line.contains("\\hbox") { hboxes(&line, size, stretch) } else { line };
+        let line = if pictures.is_empty() { line } else { picture_boxes(&line, &pictures, size, stretch) };
         let line = if line.contains("\\vrule") {
             // the rules run to the height and depth of the rest of the line
             let bare = typeset(&families(&rules(&line, size, None), all, bold, face), bold, sc, face, &mut Vec::new());
@@ -1218,7 +1249,11 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
             *s += after * 2.54 / 72.27;
         }
     }
-    let lines: Vec<mathra::layout::MathBox> = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
+    let mut lines: Vec<mathra::layout::MathBox> = boxes.into_iter().map(|b| widen(b, stretch as f32)).collect();
+    if !pictures.is_empty() {
+        let unit = (2.54 / 72.27 / scale) as f32;
+        lines.iter_mut().for_each(|b| draw_pictures(&mut b.items, &pictures, unit));
+    }
     // TeX's interline glue: lines that would come closer than \lineskiplimit (0pt) at their
     // baselines' distance are set \lineskip (1pt) apart instead (a tall formula, a molecule)
     skips.resize(lines.len(), 0.0);
@@ -1229,6 +1264,70 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
         }
     }
     Label { lines, scale, color, align: drawn, line_height, stretch, skips, font: face }
+}
+
+/// The color that marks the box of picture `k` in a typeset line.
+fn picture_mark(k: usize) -> String {
+    format!("tikrapicture{k}")
+}
+
+/// `\tikrapicture{k}` as a box of picture `k`'s size, in ems of the label's font (`stretch`, how
+/// much the label widens its boxes afterwards), marked by its color for `draw_pictures`.
+fn picture_boxes(line: &str, pictures: &[picture::Picture], size: f64, stretch: f64) -> String {
+    let mut out = line.to_string();
+    let em = 10.0 * size;
+    for (k, p) in pictures.iter().enumerate() {
+        let b = format!("$\\textcolor{{{}}}{{\\rule{{{:.5}em}}{{{:.5}em}}}}$", picture_mark(k), p.width / em / stretch, p.height / em);
+        out = out.replace(&format!("\\tikrapicture{{{k}}}"), &b);
+    }
+    out
+}
+
+/// The pictures in place of their boxes: what they draw, from their lower left corners, `unit`
+/// label units per point.
+fn draw_pictures(items: &mut Vec<mathra::layout::Item>, pictures: &[picture::Picture], unit: f32) {
+    use mathra::layout::Item;
+    use picture::Mark;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items.drain(..) {
+        let k = match &item {
+            Item::Rule { color: Some(c), .. } => c.strip_prefix("tikrapicture").and_then(|k| k.parse::<usize>().ok()).filter(|k| *k < pictures.len()),
+            _ => None,
+        };
+        let (Some(k), Item::Rule { x: ox, y: oy, .. }) = (k, &item) else {
+            let mut item = item;
+            if let Item::Transformed { items, .. } = &mut item {
+                draw_pictures(items, pictures, unit);
+            }
+            out.push(item);
+            continue;
+        };
+        let at = |x: f64, y: f64| (ox + x as f32 * unit, oy + y as f32 * unit);
+        for m in &pictures[k].marks {
+            out.push(match *m {
+                Mark::Rule { x, y, width, height } => {
+                    let (x, y) = at(x, y);
+                    Item::Rule { x, y, width: width as f32 * unit, height: height as f32 * unit, color: None }
+                }
+                Mark::Line { x1, y1, x2, y2, thickness } => {
+                    let ((x1, y1), (x2, y2)) = (at(x1, y1), at(x2, y2));
+                    Item::Line { x1, y1, x2, y2, thickness: thickness as f32 * unit, color: None }
+                }
+                // a disk: a ring as thick as its radius
+                Mark::Disk { x, y, diameter } => {
+                    let (cx, cy) = at(x, y);
+                    let r = diameter as f32 * unit / 4.0;
+                    Item::Ellipse { cx, cy, rx: r, ry: r, thickness: 2.0 * r, color: None }
+                }
+                Mark::Ring { x, y, diameter, thickness } => {
+                    let (cx, cy) = at(x, y);
+                    let r = diameter as f32 * unit / 2.0;
+                    Item::Ellipse { cx, cy, rx: r, ry: r, thickness: thickness as f32 * unit, color: None }
+                }
+            });
+        }
+    }
+    *items = out;
 }
 
 /// The box `f` times as large, its items too.

@@ -87,11 +87,11 @@ impl Engine {
             let c = match model.trim() {
                 "rgb" => {
                     let v: Vec<f64> = value.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                    Color { r: v.first().copied().unwrap_or(0.0), g: v.get(1).copied().unwrap_or(0.0), b: v.get(2).copied().unwrap_or(0.0) }
+                    Color::rgb(v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0), v.get(2).copied().unwrap_or(0.0))
                 }
                 "gray" => {
                     let g = value.parse().unwrap_or(0.0);
-                    Color { r: g, g, b: g }
+                    Color::rgb(g, g, g)
                 }
                 _ => self.color(value).unwrap_or(Color::BLACK),
             };

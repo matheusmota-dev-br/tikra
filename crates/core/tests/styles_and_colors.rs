@@ -199,7 +199,7 @@ fn xcolor_parsing() {
     ] {
         assert!(color::parse(name, &d).is_some(), "{name}");
     }
-    assert_eq!(Color { r: 2.0, g: -1.0, b: 0.5 }.hex(), "#ff0080", "values outside 0..1 are clamped");
+    assert_eq!(Color::rgb(2.0, -1.0, 0.5).hex(), "#ff0080", "values outside 0..1 are clamped");
 }
 
 #[test]
@@ -207,7 +207,8 @@ fn color_definitions() {
     assert_eq!(color::define("rgb", "1,0.5,0").unwrap().hex(), "#ff8000");
     assert_eq!(color::define("RGB", "255,128,0").unwrap().hex(), "#ff8000");
     assert_eq!(color::define("gray", "0.5").unwrap().hex(), "#808080");
-    assert_eq!(color::define("cmyk", "0,1,1,0").unwrap().hex(), "#ff0000");
+    // drawn as Ghostscript draws cmyk, through its ICC profiles
+    assert_eq!(color::define("cmyk", "0,1,1,0").unwrap().hex(), "#ed1c24");
     assert_eq!(color::define("HTML", "#00FF00").unwrap().hex(), "#00ff00");
     assert!(color::define("HTML", "12").is_none());
     assert!(color::define("HTML", "ZZZZZZ").is_none());
@@ -247,8 +248,8 @@ fn user_styles() {
     assert!(close(stroke(&t[0]).width, 0.8 * tikra::PT));
     assert!(stroke(&t[1]).dash.is_some());
     assert_eq!(stroke(&t[2]).color.hex(), "#0000ff", "every path");
-    // the node's border
-    assert_eq!(fill_color(&t[3]).as_deref(), Some("#ffff00"));
+    // the node's border, in xcolor's yellow, a cmyk color
+    assert_eq!(fill_color(&t[3]).as_deref(), Some("#fff200"));
 }
 
 #[test]

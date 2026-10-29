@@ -2,10 +2,10 @@
 //!
 //! Tokens with category codes, read lazily from the text so `\makeatletter` applies to what follows;
 //! macros with parameters (delimited ones too), `\def`, `\edef`, `\let`, `\newcommand` with an optional
-//! argument, `\newenvironment`; groups, with local and `\global` assignments; count and dimen
-//! registers; conditionals; `\expandafter`, `\csname`, `\string`, `\the`, `\number`, `\noexpand` and
-//! the e-TeX extensions pgf relies on (`\numexpr`, `\dimexpr`, `\unexpanded`, `\detokenize`,
-//! `\ifdefined`, `\ifcsname`, `\unless`, `\protected`).
+//! argument, `\NewDocumentCommand` and its argument types, `\newenvironment`; groups, with local and
+//! `\global` assignments; count and dimen registers; conditionals; `\expandafter`, `\csname`,
+//! `\string`, `\the`, `\number`, `\noexpand` and the e-TeX extensions pgf relies on (`\numexpr`,
+//! `\dimexpr`, `\unexpanded`, `\detokenize`, `\ifdefined`, `\ifcsname`, `\unless`, `\protected`).
 //!
 //! What is drawn is not here: commands such as `\draw` are [`Meaning::Native`], run by the TikZ layer
 //! with full access to the token stream, the way `tikz.code.tex` reads its input.
@@ -211,6 +211,12 @@ pub enum Prim {
     Renewcommand,
     Providecommand,
     Declarerobustcommand,
+    /// `\NewDocumentCommand` and its kin (the kind by the name used)
+    Newdocumentcommand,
+    /// what a document command expands to first: reads its arguments by its specification
+    Documentarguments,
+    /// `\IfNoValueTF`, `\IfBooleanTF` and their kin (the kind by the name used)
+    Documentif,
     Newenvironment,
     Renewenvironment,
     Makeatletter,
@@ -314,6 +320,8 @@ impl Prim {
                 | Whiledo
                 | Ifstrequal
                 | Ifboolean
+                | Documentarguments
+                | Documentif
         )
     }
 
@@ -545,6 +553,24 @@ impl Tex {
             ("renewcommand", Renewcommand),
             ("providecommand", Providecommand),
             ("DeclareRobustCommand", Declarerobustcommand),
+            ("NewDocumentCommand", Newdocumentcommand),
+            ("RenewDocumentCommand", Newdocumentcommand),
+            ("ProvideDocumentCommand", Newdocumentcommand),
+            ("DeclareDocumentCommand", Newdocumentcommand),
+            ("NewExpandableDocumentCommand", Newdocumentcommand),
+            ("RenewExpandableDocumentCommand", Newdocumentcommand),
+            ("ProvideExpandableDocumentCommand", Newdocumentcommand),
+            ("DeclareExpandableDocumentCommand", Newdocumentcommand),
+            ("tikra@documentarguments", Documentarguments),
+            ("IfNoValueTF", Documentif),
+            ("IfNoValueT", Documentif),
+            ("IfNoValueF", Documentif),
+            ("IfValueTF", Documentif),
+            ("IfValueT", Documentif),
+            ("IfValueF", Documentif),
+            ("IfBooleanTF", Documentif),
+            ("IfBooleanT", Documentif),
+            ("IfBooleanF", Documentif),
             ("newenvironment", Newenvironment),
             ("renewenvironment", Renewenvironment),
             ("makeatletter", Makeatletter),
@@ -582,6 +608,8 @@ impl Tex {
         // the mark \noexpand and \unexpanded put before a token; on its own it does nothing
         self.meanings.insert(Rc::from("tikra@noexpand"), Meaning::Prim(Relax));
         // a few plain and LaTeX macros, defined the way they are there
+        // the value of a missing optional argument of a document command, and of an `s` one
+        self.define_text(r"\def\tikra@novalue{-NoValue-}\def\BooleanTrue{\BooleanTrue}\def\BooleanFalse{\BooleanFalse}");
         self.define_text(r"\def\space{ }\def\empty{}\def\@empty{}\def\pgfutil@empty{}\def\@nil{\@nil}\def\pgfutil@nil{\pgfutil@nil}\def\pgfeov{\pgfeov}");
         self.define_text(r"\def\@ifundefined#1{\ifcsname#1\endcsname\expandafter\ifx\csname#1\endcsname\relax\expandafter\expandafter\expandafter\@firstoftwo\else\expandafter\expandafter\expandafter\@secondoftwo\fi\else\expandafter\@firstoftwo\fi}");
         self.define_text(r"\let\pgfutil@ifundefined\@ifundefined\def\@namedef#1{\expandafter\def\csname#1\endcsname}\def\@nameuse#1{\csname#1\endcsname}");
@@ -1456,6 +1484,28 @@ impl Tex {
             Ifboolean => {
                 let name = tokens_to_string(&self.read_undelimited()?);
                 self.push_tokens([Token::Cs(Rc::from(format!("if{}", name.trim()).as_str()))]);
+            }
+            Documentarguments => self.document_arguments()?,
+            Documentif => {
+                let name = match t {
+                    Token::Cs(n) => n.to_string(),
+                    _ => String::new(),
+                };
+                let arg: Vec<Token> = self.read_undelimited()?.into_iter().filter(|x| !x.is_space()).collect();
+                let test = if name.starts_with("IfBoolean") {
+                    arg.len() == 1 && arg[0].is_cs("BooleanTrue")
+                } else {
+                    let missing = arg.len() == 1 && arg[0].is_cs("tikra@novalue");
+                    missing == name.starts_with("IfNoValue")
+                };
+                let (yes, no) = if name.ends_with("TF") {
+                    (self.read_undelimited()?, self.read_undelimited()?)
+                } else if name.ends_with('T') {
+                    (self.read_undelimited()?, Vec::new())
+                } else {
+                    (Vec::new(), self.read_undelimited()?)
+                };
+                self.push_tokens(if test { yes } else { no });
             }
             _ => {}
         }
@@ -2443,6 +2493,7 @@ impl Tex {
                 let _ = if p == Numexpr { self.scan_numexpr()? } else { self.scan_dimexpr()? };
             }
             Newcommand | Renewcommand | Providecommand | Declarerobustcommand => self.newcommand(p)?,
+            Newdocumentcommand => self.new_document_command(t)?,
             Newenvironment | Renewenvironment => self.newenvironment()?,
             Uppercase | Lowercase => {
                 let body = self.read_general_text()?;
@@ -2593,6 +2644,87 @@ impl Tex {
         Ok(())
     }
 
+    /// `\NewDocumentCommand\name{spec}{body}` (xparse, in the LaTeX kernel): `\name` reads its
+    /// arguments by `spec`, then runs `body` with them as `#1`, `#2`…. The command is
+    /// `\tikra@documentarguments{spec}` and a macro of undelimited parameters for the body.
+    fn new_document_command(&mut self, t: &Token) -> Result<(), Error> {
+        let kind = match t {
+            Token::Cs(n) => n.to_string(),
+            _ => String::new(),
+        };
+        let first = self.next_nonspace().ok_or_else(|| Error::Figure(format!("{} at the end", show_token(t))))?;
+        let name = if matches!(first, Token::Char(_, Cat::Begin)) {
+            let body = self.read_group_body()?;
+            body.into_iter().find(|x| !x.is_space()).ok_or_else(|| Error::Figure(format!("{} without a name", show_token(t))))?
+        } else {
+            first
+        };
+        let spec = self.read_undelimited()?;
+        let body = self.read_undelimited()?;
+        let defined = !matches!(self.meaning(&name), Meaning::Undefined);
+        if kind.starts_with("Provide") && defined {
+            return Ok(());
+        }
+        let n = parse_arg_spec(&spec, &mut self.warnings).len().min(9) as u8;
+        let inner = Token::Cs(Rc::from(format!("tikra@document@{}", show_token(&name).trim_start_matches('\\')).as_str()));
+        let params = (1..=n).map(Param::Arg).collect();
+        self.set_meaning(&inner, Meaning::Macro(Rc::new(Macro { params, body: parse_body(body), optional: None, protected: false })), false);
+        let mut call = vec![Token::cs("tikra@documentarguments"), Token::Char('{', Cat::Begin)];
+        call.extend(spec);
+        call.extend([Token::Char('}', Cat::End), inner]);
+        let m = Macro { params: Vec::new(), body: call.into_iter().map(Body::Tok).collect(), optional: None, protected: !kind.contains("Expandable") };
+        self.set_meaning(&name, Meaning::Macro(Rc::new(m)), false);
+        Ok(())
+    }
+
+    /// `\tikra@documentarguments{spec}\inner`: reads a document command's arguments from the
+    /// input and expands `\inner`'s body with them.
+    fn document_arguments(&mut self) -> Result<(), Error> {
+        let spec = self.read_undelimited()?;
+        let inner = self.get_token().ok_or_else(|| Error::Figure("a document command without its body".into()))?;
+        let Meaning::Macro(m) = self.meaning(&inner) else { return Ok(()) };
+        let mut args = Vec::new();
+        let novalue = || vec![Token::cs("tikra@novalue")];
+        for a in parse_arg_spec(&spec, &mut Vec::new()) {
+            let v = match a {
+                ArgSpec::Mandatory => self.read_undelimited()?,
+                ArgSpec::Optional(open, close, default) => match self.next_nonspace() {
+                    Some(x) if x.is_char(open) => self.read_until_char(close, true)?,
+                    other => {
+                        if let Some(x) = other {
+                            self.back(x);
+                        }
+                        default.unwrap_or_else(novalue)
+                    }
+                },
+                ArgSpec::Required(open, close, default) => match self.next_nonspace() {
+                    Some(x) if x.is_char(open) => self.read_until_char(close, true)?,
+                    other => {
+                        if let Some(x) = other {
+                            self.back(x);
+                        }
+                        self.warnings.push(format!("{} is missing its argument in '{open}{close}'", show_token(&inner).replace("tikra@document@", "")));
+                        default.unwrap_or_else(novalue)
+                    }
+                },
+                ArgSpec::Flag(c) => match self.next_nonspace() {
+                    Some(x) if x.is_char(c) => vec![Token::cs("BooleanTrue")],
+                    other => {
+                        if let Some(x) = other {
+                            self.back(x);
+                        }
+                        vec![Token::cs("BooleanFalse")]
+                    }
+                },
+            };
+            args.push(v);
+        }
+        args.truncate(9);
+        let body = substitute(&m.body, &args);
+        self.push_tokens(body);
+        Ok(())
+    }
+
     /// `\newenvironment{name}[n][default]{begin}{end}`.
     fn newenvironment(&mut self) -> Result<(), Error> {
         let mut t = self.next_nonspace().ok_or_else(|| Error::Figure("\\newenvironment at the end".into()))?;
@@ -2662,6 +2794,89 @@ fn compare(a: i64, rel: char, b: i64) -> bool {
 }
 
 /// `#1` → argument, `##` → `#`.
+/// One argument of a document command's specification.
+#[derive(Debug, Clone, PartialEq)]
+enum ArgSpec {
+    /// `m`
+    Mandatory,
+    /// `o`, `O{default}`, `d<>`, `D<>{default}`: between the two characters if they are there
+    Optional(char, char, Option<Vec<Token>>),
+    /// `r<>`, `R<>{default}`
+    Required(char, char, Option<Vec<Token>>),
+    /// `s` (a star), `t+`: whether the character is there
+    Flag(char),
+}
+
+/// Reads a document command's argument specification (`O{} O{0.2cm} m m m`); the prefixes `+`,
+/// `!` and `>{…}` change nothing here, and unknown types are read as `m` with a warning.
+fn parse_arg_spec(spec: &[Token], warnings: &mut Vec<String>) -> Vec<ArgSpec> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    // the next token that is not a space
+    let next = |i: &mut usize| -> Option<Token> {
+        while spec.get(*i).is_some_and(|t| t.is_space()) {
+            *i += 1;
+        }
+        let t = spec.get(*i).cloned();
+        *i += 1;
+        t
+    };
+    let char_of = |t: Option<Token>| match t {
+        Some(Token::Char(c, _)) => Some(c),
+        _ => None,
+    };
+    // a `{…}` group, without its braces; nothing if there is none
+    let group = |i: &mut usize| -> Vec<Token> {
+        let mut j = *i;
+        if !matches!(next(&mut j), Some(Token::Char(_, Cat::Begin))) {
+            return Vec::new();
+        }
+        let mut depth = 1;
+        let mut inside = Vec::new();
+        while let Some(t) = spec.get(j) {
+            j += 1;
+            match t {
+                Token::Char(_, Cat::Begin) => depth += 1,
+                Token::Char(_, Cat::End) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            inside.push(t.clone());
+        }
+        *i = j;
+        inside
+    };
+    while i < spec.len() {
+        let Some(c) = char_of(next(&mut i)) else { continue };
+        match c {
+            '+' | '!' => {}
+            '>' => {
+                group(&mut i);
+            }
+            'm' => out.push(ArgSpec::Mandatory),
+            'o' => out.push(ArgSpec::Optional('[', ']', None)),
+            'O' => out.push(ArgSpec::Optional('[', ']', Some(group(&mut i)))),
+            's' => out.push(ArgSpec::Flag('*')),
+            't' => out.push(ArgSpec::Flag(char_of(next(&mut i)).unwrap_or('*'))),
+            'd' | 'D' | 'r' | 'R' => {
+                let a = char_of(next(&mut i)).unwrap_or('[');
+                let b = char_of(next(&mut i)).unwrap_or(']');
+                let default = c.is_uppercase().then(|| group(&mut i));
+                out.push(if c.eq_ignore_ascii_case(&'d') { ArgSpec::Optional(a, b, default) } else { ArgSpec::Required(a, b, default) });
+            }
+            other => {
+                warnings.push(format!("document command argument type '{other}' not supported: read as 'm'"));
+                out.push(ArgSpec::Mandatory);
+            }
+        }
+    }
+    out
+}
+
 pub fn parse_body(raw: Vec<Token>) -> Vec<Body> {
     let mut out = Vec::with_capacity(raw.len());
     let mut it = raw.into_iter().peekable();

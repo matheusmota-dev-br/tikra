@@ -104,7 +104,7 @@ fn hsb(h: f64, s: f64, b: f64) -> Color {
         4 => (t, p, b),
         _ => (b, p, q),
     };
-    Color { r, g, b: bl }
+    Color::rgb(r, g, bl)
 }
 
 impl Engine {
@@ -490,8 +490,8 @@ impl Engine {
         };
         let c = match model.as_str() {
             "hsb" => hsb(part(0), part(1), part(2)),
-            "rgb" => Color { r: part(0), g: part(1), b: part(2) },
-            "gray" => Color { r: part(0), g: part(0), b: part(0) },
+            "rgb" => Color::rgb(part(0), part(1), part(2)),
+            "gray" => Color::rgb(part(0), part(0), part(0)),
             _ => Color::BLACK,
         };
         self.colors.insert("tikra@dv@seriescolor".into(), c);

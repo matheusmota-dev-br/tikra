@@ -90,13 +90,13 @@ impl Colormap {
             let p = at.unwrap_or_else(|| pos.map_or(0.0, |q| q + step));
             pos = Some(p);
             let c = match model.as_str() {
-                "color" => color::parse(value.trim(), colors),
+                "color" => color::parse(value.trim(), colors).map(|c| c.to_rgb()),
                 "rgb" => rgb(&value, 1.0),
                 "rgb255" => rgb(&value, 255.0),
-                "gray" => value.trim().parse::<f64>().ok().map(|g| Color { r: g, g, b: g }),
+                "gray" => value.trim().parse::<f64>().ok().map(|g| Color::rgb(g, g, g)),
                 "cmyk" => {
                     let v: Vec<f64> = value.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                    (v.len() == 4).then(|| Color { r: (1.0 - v[0]) * (1.0 - v[3]), g: (1.0 - v[1]) * (1.0 - v[3]), b: (1.0 - v[2]) * (1.0 - v[3]) })
+                    (v.len() == 4).then(|| Color::rgb((1.0 - v[0]) * (1.0 - v[3]), (1.0 - v[1]) * (1.0 - v[3]), (1.0 - v[2]) * (1.0 - v[3])))
                 }
                 _ => None,
             };
@@ -236,12 +236,12 @@ pub fn to_shading_spec(e: &mut super::Engine) -> Result<(), crate::Error> {
 }
 
 pub fn mix(a: Color, b: Color, f: f64) -> Color {
-    Color { r: a.r + (b.r - a.r) * f, g: a.g + (b.g - a.g) * f, b: a.b + (b.b - a.b) * f }
+    Color::rgb(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f, a.b + (b.b - a.b) * f)
 }
 
 fn rgb(v: &str, scale: f64) -> Option<Color> {
     let v: Vec<f64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-    (v.len() == 3).then(|| Color { r: v[0] / scale, g: v[1] / scale, b: v[2] / scale })
+    (v.len() == 3).then(|| Color::rgb(v[0] / scale, v[1] / scale, v[2] / scale))
 }
 
 fn length_cm(s: &str) -> Option<f64> {
@@ -256,8 +256,8 @@ mod tests {
     fn hot_and_steps() {
         let m = Colormap::parse("color(0cm)=(blue); color(1cm)=(yellow); color(2cm)=(orange); color(3cm)=(red)", &HashMap::new()).unwrap();
         assert_eq!(m.stops.len(), 4);
-        assert_eq!(m.at(0.0), Color { r: 0.0, g: 0.0, b: 1.0 });
-        assert_eq!(m.at(1.0), Color { r: 1.0, g: 0.0, b: 0.0 });
+        assert_eq!(m.at(0.0), Color::rgb(0.0, 0.0, 1.0));
+        assert_eq!(m.at(1.0), Color::rgb(1.0, 0.0, 0.0));
         let m = Colormap::parse("rgb=(0,0,0) rgb=(1,1,1)", &HashMap::new()).unwrap();
         assert!((m.at(0.5).r - 0.5).abs() < 1e-9);
         let m = Colormap::parse("[1cm]rgb255(0cm)=(0,0,0) rgb255(3cm)=(255,0,0) rgb255(6cm)=(255,255,0)", &HashMap::new()).unwrap();

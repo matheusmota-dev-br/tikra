@@ -46,7 +46,7 @@ enum Kind {
         black_center: bool,
     },
     /// the library's bilinear interpolation of four corner colors over the middle 50 bp
-    Bilinear([Color; 4]),
+    Bilinear(Box<[Color; 4]>),
     /// the library's Mandelbrot set, 8 units across the 100 bp box: black where z ← z² + c stays
     /// within 2 for its ten steps (looked at after the fourth and the seventh), gray growing to white
     /// with how far past 2 it got
@@ -268,7 +268,7 @@ fn hsv(h: f64, s: f64, v: f64) -> Color {
         4 => (t, p, v),
         _ => (v, p, q),
     };
-    Color { r, g, b }
+    Color::rgb(r, g, b)
 }
 
 impl Prepared {
@@ -286,7 +286,7 @@ impl Prepared {
                         _ => return None,
                     };
                 }
-                Some(Color { r: c[0], g: c[1], b: c[2] })
+                Some(Color::rgb(c[0], c[1], c[2]))
             }
             Kind::Wheel { white_center, black_center } => {
                 let hue = if p.x.abs() + p.y.abs() >= 0.0001 { p.x.atan2(p.y).to_degrees().rem_euclid(360.0) / 360.0 } else { p.x };
@@ -314,12 +314,13 @@ impl Prepared {
                 }
                 let r = (z.0 * z.0 + z.1 * z.1).sqrt();
                 let v = if r > 2.0 { 1.0 - 2.0 / r } else { 0.0 };
-                Some(Color { r: v, g: v, b: v })
+                Some(Color::rgb(v, v, v))
             }
-            Kind::Bilinear([ll, lr, ul, ur]) => {
+            Kind::Bilinear(corners) => {
+                let [ll, lr, ul, ur] = **corners;
                 let (u, v) = (((p.x - 25.0) / 50.0).clamp(0.0, 1.0), ((p.y - 25.0) / 50.0).clamp(0.0, 1.0));
                 let mix = |a: f64, b: f64, c: f64, d: f64| ((a * (1.0 - u) + b * u) * (1.0 - v) + (c * (1.0 - u) + d * u) * v).clamp(0.0, 1.0);
-                Some(Color { r: mix(ll.r, lr.r, ul.r, ur.r), g: mix(ll.g, lr.g, ul.g, ur.g), b: mix(ll.b, lr.b, ul.b, ur.b) })
+                Some(Color::rgb(mix(ll.r, lr.r, ul.r, ur.r), mix(ll.g, lr.g, ul.g, ur.g), mix(ll.b, lr.b, ul.b, ur.b)))
             }
         }
     }
@@ -448,7 +449,7 @@ impl Engine {
             "bilinear interpolation" if !self.functional_shadings.contains_key(name) => {
                 let c = |e: &Engine, n: &str| e.color(n).unwrap_or(Color::WHITE);
                 let corners = [c(self, "lower left"), c(self, "lower right"), c(self, "upper left"), c(self, "upper right")];
-                return Some(Prepared { ll: Point::default(), ur: Point::new(100.0, 100.0), kind: Kind::Bilinear(corners) });
+                return Some(Prepared { ll: Point::default(), ur: Point::new(100.0, 100.0), kind: Kind::Bilinear(Box::new(corners)) });
             }
             _ => {
                 let f = self.functional_shadings.get(name)?.clone();

@@ -228,6 +228,11 @@ pub struct ShapeText {
     pub anchor: TextAnchor,
     /// Font commands instead of the node's (`\scriptsize`).
     pub font: Option<String>,
+    /// Degrees counterclockwise, around `at`, in the node's coordinates (a label along a side).
+    pub turn: f64,
+    /// Kept upright when the node turns: its place follows the node, its box does not turn with
+    /// it (a turned chip's pin numbers).
+    pub upright: bool,
 }
 
 /// The point of a text's box that goes where a [`ShapeText`] says, as a node's anchors with no
@@ -392,6 +397,31 @@ impl Context<'_> {
 
     pub fn end_group(&mut self) {
         self.e.end_group();
+    }
+
+    /// Runs `code` without drawing it, to measure it: what it draws stays out of the picture, which
+    /// does not grow, and the nodes and coordinates it names, its named paths and what changes in
+    /// its group are forgotten after. `read` is called when `code` has run, before that, to read
+    /// them (`cx.point("probe.east")`). Returns what `read` returned and the box of what `code` drew
+    /// on the canvas (its lower left and upper right corners, in cm), `None` if it drew nothing.
+    /// Global definitions (`\gdef`) stay.
+    ///
+    /// ```
+    /// use tikra::extension::{Context, Library, Tokens};
+    ///
+    /// // `from west={code}`: shifts the picture for `code` to start where its node `w` is
+    /// fn from_west(cx: &mut Context, value: Option<Tokens>) -> Result<(), tikra::Error> {
+    ///     let (west, _) = cx.measure(value.unwrap_or_default(), |cx| cx.point("w.west"))?;
+    ///     let west = west?;
+    ///     cx.keys(Tokens::text(&format!("shift={{({}cm,{}cm)}}", -west.x, -west.y)))
+    /// }
+    ///
+    /// static LIB: Library = Library { name: "west", definitions: String::new, keys: &[("/tikz/from west", from_west)] };
+    /// let code = r"\begin{tikzpicture} \path[from west={\node (w) at (2,0) {x};}]; \end{tikzpicture}";
+    /// assert!(tikra::convert_with_libraries(code, &tikra::Options::default(), &[&LIB]).unwrap().warnings.is_empty());
+    /// ```
+    pub fn measure<T>(&mut self, code: Tokens, read: impl FnOnce(&mut Context) -> T) -> Result<(T, Option<(Point, Point)>), Error> {
+        self.e.run_unseen(code.0, |e| read(&mut Context { e }))
     }
 
     /// The labels and pins that `options` give a node, without drawing them.

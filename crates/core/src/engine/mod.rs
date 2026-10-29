@@ -72,6 +72,8 @@ pub enum Cmd {
     Chainin,
     TikzMath,
     DeclareFading,
+    /// `\pgfdeclareimage[options]{name}{file}`
+    DeclareImage,
     DeclarePatternForm,
     DeclarePatternColored,
     SetFillPattern,
@@ -137,6 +139,7 @@ pub enum Cmd {
     Ignore2,
     Hspace,
     Fbox,
+    Scalebox,
     Hskip,
     FontSize,
     FontSeries,
@@ -187,6 +190,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("chainin", Cmd::Chainin),
     ("tikzmath", Cmd::TikzMath),
     ("pgfdeclarefading", Cmd::DeclareFading),
+    ("pgfdeclareimage", Cmd::DeclareImage),
     ("pgfdeclarepatternformonly", Cmd::DeclarePatternForm),
     ("pgfdeclarepatterninherentlycolored", Cmd::DeclarePatternColored),
     ("pgfsetfillpattern", Cmd::SetFillPattern),
@@ -282,6 +286,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
     ("fbox", Cmd::Fbox),
+    ("scalebox", Cmd::Scalebox),
     ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
@@ -1070,6 +1075,34 @@ impl Engine {
         }
     }
 
+    /// Runs `code` unseen, as [`crate::extension::Context::measure`]: in a group and a scope of its
+    /// own, on a canvas apart, `read` called at its end, and then the nodes, the named paths and the
+    /// layers as they were before. The box is that of what `code` drew, on the canvas.
+    pub fn run_unseen<T>(&mut self, code: Vec<Token>, read: impl FnOnce(&mut Engine) -> T) -> Result<(T, Option<(Point, Point)>), Error> {
+        let saved_canvas = std::mem::take(&mut self.canvas);
+        let saved_frozen = std::mem::replace(&mut self.canvas_frozen, false);
+        let saved_layers = std::mem::take(&mut self.layers);
+        let saved_behind = std::mem::take(&mut self.behind_path);
+        let nodes = self.nodes.clone();
+        let named_paths = self.named_paths.clone();
+        let last_node = (self.last_node.clone(), self.last_node_name.clone());
+        self.begin_group();
+        self.begin_scope();
+        let r = self.run_tokens(code);
+        let value = r.is_ok().then(|| read(self));
+        self.end_scope();
+        self.end_group();
+        let drawn = std::mem::replace(&mut self.canvas, saved_canvas);
+        self.canvas_frozen = saved_frozen;
+        self.layers = saved_layers;
+        self.behind_path = saved_behind;
+        self.nodes = nodes;
+        self.named_paths = named_paths;
+        (self.last_node, self.last_node_name) = last_node;
+        r?;
+        Ok((value.expect("read after the code ran"), drawn.min.zip(drawn.max)))
+    }
+
     /// Opens a canvas item that the current pgf scope closes (a clip, a transparency group).
     pub fn open_in_scope(&mut self, item: Item) {
         let fading = matches!(item, Item::Fade { .. } | Item::FadePicture { .. });
@@ -1276,6 +1309,7 @@ impl Engine {
             Cmd::Chainin => self.chainin(),
             Cmd::TikzMath => self.tikzmath(),
             Cmd::DeclareFading => self.declare_fading(),
+            Cmd::DeclareImage => self.declare_image(),
             Cmd::DeclarePatternForm => self.declare_pattern(false),
             Cmd::DeclarePatternColored => self.declare_pattern(true),
             Cmd::SetFillPattern => self.set_fill_pattern(),
@@ -1642,6 +1676,16 @@ impl Engine {
                 if cmd == Cmd::Usetikzlibrary && a.split(',').any(|l| l.trim() == "mindmap") {
                     self.st.decoration.angle = 20.0;
                 }
+                if cmd == Cmd::Usetikzlibrary && a.split(',').any(|l| l.trim() == "positioning") {
+                    self.st.positioning = true;
+                }
+                // `\usepackage[T1]{fontenc}`: text kerned as the T1 fonts kern it (the last encoding
+                // listed is the one in force)
+                if cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "fontenc") {
+                    let encodings = o.as_ref().map(|o| self.tex.expand_to_string(o.clone())).transpose()?.unwrap_or_default();
+                    let last = encodings.split(',').map(str::trim).rfind(|e| !e.is_empty()).unwrap_or("OT1");
+                    crate::label::set_kerning(if last == "T1" { mathra::layout::kerning::TextKerning::T1 } else { mathra::layout::kerning::TextKerning::Ot1 });
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;
@@ -1700,6 +1744,39 @@ impl Engine {
                         b.canvas.items.push(Item::Path { segments, fill: None, stroke: Some(stroke) });
                         b.canvas.include(Point::new(lo.x - rule / 2.0, lo.y - rule / 2.0));
                         b.canvas.include(Point::new(hi.x + rule / 2.0, hi.y + rule / 2.0));
+                    }
+                }
+                Ok(())
+            }
+            // `\scalebox{0.7}[1]{…}`: the pictures in it scaled, by the second factor up (the first
+            // without it), around their origin
+            Cmd::Scalebox => {
+                let fx = self.argument_string()?;
+                let fx = self.number(&fx)?;
+                let fy = match self.optional()? {
+                    Some(t) => {
+                        let t = self.tex.expand_to_string(t)?;
+                        self.number(&t)?
+                    }
+                    None => fx,
+                };
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    let t = crate::scene::Transform::scaling(fx, fy);
+                    for b in &mut self.boxes[start..] {
+                        b.canvas.items.iter_mut().for_each(|i| i.transform(&t));
+                        let corners = [b.canvas.min, b.canvas.max];
+                        if let [Some(lo), Some(hi)] = corners {
+                            let (a, c) = (t.apply(lo), t.apply(hi));
+                            b.canvas.min = Some(Point::new(a.x.min(c.x), a.y.min(c.y)));
+                            b.canvas.max = Some(Point::new(a.x.max(c.x), a.y.max(c.y)));
+                        }
+                        b.baseline *= fy;
                     }
                 }
                 Ok(())

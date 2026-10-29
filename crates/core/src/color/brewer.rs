@@ -61,7 +61,7 @@ const SCHEMES: &[(&str, Kind, &str)] = &[
 
 fn hex(h: &str) -> Option<Color> {
     let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|x| f64::from(x) / 255.0);
-    Some(Color { r: v(0)?, g: v(2)?, b: v(4)? })
+    Some(Color::rgb(v(0)?, v(2)?, v(4)?))
 }
 
 fn scheme(name: &str) -> Option<(Kind, Vec<&'static str>)> {

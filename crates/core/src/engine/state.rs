@@ -151,6 +151,9 @@ pub struct GState {
     /// `decorate`: the path is decorated when used (reset by each path)
     pub decorate: bool,
     pub decoration: super::decorations::Settings,
+    /// `\usetikzlibrary{positioning}`: a bare number in `left=…` is in the x and y vectors' units,
+    /// not points
+    pub positioning: bool,
     /// `preaction=` and `postaction=` options, in order (reset by each path)
     pub preactions: Rc<Vec<Vec<crate::tex::Token>>>,
     pub postactions: Rc<Vec<Vec<crate::tex::Token>>>,
@@ -322,6 +325,7 @@ impl Default for GState {
             mark_color: None,
             decorate: false,
             decoration: Default::default(),
+            positioning: false,
             preactions: Rc::default(),
             postactions: Rc::default(),
             functions: Rc::new(HashMap::new()),
@@ -359,11 +363,11 @@ impl Default for GState {
             blend: None,
             shading: "axis".into(),
             shade_angle: 0.0,
-            axis_top: Color { r: 0.5, g: 0.5, b: 0.5 },
-            axis_middle: Color { r: 0.75, g: 0.75, b: 0.75 },
+            axis_top: Color::rgb(0.5, 0.5, 0.5),
+            axis_middle: Color::rgb(0.75, 0.75, 0.75),
             axis_bottom: Color::WHITE,
-            ball: Color { r: 0.0, g: 0.0, b: 1.0 },
-            radial_inner: Color { r: 0.5, g: 0.5, b: 0.5 },
+            ball: Color::rgb(0.0, 0.0, 1.0),
+            radial_inner: Color::rgb(0.5, 0.5, 0.5),
             radial_outer: Color::WHITE,
             tree_level: 0,
             level_distance: 1.5,

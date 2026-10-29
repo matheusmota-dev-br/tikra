@@ -561,7 +561,7 @@ pub fn gate_iec(input: &mut Input, kind: &str) -> Geometry {
     }
     let at = p(x, y);
     let color = input.keys.text("/pgf/logic gate IEC symbol color");
-    g.texts.push(ShapeText { tex: symbol, at, color: Some(color).filter(|c| !c.trim().is_empty()), anchor: None, font: None });
+    g.texts.push(ShapeText { tex: symbol, at, color: Some(color).filter(|c| !c.trim().is_empty()), anchor: None, font: None, turn: 0.0, upright: false });
     g
 }
 

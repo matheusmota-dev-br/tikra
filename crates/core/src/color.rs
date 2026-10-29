@@ -1,19 +1,56 @@
-//! xcolor colors: names, mixes `orange!80!black`, `blue!10` (with white), `rgb`, `HTML`, `-red` (complement).
+//! xcolor colors: names, mixes `orange!80!black`, `blue!10` (with white), `rgb`, `HTML`, `cmyk`,
+//! `-red` (complement), each in its xcolor model and mixed in it, as xcolor mixes them.
 
 use std::collections::HashMap;
 
 pub mod brewer;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// The xcolor model of a color, which decides that of its mixes: a mix is in its first color's model
+/// (`red!50!cyan` is rgb, `cyan!50!red` cmyk), but a gray first color takes the second's
+/// (`white!70!cyan` is cmyk).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Model {
+    #[default]
+    Rgb,
+    Gray,
+    /// The color's c, m, y and k: pdflatex writes it so, and Ghostscript draws it through its ICC
+    /// profiles, which the color's `r`, `g` and `b` are (`cyan` is (0,174,239)).
+    Cmyk([f64; 4]),
+}
+
+/// A color as drawn, in RGB from 0 to 1, and its xcolor model. Two colors are equal when they are
+/// drawn the same, whatever their models.
+#[derive(Debug, Clone, Copy)]
 pub struct Color {
     pub r: f64,
     pub g: f64,
     pub b: f64,
+    pub model: Model,
+}
+
+impl PartialEq for Color {
+    fn eq(&self, other: &Color) -> bool {
+        (self.r, self.g, self.b) == (other.r, other.g, other.b)
+    }
 }
 
 impl Color {
-    pub const BLACK: Color = Color { r: 0.0, g: 0.0, b: 0.0 };
-    pub const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0 };
+    pub const BLACK: Color = Color::gray(0.0);
+    pub const WHITE: Color = Color::gray(1.0);
+
+    pub const fn rgb(r: f64, g: f64, b: f64) -> Color {
+        Color { r, g, b, model: Model::Rgb }
+    }
+
+    pub const fn gray(v: f64) -> Color {
+        Color { r: v, g: v, b: v, model: Model::Gray }
+    }
+
+    /// A cmyk color, drawn as Ghostscript draws it.
+    pub fn cmyk(c: f64, m: f64, y: f64, k: f64) -> Color {
+        let [r, g, b] = cmyk_drawn([c, m, y, k]);
+        Color { r, g, b, model: Model::Cmyk([c, m, y, k]) }
+    }
 
     pub fn hex(&self) -> String {
         let c = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -21,48 +58,153 @@ impl Color {
     }
 
     /// The color as an xcolor expression that holds it exactly, in xcolor's extended syntax:
-    /// `rgb,1:red,1;green,0.5;blue,0`.
+    /// `rgb,1:red,1;green,0.5;blue,0`, `cmyk,1:cyan,1;magenta,0;yellow,0;black,0.2`.
     pub fn xcolor(&self) -> String {
         let v = |x: f64| format!("{}", (x.clamp(0.0, 1.0) * 1e4).round() / 1e4);
-        format!("rgb,1:red,{};green,{};blue,{}", v(self.r), v(self.g), v(self.b))
+        match self.model {
+            Model::Cmyk([c, m, y, k]) => format!("cmyk,1:cyan,{};magenta,{};yellow,{};black,{}", v(c), v(m), v(y), v(k)),
+            _ => format!("rgb,1:red,{};green,{};blue,{}", v(self.r), v(self.g), v(self.b)),
+        }
     }
 
+    /// The color converted to xcolor's rgb, as pgfplots takes the colors of its colormaps and
+    /// meshes (its `yellow` is #ffff00, not Ghostscript's cmyk yellow).
+    pub fn to_rgb(&self) -> Color {
+        let [r, g, b] = self.in_rgb();
+        Color::rgb(r, g, b)
+    }
+
+    /// The color in xcolor's rgb: a cmyk one's is 1 − (c + k) and so on, not how it is drawn.
+    fn in_rgb(&self) -> [f64; 3] {
+        match self.model {
+            Model::Cmyk([c, m, y, k]) => [1.0 - (c + k).min(1.0), 1.0 - (m + k).min(1.0), 1.0 - (y + k).min(1.0)],
+            _ => [self.r, self.g, self.b],
+        }
+    }
+
+    /// The color in xcolor's cmyk: an rgb one's black is the least of its c, m and y.
+    fn in_cmyk(&self) -> [f64; 4] {
+        match self.model {
+            Model::Cmyk(v) => v,
+            _ => {
+                let [c, m, y] = [1.0 - self.r, 1.0 - self.g, 1.0 - self.b];
+                let k = c.min(m).min(y);
+                [c - k, m - k, y - k, k]
+            }
+        }
+    }
+
+    fn in_gray(&self) -> f64 {
+        match self.model {
+            Model::Gray => self.r,
+            _ => {
+                let [r, g, b] = self.in_rgb();
+                0.3 * r + 0.59 * g + 0.11 * b
+            }
+        }
+    }
+
+    /// `p` of `a` and the rest of `b`, in `a`'s model (`b`'s when `a` is gray); none of `a` is `b`
+    /// as it is.
     fn mix(a: Color, b: Color, p: f64) -> Color {
-        Color { r: a.r * p + b.r * (1.0 - p), g: a.g * p + b.g * (1.0 - p), b: a.b * p + b.b * (1.0 - p) }
+        if p == 0.0 {
+            return b;
+        }
+        let model = if a.model == Model::Gray { b.model } else { a.model };
+        let w = |x: f64, y: f64| x * p + y * (1.0 - p);
+        match model {
+            Model::Gray => Color::gray(w(a.r, b.r)),
+            Model::Rgb => {
+                let ([ar, ag, ab], [br, bg, bb]) = (a.in_rgb(), b.in_rgb());
+                Color::rgb(w(ar, br), w(ag, bg), w(ab, bb))
+            }
+            Model::Cmyk(_) => {
+                let (x, y) = (a.in_cmyk(), b.in_cmyk());
+                Color::cmyk(w(x[0], y[0]), w(x[1], y[1]), w(x[2], y[2]), w(x[3], y[3]))
+            }
+        }
+    }
+
+    /// `-color`: in cmyk, the complement of its c + k, m + k and y + k, their least as the black.
+    fn complement(&self) -> Color {
+        match self.model {
+            Model::Gray => Color::gray(1.0 - self.r),
+            Model::Rgb => Color::rgb(1.0 - self.r, 1.0 - self.g, 1.0 - self.b),
+            Model::Cmyk([c, m, y, k]) => {
+                let [c, m, y] = [c, m, y].map(|v| 1.0 - (v + k).min(1.0));
+                let k = c.min(m).min(y);
+                Color::cmyk(c - k, m - k, y - k, k)
+            }
+        }
     }
 }
 
-fn named(name: &str) -> Option<Color> {
-    let (r, g, b) = match name {
-        "black" => (0.0, 0.0, 0.0),
-        "white" => (1.0, 1.0, 1.0),
-        "red" => (1.0, 0.0, 0.0),
-        "green" => (0.0, 1.0, 0.0),
-        "blue" => (0.0, 0.0, 1.0),
-        "cyan" => (0.0, 1.0, 1.0),
-        "magenta" => (1.0, 0.0, 1.0),
-        "yellow" => (1.0, 1.0, 0.0),
-        "gray" => (0.5, 0.5, 0.5),
-        "darkgray" => (0.25, 0.25, 0.25),
-        "lightgray" => (0.75, 0.75, 0.75),
-        "brown" => (0.75, 0.5, 0.25),
-        "lime" => (0.75, 1.0, 0.0),
-        "olive" => (0.5, 0.5, 0.0),
-        "orange" => (1.0, 0.5, 0.0),
-        "pink" => (1.0, 0.75, 0.75),
-        "purple" => (0.75, 0.0, 0.25),
-        "teal" => (0.0, 0.5, 0.5),
-        "violet" => (0.5, 0.0, 0.5),
-        // the most common dvipsnames
-        "ForestGreen" => (0.13, 0.55, 0.13),
-        "NavyBlue" => (0.0, 0.0, 0.5),
-        "RoyalBlue" => (0.25, 0.41, 0.88),
-        "Maroon" => (0.5, 0.0, 0.0),
-        "Goldenrod" => (0.85, 0.65, 0.13),
-        "Gray" => (0.5, 0.5, 0.5),
-        _ => return None,
+/// Ghostscript's RGB for c, m, y and k: a table of N⁴ of them that `tools/cmyk/table.py` drew, between
+/// which c, m and y are interpolated by tetrahedra and k linearly, as an ICC transform is.
+fn cmyk_drawn(v: [f64; 4]) -> [f64; 3] {
+    const N: usize = 13;
+    static TABLE: &[u8; N * N * N * N * 3] = include_bytes!("color/cmyk.bin");
+    let n = (N - 1) as f64;
+    let mut cell = [0usize; 4];
+    let mut frac = [0.0; 4];
+    for d in 0..4 {
+        let x = v[d].clamp(0.0, 1.0) * n;
+        cell[d] = (x as usize).min(N - 2);
+        frac[d] = x - cell[d] as f64;
+    }
+    let at = |i: [usize; 4]| {
+        let o = (((i[0] * N + i[1]) * N + i[2]) * N + i[3]) * 3;
+        [0, 1, 2].map(|j| f64::from(TABLE[o + j]))
     };
-    Some(Color { r, g, b })
+    // c, m and y by their fractions, the largest first: the corners of the tetrahedron the point is in
+    let mut order = [0usize, 1, 2];
+    order.sort_by(|&a, &b| frac[b].total_cmp(&frac[a]));
+    let tetrahedron = |k: usize| {
+        let mut i = [cell[0], cell[1], cell[2], k];
+        let mut out = at(i).map(|x| x * (1.0 - frac[order[0]]));
+        for (j, &d) in order.iter().enumerate() {
+            i[d] += 1;
+            let w = frac[d] - order.get(j + 1).map_or(0.0, |&e| frac[e]);
+            let corner = at(i);
+            out = [0, 1, 2].map(|q| out[q] + w * corner[q]);
+        }
+        out
+    };
+    let (lo, hi) = (tetrahedron(cell[3]), tetrahedron(cell[3] + 1));
+    [0, 1, 2].map(|q| (lo[q] * (1.0 - frac[3]) + hi[q] * frac[3]).round() / 255.0)
+}
+
+fn named(name: &str) -> Option<Color> {
+    let rgb = |r, g, b| Some(Color::rgb(r, g, b));
+    match name {
+        "black" => Some(Color::gray(0.0)),
+        "white" => Some(Color::gray(1.0)),
+        "gray" => Some(Color::gray(0.5)),
+        "darkgray" => Some(Color::gray(0.25)),
+        "lightgray" => Some(Color::gray(0.75)),
+        "cyan" => Some(Color::cmyk(1.0, 0.0, 0.0, 0.0)),
+        "magenta" => Some(Color::cmyk(0.0, 1.0, 0.0, 0.0)),
+        "yellow" => Some(Color::cmyk(0.0, 0.0, 1.0, 0.0)),
+        "olive" => Some(Color::cmyk(0.0, 0.0, 1.0, 0.5)),
+        "red" => rgb(1.0, 0.0, 0.0),
+        "green" => rgb(0.0, 1.0, 0.0),
+        "blue" => rgb(0.0, 0.0, 1.0),
+        "brown" => rgb(0.75, 0.5, 0.25),
+        "lime" => rgb(0.75, 1.0, 0.0),
+        "orange" => rgb(1.0, 0.5, 0.0),
+        "pink" => rgb(1.0, 0.75, 0.75),
+        "purple" => rgb(0.75, 0.0, 0.25),
+        "teal" => rgb(0.0, 0.5, 0.5),
+        "violet" => rgb(0.5, 0.0, 0.5),
+        // the most common dvipsnames, all cmyk
+        "ForestGreen" => Some(Color::cmyk(0.91, 0.0, 0.88, 0.12)),
+        "NavyBlue" => Some(Color::cmyk(0.94, 0.54, 0.0, 0.0)),
+        "RoyalBlue" => Some(Color::cmyk(1.0, 0.5, 0.0, 0.0)),
+        "Maroon" => Some(Color::cmyk(0.0, 0.87, 0.68, 0.32)),
+        "Goldenrod" => Some(Color::cmyk(0.0, 0.1, 0.84, 0.0)),
+        "Gray" => Some(Color::cmyk(0.0, 0.0, 0.0, 0.5)),
+        _ => None,
+    }
 }
 
 /// Parses an xcolor expression. `defined` comes from `\definecolor` and `\colorlet`.
@@ -78,22 +220,36 @@ pub fn parse(expr: &str, defined: &HashMap<String, Color>) -> Option<Color> {
         return None;
     }
     let color = parse_unsigned(e, defined)?;
-    Some(if complements % 2 == 1 { Color { r: 1.0 - color.r, g: 1.0 - color.g, b: 1.0 - color.b } } else { color })
+    Some(if complements % 2 == 1 { color.complement() } else { color })
 }
 
 fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
     // xcolor's extended syntax: `model,div:color,factor;color,factor…`, the colors weighted by their
-    // factors and the sum divided by `div` (the model is the space of the mix: the same in rgb)
+    // factors in the model and the sum divided by `div`
     if let Some((head, mix)) = e.split_once(':') {
-        let div: f64 = head.split_once(',')?.1.trim().parse().ok().filter(|d: &f64| *d > 0.0)?;
-        let mut sum = Color { r: 0.0, g: 0.0, b: 0.0 };
+        let (model, div) = head.split_once(',')?;
+        let div: f64 = div.trim().parse().ok().filter(|d: &f64| *d > 0.0)?;
+        let mut sum = [0.0; 4];
         for part in mix.split(';') {
             let (name, factor) = part.rsplit_once(',')?;
             let c = parse(name, defined)?;
             let f: f64 = factor.trim().parse().ok()?;
-            sum = Color { r: sum.r + c.r * f, g: sum.g + c.g * f, b: sum.b + c.b * f };
+            let v = match model.trim() {
+                "cmyk" => c.in_cmyk(),
+                "gray" => [c.in_gray(), 0.0, 0.0, 0.0],
+                _ => {
+                    let [r, g, b] = c.in_rgb();
+                    [r, g, b, 0.0]
+                }
+            };
+            sum = [0, 1, 2, 3].map(|i| sum[i] + v[i] * f);
         }
-        return Some(Color { r: sum.r / div, g: sum.g / div, b: sum.b / div });
+        let [a, b, c, d] = sum.map(|v| v / div);
+        return Some(match model.trim() {
+            "cmyk" => Color::cmyk(a, b, c, d),
+            "gray" => Color::gray(a),
+            _ => Color::rgb(a, b, c),
+        });
     }
     let parts: Vec<&str> = e.split('!').map(str::trim).collect();
     let lookup = |n: &str| defined.get(n).copied().or_else(|| named(n)).or_else(|| brewer::color(n));
@@ -120,17 +276,14 @@ fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
 pub fn define(model: &str, values: &str) -> Option<Color> {
     let nums: Vec<f64> = values.split(',').filter_map(|v| v.trim().parse().ok()).collect();
     match model.trim() {
-        "rgb" if nums.len() == 3 => Some(Color { r: nums[0], g: nums[1], b: nums[2] }),
-        "RGB" if nums.len() == 3 => Some(Color { r: nums[0] / 255.0, g: nums[1] / 255.0, b: nums[2] / 255.0 }),
-        "gray" if nums.len() == 1 => Some(Color { r: nums[0], g: nums[0], b: nums[0] }),
-        "cmyk" if nums.len() == 4 => {
-            let k = 1.0 - nums[3];
-            Some(Color { r: (1.0 - nums[0]) * k, g: (1.0 - nums[1]) * k, b: (1.0 - nums[2]) * k })
-        }
+        "rgb" if nums.len() == 3 => Some(Color::rgb(nums[0], nums[1], nums[2])),
+        "RGB" if nums.len() == 3 => Some(Color::rgb(nums[0] / 255.0, nums[1] / 255.0, nums[2] / 255.0)),
+        "gray" if nums.len() == 1 => Some(Color::gray(nums[0])),
+        "cmyk" if nums.len() == 4 => Some(Color::cmyk(nums[0], nums[1], nums[2], nums[3])),
         "HTML" => {
             let h = values.trim().trim_start_matches('#');
             let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|x| f64::from(x) / 255.0);
-            Some(Color { r: v(0)?, g: v(2)?, b: v(4)? })
+            Some(Color::rgb(v(0)?, v(2)?, v(4)?))
         }
         _ => None,
     }
@@ -165,5 +318,66 @@ mod tests {
         for bad in ["rgb:red,1", "rgb,0:red,1", "rgb,1:red", "rgb,1:nothing,1", "rgb,1:red,x"] {
             assert_eq!(parse(bad, &d), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn cmyk_colors_drawn_as_ghostscript_draws_them() {
+        // as pdflatex and Ghostscript 10.08 draw them (`texlive/texlive:TL2025-historic`), to a unit:
+        // tikra interpolates between the colors of a table
+        let d = HashMap::new();
+        let near = |c: Color, hex: &str| {
+            let v = |i: usize| f64::from(u8::from_str_radix(&hex[i..i + 2], 16).unwrap()) / 255.0;
+            [(c.r, v(1)), (c.g, v(3)), (c.b, v(5))].iter().all(|(a, b)| (a - b).abs() <= 1.0 / 255.0 + 1e-9)
+        };
+        for (e, rgb) in [
+            ("cyan", "#00aeef"),
+            ("magenta", "#ec008c"),
+            ("yellow", "#fff200"),
+            ("cyan!30!white", "#abe1fa"),
+            ("white!70!cyan", "#abe1fa"),
+            ("cyan!50!red", "#8f807d"),
+            ("cyan!50!black", "#3e7c94"),
+            ("Gray", "#939598"),
+            ("ForestGreen", "#009a55"),
+        ] {
+            let c = parse(e, &d).unwrap();
+            assert!(near(c, rgb), "{e}: {} for {rgb}", c.hex());
+        }
+        let c = define("cmyk", "0.2,0.4,0.1,0.3").unwrap();
+        assert!(near(c, "#97798e"), "{}", c.hex());
+    }
+
+    #[test]
+    fn mixes_in_the_first_colors_model() {
+        let d = HashMap::new();
+        let model = |e: &str| parse(e, &d).unwrap().model;
+        let cmyk = |e: &str| match model(e) {
+            Model::Cmyk(v) => v.map(|x| (x * 1e4).round() / 1e4),
+            m => panic!("{e}: {m:?}"),
+        };
+        // as xcolor's \extractcolorspec gives them
+        assert_eq!(model("red!50!cyan"), Model::Rgb);
+        assert_eq!(parse("red!50!cyan", &d).unwrap().hex(), "#808080");
+        assert_eq!(model("black!50!red"), Model::Rgb);
+        assert_eq!(model("gray!20"), Model::Gray);
+        assert_eq!(cmyk("cyan!50!brown"), [0.5, 0.125, 0.25, 0.125]);
+        assert_eq!(cmyk("cyan!50!gray"), [0.5, 0.0, 0.0, 0.25]);
+        assert_eq!(cmyk("gray!50!cyan!50!red"), [0.25, 0.5, 0.5, 0.125]);
+        assert_eq!(cmyk("-olive"), [0.5, 0.5, 0.0, 0.0]);
+        assert_eq!(cmyk("cmyk,1:cyan,0.5;red,0.5"), [0.5, 0.5, 0.5, 0.0]);
+        // none of the first is the second as it is
+        assert_eq!(model("cyan!0!brown"), Model::Rgb);
+        let mine: HashMap<String, Color> = [("mine".to_string(), define("cmyk", "0.2,0.4,0.1,0.3").unwrap())].into();
+        assert_eq!(parse("rgb,1:mine,1", &mine).unwrap().hex(), "#804d99");
+        assert_eq!(parse("gray,1:mine,1", &mine).unwrap().r, 0.393);
+        assert_eq!(cmyk_of(&parse("-mine", &mine).unwrap()), [0.2, 0.0, 0.3, 0.3]);
+        // the expression that holds a cmyk color holds its model
+        let c = parse("cyan!30", &d).unwrap();
+        assert_eq!(c.xcolor(), "cmyk,1:cyan,0.3;magenta,0;yellow,0;black,0");
+        assert_eq!(parse(&c.xcolor(), &d).unwrap().model, c.model);
+    }
+
+    fn cmyk_of(c: &Color) -> [f64; 4] {
+        c.in_cmyk().map(|x| (x * 1e4).round() / 1e4)
     }
 }

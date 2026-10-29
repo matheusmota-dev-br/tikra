@@ -233,7 +233,19 @@ fn badge(_cx: &mut Context, input: &ShapeInput) -> Result<NodeShape, Error> {
         ],
         texts: vec![
             ShapeText { text: "$+$".into(), at: p(0.0, 0.0), anchor: TextAnchor::East, ..Default::default() },
-            ShapeText { text: "CLK".into(), at: p(2.0, 0.0), anchor: TextAnchor::BaseEast, font: Some("\\tiny".into()) },
+            ShapeText { text: "CLK".into(), at: p(2.0, 0.0), anchor: TextAnchor::BaseEast, font: Some("\\tiny".into()), ..Default::default() },
+        ],
+        ..NodeShape::default()
+    })
+}
+
+/// `tag`: `A` turned a quarter, and `B` kept upright.
+fn tag(_cx: &mut Context, _input: &ShapeInput) -> Result<NodeShape, Error> {
+    let p = Point::new;
+    Ok(NodeShape {
+        texts: vec![
+            ShapeText { text: "A".into(), at: p(1.0, 0.0), anchor: TextAnchor::North, turn: 90.0, ..Default::default() },
+            ShapeText { text: "B".into(), at: p(-1.0, 0.0), anchor: TextAnchor::Center, upright: true, ..Default::default() },
         ],
         ..NodeShape::default()
     })
@@ -247,6 +259,7 @@ fn remember(cx: &mut Context, _value: Option<Tokens>) -> Result<(), Error> {
     cx.define_text("tikrashape", if on { "on" } else { "off" }, true);
     cx.declare_shape("badge", badge);
     cx.declare_shape("compass", compass);
+    cx.declare_shape("tag", tag);
     Ok(())
 }
 
@@ -281,6 +294,23 @@ fn a_library_shape_draws_texts_turned_with_the_node() {
     let places = |svg: &str| svg.match_indices("<g transform=\"").map(|(i, _)| svg[i + 14..].split('"').next().unwrap().to_string()).collect::<Vec<_>>();
     assert_ne!(places(&r.svg), places(&mirrored.svg));
     assert!(places(&mirrored.svg).iter().all(|p| p.starts_with("matrix(-1")), "{:?}", places(&mirrored.svg));
+}
+
+#[test]
+fn a_library_shape_text_turns_or_stays_upright() {
+    let places = |body: &str| {
+        let svg = convert(body, &[&BADGES]).svg;
+        svg.match_indices("<g transform=\"").map(|(i, _)| svg[i + 14..].split('"').next().unwrap().to_string()).collect::<Vec<_>>()
+    };
+    // `A` along a side, `B` as it is
+    let plain = places(r"\node[remember, shape=tag] {};");
+    assert!(plain[0].starts_with("matrix(0 -1 1 0"), "{plain:?}");
+    assert!(plain[1].starts_with("translate("), "{plain:?}");
+    // the node turned: `A` turns with it, `B` stays upright but moves
+    let turned = places(r"\node[remember, shape=tag, rotate=90] {};");
+    assert!(turned[0].starts_with("matrix(-1 0 0 -1"), "{turned:?}");
+    assert!(turned[1].starts_with("translate("), "{turned:?}");
+    assert_ne!(plain[1], turned[1]);
 }
 
 #[test]
@@ -372,4 +402,41 @@ fn a_library_shape_text_goes_where_its_anchor_says() {
     // half an ex for mid, not at all for base, above it by the depth for south (y down)
     assert!(a(North).1 > a(Center).1 && a(North).1 > a(Mid).1 && a(Mid).1 > a(Base).1 && a(Center).1 > a(Base).1 && a(Base).1 > a(South).1, "{at:?}");
     assert!(a(Mid).1 != a(Center).1, "{at:?}");
+}
+
+/// `probe={code}{point}`: `code` measured unseen; a coordinate `at` where its `point` was, and
+/// `lo` and `hi` at the corners of what it drew.
+fn probe(cx: &mut Context, value: Option<Tokens>) -> Result<(), Error> {
+    let a = value.unwrap_or_default().arguments(2);
+    let point = cx.expand(a[1].clone())?;
+    let (at, bounds) = cx.measure(a[0].clone(), |cx| cx.point(&point))?;
+    let (at, (lo, hi)) = (at?, bounds.expect("the code drew"));
+    for (name, p) in [("at", at), ("lo", lo), ("hi", hi)] {
+        cx.run(Tokens::text(&format!("\\coordinate ({name}) at ({}cm,{}cm);", p.x, p.y)))?;
+    }
+    Ok(())
+}
+
+static PROBES: Library = Library { name: "probes", definitions: String::new, keys: &[("/tikz/probe", probe)] };
+
+#[test]
+fn a_library_measures_code_without_drawing_it() {
+    let code = r"\draw[red] (1,1) rectangle (3,2); \node[draw] (n) at (5,0) {x};";
+    let probed = convert(&format!(r"\path[probe={{{code}}}{{n.center}}]; \fill (at) circle (1pt) (lo) circle (1pt) (hi) circle (1pt);"), &[&PROBES]);
+    assert!(probed.warnings.is_empty(), "{:?}", probed.warnings);
+    // only the three dots: neither the rectangle nor the node is drawn
+    let body = probed.svg.split("</metadata>").nth(1).unwrap();
+    assert!(body.matches("<path").count() == 1 && !body.contains("<text") && !body.contains("#ff0000"), "{body}");
+    // the dots where the node's center and the corners of the rectangle and the node are, as drawn
+    // apart: the picture as large
+    let dots = convert(r"\fill (5,0) circle (1pt) (1,-0.2) circle (1pt) (5.2,2) circle (1pt);", &[]);
+    let size = |svg: &str| -> Vec<f64> {
+        let view = svg.split("viewBox=\"").nth(1).unwrap().split('"').next().unwrap();
+        view.split(' ').skip(2).map(|v| v.parse().unwrap()).collect()
+    };
+    let (p, d) = (size(&probed.svg), size(&dots.svg));
+    assert!(p.iter().zip(&d).all(|(a, b)| (a - b).abs() < 1.0), "{p:?} for about {d:?}");
+    // the node it named is forgotten
+    let after = convert(&format!(r"\path[probe={{{code}}}{{n.center}}]; \draw (n) -- (0,0);"), &[&PROBES]);
+    assert!(!after.warnings.is_empty(), "the node is unknown after");
 }

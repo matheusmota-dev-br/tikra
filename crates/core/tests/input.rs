@@ -67,6 +67,18 @@ fn more_than_one_tikzpicture() {
 }
 
 #[test]
+fn scalebox_scales_the_pictures_in_it() {
+    // the drawing, its lines and its size, by each factor (the second one up)
+    let width = |svg: &str| -> f64 { svg.split("width=\"").nth(1).unwrap().split("pt").next().unwrap().parse().unwrap() };
+    let one = no_warnings(r"\tikz \draw[line width=2pt] (0,0) -- (4,0);");
+    let half = no_warnings(r"\scalebox{0.5}{\tikz \draw[line width=2pt] (0,0) -- (4,0);}");
+    assert!((width(&one.svg) - width(&half.svg) - 2.0 * 28.3465 - 1.0).abs() < 0.1, "{}", width(&half.svg));
+    assert!(half.svg.contains("stroke-width=\"1\"") || half.svg.contains("stroke-width=\"0.996\""), "{}", half.svg);
+    let wide = no_warnings(r"\scalebox{2}[1]{\tikz \draw (0,0) circle (1);}");
+    assert!(width(&wide.svg) > 4.0 * 28.3465, "{}", wide.svg);
+}
+
+#[test]
 fn inline_tikz_with_and_without_braces() {
     no_warnings(r"\tikz \draw (0,0) -- (1,1);");
     no_warnings(r"\tikz[thick] {\draw (0,0) -- (1,1); \fill (0,0) circle (2pt);}");
@@ -197,7 +209,8 @@ fn pagecolor_paints_the_page_behind_the_figure() {
     let view = &view[..view.find('"').unwrap()];
     let [x, y, w, h]: [&str; 4] = view.split(' ').collect::<Vec<_>>().try_into().unwrap();
     let body = &r.svg[r.svg.find("</defs>").unwrap()..];
-    assert!(body.starts_with(&format!(r##"</defs><rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#dfdf80"/>"##)), "{body}");
+    // olive and yellow are cmyk: TeX's PDF shows (230,220,138)
+    assert!(body.starts_with(&format!(r##"</defs><rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#e6dc8a"/>"##)), "{body}");
     assert!(!r.svg.contains("<use"), "no text: {}", r.svg);
     // a color model, and \nopagecolor taking it away
     assert!(no_warnings(&doc(r"\pagecolor[RGB]{200,30,30}")).svg.contains(r##"fill="#c81e1e"/>"##));

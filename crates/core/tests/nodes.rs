@@ -311,6 +311,49 @@ fn text_with_sizes_circled_and_grouped_words() {
 }
 
 #[test]
+fn picture_environment_in_text() {
+    // the manual of CircuiTikZ's \fourdots: a cross and four dots, 4 units of 0.8mm square
+    let doc = r"\newcommand{\fourdots}{\begingroup\setlength{\unitlength}{0.8mm}%
+        \begin{picture}(4,4)(-2,-2)
+        \put(-2,0){\line(1,0){4}} \put(0,-2){\line(0,1){4}}
+        \multiput(-1,1)(2,0){2}{\circle*{1}} \multiput(-1,-1)(2,0){2}{\circle*{1}}
+        \end{picture}\endgroup}
+        \begin{tikzpicture} \node[inner sep=0pt] {a\fourdots b}; \end{tikzpicture}";
+    let r = no_warnings(doc);
+    assert_eq!(r.svg.matches("<ellipse").count(), 4, "{}", r.svg);
+    let (l, _) = label(r"\node {\setlength{\unitlength}{1cm}\begin{picture}(2,1)\put(0,0){\line(1,0){2}}\end{picture}};");
+    assert!((l.width() - 2.0).abs() < 1e-3 && (l.height() - 1.0).abs() < 1e-3 && l.depth().abs() < 1e-3, "{} {} {}", l.width(), l.height(), l.depth());
+}
+
+#[test]
+fn images_in_text() {
+    // a PNG of 40 × 30 px at 72 dpi (40.15 × 30.11pt), in a folder tikra reads files from
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40pt" height="30pt" viewBox="0 0 40 30"><rect width="40" height="30" fill="blue"/></svg>"#;
+    let dir = std::env::temp_dir().join(format!("tikra-node-images-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pic.png"), tikra::png(svg, 72.0, false).unwrap()).unwrap();
+    std::env::set_var("TIKRA_INPUT_DIR", dir.display().to_string());
+    let images = |body: &str| {
+        let (c, w) = tikra::engine::run_document(&format!(r"\begin{{tikzpicture}}{body}\end{{tikzpicture}}")).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        c.items.iter().filter_map(|i| if let tikra::canvas::Item::Image { place, .. } = i { Some(*place) } else { None }).collect::<Vec<_>>()
+    };
+    // \pgfdeclareimage's width, the height kept in proportion; the box the image's size
+    let body = r"\pgfdeclareimage[width=2cm]{p}{pic} \node[inner sep=0pt, outer sep=0pt] (a) {\pgfuseimage{p}};";
+    let t = images(body);
+    assert!(t.len() == 1 && close(t[0].a, 2.0) && close(t[0].d, 1.5), "{t:?}");
+    assert!(close(point(body, "a.east").x, 1.0) && close(point(body, "a.north").y, 0.75));
+    // \includegraphics and \pgfimage, at the natural size without options
+    let t = images(r"\node {\includegraphics[height=3cm]{pic.png}}; \node at (5,0) {\pgfimage{pic}};");
+    assert!(close(t[0].a, 4.0) && close(t[0].d, 3.0), "{t:?}");
+    assert!(close(t[1].a, 40.0 * 72.27 / 72.0 * 2.54 / 72.27), "{t:?}");
+    // in \pgftext, and a file not found reported
+    assert_eq!(images(r"\pgfdeclareimage{p}{pic}\pgftext{\pgfuseimage{p}}").len(), 1);
+    let (_, w) = tikra::engine::run_document(r"\begin{tikzpicture}\pgfdeclareimage{q}{none}\node {\pgfuseimage{q}};\end{tikzpicture}").unwrap();
+    assert!(w.iter().any(|x| x.contains("not found")), "{w:?}");
+}
+
+#[test]
 fn baseline_anchors() {
     let body =
         r"\node[draw, anchor=base west] (a) at (1,2) {xg}; \node[anchor=base] (b) at (5,2) {x}; \node[anchor=base east] (c) at (9,2) {x}; \node[anchor=text] (d) at (12,2) {x};";
@@ -489,4 +532,36 @@ fn a_matrix_cell_reads_named_points_in_its_own_coordinates() {
         let q = point(body, name);
         assert!(near(q, x, y), "{name}: {q:?}");
     }
+}
+
+#[test]
+fn text_is_kerned_as_the_documents_fonts_are() {
+    let width = |code: &str| -> f64 {
+        let svg = tikra::convert(code).unwrap().svg;
+        svg.split("viewBox=\"").nth(1).unwrap().split(' ').nth(2).unwrap().parse().unwrap()
+    };
+    let node = r"\begin{tikzpicture}\node[draw, inner sep=0] {va};\end{tikzpicture}";
+    let ot1 = width(node);
+    let t1 = width(&format!("\\documentclass{{standalone}}\\usepackage[T1]{{fontenc}}\\usepackage{{tikz}}\\begin{{document}}{node}\\end{{document}}"));
+    let spaced = width(r"\begin{tikzpicture}\node[draw, inner sep=0] {v a};\end{tikzpicture}");
+    // cmr10 kerns `va` by 0.278pt, ec-lmr10 by 0.556pt
+    assert!((ot1 - t1 - 0.278).abs() < 0.02, "{ot1} {t1}");
+    assert!(spaced > ot1);
+    // the next figure is OT1 again
+    assert_eq!(width(node), ot1);
+}
+
+#[test]
+fn a_placement_offset_without_unit_is_in_points_unless_positioning() {
+    let width = |code: &str| -> f64 {
+        let svg = tikra::convert(code).unwrap().svg;
+        svg.split("viewBox=\"").nth(1).unwrap().split(' ').nth(2).unwrap().parse().unwrap()
+    };
+    let picture = r"\begin{tikzpicture}\draw (0,0) circle (1pt) node[left=30]{LO};\end{tikzpicture}";
+    let points = width(picture);
+    let doc = |library: &str| format!("\\documentclass{{standalone}}\\usepackage{{tikz}}{library}\\begin{{document}}{picture}\\end{{document}}");
+    assert!((width(&doc("")) - points).abs() < 1e-6);
+    // 30 pt across, or 30 cm with the positioning library, as TeX
+    assert!(points < 60.0, "{points}");
+    assert!(width(&doc(r"\usetikzlibrary{positioning}")) > 800.0);
 }

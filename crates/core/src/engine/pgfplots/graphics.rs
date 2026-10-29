@@ -90,6 +90,19 @@ fn find_image(name: &str) -> Result<String, String> {
     Err(format!("file '{n}' not found"))
 }
 
+/// A PNG file's bytes and its natural size (cm).
+pub type Png = (Rc<Vec<u8>>, (f64, f64));
+
+/// A PNG image as `\includegraphics` would find it, and its natural size.
+pub fn load_png(name: &str) -> Result<Png, String> {
+    let file = find_image(name)?;
+    let data = table::read_bytes(&file, &[], MAX_IMAGE)?;
+    match png_info(&data) {
+        Some((w, h, xr, yr)) if w > 0 && h > 0 => Ok((Rc::new(data), natural_size(w, h, xr, yr))),
+        _ => Err(format!("'{file}' is not a PNG image; only PNG images are drawn")),
+    }
+}
+
 /// Reads `graphics[options] {file}` and adds the points that count in the limits.
 pub fn survey(e: &mut Engine, plot: &mut Plot, three_d: bool) -> Result<(), Error> {
     if let Some(o) = e.optional()? {

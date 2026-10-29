@@ -15,6 +15,7 @@ use crate::scene::{Label, Point, Segment, Transform};
 use crate::tex::{self, Token};
 use crate::{Error, PT};
 
+use super::pgfplots::graphics;
 use super::shapes::{self, Border, BoxSize, Geometry, Layer, ShapeText, Usage};
 use super::{tikra_tokens, Engine};
 use crate::extension::{LineCap, ShapePaint};
@@ -101,7 +102,7 @@ fn library_geometry(shape: crate::extension::NodeShape) -> Geometry {
             .collect();
         g.path(Layer::Background, segments, Usage::Library { paint: path.paint, color: path.color, dash: path.dash, cap: path.cap });
     }
-    g.texts = shape.texts.into_iter().map(|t| ShapeText { tex: t.text, at: t.at, color: None, anchor: Some(t.anchor), font: t.font }).collect();
+    g.texts = shape.texts.into_iter().map(|t| ShapeText { tex: t.text, at: t.at, color: None, anchor: Some(t.anchor), font: t.font, turn: t.turn, upright: t.upright }).collect();
     g
 }
 
@@ -614,6 +615,12 @@ impl Engine {
         }
         // a text that is a picture: its box (its baseline at its bottom), drawn where the text goes
         self.text_picture = None;
+        if texts.len() == 1 {
+            if let Some(p) = self.text_image(&texts[0].1)? {
+                self.text_picture = Some(p);
+                texts[0].1.clear();
+            }
+        }
         let whole = texts.first().map(|(_, t)| t.trim().to_string()).unwrap_or_default();
         let tikz = whole.strip_prefix("\\tikz").is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphabetic()));
         if texts.len() == 1 && (tikz || (whole.starts_with("\\begin{tikzpicture}") && whole.ends_with("\\end{tikzpicture}"))) {
@@ -1008,13 +1015,24 @@ impl Engine {
                 Some(a) => st.at.minus(text_anchor(a, &l, &font)),
                 None => st.at,
             };
+            // turned around its point, less the node's own turn when it stays upright
+            let mut turn = st.turn;
+            if st.upright && t.a * t.d - t.b * t.c > 0.0 {
+                turn -= t.b.atan2(t.a).to_degrees();
+            }
+            let place = if turn.abs() < 1e-9 {
+                t.compose(&Transform::translation(origin.x, origin.y))
+            } else {
+                let d = origin.minus(st.at);
+                t.compose(&Transform::translation(st.at.x, st.at.y)).compose(&Transform::rotation(turn)).compose(&Transform::translation(d.x, d.y))
+            };
             // a library's texts count in the picture's size, as TeX's boxes do
             if st.anchor.is_some() && self.counts_for_size() {
                 for (x, y) in [(0.0, -l.depth()), (l.width(), -l.depth()), (0.0, l.height()), (l.width(), l.height())] {
-                    self.canvas.include(t.apply(origin.plus(Point::new(x, y))));
+                    self.canvas.include(place.apply(Point::new(x, y)));
                 }
             }
-            items.push(Item::Text { label: l, place: t.compose(&Transform::translation(origin.x, origin.y)), opacity: self.st.text_opacity });
+            items.push(Item::Text { label: l, place, opacity: self.st.text_opacity });
         }
         layer_items(self, &[Layer::BehindForeground, Layer::Foreground, Layer::BeforeForeground], &mut items)?;
         Ok(items)
@@ -1300,6 +1318,71 @@ fn split_colon(v: &[Token]) -> Option<(Vec<Token>, Vec<Token>)> {
 impl Engine {
     /// `\textcolor{color}{text}` inside a node's text, its color resolved for the math typesetter
     /// (which colors only in math): `$\textcolor[HTML]{rrggbb}{\text{text}}$`.
+    /// `\pgfdeclareimage[options]{name}{file}`: the image `\pgfuseimage{name}` puts in a text.
+    pub(super) fn declare_image(&mut self) -> Result<(), Error> {
+        let options = self.optional()?.map(|o| tex::tokens_to_string(&o)).unwrap_or_default();
+        let name = self.argument_string()?;
+        let file = self.argument_string()?;
+        let name = name.trim();
+        self.tex.define_string(&format!("tikra@image@{name}@options"), &options, false);
+        self.tex.define_string(&format!("tikra@image@{name}@file"), file.trim(), false);
+        Ok(())
+    }
+
+    /// A text that is an image (`\pgfuseimage{name}`, `\pgfimage[options]{file}`,
+    /// `\includegraphics[options]{file}`): what it draws from its box's lower left corner, and the
+    /// box's corners. Only PNG images are drawn; one not drawn keeps the size its options give.
+    fn text_image(&mut self, text: &str) -> Result<Option<(Vec<Item>, Point, Point)>, Error> {
+        let t = text.trim();
+        let (options, file) = if let Some(r) = t.strip_prefix("\\pgfuseimage") {
+            let name = r.trim().trim_start_matches('{').trim_end_matches('}').trim();
+            let value = |e: &Engine, k: &str| match e.tex.meaning_of(&format!("tikra@image@{name}@{k}")) {
+                tex::Meaning::Macro(m) => Some(tex::tokens_to_string(&tex::substitute(&m.body, &[]))),
+                _ => None,
+            };
+            let Some(file) = value(self, "file") else {
+                self.warn(format!("\\pgfuseimage: no image '{name}' declared"));
+                return Ok(None);
+            };
+            (value(self, "options").unwrap_or_default(), file)
+        } else if let Some(r) = t.strip_prefix("\\pgfimage").or_else(|| t.strip_prefix("\\includegraphics")) {
+            let r = r.trim_start();
+            let (options, r) = match r.strip_prefix('[').and_then(|r| r.split_once(']')) {
+                Some((o, r)) => (o.to_string(), r.trim_start()),
+                None => (String::new(), r),
+            };
+            let Some(file) = r.strip_prefix('{').and_then(|r| r.strip_suffix('}')).filter(|f| !f.contains(['{', '}'])) else { return Ok(None) };
+            (options, file.trim().to_string())
+        } else {
+            return Ok(None);
+        };
+        let (mut width, mut height, mut scale) = (None, None, 1.0);
+        for item in crate::keys::split_list(&tikra_tokens(&options)) {
+            match (item.key.as_str(), item.value) {
+                ("width", Some(v)) => width = Some(self.length_of(v)?),
+                ("height", Some(v)) => height = Some(self.length_of(v)?),
+                ("scale", Some(v)) => scale = self.number_of(v)?,
+                ("interpolate" | "keepaspectratio", _) => {}
+                (k, _) => self.warn(format!("image option '{k}' ignored")),
+            }
+        }
+        let image = graphics::load_png(&file);
+        let natural = image.as_ref().map(|(_, n)| *n).ok();
+        let (w, h) = match (width, height, natural) {
+            (Some(w), Some(h), _) => (w, h),
+            (Some(w), None, Some((nw, nh))) => (w, w * nh / nw),
+            (None, Some(h), Some((nw, nh))) => (h * nw / nh, h),
+            (None, None, Some((nw, nh))) => (nw * scale, nh * scale),
+            (w, h, None) => (w.unwrap_or(0.0), h.unwrap_or(0.0)),
+        };
+        let mut drawn = Vec::new();
+        match image {
+            Ok((png, _)) => drawn.push(Item::Image { png, place: Transform { a: w, b: 0.0, c: 0.0, d: h, e: 0.0, f: 0.0 } }),
+            Err(m) => self.warn(format!("image not drawn: {m}")),
+        }
+        Ok(Some((drawn, Point::default(), Point::new(w, h))))
+    }
+
     fn inline_colors(&mut self, text: &str) -> String {
         let mut out = String::new();
         let mut rest = text;

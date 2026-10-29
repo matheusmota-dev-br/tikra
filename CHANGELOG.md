@@ -13,6 +13,19 @@ Each release has a headline (the line under its title), what changed, and the fi
 - `shift={(0,\R)}` reads a length register as a point on a path does (#45).
 - In a `\matrix` cell, a named point is read in the cell's own coordinates, as TeX sets the cell before moving it into place: `(A)` from outside the matrix moves with the cell, and a node from another cell is where it was in that cell (#47).
 - `\pagecolor{…}` (and `\pagecolor[model]{…}`) paints the page behind the figure, margin included, as TeX does, instead of being drawn as text; `\nopagecolor` takes it away (#50).
+- `tikra::extension`: a shape's text can be turned around its point (`ShapeText::turn`, a label along a side) and kept upright when its node turns (`ShapeText::upright`, a turned chip's pin numbers) (#39).
+- `left=30`, `above=.2`…: a bare number is in points, as TikZ reads it, and in the x and y vectors' units only with the `positioning` library (#52).
+- Code that builds a `ShapeText` listing every field needs `..Default::default()` for the new ones (#39).
+- Labels in Latin Modern are kerned as TeX kerns them: by the OT1 fonts (`cmr10`, `cmbx10`) by default and the T1 ones (`ec-lmr10`, `ec-lmbx10`) after `\usepackage[T1]{fontenc}` (`va`, `AV`, `To`) (#48; mathra#81). 3 more figures match TeX.
+- LaTeX's `picture` environment in a text: `\begin{picture}(w,h)(x,y)` with `\put`, `\multiput`, `\line`, `\circle`, `\circle*`, `\thinlines`, `\thicklines` and `\linethickness`, in `\unitlength`, drawn as LaTeX draws it (#53).
+- Images in a text: `\pgfdeclareimage[width=…, height=…]{name}{file}` and `\pgfuseimage{name}`, `\pgfimage` and `\includegraphics` in a node or `\pgftext`, a PNG file in a box of its size (#53).
+- `\begingroup`, `\endgroup` and `\relax` in a text no longer leave the space after them.
+- `\NewDocumentCommand` and its kin (`Renew`, `Provide`, `Declare`, `Expandable`): commands with arguments `m`, `o`, `O{…}`, `s`, `t`, `d`, `D`, `r` and `R`, and `\IfNoValueTF`, `\IfValueTF`, `\IfBooleanTF` and their `T` and `F` forms (#53).
+- The `Jack Tap` arrow tip of CircuiTikZ: a step, then half a triangle, 0.3cm by 0.15cm whatever the line width; `swap`, `reversed`, `width`, `length`, `fill`, `open` and the line cap and join (#53).
+- `\scalebox{0.7}{…}` (and `\scalebox{2}[1]`) around pictures in a document scales them, their lines and texts with them, as graphicx does.
+- Colors in xcolor's cmyk (`cyan`, `magenta`, `yellow`, `olive`, the dvipsnames, `\definecolor{x}{cmyk}{…}`) are drawn as Ghostscript draws them from TeX's PDF, through its ICC profiles: `cyan` is #00aeef, `cyan!30!white` #abe1fa (`tools/cmyk/table.py`). Mixes are in their first color's model, as xcolor mixes them (`white!70!cyan` is cmyk, `red!50!cyan` rgb), and so are complements and the extended syntax's `cmyk,1:…` and `gray,1:…` (#53).
+- `tikra::color::Color` has a `model`: code that builds one with `Color { r, g, b }` uses `Color::rgb(r, g, b)` (#53).
+- `tikra::extension`: `Context::measure` runs code without drawing it and gives the box of what it drew, with what a closure read before its nodes are forgotten (a subcircuit placed by one of its anchors) (#53).
 
 ## 1.6.0 - 2026-10-29
 
