@@ -50,6 +50,9 @@ Each release has a headline (the line under its title), what changed, and the fi
 - pgfkeys' `/K/.is family`: the key `/K` goes to that path (#95).
 - TikZ's `\tikz@checkunit` (with `\iftikz@isdimension`), `\pgf@xx`, `\pgf@xy`, `\pgf@yx`, `\pgf@yy` in an expression, and `\tikz@textfont` (#96).
 - LaTeX's page lengths: `\paperwidth` and `\paperheight` (letter paper, or the size of the class or geometry's `a4paper`, `a5paper`… and `landscape`), `\textheight`, `\oddsidemargin`, `\topmargin`, `\headheight`, `\parskip`, `\columnsep` and the others `article` sets, and the caption package's `\captionmargin`: usable in coordinates, and `\setlength` no longer warns about them (#97).
+- LaTeX's boxes: `\newsavebox`, `\savebox`, `\sbox` and `lrbox` keep what they typeset (a picture, a `tabular` of pictures and words), and `\usebox` draws it in a node's text or in the document, the node as large as the box; an `overlay` picture is a box of no size, drawn around the node's center (#108).
+- With the active preview package's `\PreviewEnvironment{tikzpicture}`, a `\scalebox`, `\resizebox` or `\fbox` around a picture no longer scales or frames it: each picture is a page of its own, as TeX makes it (#109).
+- The words of a `tabular` cell in the document keep the spaces between them (#110).
 
 ## 1.7.0 - 2026-10-29
 
