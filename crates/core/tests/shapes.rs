@@ -274,3 +274,12 @@ fn an_anchor_may_be_an_angle_expression() {
     let s = starts(&items("", r"\node[circle, draw] (a) {}; \draw (a.200+360/5) -- +(1,0); \draw (a.272) -- +(1,0);"));
     assert!(near(s[0], s[1].x, s[1].y) && !near(s[0], 0.0, 0.0), "{s:?}");
 }
+
+#[test]
+fn the_text_box_of_declared_shapes_leaves_the_part_boxes_alone() {
+    // `\pgfnodeparttextbox` is a box register only while a declared shape is computed: before a
+    // multipart node, `\setbox` fills the parts' boxes, and both texts are drawn
+    let preamble = r"\setbox\pgfnodeparttextbox=\hbox{up}\setbox\pgfnodepartlowerbox=\hbox{down}";
+    let it = items(preamble, r"\pgfmultipartnode{circle split}{center}{s}{\pgfusepath{stroke}}");
+    assert_eq!(it.iter().filter(|i| matches!(i, Item::Text { .. })).count(), 2, "{it:?}");
+}

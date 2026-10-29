@@ -207,6 +207,8 @@ impl Engine {
         };
         // what the code reads: the text box, the sizes as `\pgfshape…` macros
         let (wd, ht, dp) = input.text;
+        // (a box register only here: outside, `\setbox\pgfnodeparttextbox` names a node part's box)
+        self.run_tokens(super::tikra_tokens(&format!("\\chardef\\pgfnodeparttextbox={TEXT_BOX}\\relax")))?;
         self.tex.box_dims.insert(TEXT_BOX, [sp(wd), sp(ht), sp(dp)]);
         for (m, v) in [
             ("pgfshapeminwidth", input.minimum.x),
