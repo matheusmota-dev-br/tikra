@@ -30,6 +30,24 @@ fn standalone_without_border_uses_default_margin() {
 }
 
 #[test]
+fn preview_package_setup_is_neither_text_nor_a_warning() {
+    // the preamble of many TeXample figures: nothing of it is drawn
+    let plain = no_warnings(r"\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}");
+    let r = no_warnings(
+        r"\documentclass{article}
+          \usepackage{tikz}
+          \usepackage[active,tightpage]{preview}
+          \PreviewEnvironment{tikzpicture}
+          \setlength\PreviewBorder{5pt}%
+          \begin{document}
+          \begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}
+          \end{document}",
+    );
+    let drawing = |svg: &str| (svg[..svg.find(" role=").unwrap()].to_string(), svg[svg.find("</metadata>").unwrap()..].to_string());
+    assert_eq!(drawing(&r.svg), drawing(&plain.svg));
+}
+
+#[test]
 fn tikzpicture_with_options_and_spaces() {
     let r = no_warnings("\\begin{tikzpicture}  \n [scale=2]\n \\draw (0,0) -- (1,0);\n\\end{tikzpicture}");
     assert!(r.svg.contains("<path"));
@@ -166,4 +184,24 @@ fn errors_that_bring_the_figure_down() {
     assert!(tikra::convert(r"\begin{scope}[scale=zz]\end{scope} \begin{tikzpicture} \draw (0,0) -- (1,0); \end{tikzpicture}").is_err());
     // an empty border: default margin
     no_warnings(r"\documentclass[border={}]{standalone}\begin{document}\begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}\end{document}");
+}
+
+#[test]
+fn pagecolor_paints_the_page_behind_the_figure() {
+    // the whole page, margin included, under the figure; its argument is not text
+    let doc = |pre: &str| {
+        format!(r"\documentclass[border=5pt]{{standalone}}{pre}\begin{{document}}\begin{{tikzpicture}}\fill[blue] (0,0) circle (1);\end{{tikzpicture}}\end{{document}}")
+    };
+    let r = no_warnings(&doc(r"\pagecolor{olive!50!yellow!50!white}"));
+    let view = &r.svg[r.svg.find("viewBox=\"").unwrap() + 9..];
+    let view = &view[..view.find('"').unwrap()];
+    let [x, y, w, h]: [&str; 4] = view.split(' ').collect::<Vec<_>>().try_into().unwrap();
+    let body = &r.svg[r.svg.find("</defs>").unwrap()..];
+    assert!(body.starts_with(&format!(r##"</defs><rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#dfdf80"/>"##)), "{body}");
+    assert!(!r.svg.contains("<use"), "no text: {}", r.svg);
+    // a color model, and \nopagecolor taking it away
+    assert!(no_warnings(&doc(r"\pagecolor[RGB]{200,30,30}")).svg.contains(r##"fill="#c81e1e"/>"##));
+    assert!(!no_warnings(&doc(r"\pagecolor{red}\nopagecolor")).svg.contains("<rect"));
+    let r = with_warning(&doc(r"\pagecolor{nocolor}"), "\\pagecolor: unknown color 'nocolor'");
+    assert!(!r.svg.contains("<rect"));
 }

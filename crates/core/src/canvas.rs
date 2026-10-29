@@ -168,6 +168,8 @@ pub struct Canvas {
     /// Where the first picture's origin was set on the page (cm): each picture is moved so that
     /// its box starts where the line does.
     pub origin: Option<Point>,
+    /// `\pagecolor`: painted behind the figure, margin included.
+    pub page_color: Option<Color>,
 }
 
 impl Canvas {

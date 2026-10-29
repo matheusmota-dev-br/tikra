@@ -589,6 +589,9 @@ impl Tex {
         self.define_text(
             r"\def\obeyspaces{}\def\protect{}\def\nobreak{}\def\noindent{}\def\indent{}\def\leavevmode{}\def\unskip{}\def\strut{}\def\quad{\ }\def\qquad{\ \ }\def\enspace{\ }",
         );
+        // the preview package's setup, as in `\PreviewEnvironment{tikzpicture}\setlength\PreviewBorder{5pt}`:
+        // the figure is already all that is drawn
+        self.define_text(r"\def\PreviewEnvironment#1{}\def\PreviewMacro#1{}");
         for i in 0..10u32 {
             self.dimens.insert(i, 0);
             self.counts.insert(i, 0);
@@ -623,6 +626,7 @@ impl Tex {
         self.dimens.insert(246, 26214);
         self.meanings.insert(Rc::from("unitlength"), Meaning::Dimen(245));
         self.dimens.insert(245, 65536);
+        self.meanings.insert(Rc::from("PreviewBorder"), Meaning::Dimen(244));
     }
 
     /// A Tex that only reads tokens, with `@` a letter (for text written by tikra itself).

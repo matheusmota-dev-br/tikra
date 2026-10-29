@@ -118,6 +118,8 @@ pub enum Cmd {
     Colorlet,
     Color,
     Textcolor,
+    Pagecolor,
+    Nopagecolor,
     Pgfqbox,
     Pgfmathsetmacro,
     Pgfmathparse,
@@ -232,6 +234,8 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("colorlet", Cmd::Colorlet),
     ("color", Cmd::Color),
     ("textcolor", Cmd::Textcolor),
+    ("pagecolor", Cmd::Pagecolor),
+    ("nopagecolor", Cmd::Nopagecolor),
     ("pgfqbox", Cmd::Pgfqbox),
     ("pgfmathsetmacro", Cmd::Pgfmathsetmacro),
     ("pgfmathparse", Cmd::Pgfmathparse),
@@ -242,6 +246,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmathmax", Cmd::PgfmathFunction),
     ("pgfmathmin", Cmd::PgfmathFunction),
     ("pgfmathmod", Cmd::PgfmathFunction),
+    ("pgfmathMod", Cmd::PgfmathFunction),
     ("pgfmathpow", Cmd::PgfmathFunction),
     ("pgfmathveclen", Cmd::PgfmathFunction),
     ("pgfmathatan2", Cmd::PgfmathFunction),
@@ -363,6 +368,8 @@ pub struct Engine {
     pub canvas: Canvas,
     pub nodes: HashMap<String, nodes::NodeInfo>,
     pub colors: HashMap<String, Color>,
+    /// `\pagecolor`: the color of the page behind the figure
+    page_color: Option<Color>,
     scopes: Vec<PgfScope>,
     /// how many pictures are open (`tikzpicture` inside `tikzpicture` is a scope)
     pub picture_depth: usize,
@@ -554,6 +561,7 @@ impl Clone for Engine {
             canvas: self.canvas.clone(),
             nodes: self.nodes.clone(),
             colors: self.colors.clone(),
+            page_color: self.page_color,
             scopes: self.scopes.clone(),
             picture_depth: self.picture_depth,
             pictures: self.pictures,
@@ -695,6 +703,7 @@ impl Engine {
             canvas: Canvas::default(),
             nodes: HashMap::new(),
             colors: HashMap::new(),
+            page_color: None,
             scopes: Vec::new(),
             picture_depth: 0,
             pictures: 0,
@@ -1466,6 +1475,20 @@ impl Engine {
                 self.warn(format!("\\pgfqbox{{{}}}: the box is not drawn", tex::tokens_to_string(&b).trim()));
                 Ok(())
             }
+            Cmd::Pagecolor => {
+                // `\pagecolor{olive!50}` or `\pagecolor[RGB]{200,30,30}`
+                let model = self.optional()?.map(|m| tex::tokens_to_string(&m));
+                let spec = self.argument_string()?;
+                match model.map_or_else(|| self.color(&spec), |m| color::define(&m, &spec)) {
+                    Some(c) => self.page_color = Some(c),
+                    None => self.warn(format!("\\pagecolor: unknown color '{spec}'")),
+                }
+                Ok(())
+            }
+            Cmd::Nopagecolor => {
+                self.page_color = None;
+                Ok(())
+            }
             Cmd::Textcolor => {
                 // text, typeset by TeX: outside nodes it is ignored
                 let _ = self.argument()?;
@@ -1480,6 +1503,13 @@ impl Engine {
                 // lengths in pt, as pgfmath counts them
                 let mut vars = self.vars();
                 vars.in_pt = true;
+                if cmd == Cmd::Pgfmathsetmacro {
+                    if let Ok(Some(s)) = crate::expr::eval_string(&text, &vars) {
+                        self.tex.set_meaning(&name, macro_from(&s), false);
+                        self.tex.define_string("pgfmathresult", &s, false);
+                        return Ok(());
+                    }
+                }
                 let v = crate::expr::eval_length(&text, &vars).map(|(v, _)| v);
                 match v {
                     Ok(v) if v.is_finite() => {
@@ -1501,8 +1531,13 @@ impl Engine {
                 let text = self.math_string(expr)?;
                 let mut vars = self.vars();
                 vars.in_pt = true;
-                match crate::expr::eval_length(&text, &vars).map(|(v, _)| v) {
-                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
+                let value = match crate::expr::eval_string(&text, &vars) {
+                    Ok(Some(s)) => Ok(s),
+                    Ok(None) => crate::expr::eval_length(&text, &vars).map(|(v, _)| pgf_number(v)),
+                    Err(e) => Err(e),
+                };
+                match value {
+                    Ok(v) => self.tex.define_string("pgfmathresult", &v, false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
                 }
                 Ok(())
@@ -1513,7 +1548,7 @@ impl Engine {
                     Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
                     _ => return Ok(()),
                 };
-                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
+                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "Mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
                 let mut args = Vec::new();
                 for _ in 0..n {
                     let a = self.argument()?;
@@ -3036,6 +3071,7 @@ pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Lib
     }
     let margin = e.canvas.margin;
     e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
+    e.canvas.page_color = e.page_color;
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
     let _ = Transform::default();
