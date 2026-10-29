@@ -4,6 +4,13 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- `\pgfdeclareshape` runs a shape's code for each node as pgf does: `\savedanchor`, `\saveddimen` and `\savedmacro` (from the node's text box `\pgfnodeparttextbox` and its sizes `\pgfshapeminwidth`, …), `\anchor{name}{code}` (also as `\pgf@anchor@<shape>@<name>`), the paths of every layer (`\behindbackgroundpath`, `\beforebackgroundpath`, …) with what their code fills, strokes and writes (`\pgftext`), and the rectangle's border around the shape's own corners; only the paths it inherits are drawn, and its name works as an option. Also `\pgf@process`, `\pgfextractx`, `\pgfextracty`, `\pgfclosepath` and `\c@pgf@counta`, and a style that appends to `\tikz@textfont` no longer loops (#103).
+- `\tikzoption{name}[default]{code}` defines the key with its default value (#104).
+- An anchor that is an expression, `(a.200+360/5)`, is the angle it gives, as pgf evaluates it (#105).
+- The `svg` path operation takes its data in quotes too: `svg "M0,0 L20,10"` (#106).
+
 ## 1.7.0 - 2026-10-29
 
 Figures you drag by their points, labels kerned as TeX kerns them, and cmyk colors as TeX's PDF shows them.

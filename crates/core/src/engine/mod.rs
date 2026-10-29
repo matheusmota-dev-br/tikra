@@ -457,6 +457,8 @@ pub struct Engine {
     pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// shapes declared by `\pgfdeclareshape`
     pub user_shapes: HashMap<String, user_shapes::UserShape>,
+    /// while a declared shape's path code runs: what it draws, kept for the shape
+    pub shape_capture: Option<user_shapes::ShapeCapture>,
     /// the node shapes libraries declared, by name
     pub extension_shapes: HashMap<String, crate::extension::ShapeFn>,
     /// the node `\pgfpositionnodelater` kept: what it draws, where its anchors are, its name
@@ -616,6 +618,7 @@ impl Clone for Engine {
             sys_animations: HashMap::new(),
             user_patterns: self.user_patterns.clone(),
             user_shapes: self.user_shapes.clone(),
+            shape_capture: None,
             extension_shapes: self.extension_shapes.clone(),
             later_node: None,
             scope_ends: self.scope_ends.clone(),
@@ -758,6 +761,7 @@ impl Engine {
             sys_animations: HashMap::new(),
             user_patterns: HashMap::new(),
             user_shapes: HashMap::new(),
+            shape_capture: None,
             extension_shapes: HashMap::new(),
             later_node: None,
             scope_ends: Vec::new(),
@@ -783,6 +787,7 @@ impl Engine {
         e.colors.insert("transparent".into(), Color::BLACK);
         e.colors.insert("pgftransparent".into(), Color::BLACK);
         e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
+        e.tex.define_text(&format!(r"\chardef\pgfnodeparttextbox={}", user_shapes::TEXT_BOX));
         basic::define(&mut e);
         nonlinear::define(&mut e);
         calendar::define(&mut e);

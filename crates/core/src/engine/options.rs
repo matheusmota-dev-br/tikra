@@ -242,7 +242,7 @@ impl Engine {
                 self.st.end_arrow = b;
                 return Ok(());
             }
-            if super::nodes::is_shape(&name) {
+            if super::nodes::is_shape(&name) || self.user_shapes.contains_key(&name) {
                 self.tex.define_string(&macro_name("/tikz/shape"), &name, false);
                 return Ok(());
             }
@@ -2470,7 +2470,8 @@ const DEFINITIONS: &str = r"
   every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
   absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true, pic type/.code={},
 }
-\def\tikzoption#1#2{\tikzset{#1/.code={#2}}}\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
+\def\tikzoption#1{\@ifnextchar[{\tikra@optiondefault{#1}}{\tikra@option{#1}}}\def\tikra@option#1#2{\tikzset{#1/.code={#2}}}\def\tikra@optiondefault#1[#2]#3{\tikzset{#1/.code={#3},#1/.default={#2}}}\let\tikz@textfont\pgfutil@empty\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
+\newcount\c@pgf@counta\newcount\c@pgf@countb\newcount\c@pgf@countc\newcount\c@pgf@countd
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
 \newif\iftikra@ignore@size
 \tikzset{on grid/.is if=tikra@ignore@size}

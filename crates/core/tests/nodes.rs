@@ -565,3 +565,12 @@ fn a_placement_offset_without_unit_is_in_points_unless_positioning() {
     assert!(points < 60.0, "{points}");
     assert!(width(&doc(r"\usetikzlibrary{positioning}")) > 800.0);
 }
+
+#[test]
+fn a_style_that_adds_to_the_text_font_ends() {
+    // `\tikz@textfont` is a macro: a key that appends to it, then the font used (as a shape's code
+    // does), does not refer to itself forever
+    no_warnings(
+        r"\makeatletter\tikzset{add font/.code={\expandafter\def\expandafter\tikz@textfont\expandafter{\tikz@textfont#1}}}\begin{tikzpicture}[font=\sffamily]\begingroup\tikzset{add font=\bfseries}\tikz@textfont\endgroup\node[draw] {A};\end{tikzpicture}",
+    );
+}

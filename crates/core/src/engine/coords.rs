@@ -174,12 +174,12 @@ impl Engine {
                     return Ok(Coord { p: node.center(), node: None });
                 }
             }
-            if let Some(node) = self.lookup_node(name).as_ref() {
+            if let Some(node) = self.lookup_node(name) {
                 return Ok(match anchor {
                     Some(a) => {
                         // a logic gate's anchors as `logic gate anchors use bounding box` is now
                         let gatebox = format!("@gatebox={} {a}", self.tex.meaning_of("iftikra@gatebox") == self.tex.meaning_of("iftrue"));
-                        let p = node.anchor(&gatebox).or_else(|| node.anchor(a));
+                        let p = node.anchor(&gatebox).or_else(|| self.node_anchor(&node, a));
                         Coord { p: p.ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None }
                     }
                     // the name it is registered by: with the scope's name prefix when that is the one found
@@ -307,9 +307,9 @@ impl Engine {
             }
             "node" => {
                 let name = get("name").unwrap_or_default();
-                let node = self.nodes.get(&name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
+                let node = self.nodes.get(&name).cloned().ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
                 let p = match (get("anchor"), get("angle")) {
-                    (Some(a), _) => node.anchor(&a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?,
+                    (Some(a), _) => self.node_anchor(&node, &a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?,
                     (None, Some(g)) => node.anchor(&g).unwrap_or(node.center()),
                     _ => return Ok(Coord { p: node.center(), node: Some(name) }),
                 };

@@ -417,6 +417,9 @@ pub struct Tex {
     /// `\setbox\name=\hbox{…}` for a box named by a control sequence (`\pgfnodepartlowerbox`):
     /// what was put in it, in order
     pub named_boxes: Vec<(String, Vec<Token>)>,
+    /// the width, height and depth of box registers that have them (sp), by number: what
+    /// `\wd`, `\ht`, `\dp` read (0pt otherwise)
+    pub box_dims: Map<i64, [i64; 3]>,
 }
 
 impl Default for Tex {
@@ -450,6 +453,7 @@ impl Tex {
             environments: HashMap::new(),
             env_stack: Vec::new(),
             named_boxes: Vec::new(),
+            box_dims: Map::default(),
         };
         t.define_primitives();
         t
@@ -679,6 +683,7 @@ impl Tex {
             environments: HashMap::new(),
             env_stack: Vec::new(),
             named_boxes: Vec::new(),
+            box_dims: Map::default(),
         };
         t.catcodes.insert('@', Cat::Letter);
         t
@@ -1740,9 +1745,9 @@ impl Tex {
                 let ch = char::from_u32(c.max(0) as u32).unwrap_or(' ');
                 string_tokens(&self.catcode(ch).code().to_string())
             }
-            Meaning::Prim(Prim::Wd | Prim::Ht | Prim::Dp) => {
-                let _ = self.scan_int()?;
-                string_tokens("0.0pt")
+            Meaning::Prim(p @ (Prim::Wd | Prim::Ht | Prim::Dp)) => {
+                let n = self.scan_int()?;
+                string_tokens(&dimen::show(self.box_dimen(p, n)))
             }
             _ => {
                 self.warn(format!("\\the{} is not supported", show_token(&t)));
@@ -1959,12 +1964,22 @@ impl Tex {
                 let c = self.scan_int()?;
                 Some(self.catcode(char::from_u32(c.max(0) as u32).unwrap_or(' ')).code())
             }
-            Meaning::Prim(Prim::Wd | Prim::Ht | Prim::Dp) => {
-                let _ = self.scan_int()?;
-                Some(0)
+            Meaning::Prim(p @ (Prim::Wd | Prim::Ht | Prim::Dp)) => {
+                let n = self.scan_int()?;
+                Some(self.box_dimen(p, n))
             }
             _ => None,
         })
+    }
+
+    /// `\wd`, `\ht` or `\dp` of box register `n` (sp).
+    fn box_dimen(&self, p: Prim, n: i64) -> i64 {
+        let k = match p {
+            Prim::Wd => 0,
+            Prim::Ht => 1,
+            _ => 2,
+        };
+        self.box_dims.get(&n).map_or(0, |d| d[k])
     }
 
     fn internal_dimen(&mut self, t: &Token) -> Result<Option<i64>, Error> {
@@ -1975,9 +1990,9 @@ impl Tex {
                 Some(self.dimens.get(&r).copied().unwrap_or(0))
             }
             Meaning::Prim(Prim::Dimexpr | Prim::Glueexpr) => Some(self.scan_dimexpr()?),
-            Meaning::Prim(Prim::Wd | Prim::Ht | Prim::Dp) => {
-                let _ = self.scan_int()?;
-                Some(0)
+            Meaning::Prim(p @ (Prim::Wd | Prim::Ht | Prim::Dp)) => {
+                let n = self.scan_int()?;
+                Some(self.box_dimen(p, n))
             }
             _ => None,
         })
@@ -2546,9 +2561,15 @@ impl Tex {
                 self.push_tokens(body);
             }
             Wd | Ht | Dp => {
-                let _ = self.scan_int()?;
+                let n = self.scan_int()?;
                 self.scan_optional_equals()?;
-                let _ = self.scan_dimen()?;
+                let v = self.scan_dimen()?;
+                let k = match p {
+                    Wd => 0,
+                    Ht => 1,
+                    _ => 2,
+                };
+                self.box_dims.entry(n).or_default()[k] = v;
             }
             _ => return Ok(false),
         }

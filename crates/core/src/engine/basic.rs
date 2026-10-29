@@ -7,6 +7,7 @@ use crate::tex::{self, Meaning, Token};
 use crate::{Error, PT};
 
 use super::nodes::{NodeSpec, OnPath};
+use super::shapes::{ShapePath, ShapeText, Usage};
 use super::state::Mode;
 use super::{tikra_tokens, Engine};
 
@@ -15,6 +16,9 @@ pub const BASE: u16 = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum B {
+    Process,
+    ExtractX,
+    ExtractY,
     MoveTo,
     LineTo,
     CurveTo,
@@ -132,7 +136,11 @@ enum B {
 }
 
 const COMMANDS: &[(&str, B)] = &[
+    ("pgf@process", B::Process),
+    ("pgfextractx", B::ExtractX),
+    ("pgfextracty", B::ExtractY),
     ("pgfpathmoveto", B::MoveTo),
+    ("pgfclosepath", B::Close),
     ("pgfpathlineto", B::LineTo),
     ("pgfpathcurveto", B::CurveTo),
     ("pgfpathquadraticcurveto", B::QuadraticCurveTo),
@@ -426,6 +434,17 @@ pub struct PgfPath {
 impl Engine {
     /// A point argument (`\pgfpoint{1cm}{2cm}`, `\pgfpointpolar{30}{1cm}`, a macro that holds one), in
     /// the current coordinate system (untransformed).
+    /// The point in `\pgf@x`, `\pgf@y`.
+    pub fn pgf_xy(&self) -> Point {
+        let get = |r: u32| self.tex.dimens.get(&r).copied().unwrap_or(0) as f64 / 65536.0 * PT;
+        Point::new(get(4050), get(4051))
+    }
+
+    pub fn set_pgf_xy(&mut self, p: Point) {
+        self.tex.dimens.insert(4050, (p.x / PT * 65536.0).round() as i64);
+        self.tex.dimens.insert(4051, (p.y / PT * 65536.0).round() as i64);
+    }
+
     pub fn point_arg(&mut self) -> Result<Point, Error> {
         let tokens = self.argument()?;
         self.point_of(tokens)
@@ -455,6 +474,16 @@ impl Engine {
                         guard += 1;
                         self.tex.expand(&t, &m)?;
                         continue;
+                    }
+                    // code that leaves the point in `\pgf@x`, `\pgf@y` (a shape's saved anchor)
+                    if matches!(m, Meaning::Prim(_) | Meaning::Dimen(_) | Meaning::Native(_)) {
+                        let mut code = vec![t];
+                        while let Some(x) = self.tex.get_token_until(depth) {
+                            code.push(x);
+                        }
+                        code.push(Token::cs("relax"));
+                        self.run_tokens(code)?;
+                        return Ok(self.pgf_xy());
                     }
                     return Err(Error::Figure(format!("not a point: {}", tex::show_token(&t))));
                 }
@@ -598,7 +627,7 @@ impl Engine {
                         node.border_toward(self.st.transform.apply(p))
                     } else {
                         let a = self.tex.expand_to_string(second)?;
-                        node.anchor(a.trim()).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{}", a.trim())))?
+                        self.node_anchor(&node, a.trim()).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{}", a.trim())))?
                     }
                 };
                 self.st.transform.inverse().apply(canvas)
@@ -678,6 +707,22 @@ impl Engine {
                 other => self.warn(format!("\\pgfusepath{{{other}}} not supported: ignored")),
             }
         }
+        // in a declared shape's code: a path of the shape
+        if let Some(layer) = self.shape_capture.as_ref().and_then(|c| c.layer) {
+            let mut uses = Vec::new();
+            if self.st.mode.fill {
+                uses.push(Usage::Fill(self.st.fill_paint_color().xcolor()));
+            }
+            if self.st.mode.draw {
+                uses.push(Usage::Stroke);
+            }
+            if let Some(c) = &mut self.shape_capture {
+                c.paths.extend(uses.into_iter().map(|usage| ShapePath { layer, segments: segs.clone(), usage }));
+            }
+            self.end_group();
+            self.canvas_frozen = frozen;
+            return Ok(());
+        }
         // the clip outlives this group: it belongs to the pgf scope around
         let r = self.use_path(segs, "\\pgfusepath");
         self.end_group();
@@ -710,6 +755,19 @@ impl Engine {
         let Some(&(_, cmd)) = COMMANDS.get((id - BASE) as usize) else { return Ok(()) };
         let t = self.st.transform;
         match cmd {
+            B::Process => {
+                // the point's code run, its result left in `\pgf@x`, `\pgf@y`
+                let p = self.point_arg()?;
+                self.set_pgf_xy(p);
+            }
+            B::ExtractX | B::ExtractY => {
+                // `\pgfextractx{\dimen}{point}`
+                let mut target = self.argument()?;
+                let p = self.point_arg()?;
+                let v = if matches!(cmd, B::ExtractX) { p.x } else { p.y };
+                target.extend(tikra_tokens(&format!("={}pt\\relax", v / PT)));
+                self.run_tokens(target)?;
+            }
             B::MoveTo => {
                 let p = self.point_arg()?;
                 self.pgf_add(Segment::MoveTo(t.apply(p)));
@@ -1067,6 +1125,27 @@ impl Engine {
                             return self.draw_shading(name.trim(), &s);
                         }
                     }
+                }
+                // in a declared shape's code: a text of the shape
+                if let Some(c) = &mut self.shape_capture {
+                    use crate::extension::TextAnchor as A;
+                    let anchor = match anchor.as_str() {
+                        "west" => A::West,
+                        "east" => A::East,
+                        "north" => A::North,
+                        "south" => A::South,
+                        "base" => A::Base,
+                        "north west" => A::NorthWest,
+                        "north east" => A::NorthEast,
+                        "south west" => A::SouthWest,
+                        "south east" => A::SouthEast,
+                        "base west" => A::BaseWest,
+                        "base east" => A::BaseEast,
+                        _ => A::Center,
+                    };
+                    let font = Some(self.st.font.clone());
+                    c.texts.push(ShapeText { tex: tex::tokens_to_string(&text), at: place, color: None, anchor: Some(anchor), font, turn: rotate, upright: false });
+                    return Ok(());
                 }
                 // the text is scaled and turned by the transformation in force, as pgf boxes it
                 let linear = t.a != 1.0 || t.b != 0.0 || t.c != 0.0 || t.d != 1.0;

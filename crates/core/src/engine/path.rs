@@ -1509,7 +1509,7 @@ pub fn arc_segments(c: Point, rx: f64, ry: f64, a0: f64, a1: f64, t: &crate::sce
     v
 }
 
-/// `svg[options] {M 0 0 L 20 20 h 10 a 10 10 0 0 0 -20 0}`: SVG's path data, its unit the pt and its
+/// `svg[options] {M 0 0 L 20 20 h 10 a 10 10 0 0 0 -20 0}` (or `svg "…"`): SVG's path data, its unit the pt and its
 /// y axis up (pgf's `\pgfpathsvg`), in the coordinate system the options make; relative commands
 /// start from the path's current point.
 fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
@@ -1525,7 +1525,9 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
         }
         let data = match next(e, depth)? {
             Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
-            _ => return Err(Error::Figure("svg without a {path}".into())),
+            // or in quotes, as the svg.path library also takes it
+            Some(t) if t.is_char('"') => e.tex.read_until_char('"', false)?,
+            _ => return Err(Error::Figure("svg without a {path} or \"path\"".into())),
         };
         let text = e.tex.expand_to_string(data)?;
         svg_data(e, b, &text);

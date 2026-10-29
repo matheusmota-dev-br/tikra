@@ -358,6 +358,18 @@ pub struct NodeSpec {
 }
 
 impl Engine {
+    /// A node's anchor; a name it does not have is an angle given by an expression, as pgf
+    /// evaluates it (`(a.200+360/5)`).
+    pub fn node_anchor(&mut self, node: &NodeInfo, a: &str) -> Option<Point> {
+        if let Some(p) = node.anchor(a) {
+            return Some(p);
+        }
+        let angle = self.number(a).ok()?;
+        node.anchor(&angle.to_string())
+    }
+}
+
+impl Engine {
     pub fn st_node(&mut self) -> &mut NodeSetup {
         &mut self.st.node
     }
@@ -733,7 +745,9 @@ impl Engine {
             geometry.anchors.extend(g.anchors.into_iter().map(|(n, p)| (format!("@gatebox={} {n}", !on), p)));
         }
         if let Some(u) = &user_shape {
-            geometry = self.user_shape_geometry(u, geometry)?;
+            let (wd, ht, dp) = boxes.first().map(|(_, b)| (b.wd, b.ht, b.dp)).unwrap_or_default();
+            let input = super::user_shapes::ShapeInput { text: (wd, ht, dp), minimum: Point::new(min_w, min_h), inner: Point::new(xsep, ysep), outer: Point::new(ox, oy) };
+            geometry = self.user_shape_geometry(shape_name.trim(), u, geometry, input)?;
         }
         if let Some(f) = library_shape {
             let text = boxes.first().map(|(_, b)| *b).unwrap_or_default();
