@@ -16,6 +16,77 @@ Multi-line nodes on TeX's baseline, and path options and colors where TeX puts t
 - standalone's `varwidth=`: a `\color` at the document's top level makes the page that wide, as TeX does ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
 - A node's lines (`align=`) sit on the last line's baseline, as TeX's `\vbox` does (in a `text width`, on the first), and a `tabular` on the math axis; `@{}` next to a column of a tabular takes its `\tabcolsep` away ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
 - Code that builds a `scene::Label` listing every field needs the new `lift` ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- xcolor's named color sets: every color of the dvipsnames (`BrickRed`, `MidnightBlue`), svgnames (`DimGray`, `Gold`) and x11names (`Red3`, `Gold2`), with the values TeX gives them. A set loaded with `\usepackage[…]{xcolor}`, a class option or `\PassOptionsToPackage{…}{xcolor}` defines its colors over those before it, as in xcolor (`Gray` is the svgnames' after `[dvipsnames,svgnames]`); in a document that loads no set, where TeX stops on the name, the name is still drawn, the dvipsnames' first (#56).
+- `\xdefinecolor` defines a color as `\definecolor` does (#57).
+- `\the<counter>` of a `\newcounter` is the counter's value, as LaTeX prints it: in an expression (`(\thea/100*360:1)`), a color (`red!\thedensity`) and a node's text (#66).
+- `\pgfmathsetcounter`, `\pgfmathaddtocounter` and `\pgfmathaddtolength`, as pgfmath does them: the value truncated toward zero for a counter, set locally (a `\foreach` body keeps it to itself, unlike `\setcounter`). A `\whiledo` on a counter they move ends (#67).
+- `\pgfmathsetlength` reads a plain number as points, as pgfmath does: `2cm+3` is 59.9pt, not 5cm (#68).
+- `pin edge={…}` given through a style of the pin or `every pin` sets the pin's edge, the last one given winning, as in TeX (#70).
+- `samples at={…}`: a plot at the values of a `\foreach` list (`0,0.25,...,6`); a later `samples` or `domain` takes over again (#71).
+- `edge from parent[…]` of a child that has children of its own is no longer lost: `edge from parent[draw=none]` hides that edge (#72).
+- The keys of PGF 1.x's `snakes` library: `snake=coil` (any decoration) decorates each straight line of the path, and `line before snake`, `line after snake`, `gap before snake`, `gap after snake`, `gap around snake`, `raise snake` and `mirror snake`; `segment amplitude` also sets the shape height without a warning (#73).
+- PGF 1.x's `set style={{name}+=[options]}` adds to a style and `set style={{name}=[options]}` defines one (#74).
+- `\tikzstyle name=[options]` with the name not in braces, as `\tikzstyle directed=[…]` (#75).
+- `dash pattern=on5pt off3pt`: no space is needed after `on` and `off` (#76).
+- `right of=a` and its kin shift by a `node distance` given after them in the same options too (#77).
+- pgfmath functions without parentheses, read as TeX reads them: `sin 30`, `cos \x`, `sin 2*30` (sin(2) times 30), `sin 30^2` (#59).
+- An array of strings in pgfmath, `{"orange","blue"}[\i]`, gives the string in `\pgfmathparse` and `\pgfmathsetmacro` (#60).
+- Lengths in an expression count in points, as pgfmath counts them: `1/10pt` is 0.1pt (it was 2.8cm) and `3pt*2cm` is 170.7pt (#61).
+- pgfmath's inner commands, `\pgfmathadd@`, `\pgfmathmultiply@`, `\pgfmathsin@`…, used with `\makeatletter` (#62).
+- pgfmath's random numbers: `random()`, `random(m)` and `random(a,b)` from the same seed as TeX, `\pgfmathrand` and `\pgfmathrnd` (also inside a point argument, before the point), `\pgfmathrandominteger`, `\pgfmathdeclarerandomlist` and `\pgfmathrandomitem` (#63).
+- `\pgfdecorationsegmentaspect` in decoration code: the value of `aspect` (#64).
+- `join=with a by {options}`: the braces only group the options (#65).
+- A node's text breaks into lines only at the `\\` of the text itself. A `\\` inside `\[ … \]`, `\( … \)`, `$$ … $$` or an environment (`align*`, `matrix`, `tabular`) belongs to it and goes to mathra whole, and `text width` keeps those in one piece when it wraps (#80).
+- `\textcolor{…}{…}` inside math in a node colors that part of the formula instead of breaking it (#81).
+- The repair of TikZ escaped for Markdown no longer fires on display math (`\[ … \]`) or on a `\\` before `\end`: it now undoes `\[` only after a TikZ command (`\draw\[red\]`) or before one (#82).
+- amsmath's `\DeclareMathOperator{\p}{p}` (and starred) defines `\p` for labels (#83).
+- `\newline` in a node's text ends the line in a `text width`, as `\\` does; out of one it does nothing, as in TeX (#84).
+- `text width` wraps text in another family (`font=\sffamily`, `\ttfamily`, `\itshape`), which was set on one line (#85).
+- A node's text that is all a `\parbox[t]{2cm}{…}` or a `minipage` wraps to that width, justified unless it begins with `\centering`, `\raggedright` or `\raggedleft` (#86).
+- `\geometry{…}` is no longer printed, and `\resizebox{7cm}{!}{…}` (and `\resizebox*`) around pictures scales them to that size as graphicx does, instead of printing its arguments (#87).
+- `\calendar[name=cal, …]` names its days `cal-2000-01-20`, as `\calendar (cal)` does (#99).
+- `\ifdate` and a calendar's `if (…)` run the tests a document defines as `/pgf/calendar/<name>/.code`, with the date in `\pgfcalendarifdateyear`, `…month`, `…day`, `…weekday`, `…julian` and `\pgfcalendarmatchestrue` (#100).
+- Calendar layouts of the document's own can use pgf's `\c@pgf@counta` … `\c@pgf@countd` and the library's `\tikz@lib@cal@xshift`, `…yshift`, `…month@xshift`, `…month@yshift`, `…width`; such a layout no longer stops tikra with "nesting went past 64 levels" (#101).
+- `\pgfdeclareshape` runs a shape's code for each node as pgf does: `\savedanchor`, `\saveddimen` and `\savedmacro` (from the node's text box `\pgfnodeparttextbox` and its sizes `\pgfshapeminwidth`, …), `\anchor{name}{code}` (also as `\pgf@anchor@<shape>@<name>`), the paths of every layer (`\behindbackgroundpath`, `\beforebackgroundpath`, …) with what their code fills, strokes and writes (`\pgftext`), and the rectangle's border around the shape's own corners; only the paths it inherits are drawn, and its name works as an option. Also `\pgf@process`, `\pgfextractx`, `\pgfextracty`, `\pgfclosepath` and `\c@pgf@counta`, and a style that appends to `\tikz@textfont` no longer loops (#103).
+- `\tikzoption{name}[default]{code}` defines the key with its default value (#104).
+- An anchor that is an expression, `(a.200+360/5)`, is the angle it gives, as pgf evaluates it (#105).
+- The `svg` path operation takes its data in quotes too: `svg "M0,0 L20,10"` (#106).
+- `\g@addto@macro`, etoolbox's `\appto`, `\gappto`, `\eappto`, `\xappto`, `\preto` and kin, and babel's `\addto` add to a macro as TeX does (#89).
+- `\numexpr …\relax` and `\dimexpr …\relax` in a pgfmath expression or a coordinate are read as TeX reads them (#90).
+- `\newcounter{name}` defines `\thename` (#66).
+- `\pgfgetlastxy{\x}{\y}`: the last point of the last path, in pt (#91).
+- etoolbox's `\ifstrempty`, `\ifblank` and `\ifdefempty` (#92), and its toggles: `\newtoggle`, `\providetoggle`, `\toggletrue`, `\togglefalse`, `\settoggle`, `\iftoggle`, `\nottoggle` (#93).
+- xstring's `\StrLen`, `\StrLeft`, `\StrRight`, `\StrMid`, `\StrChar`, `\StrBefore`, `\StrBehind`, `\StrCut`, `\StrBetween`, `\StrSubstitute`, `\StrDel`, `\StrCount`, `\IfSubStr`, `\IfStrEq`, `\IfBeginWith` and `\IfEndWith` (#94).
+- pgfkeys' `/K/.is family`: the key `/K` goes to that path (#95).
+- TikZ's `\tikz@checkunit` (with `\iftikz@isdimension`), `\pgf@xx`, `\pgf@xy`, `\pgf@yx`, `\pgf@yy` in an expression, and `\tikz@textfont` (#96).
+- LaTeX's page lengths: `\paperwidth` and `\paperheight` (letter paper, or the size of the class or geometry's `a4paper`, `a5paper`… and `landscape`), `\textheight`, `\oddsidemargin`, `\topmargin`, `\headheight`, `\parskip`, `\columnsep` and the others `article` sets, and the caption package's `\captionmargin`: usable in coordinates, and `\setlength` no longer warns about them (#97).
+- LaTeX's boxes: `\newsavebox`, `\savebox`, `\sbox` and `lrbox` keep what they typeset (a picture, a `tabular` of pictures and words), and `\usebox` draws it in a node's text or in the document, the node as large as the box; an `overlay` picture is a box of no size, drawn around the node's center (#108).
+- With the active preview package's `\PreviewEnvironment{tikzpicture}`, a `\scalebox`, `\resizebox` or `\fbox` around a picture no longer scales or frames it: each picture is a page of its own, as TeX makes it (#109).
+- The words of a `tabular` cell in the document keep the spaces between them (#110).
+- A node or pic placed `at +(x,y)` (or `++`) is placed from the path's last point, as TikZ does, instead of being dropped with "at without a point"; `pic foreach … at +(…)` too (#114).
+- `node (a) (b) {…}` is named b, as in TikZ, instead of ending after its first name (#115).
+- In a shifted, scaled or turned scope, `let`'s `\x1` and `\y1` and the vectors `x=(node)`, `y=(node)` are in the scope's coordinates, as TeX gives them, so `(\x1,0)` lands below the point; `\p{\name}` expands its name (#116).
+- calc's `($(A)!1cm!(B)$)` measures the distance before the transformation: 3cm on the page under `scale=3`, as TeX (#117).
+- A node's text runs its `\def`, `\let`, register assignments, `\@ifnextchar` and `\setkeys` as TeX does while typesetting it, and draws a picture made by a macro after them (its `\foreach \number` included); `\relax` typesets nothing; pgf's `\c@pgf@counta`… counters and `\pgfmathloop … \repeatpgfmathloop` (#118).
+- The `pic text` and `pic text options` keys set `\tikzpictext` and `\tikzpictextoptions` (#119).
+- `\foreach \a in {\pa,\pb}` keeps its items as they are written, so a macro holding a whole path with commas is one item, as in TeX; the ends of a `...` range are still read (#120).
+- A macro in a `declare function` body is read when the function is used (#121).
+- `parabola height` is scaled with the picture, as the bend is a point of it (#123).
+- `\spy on (point)` expands the macros in its point when the spy scope ends (#124).
+- `let \p1=…`: `\x1` and `\y1` are in the picture's coordinates, so `(\x1,\y1)` under `scale` is the point again (#125).
+- `xyz polar cs` and `polar cs` read `radius`, `x radius` and `y radius` in order: the last one given wins (#126).
+- `to[out=…,in=…]` and `bend` curves are computed in the picture's coordinates: they turn, slant and stretch with it (#127).
+- A functional shading on a path is sampled only under the path: more than twice as fine (#128).
+- Nothing after `\end{document}` is typeset (#129).
+- `\title`, `\author` and `\date` are no longer typeset as text (#130).
+- `below of=…` and the other old placement keys take the node distance the node ends up with, also when it is given after them (#131).
+- With `text width`, a word too long for the last line goes to a line of its own, as TeX's last pass does (#132).
+- calc: a distance toward the point itself (`$(a)!1cm!(a)$`) goes up, as TeX's direction of no length (#133).
+- `\chainin [options]` keeps the `after node path` its options set (joins of one's own), and `\pgfkeysnovalue` expands to nothing instead of forever (#134).
+- Matrix delimiters no longer take the cells' `nodes={…}` style (#135).
+- pgfmath: an array of strings, `{"red","blue"}[1]`, gives its item (#136).
+- The angle of `label=` and `pin=` may come from a macro (`label=\a+15:text`), instead of silently becoming 90 (#137).
+- `\draw[circle connection bar] (a) edge (b)` is outlined and `\fill[color,…]` fills it in that color; a mind map's edges stay filled with the concept colors (#138).
 
 Figures: `labels-multiline` `labels-pins-quotes` `text-alignment-boxes`
 

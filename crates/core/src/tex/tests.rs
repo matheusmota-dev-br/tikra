@@ -149,3 +149,88 @@ fn document_commands() {
     assert_eq!(run(r"\NewDocumentCommand\f{o}{#1}\f"), "-NoValue-");
     assert_eq!(run(r"\def\g{old}\ProvideDocumentCommand\g{}{new}\g\RenewDocumentCommand\g{m}{<#1>}\g x"), "old<x>");
 }
+
+#[test]
+fn appending_to_macros() {
+    // \g@addto@macro: unexpanded, for the whole document, even from a group; `#` stays a token
+    assert_eq!(run(r"\makeatletter\def\a{x}{\g@addto@macro\a{y\b}}\def\b{z}\a"), "xyz");
+    assert_eq!(run(r"\makeatletter\def\a{x}\g@addto@macro\a{##}\detokenize\expandafter{\a}"), "x##");
+    // etoolbox: \appto and \preto local, \gappto global, \eappto and \xappto expand; babel's \addto
+    // is global; an undefined macro is defined; parameters are kept
+    assert_eq!(run(r"\def\c{1}{\appto\c{2}\c}\c"), "121");
+    assert_eq!(run(r"\def\c{1}{\gappto\c{2}}{\addto\c{3}}{\xappto\c{4}}\c"), "1234");
+    assert_eq!(run(r"\def\c{1}\preto\c{0}{\gpreto\c{-}}\c"), "-01");
+    assert_eq!(run(r"\def\d{A}\def\e{B}\eappto\d{\e}\def\e{C}\epreto\d{\e}\d"), "CAB");
+    assert_eq!(run(r"\appto\new{z}\xpreto\new{y}\new"), "yz");
+    assert_eq!(run(r"\def\c#1{a#1}\appto\c{b}\c x"), "axb");
+}
+
+#[test]
+fn etoolbox_tests() {
+    // nothing is expanded: a macro that is empty is not an empty text, a space is not empty but blank
+    assert_eq!(run(r"\def\e{}\ifstrempty{}{T}{F}\ifstrempty{ }{T}{F}\ifstrempty{\e}{T}{F}\ifstrempty{x}{T}{F}"), "TFFF");
+    assert_eq!(run(r"\def\e{}\ifblank{}{T}{F}\ifblank{ }{T}{F}\ifblank{\e}{T}{F}\ifblank{x}{T}{F}"), "TTFF");
+    // \ifdefempty: a macro without parameters whose body is empty
+    assert_eq!(run(r"\def\e{}\def\s{ }\def\p#1{}\ifdefempty{\e}{T}{F}\ifdefempty\s{T}{F}\ifdefempty{\p}{T}{F}\ifdefempty{\relax}{T}{F}"), "TFFF");
+}
+
+#[test]
+fn etoolbox_toggles() {
+    // false when made; set locally, or globally with \global; \providetoggle keeps one that exists
+    let t = r"\newtoggle{a}\iftoggle{a}{T}{F}\toggletrue{a}\iftoggle{a}{T}{F}\nottoggle{a}{T}{F}";
+    assert_eq!(run(t), "FTF");
+    assert_eq!(run(r"\newtoggle{a}\toggletrue{a}{\togglefalse{a}\iftoggle{a}{T}{F}}\iftoggle{a}{T}{F}"), "FT");
+    assert_eq!(run(r"\newtoggle{a}{\global\toggletrue{a}}\iftoggle{a}{T}{F}\settoggle{a}{false}\iftoggle{a}{T}{F}"), "TF");
+    assert_eq!(run(r"\newtoggle{a}\toggletrue{a}\providetoggle{a}\providetoggle{b}\iftoggle{a}{T}{F}\iftoggle{b}{T}{F}"), "TF");
+}
+
+#[test]
+fn counters_print_as_the_counter() {
+    assert_eq!(run(r"\newcounter{Sum}\setcounter{Sum}{5}\addtocounter{Sum}{2}\theSum"), "7");
+}
+
+#[test]
+fn latex_page_lengths() {
+    // article at 10pt on letter paper; glue keeps its natural size
+    assert_eq!(run(r"\the\paperwidth/\the\paperheight/\the\textheight/\the\oddsidemargin/\the\parskip"), "614.295pt/794.96999pt/550.0pt/62.0pt/0.0pt");
+    assert_eq!(run(r"\setlength\parskip{2pt plus 1pt}\setlength{\headheight}{14pt}\the\parskip/\the\headheight/\the\captionmargin"), "2.0pt/14.0pt/0.0pt");
+    // the paper from the class or geometry's options; landscape turns it
+    let mut t = Tex::new();
+    t.paper_options("11pt, a4paper");
+    assert_eq!(run_in(&mut t, r"\the\paperwidth/\the\paperheight"), "597.50787pt/845.04684pt");
+    t.paper_options("landscape");
+    assert_eq!(run_in(&mut t, r"\the\paperwidth/\the\paperheight"), "845.04684pt/597.50787pt");
+    t.paper_options("paper = a5paper, landscape");
+    assert_eq!(run_in(&mut t, r"\the\paperwidth/\the\paperheight"), "597.50787pt/421.10078pt");
+    t.paper_options("draft");
+    assert_eq!(run_in(&mut t, r"\the\paperwidth"), "597.50787pt");
+}
+
+#[test]
+fn xstring_parts() {
+    let x = |s: &str| run(&format!(r"\def\s{{a,b,c}}{s}"));
+    // lengths: a group is one character, spaces count, the text is expanded
+    assert_eq!(x(r"\StrLen{abc}[\r]\r/\StrLen{a b}[\r]\r/\StrLen{\s}[\r]\r/\StrLen{a{bc}d}[\r]\r/\StrLen{}"), "3/3/5/3/0");
+    assert_eq!(x(r"\StrLeft{abcdef}{2}[\r]\r/\StrLeft{abc}{5}/\StrLeft{abc}{-1}/\StrRight{abcdef}{2}/\StrRight{abc}{5}"), "ab/abc//ef/abc");
+    assert_eq!(x(r"\StrMid{abcdef}{2}{4}/\StrMid{abcdef}{0}{9}/\StrMid{abcdef}{4}{2}/\StrChar{abc}{2}/\StrChar{abc}{5}"), "bcd/abcdef//b/");
+    assert_eq!(x(r"\def\n{2}\StrLeft{abcd}{\n}/\StrLeft{abcd}{\numexpr1+2}"), "ab/abc");
+    // around the n-th occurrence; none found: nothing (\StrCut: all on the left)
+    assert_eq!(x(r"\StrBefore{\s}{,}/\StrBefore[2]{a,b,c}{,}/\StrBefore[3]{a,b,c}{,}/\StrBefore[0]{a,b,c}{,}/\StrBefore{abc}{x}"), "a/a,b///");
+    assert_eq!(x(r"\StrBehind{a,b,c}{,}/\StrBehind[2]{a,b,c}{,}/\StrBehind{abc}{x}"), "b,c/c/");
+    assert_eq!(x(r"\StrCut{a,b,c}{,}\l\r[\l][\r]\StrCut[2]{\s}{,}{\l}{\r}[\l][\r]\StrCut[0]{a,b,c}{,}\l\r[\l][\r]\StrCut{abc}{x}\l\r[\l][\r]"), "[a][b,c][a,b][c][a][b,c][abc][]");
+    // the n1-th A and the n2-th B, both counted from the start
+    assert_eq!(x(r"\StrBetween{a(b)c(d)e}{(}{)}/\StrBetween[2,2]{a(b)c(d)e}{(}{)}/\StrBetween[2,3]{,a,b,}{,}{,}/\StrBetween[1,\numexpr1+1]{,a,b,}{,}{,}"), "b/d/b/a");
+    assert_eq!(x(r"\StrBetween[3,1]{,a,b,}{,}{,}/\StrBetween{abc}{x}{y}"), "/");
+    // the result goes into a macro locally
+    assert_eq!(x(r"\def\r{0}{\StrLeft{abc}{1}[\r]}\r"), "0");
+}
+
+#[test]
+fn xstring_substitutions_and_tests() {
+    let x = |s: &str| run(&format!(r"\def\s{{a,b,c}}{s}"));
+    assert_eq!(x(r"\StrSubstitute{\s}{,}{}/\StrSubstitute[1]{a,b,c}{,}{--}/\StrSubstitute{aaa}{aa}{b}/\StrSubstitute{abc}{}{x}"), "abc/a--b,c/ba/abc");
+    assert_eq!(x(r"\StrDel{a,b,c}{,}[\r]\r/\StrDel[1]{a,b,c}{,}/\StrCount{a,b,c}{,}/\StrCount{aaa}{aa}"), "abc/ab,c/2/1");
+    assert_eq!(x(r"\IfSubStr{abc}{b}{T}{F}\IfSubStr{abc}{x}{T}{F}\IfSubStr[2]{\s}{,}{T}{F}\IfSubStr[3]{a,b,c}{,}{T}{F}"), "TFTF");
+    assert_eq!(x(r"\def\w{xyz}\IfStrEq{\w}{xyz}{T}{F}\IfStrEq{a}{b}{T}{F}\IfStrEq{1}{01}{T}{F}"), "TFF");
+    assert_eq!(x(r"\IfBeginWith{abc}{ab}{T}{F}\IfBeginWith{abc}{b}{T}{F}\IfEndWith{abc}{bc}{T}{F}\IfEndWith{abc}{b}{T}{F}"), "TFTF");
+}

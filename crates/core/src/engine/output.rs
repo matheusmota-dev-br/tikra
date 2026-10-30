@@ -196,7 +196,15 @@ impl Engine {
         let mut c = crate::canvas::Canvas::default();
         c.include_path(segs);
         let (lo, hi) = (c.min?, c.max?);
-        Some(f.cells(&f.fit(lo, hi, self.st.shade_angle)))
+        // only the part of the box under the path is sampled
+        let place = f.fit(lo, hi, self.st.shade_angle);
+        let back = place.inverse();
+        let corners = [lo, Point::new(hi.x, lo.y), hi, Point::new(lo.x, hi.y)].map(|p| back.apply(p));
+        let (mut wlo, mut whi) = (corners[0], corners[0]);
+        for c in &corners[1..] {
+            (wlo, whi) = (Point::new(wlo.x.min(c.x), wlo.y.min(c.y)), Point::new(whi.x.max(c.x), whi.y.max(c.y)));
+        }
+        Some(f.cells_in(&place, wlo, whi))
     }
 
     pub fn shading_of(&self, segs: &[Segment]) -> crate::canvas::Shading {

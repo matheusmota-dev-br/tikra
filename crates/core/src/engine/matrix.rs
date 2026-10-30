@@ -311,7 +311,7 @@ impl Engine {
         // the matrix is a node around the cells
         self.forced_box = Some((width, height, depth));
         let cells_every_node = self.tex.meaning(&every_node);
-        self.tex.set_meaning(&every_node, outer_every_node, false);
+        self.tex.set_meaning(&every_node, outer_every_node.clone(), false);
         let mut options = options;
         let mut at = at;
         match (&settings.anchor, inner_at) {
@@ -378,6 +378,8 @@ impl Engine {
                 }
             };
             self.tex.define_string("tikzlastnode", &node, false);
+            // the delimiters are nodes of the picture, not cells: `nodes={…}` is not theirs
+            self.tex.set_meaning(&every_node, outer_every_node, false);
             let mut path = tikra_tokens("\\path ");
             path.extend(after);
             path.extend(tikra_tokens(";"));

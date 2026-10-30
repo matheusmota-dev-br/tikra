@@ -29,6 +29,7 @@ pub mod path;
 pub mod patterns;
 pub mod pgfplots;
 pub mod pics;
+pub mod saveboxes;
 pub mod shadings;
 pub mod shapes;
 pub mod spy;
@@ -100,6 +101,8 @@ pub enum Cmd {
     SetFadingForPath,
     SetFadingForPathStroked,
     SetSeed,
+    /// `\pgfmathdeclarerandomlist{name}{{a}{b}…}`
+    DeclareRandomList,
     Pic,
     Graph,
     Tikz,
@@ -130,16 +133,21 @@ pub enum Cmd {
     Pgfmathsetlengthmacro,
     Pgfmathsetcount,
     Pgfmathsetlength,
+    Pgfmathaddtolength,
+    Pgfmathsetcounter,
+    Pgfmathaddtocounter,
     Pgfmathdeclarefunction,
     Pgfmathprintnumber,
     Usetikzlibrary,
     Usepackage,
     Documentclass,
+    PassOptionsToPackage,
     Ignore1,
     Ignore2,
     Hspace,
     Fbox,
     Scalebox,
+    Resizebox,
     Hskip,
     FontSize,
     FontSeries,
@@ -148,6 +156,14 @@ pub enum Cmd {
     EndOnLayer,
     NamePrefix,
     Tikzfading,
+    /// LaTeX's boxes: `\newsavebox`, `\savebox` and `\sbox`, `\usebox`
+    Newsavebox,
+    Savebox,
+    Usebox,
+    /// the active preview package's `\PreviewEnvironment`, and `\scalebox`, `\resizebox` and
+    /// `\fbox` when it takes the pictures out of them
+    PreviewEnvironment,
+    Unboxed,
     SetLayers,
     Frame,
     /// `\arrow` and `\arrowreversed` of markings
@@ -165,6 +181,8 @@ pub enum Cmd {
     SpyEnd,
     /// `\quad` and `\qquad` between pictures
     Quad,
+    /// `\tikz@checkunit{value}`
+    CheckUnit,
 }
 
 const COMMANDS: &[(&str, Cmd)] = &[
@@ -213,10 +231,12 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
     ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
     ("pgf@sys@tonumber", Cmd::ToNumber),
+    ("tikz@checkunit", Cmd::CheckUnit),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
     ("pgfsetfadingforcurrentpathstroked", Cmd::SetFadingForPathStroked),
     ("tikra@setseed", Cmd::SetSeed),
+    ("pgfmathdeclarerandomlist", Cmd::DeclareRandomList),
     ("pic", Cmd::Pic),
     ("graph", Cmd::Graph),
     ("tikz", Cmd::Tikz),
@@ -235,6 +255,7 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("foreach", Cmd::Foreach),
     ("definecolor", Cmd::Definecolor),
     ("providecolor", Cmd::Definecolor),
+    ("xdefinecolor", Cmd::Definecolor),
     ("colorlet", Cmd::Colorlet),
     ("color", Cmd::Color),
     ("textcolor", Cmd::Textcolor),
@@ -273,6 +294,9 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfmathsetlengthmacro", Cmd::Pgfmathsetlengthmacro),
     ("pgfmathsetcount", Cmd::Pgfmathsetcount),
     ("pgfmathsetlength", Cmd::Pgfmathsetlength),
+    ("pgfmathaddtolength", Cmd::Pgfmathaddtolength),
+    ("pgfmathsetcounter", Cmd::Pgfmathsetcounter),
+    ("pgfmathaddtocounter", Cmd::Pgfmathaddtocounter),
     ("pgfmathdeclarefunction", Cmd::Pgfmathdeclarefunction),
     ("pgfmathprintnumber", Cmd::Pgfmathprintnumber),
     ("usetikzlibrary", Cmd::Usetikzlibrary),
@@ -282,11 +306,13 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("usepackage", Cmd::Usepackage),
     ("RequirePackage", Cmd::Usepackage),
     ("documentclass", Cmd::Documentclass),
+    ("PassOptionsToPackage", Cmd::PassOptionsToPackage),
     ("pgfplotsset", Cmd::Pgfplotsset),
     ("label", Cmd::Ignore1),
     ("hspace", Cmd::Hspace),
     ("fbox", Cmd::Fbox),
     ("scalebox", Cmd::Scalebox),
+    ("resizebox", Cmd::Resizebox),
     ("hskip", Cmd::Hskip),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
@@ -296,11 +322,24 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("tikra@frame", Cmd::Frame),
     ("tikra@nameprefix", Cmd::NamePrefix),
     ("tikzfading", Cmd::Tikzfading),
+    ("newsavebox", Cmd::Newsavebox),
+    ("savebox", Cmd::Savebox),
+    ("sbox", Cmd::Savebox),
+    ("usebox", Cmd::Usebox),
+    ("tikra@previewenvironment", Cmd::PreviewEnvironment),
+    ("tikra@unboxed", Cmd::Unboxed),
     ("tikzexternalize", Cmd::Ignore1),
     ("pgfrealjobname", Cmd::Ignore1),
     ("pagestyle", Cmd::Ignore1),
+    // the geometry package's page margins: no page here
+    ("geometry", Cmd::Ignore1),
+    ("newgeometry", Cmd::Ignore1),
     ("thispagestyle", Cmd::Ignore1),
     ("caption", Cmd::Ignore1),
+    // what `\maketitle` would set: tikra sets no title
+    ("title", Cmd::Ignore1),
+    ("author", Cmd::Ignore1),
+    ("date", Cmd::Ignore1),
     ("tikzsetnextfilename", Cmd::Ignore1),
     ("pgfplotstableset", Cmd::Ignore1),
     ("tiny", Cmd::FontSize),
@@ -440,6 +479,8 @@ pub struct Engine {
     pub turn_from: (crate::scene::Point, crate::scene::Point),
     /// where the path's subpath started (`current subpath start`)
     pub subpath_start: crate::scene::Point,
+    /// the last point of the last path, on the canvas (`\pgfgetlastxy`); it outlives scopes
+    pub last_xy: crate::scene::Point,
     /// fadings defined by `\tikzfading`, in their 100 bp box
     pub fadings: HashMap<String, crate::canvas::Shading>,
     /// fadings drawn as pictures (`\pgfdeclarefading`, `tikzfadingfrompicture`)
@@ -461,6 +502,8 @@ pub struct Engine {
     pub user_patterns: HashMap<String, patterns::UserPattern>,
     /// shapes declared by `\pgfdeclareshape`
     pub user_shapes: HashMap<String, user_shapes::UserShape>,
+    /// while a declared shape's path code runs: what it draws, kept for the shape
+    pub shape_capture: Option<user_shapes::ShapeCapture>,
     /// the node shapes libraries declared, by name
     pub extension_shapes: HashMap<String, crate::extension::ShapeFn>,
     /// the node `\pgfpositionnodelater` kept: what it draws, where its anchors are, its name
@@ -469,9 +512,9 @@ pub struct Engine {
     pub forced_box: Option<(f64, f64, f64)>,
     /// the shading a node's text is (`\pgfuseshading{name}`), with its half width and height (cm)
     pub text_shading: Option<(String, f64, f64)>,
-    /// the picture a node's text is (`\begin{tikzpicture}…\end{tikzpicture}`, `\tikz…`): what it
-    /// draws and its box's corners (cm)
-    pub text_picture: Option<(Vec<Item>, Point, Point)>,
+    /// the picture a node's text is (`\begin{tikzpicture}…\end{tikzpicture}`, `\tikz…`,
+    /// `\usebox`): what it draws, its box's corners, and its depth below the baseline (cm)
+    pub text_picture: Option<(Vec<Item>, Point, Point, f64)>,
     /// the name of each child being grown, set by the first node its statement makes
     pub tree_child_names: Vec<Option<String>>,
     /// a child's `edge from parent[…]`, read inside its statement
@@ -487,6 +530,8 @@ pub struct Engine {
     layout: Vec<Layout>,
     /// the words of the text around the pictures, each with the font it starts in
     words: Vec<(String, String)>,
+    /// the boxes `\savebox`, `\sbox` and `lrbox` keep, by their names (`\newsavebox`)
+    saved_boxes: HashMap<String, PictureBox>,
     /// keys run so far
     /// `/handlers/first char syntax` was set: keys are checked for a handler of their first character.
     pub first_char_syntax: bool,
@@ -514,6 +559,9 @@ struct PictureBox {
     canvas: Canvas,
     baseline: f64,
 }
+
+/// What a part of the document typesets on its own: its pictures, how they are laid out, its words.
+type Apart = (Vec<PictureBox>, Vec<Layout>, Vec<(String, String)>);
 
 /// What a document puts between pictures: TeX typesets them in lines, like words.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -604,6 +652,7 @@ impl Clone for Engine {
             path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
+            last_xy: Default::default(),
             tree_edge_out: self.tree_edge_out.clone(),
             behind_path: Vec::new(),
             tree_child_names: self.tree_child_names.clone(),
@@ -622,6 +671,7 @@ impl Clone for Engine {
             sys_animations: HashMap::new(),
             user_patterns: self.user_patterns.clone(),
             user_shapes: self.user_shapes.clone(),
+            shape_capture: None,
             extension_shapes: self.extension_shapes.clone(),
             later_node: None,
             scope_ends: self.scope_ends.clone(),
@@ -632,6 +682,7 @@ impl Clone for Engine {
             boxes: self.boxes.clone(),
             layout: self.layout.clone(),
             words: self.words.clone(),
+            saved_boxes: self.saved_boxes.clone(),
             current_key: self.current_key.clone(),
             axis: self.axis.clone(),
             frame: self.frame.clone(),
@@ -748,6 +799,7 @@ impl Engine {
             path_fading_settings: Vec::new(),
             turn_from: Default::default(),
             subpath_start: Default::default(),
+            last_xy: Default::default(),
             tree_edge_out: None,
             behind_path: Vec::new(),
             tree_child_names: Vec::new(),
@@ -766,6 +818,7 @@ impl Engine {
             sys_animations: HashMap::new(),
             user_patterns: HashMap::new(),
             user_shapes: HashMap::new(),
+            shape_capture: None,
             extension_shapes: HashMap::new(),
             later_node: None,
             scope_ends: Vec::new(),
@@ -776,6 +829,7 @@ impl Engine {
             boxes: Vec::new(),
             layout: Vec::new(),
             words: Vec::new(),
+            saved_boxes: HashMap::new(),
             current_key: String::new(),
             axis: None,
             frame: None,
@@ -786,11 +840,15 @@ impl Engine {
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
+            // pgfmath's inner forms (`\pgfmathadd@`), used by documents with @ a letter
+            if *cmd == Cmd::PgfmathFunction {
+                e.tex.define(&format!("{name}@"), Meaning::Native(*cmd as u16));
+            }
         }
         // in a fading, transparent is black (`\colorlet{pgftransparent}{black}`)
         e.colors.insert("transparent".into(), Color::BLACK);
         e.colors.insert("pgftransparent".into(), Color::BLACK);
-        e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeysnovalue}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
+        e.tex.define_text(r"\let\bgroup={\let\egroup=}\def\pgfkeysnovalue{\pgfkeys@novalue}\def\pgfkeys@novalue{}\def\pgfkeysvalueof#1{\csname pgfk@#1\endcsname}\def\pgfkeysgetvalue#1#2{\expandafter\let\expandafter#2\csname pgfk@#1\endcsname}\def\pgfkeyssetvalue#1#2{\expandafter\def\csname pgfk@#1\endcsname{#2}}\def\pgfkeysifdefined#1{\ifcsname pgfk@#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}\def\pgfmathresult{}\def\tikzlastnode{}");
         basic::define(&mut e);
         nonlinear::define(&mut e);
         calendar::define(&mut e);
@@ -1174,7 +1232,15 @@ impl Engine {
 
     /// Text for pgfmath: macros expanded, registers replaced by their values.
     pub fn math_string(&mut self, tokens: Vec<Token>) -> Result<String, Error> {
-        let t = self.tex.expand_fully(tokens)?;
+        let mut t = self.tex.expand_fully(tokens)?;
+        // `\numexpr …\relax` and `\dimexpr …\relax` read as TeX reads them where pgfmath reads a number
+        while let Some(i) = t.iter().position(|x| matches!(x, Token::Cs(_)) && matches!(self.tex.meaning(x), Meaning::Prim(Prim::Numexpr | Prim::Dimexpr))) {
+            let dim = self.tex.meaning(&t[i]) == Meaning::Prim(Prim::Dimexpr);
+            let (v, rest) = self.tex.expr_of(t.split_off(i + 1), dim)?;
+            t.pop();
+            t.extend(tex::string_tokens(&if dim { tex::dimen::show(v) } else { v.to_string() }));
+            t.extend(rest);
+        }
         let mut s = String::new();
         // `\pgf@sys@tonumber\reg`: the register without its unit
         let mut bare = false;
@@ -1199,6 +1265,16 @@ impl Engine {
                     let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
                     s.push_str(&format!("{}pt", sp as f64 / 65536.0));
                 }
+                // pgf's `\pgf@xx`, `\pgf@xy`, `\pgf@yx`, `\pgf@yy`: the parts of the x and y vectors, in pt
+                Meaning::Undefined if matches!(x, Token::Cs(n) if matches!(&**n, "pgf@xx" | "pgf@xy" | "pgf@yx" | "pgf@yy")) => {
+                    let Token::Cs(n) = x else { unreachable!() };
+                    let v = if n.starts_with("pgf@x") { self.st.x } else { self.st.y };
+                    let v = if n.ends_with('x') { v.x } else { v.y };
+                    if s.ends_with(|c: char| c.is_ascii_digit() || c == '.') {
+                        s.push('*');
+                    }
+                    s.push_str(&format!("{}pt", v / crate::PT));
+                }
                 _ => s.push_str(&tex::tokens_to_string(&t[i..i + 1])),
             }
             // keep `\x y` apart when a control word is followed by a letter
@@ -1215,13 +1291,48 @@ impl Engine {
         let sans = self.st.font.contains("\\sffamily");
         crate::expr::Variables {
             values: HashMap::new(),
-            functions: (*self.st.functions).clone(),
+            functions: self.functions_now(),
             font_scale: Some(self.st.ambient_size / 10.0),
             in_pt: false,
             sans,
             trig_rad: self.st.trig_rad,
             fpu: false,
         }
+    }
+
+    /// The declared functions, the macros in their bodies replaced by what they hold now, as pgfmath
+    /// reads a body when the function is used (`f(\q)=\q*\total;`, `\total` set later).
+    fn functions_now(&self) -> HashMap<String, (Vec<String>, String)> {
+        let mut functions = (*self.st.functions).clone();
+        for (params, body) in functions.values_mut() {
+            // a macro may hold others: a few rounds
+            for _ in 0..8 {
+                let mut out = String::new();
+                let mut changed = false;
+                let mut rest = body.as_str();
+                while let Some(i) = rest.find('\\') {
+                    out.push_str(&rest[..i]);
+                    let name: String = rest[i + 1..].chars().take_while(|c| c.is_ascii_alphabetic() || *c == '@').collect();
+                    match self.tex.meaning_of(&name) {
+                        tex::Meaning::Macro(m) if !name.is_empty() && m.params.is_empty() && !params.contains(&name) => {
+                            out.push_str(&tex::tokens_to_string(&tex::substitute(&m.body, &[])));
+                            changed = true;
+                        }
+                        _ => {
+                            out.push('\\');
+                            out.push_str(&name);
+                        }
+                    }
+                    rest = &rest[i + 1 + name.len()..];
+                }
+                out.push_str(rest);
+                *body = out;
+                if !changed {
+                    break;
+                }
+            }
+        }
+        functions
     }
 
     /// A pgfmath number from text (a length in it counts in pt, as pgfmath counts it: `30pt` is 30).
@@ -1262,6 +1373,12 @@ impl Engine {
     }
 
     // ---------------------------------------------------------------- commands
+
+    /// Whether the command `id` only computes with pgfmath (`\pgfmathparse`, `\pgfmathadd`…): code
+    /// that may come before a point, as in `{\pgfmathrand\pgfpoint{…}{\pgfmathresult pt}}`.
+    fn is_pgfmath(id: u16) -> bool {
+        [Cmd::Pgfmathparse, Cmd::Pgfmathsetmacro, Cmd::Pgfmathtruncatemacro, Cmd::Pgfmathsetlengthmacro, Cmd::PgfmathFunction].iter().any(|c| *c as u16 == id)
+    }
 
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
         if basic::is_basic(id) {
@@ -1374,6 +1491,47 @@ impl Engine {
                 crate::expr::set_seed(n.trunc() as i64);
                 Ok(())
             }
+            Cmd::DeclareRandomList => {
+                // global, as pgf has it: the count in `\pgfmath@randomlist@name`, the items in
+                // `\pgfmath@randomlist@name@1`… (`\pgfmathrandomitem` picks one)
+                let name = self.argument_string()?;
+                let list = self.argument()?;
+                let mut items: Vec<Vec<Token>> = Vec::new();
+                let mut depth = 0;
+                for x in list {
+                    match &x {
+                        Token::Char(_, Cat::Begin) => {
+                            depth += 1;
+                            if depth == 1 {
+                                items.push(Vec::new());
+                                continue;
+                            }
+                        }
+                        Token::Char(_, Cat::End) => {
+                            depth -= 1;
+                            if depth == 0 {
+                                continue;
+                            }
+                        }
+                        _ if depth == 0 => {
+                            // an item without braces is its one token
+                            if !x.is_space() {
+                                items.push(vec![x]);
+                            }
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    if let Some(last) = items.last_mut() {
+                        last.push(x);
+                    }
+                }
+                for (k, item) in items.iter().enumerate() {
+                    self.tex.set_meaning(&Token::cs(&format!("pgfmath@randomlist@{name}@{}", k + 1)), macro_tokens(item.clone()), true);
+                }
+                self.tex.define_string(&format!("pgfmath@randomlist@{name}"), &items.len().to_string(), true);
+                Ok(())
+            }
             Cmd::Graph => {
                 self.tex.push_tokens(tikra_tokens("graph "));
                 let r = path::statement(self, "");
@@ -1461,8 +1619,27 @@ impl Engine {
                 self.keys_command(a, None, false)
             }
             Cmd::Tikzstyle => {
-                // \tikzstyle{name}=[options], \tikzstyle{name}+=[options]
-                let name = self.argument_string()?;
+                // \tikzstyle{name}=[options], \tikzstyle{name}+=[options]; without braces the
+                // name runs to the `=` (a `+` before it is part of the name)
+                let name = match self.tex.next_nonspace() {
+                    Some(t) if !matches!(t, Token::Char(_, Cat::Begin)) => {
+                        let mut name = vec![t];
+                        while let Some(t) = self.tex.get_token() {
+                            if t.is_char('=') {
+                                self.tex.back(t);
+                                break;
+                            }
+                            name.push(t);
+                        }
+                        tex::tokens_to_string(&name)
+                    }
+                    t => {
+                        if let Some(t) = t {
+                            self.tex.back(t);
+                        }
+                        self.argument_string()?
+                    }
+                };
                 let mut append = false;
                 if let Some(x) = self.tex.next_nonspace() {
                     if x.is_char('+') {
@@ -1612,7 +1789,7 @@ impl Engine {
             // `\pgfmathadd{a}{b}` and the other functions as commands: `\pgfmathresult` is their value
             Cmd::PgfmathFunction => {
                 let name = match t {
-                    Token::Cs(n) => n.trim_start_matches("pgfmath").to_string(),
+                    Token::Cs(n) => n.trim_start_matches("pgfmath").trim_end_matches('@').to_string(),
                     _ => return Ok(()),
                 };
                 let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "Mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
@@ -1635,22 +1812,34 @@ impl Engine {
                 }
                 Ok(())
             }
-            Cmd::Pgfmathsetcount | Cmd::Pgfmathsetlength => {
+            Cmd::Pgfmathsetcount | Cmd::Pgfmathsetlength | Cmd::Pgfmathaddtolength | Cmd::Pgfmathsetcounter | Cmd::Pgfmathaddtocounter => {
                 let target = self.argument()?;
                 let expr = self.argument()?;
                 let text = self.math_string(expr)?;
-                let Some(name) = target.into_iter().find(|x| !x.is_space()) else { return Ok(()) };
-                match self.tex.meaning(&name) {
+                let add = matches!(cmd, Cmd::Pgfmathaddtolength | Cmd::Pgfmathaddtocounter);
+                // lengths in pt, as pgfmath counts them
+                let mut vars = self.vars();
+                vars.in_pt = true;
+                // a LaTeX counter is the register `\c@name`; pgfmath sets it locally, unlike `\setcounter`
+                let m = if matches!(cmd, Cmd::Pgfmathsetcounter | Cmd::Pgfmathaddtocounter) {
+                    self.tex.meaning_of(&format!("c@{}", tex::tokens_to_string(&target).trim()))
+                } else {
+                    let Some(name) = target.iter().find(|x| !x.is_space()) else { return Ok(()) };
+                    self.tex.meaning(name)
+                };
+                match m {
                     Meaning::Count(r) => {
-                        let v = crate::expr::eval(&text, &self.vars())?;
-                        self.tex.set_count(r, v.trunc() as i64, false);
+                        // the value is truncated before it is added
+                        let v = crate::expr::eval(&text, &vars)?.trunc() as i64;
+                        let old = if add { self.tex.counts.get(&r).copied().unwrap_or(0) } else { 0 };
+                        self.tex.set_count(r, old + v, false);
                     }
                     Meaning::Dimen(r) | Meaning::Skip(r) => {
-                        let (v, u) = crate::expr::eval_length(&text, &self.vars())?;
-                        let pt = if u { v / crate::PT } else { v };
-                        self.tex.set_dimen(r, (pt * 65536.0).round() as i64, false);
+                        let pt = crate::expr::eval_length(&text, &vars)?.0;
+                        let old = if add { self.tex.dimens.get(&r).copied().unwrap_or(0) } else { 0 };
+                        self.tex.set_dimen(r, old + (pt * 65536.0).round() as i64, false);
                     }
-                    _ => {}
+                    _ => self.warn(format!("{}: no register or counter '{}'", tex::show_token(t), tex::tokens_to_string(&target).trim())),
                 }
                 Ok(())
             }
@@ -1719,10 +1908,40 @@ impl Engine {
                     let last = encodings.split(',').map(str::trim).rfind(|e| !e.is_empty()).unwrap_or("OT1");
                     crate::label::set_kerning(if last == "T1" { mathra::layout::kerning::TextKerning::T1 } else { mathra::layout::kerning::TextKerning::Ot1 });
                 }
+                // xcolor takes the class's options too (tikz loads xcolor)
+                if cmd == Cmd::Documentclass || a.split(',').any(|p| p.trim() == "xcolor") {
+                    if let Some(o) = &o {
+                        let options = self.tex.expand_to_string(o.clone())?;
+                        self.load_color_sets(&options);
+                    }
+                }
+                // the paper's size, from the class options or geometry's
+                if cmd == Cmd::Documentclass || (cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "geometry")) {
+                    if let Some(o) = &o {
+                        self.tex.paper_options(&tex::tokens_to_string(o));
+                    }
+                }
+                // `\usepackage[active]{preview}`, then `\PreviewEnvironment{tikzpicture}`: each picture
+                // is a page of its own, out of the boxes around it (`\scalebox`, `\resizebox`, `\fbox`)
+                if cmd == Cmd::Usepackage && a.split(',').any(|p| p.trim() == "preview") {
+                    let options = o.as_ref().map(|o| self.tex.expand_to_string(o.clone())).transpose()?.unwrap_or_default();
+                    if options.split(',').any(|o| o.trim() == "active") {
+                        let m = self.tex.meaning_of("tikra@previewenvironment");
+                        self.tex.set_meaning(&Token::cs("PreviewEnvironment"), m, false);
+                    }
+                }
                 if cmd == Cmd::Documentclass && a.contains("standalone") {
                     if let Some(o) = o {
                         self.standalone_options(o)?;
                     }
+                }
+                Ok(())
+            }
+            Cmd::PassOptionsToPackage => {
+                let options = self.argument_string()?;
+                let packages = self.argument_string()?;
+                if packages.split(',').any(|p| p.trim() == "xcolor") {
+                    self.load_color_sets(&options);
                 }
                 Ok(())
             }
@@ -1742,6 +1961,11 @@ impl Engine {
             }
             Cmd::Frame => self.frame_macros(),
             Cmd::Tikzfading => self.tikzfading(),
+            Cmd::Newsavebox => self.new_save_box(),
+            Cmd::Savebox => self.save_box(t.is_cs("savebox")),
+            Cmd::Usebox => self.use_box(),
+            Cmd::PreviewEnvironment => self.preview_environment(),
+            Cmd::Unboxed => self.unboxed(t),
             Cmd::Ignore1 => {
                 let _ = self.optional()?;
                 let _ = self.argument()?;
@@ -1800,17 +2024,41 @@ impl Engine {
                 self.end_group();
                 r?;
                 if self.picture_depth == 0 {
-                    let t = crate::scene::Transform::scaling(fx, fy);
-                    for b in &mut self.boxes[start..] {
-                        b.canvas.items.iter_mut().for_each(|i| i.transform(&t));
-                        let corners = [b.canvas.min, b.canvas.max];
-                        if let [Some(lo), Some(hi)] = corners {
-                            let (a, c) = (t.apply(lo), t.apply(hi));
-                            b.canvas.min = Some(Point::new(a.x.min(c.x), a.y.min(c.y)));
-                            b.canvas.max = Some(Point::new(a.x.max(c.x), a.y.max(c.y)));
+                    self.scale_boxes(start, |_, _, _| (fx, fy));
+                }
+                Ok(())
+            }
+            // `\resizebox{7cm}{!}{…}`: the pictures in it scaled to that width and height (`!`
+            // keeps the other's ratio); starred, the height is the height plus the depth
+            Cmd::Resizebox => {
+                let next = self.tex.next_nonspace();
+                let star = next.as_ref().is_some_and(|t| t.is_char('*'));
+                if let Some(t) = next.filter(|_| !star) {
+                    self.tex.back(t);
+                }
+                let mut size = [None, None];
+                for s in &mut size {
+                    let t = self.argument_string()?;
+                    if t.trim() != "!" {
+                        match self.length(&t) {
+                            Ok(v) => *s = Some(v),
+                            // (`\width`, the box's own size, is not known here)
+                            Err(_) => self.warn(format!("\\resizebox: size '{t}' not understood: not resized to it")),
                         }
-                        b.baseline *= fy;
                     }
+                }
+                let arg = self.argument()?;
+                let start = self.boxes.len();
+                self.begin_group();
+                let r = self.run_tokens(arg);
+                self.end_group();
+                r?;
+                if self.picture_depth == 0 {
+                    self.scale_boxes(start, |width, height, depth| {
+                        let fx = size[0].map(|x| x / width);
+                        let fy = size[1].map(|y| y / if star { height + depth } else { height });
+                        (fx.or(fy).unwrap_or(1.0), fy.or(fx).unwrap_or(1.0))
+                    });
                 }
                 Ok(())
             }
@@ -1857,6 +2105,15 @@ impl Engine {
                     self.st.ambient_size = self.st.font_size;
                     self.st.font.push_str(&format!("\\{n}"));
                 }
+                Ok(())
+            }
+            Cmd::CheckUnit => {
+                // \tikz@checkunit{value}: \iftikz@isdimension is true when the value, read by
+                // pgfmath, has a unit (`1cm`, `2*3pt`, a length register), false for a plain number
+                let a = self.argument()?;
+                let s = self.math_string(a)?;
+                let unit = crate::expr::eval_length(&s, &self.vars()).is_ok_and(|(_, unit)| unit);
+                self.tex.set_meaning(&Token::cs("iftikz@isdimension"), Meaning::Prim(if unit { Prim::Iftrue } else { Prim::Iffalse }), false);
                 Ok(())
             }
             Cmd::Quad => {
@@ -1917,6 +2174,14 @@ impl Engine {
     }
 
     /// The `border` option of `\documentclass[border=…]{standalone}`.
+    /// xcolor's `dvipsnames`, `svgnames` and `x11names`: each defines its colors, over those of
+    /// the same name before it (the options are taken in their order, the class's first).
+    fn load_color_sets(&mut self, options: &str) {
+        for set in options.split(',').filter_map(color::sets::Set::of_option) {
+            self.colors.extend(set.colors().into_iter().map(|(n, c)| (n.to_string(), c)));
+        }
+    }
+
     fn standalone_options(&mut self, o: Vec<Token>) -> Result<(), Error> {
         for item in crate::keys::split_list(&o) {
             if item.key == "varwidth" {
@@ -2048,6 +2313,7 @@ impl Engine {
             let margin = self.canvas.margin;
             self.canvas = Canvas { margin, ..Canvas::default() };
             self.canvas_frozen = false;
+            self.last_xy = Point::default();
         }
         self.picture_depth += 1;
         self.begin_group();
@@ -2288,6 +2554,28 @@ impl Engine {
         self.length(s).unwrap_or(lower)
     }
 
+    /// The pictures from `start` on scaled around their origins, by the factors `factors` gives
+    /// for the size of all of them together: its width, and its height and depth at the first
+    /// one's baseline.
+    fn scale_boxes(&mut self, start: usize, factors: impl Fn(f64, f64, f64) -> (f64, f64)) {
+        let corners: Vec<(Point, Point)> = self.boxes[start..].iter().filter_map(|b| b.canvas.min.zip(b.canvas.max)).collect();
+        let Some(&(first_lo, first_hi)) = corners.first() else { return };
+        let (lo, hi) = corners.iter().fold((first_lo, first_hi), |(a, b), (l, h)| (Point::new(a.x.min(l.x), a.y.min(l.y)), Point::new(b.x.max(h.x), b.y.max(h.y))));
+        let baseline = self.boxes[start].baseline;
+        let (fx, fy) = factors(hi.x - lo.x, hi.y - baseline, baseline - lo.y);
+        let t = crate::scene::Transform::scaling(fx, fy);
+        for b in &mut self.boxes[start..] {
+            b.canvas.items.iter_mut().for_each(|i| i.transform(&t));
+            let corners = [b.canvas.min, b.canvas.max];
+            if let [Some(lo), Some(hi)] = corners {
+                let (a, c) = (t.apply(lo), t.apply(hi));
+                b.canvas.min = Some(Point::new(a.x.min(c.x), a.y.min(c.y)));
+                b.canvas.max = Some(Point::new(a.x.max(c.x), a.y.max(c.y)));
+            }
+            b.baseline *= fy;
+        }
+    }
+
     /// `\tikz[options]{…}` or `\tikz[options] statement;`
     fn tikz_command(&mut self) -> Result<(), Error> {
         let o = self.optional()?;
@@ -2350,6 +2638,10 @@ impl Engine {
                 // its \end is read with its body
                 self.tex.env_stack.pop();
                 self.fading_from_picture()
+            }
+            "lrbox" => {
+                self.tex.env_stack.pop();
+                self.lrbox()
             }
             "tabular" if self.picture_depth == 0 => {
                 // `\begin{tabular}[pos]{rl}`: the pictures in the cells, set as TeX sets an \halign
@@ -2451,6 +2743,10 @@ impl Engine {
                 if name == "tabular" && self.picture_depth == 0 {
                     self.layout.push(Layout::TabEnd);
                 }
+                // what follows `\end{document}` is never typeset
+                if name == "document" {
+                    self.tex.clear_input();
+                }
             }
         }
         Ok(())
@@ -2492,6 +2788,32 @@ impl Engine {
         Ok(Some(self.math_text_value(pick)?.unwrap_or_else(|| pick.trim().to_string())))
     }
 
+    /// The list of a `\foreach`, for `foreach_items`: a macro that holds it, expanded; or a group,
+    /// whose items stay as they are written (`{\a,\b}` is two items, whatever `\a` holds) but for
+    /// the ends of a `...` range.
+    pub fn foreach_list(&mut self) -> Result<Vec<Token>, Error> {
+        let list = match self.tex.next_nonspace() {
+            Some(Token::Char(_, Cat::Begin)) => self.tex.read_group_body()?,
+            Some(t) => return self.tex.expand_fully(vec![t]),
+            None => return Ok(Vec::new()),
+        };
+        let items = foreach_split(&list);
+        let dots = |i: usize| items.get(i).is_some_and(|p| tex::tokens_to_string(p).trim() == "...");
+        let mut out = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                out.push(Token::other(','));
+            }
+            // `\a,\b,...,\c`: the step comes from the two before the dots
+            if dots(i + 1) || dots(i + 2) || (i > 0 && dots(i - 1)) {
+                out.extend(self.tex.expand_fully(item.clone())?);
+            } else {
+                out.extend(item.iter().cloned());
+            }
+        }
+        Ok(out)
+    }
+
     /// `\foreach \x/\y [count=\i, evaluate=\x as \v using …, remember=\x as \lastx (initially 0)] in {list} body`
     fn foreach(&mut self) -> Result<(), Error> {
         // variables up to `[` or `in`
@@ -2517,13 +2839,7 @@ impl Engine {
             }
         }
         let names: Vec<Token> = vars.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-        // the list: a group, or a macro that holds it
-        let list_tokens = match self.tex.next_nonspace() {
-            Some(Token::Char(_, Cat::Begin)) => self.tex.read_group_body()?,
-            Some(t) => vec![t],
-            None => Vec::new(),
-        };
-        let list = self.tex.expand_fully(list_tokens)?;
+        let list = self.foreach_list()?;
         let items = foreach_items(&list);
         // options after the list too: \foreach \x in {…} [count=\i]
         if let Some(t) = self.tex.next_nonspace() {
@@ -2751,8 +3067,8 @@ fn split_slash(item: &[Token]) -> Vec<Vec<Token>> {
     parts.into_iter().map(|p| tex::strip_outer_braces(crate::keys::trim(&p).to_vec())).collect()
 }
 
-/// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
-pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
+/// A `\foreach` list cut at its commas, the items as they are written.
+fn foreach_split(list: &[Token]) -> Vec<Vec<Token>> {
     let mut raw: Vec<Vec<Token>> = Vec::new();
     let mut current: Vec<Token> = Vec::new();
     let mut depth = 0usize;
@@ -2773,7 +3089,12 @@ pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
         current.push(t.clone());
     }
     raw.push(current);
-    let raw: Vec<Vec<Token>> = raw.into_iter().map(|p| tex::strip_outer_braces(crate::keys::trim(&p).to_vec())).filter(|p| !p.is_empty()).collect();
+    raw
+}
+
+/// The items of a `\foreach` list, with `...` ranges expanded as pgffor does (numbers and letters).
+pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
+    let raw: Vec<Vec<Token>> = foreach_split(list).into_iter().map(|p| tex::strip_outer_braces(crate::keys::trim(&p).to_vec())).filter(|p| !p.is_empty()).collect();
     let text = |v: &[Token]| tex::tokens_to_string(v).trim().to_string();
     let mut out: Vec<Vec<Token>> = Vec::new();
     let mut i = 0;
@@ -3075,6 +3396,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             }
             Layout::Word(i) => Some((labels[*i].width(), labels[*i].height(), labels[*i].depth())),
             Layout::Skip(w) => Some((*w, 0.0, 0.0)),
+            Layout::Space => Some((SPACE, 0.0, 0.0)),
             _ => None,
         }
     };
@@ -3095,7 +3417,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             match layout[i] {
                 Layout::Cell => rows.last_mut().expect("a row").push(Vec::new()),
                 Layout::Row => rows.push(vec![Vec::new()]),
-                Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
+                Layout::Picture(_) | Layout::Word(_) | Layout::Skip(_) | Layout::Space => rows.last_mut().expect("a row").last_mut().expect("a cell").push(layout[i]),
                 // the line's width stays known
                 Layout::Width(w) if !out.contains(&Layout::Width(w)) => out.push(Layout::Width(w)),
                 Layout::Vbox if !out.contains(&Layout::Vbox) => out.push(Layout::Vbox),
@@ -3104,6 +3426,14 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             i += 1;
         }
         i += 1;
+        // the spaces between words stay, those at a cell's ends do not
+        for cell in rows.iter_mut().flatten() {
+            while cell.last() == Some(&Layout::Space) {
+                cell.pop();
+            }
+            let first = cell.iter().position(|l| *l != Layout::Space).unwrap_or(cell.len());
+            cell.drain(..first);
+        }
         // `\\` before `\end{tabular}` ends the last row: nothing after it
         if rows.len() > 1 && rows.last().is_some_and(|r| r.iter().all(Vec::is_empty)) {
             rows.pop();
@@ -3150,6 +3480,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
                             cx += label.width();
                         }
                         Layout::Skip(s) => cx += s,
+                        Layout::Space => cx += SPACE,
                         _ => {}
                     }
                 }

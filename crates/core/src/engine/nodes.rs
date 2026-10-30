@@ -43,6 +43,9 @@ pub struct NodeSetup {
     pub fit_rotate: f64,
     /// `circle through`: the point on the circle (canvas)
     pub through: Option<Point>,
+    /// `right of=a` and its kin: their direction, the node distance they shifted by (vertical,
+    /// horizontal), and the pending transformation right after their shift
+    pub old_of: Vec<(Point, (f64, f64), Transform)>,
 }
 
 /// A named node: its shape in its own coordinate system, and where that system is on the canvas.
@@ -358,6 +361,18 @@ pub struct NodeSpec {
 }
 
 impl Engine {
+    /// A node's anchor; a name it does not have is an angle given by an expression, as pgf
+    /// evaluates it (`(a.200+360/5)`).
+    pub fn node_anchor(&mut self, node: &NodeInfo, a: &str) -> Option<Point> {
+        if let Some(p) = node.anchor(a) {
+            return Some(p);
+        }
+        let angle = self.number(a).ok()?;
+        node.anchor(&angle.to_string())
+    }
+}
+
+impl Engine {
     pub fn st_node(&mut self) -> &mut NodeSetup {
         &mut self.st.node
     }
@@ -511,22 +526,97 @@ impl Engine {
         Ok(())
     }
 
-    /// A node's text expanded, the pgfmath commands in it run where they are, as TeX runs them
-    /// while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4.
+    /// A node's text expanded, the pgfmath commands and the definitions in it run where they are,
+    /// as TeX runs them while it typesets the text: `\pgfmathparse{2+2}\pgfmathresult` is 4, and
+    /// `\def\a{x}\a` is x. A picture in the text is left as it is, for it to be drawn.
     fn expand_text(&mut self, tokens: Vec<Token>) -> Result<Vec<Token>, Error> {
-        const RUN: &[&str] = &["pgfmathparse", "pgfmathsetmacro", "pgfmathtruncatemacro", "pgfmathsetlengthmacro"];
+        const RUN: &[&str] = &[
+            "pgfmathparse",
+            "pgfmathsetmacro",
+            "pgfmathtruncatemacro",
+            "pgfmathsetlengthmacro",
+            "def",
+            "gdef",
+            "edef",
+            "xdef",
+            "let",
+            "advance",
+            "multiply",
+            "divide",
+            "@ifnextchar",
+            "setkeys",
+            "begin",
+            "tikz",
+        ];
+        // a \relax at the end, so that an assignment's number stops there, as at the end of TeX's
+        // box, and not after the text
+        let mut tokens = tokens;
+        tokens.push(Token::cs("relax"));
+        let end = |mut out: Vec<Token>| {
+            if out.last().is_some_and(|t| t.is_cs("relax")) {
+                out.pop();
+            }
+            Ok(out)
+        };
         let depth = self.tex.expand_start(tokens);
         let mut out = Vec::new();
         loop {
             let (more, stop) = self.tex.expand_more(depth, RUN)?;
-            out.extend(more);
-            let Some(t) = stop else { return Ok(out) };
-            if let tex::Meaning::Native(id) = self.tex.meaning(&t) {
-                let r = self.command(id, &t);
-                if let Err(e) = r {
-                    self.tex.drain_to(depth);
-                    return Err(e);
+            // \relax, and what is \let to it, typesets nothing
+            out.extend(more.into_iter().filter(|t| !matches!(t, Token::Cs(_)) || self.tex.meaning(t) != tex::Meaning::Prim(tex::Prim::Relax)));
+            let Some(t) = stop else { return end(out) };
+            if t.is_cs("begin") || t.is_cs("tikz") {
+                // `\begin{name}` as it is; from a picture on, the rest too (its `\foreach \number`
+                // is a variable, not TeX's \number)
+                let mut picture = t.is_cs("tikz");
+                out.push(t);
+                if !picture {
+                    let mut name = Vec::new();
+                    if let Some(open) = self.tex.get_token_until(depth) {
+                        if matches!(open, Token::Char(_, tex::Cat::Begin)) {
+                            while let Some(x) = self.tex.get_token_until(depth) {
+                                let end = matches!(x, Token::Char(_, tex::Cat::End));
+                                name.push(x);
+                                if end {
+                                    break;
+                                }
+                            }
+                        }
+                        picture = tex::tokens_to_string(&name) == "tikzpicture}";
+                        out.push(open);
+                        out.extend(name);
+                    }
                 }
+                if picture {
+                    while let Some(x) = self.tex.get_token_until(depth) {
+                        out.push(x);
+                    }
+                    return end(out);
+                }
+                continue;
+            }
+            let r = match self.tex.meaning(&t) {
+                tex::Meaning::Native(id) => self.command(id, &t),
+                // a register given a value (`\count=3`, `\count 3`); else it is an argument, as
+                // `\linewidth` of a `\parbox` that is written as it is
+                tex::Meaning::Count(_) | tex::Meaning::Dimen(_) | tex::Meaning::Skip(_) | tex::Meaning::Toks(_) => {
+                    let next = self.tex.next_nonspace();
+                    let value = next.as_ref().is_some_and(|n| matches!(n, Token::Char(c, _) if c.is_ascii_digit() || matches!(c, '=' | '-' | '+' | '.')));
+                    if let Some(n) = next {
+                        self.tex.back(n);
+                    }
+                    if value {
+                        self.tex.execute_basic(t).map(|_| ())
+                    } else {
+                        out.push(t);
+                        Ok(())
+                    }
+                }
+                _ => self.tex.execute_basic(t).map(|_| ()),
+            };
+            if let Err(e) = r {
+                self.tex.drain_to(depth);
+                return Err(e);
             }
         }
     }
@@ -538,6 +628,13 @@ impl Engine {
         let outer_name_path = self.st.name_path.clone();
         self.process_keys(tikra_tokens("every node/.try"), Some("/tikz"))?;
         self.process_keys(spec.options.clone(), Some("/tikz"))?;
+        // `right of=a` shifts by the node distance the node ends up with, given after it too: each
+        // shift is redone with it, in its place among the transformations
+        for (u, (v0, h0), after) in std::mem::take(&mut self.st.node.old_of).into_iter().rev() {
+            let (v, h) = super::options::node_distance(self)?;
+            let shift = Transform::translation(u.x * (h - h0), u.y * (v - v0));
+            self.st.pending = after.compose(&shift).compose(&after.inverse()).compose(&self.st.pending);
+        }
         // the node begin hook: a node on a chain takes its place and names there
         let (chain_names, joins) = self.chain_node_found()?;
         let mut after = std::mem::take(&mut self.st.after_node_path);
@@ -616,17 +713,34 @@ impl Engine {
         // a text that is a picture: its box (its baseline at its bottom), drawn where the text goes
         self.text_picture = None;
         if texts.len() == 1 {
-            if let Some(p) = self.text_image(&texts[0].1)? {
-                self.text_picture = Some(p);
+            if let Some((drawn, lo, hi)) = self.text_image(&texts[0].1)? {
+                self.text_picture = Some((drawn, lo, hi, 0.0));
+                texts[0].1.clear();
+            } else if let Some(b) = self.text_box(&texts[0].1) {
+                // a saved box (`\usebox{\name}`): where it was set, its baseline where it was
+                let origin = Point::new(0.0, b.baseline);
+                let (lo, hi) = (b.canvas.min.unwrap_or(origin), b.canvas.max.unwrap_or(origin));
+                self.text_picture = Some((b.canvas.items, lo, hi, b.baseline - lo.y));
                 texts[0].1.clear();
             }
         }
         let whole = texts.first().map(|(_, t)| t.trim().to_string()).unwrap_or_default();
         let tikz = whole.strip_prefix("\\tikz").is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphabetic()));
         if texts.len() == 1 && (tikz || (whole.starts_with("\\begin{tikzpicture}") && whole.ends_with("\\end{tikzpicture}"))) {
-            if let Some(p) = self.inner_picture(spec.text.clone())? {
-                self.text_picture = Some(p);
+            if let Some((drawn, lo, hi)) = self.inner_picture(spec.text.clone())? {
+                self.text_picture = Some((drawn, lo, hi, 0.0));
                 texts[0].1.clear();
+            }
+        }
+        // a text that is all a `\parbox{4cm}{…}` or a `minipage`: a paragraph that wide, as a text
+        // width sets it, justified unless it says otherwise (`\centering`)
+        let (mut text_width, mut align) = (text_width, align);
+        if let Some((width, body)) = texts.first().filter(|_| texts.len() == 1).and_then(|(_, t)| label::paragraph_box(t)) {
+            if let Ok(w) = self.length(&width) {
+                let first = body.trim_start();
+                align = [("\\centering", 'C'), ("\\raggedright", 'L'), ("\\raggedleft", 'R')].iter().find(|(c, _)| first.starts_with(c)).map_or('j', |(_, a)| *a);
+                text_width = Some(w);
+                texts[0].1 = body;
             }
         }
         for (k, (part, t)) in texts.iter().enumerate() {
@@ -670,8 +784,8 @@ impl Engine {
                 if let Some((_, w, h)) = &self.text_shading {
                     (wd, ht, dp) = (2.0 * w, 2.0 * h, 0.0);
                 }
-                if let Some((_, lo, hi)) = &self.text_picture {
-                    (wd, ht, dp) = (hi.x - lo.x, hi.y - lo.y, 0.0);
+                if let Some((_, lo, hi, depth)) = &self.text_picture {
+                    (wd, ht, dp) = (hi.x - lo.x, hi.y - lo.y - depth, *depth);
                 }
                 if let Some(b) = self.forced_box.take() {
                     (wd, ht, dp) = b;
@@ -733,7 +847,9 @@ impl Engine {
             geometry.anchors.extend(g.anchors.into_iter().map(|(n, p)| (format!("@gatebox={} {n}", !on), p)));
         }
         if let Some(u) = &user_shape {
-            geometry = self.user_shape_geometry(u, geometry)?;
+            let (wd, ht, dp) = boxes.first().map(|(_, b)| (b.wd, b.ht, b.dp)).unwrap_or_default();
+            let input = super::user_shapes::ShapeInput { text: (wd, ht, dp), minimum: Point::new(min_w, min_h), inner: Point::new(xsep, ysep), outer: Point::new(ox, oy) };
+            geometry = self.user_shape_geometry(shape_name.trim(), u, geometry, input)?;
         }
         if let Some(f) = library_shape {
             let text = boxes.first().map(|(_, b)| *b).unwrap_or_default();
@@ -972,9 +1088,9 @@ impl Engine {
                 self.canvas.include(t.apply(*p));
             }
         }
-        if let Some((drawn, lo, _)) = self.text_picture.take() {
+        if let Some((drawn, lo, _, depth)) = self.text_picture.take() {
             if let Some(origin) = g.parts.iter().find(|(n, _)| n == "text").map(|(_, p)| *p) {
-                let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y));
+                let place = t.compose(&Transform::translation(origin.x - lo.x, origin.y - lo.y - depth));
                 items.push(Item::Transform { transform: place });
                 items.extend(drawn);
                 items.push(Item::End);
@@ -1088,8 +1204,8 @@ impl Engine {
         let s = tex::tokens_to_string(&v);
         // the angle is up to the first top-level colon
         let (angle_text, text_tokens) = match split_colon(&v) {
-            // expanded: `pin=\a:\a` in a `\foreach` is at the angle `\a` holds
-            Some((a, b)) => (self.tex.expand_to_string(a.clone()).unwrap_or_else(|_| tex::tokens_to_string(&a)).trim().to_string(), b),
+            // (expanded: `pin=\angle+15:text` is at the angle the macro gives)
+            Some((a, b)) => (self.math_string(a)?.trim().to_string(), b),
             None => (String::new(), v.clone()),
         };
         let _ = s;
@@ -1108,17 +1224,12 @@ impl Engine {
                 }
             }
         }
-        // `pin edge={…}`: options of the pin's edge, not of its label
-        let mut edge_options = Vec::new();
         let items = keys::split_list(&opts);
-        let taken = |i: &keys::Item| (i.value.is_none() && directions.contains(&i.key.as_str())) || i.key == "pin edge";
+        let taken = |i: &keys::Item| i.value.is_none() && directions.contains(&i.key.as_str());
         if items.iter().any(taken) {
             let mut rest = Vec::new();
             for i in items {
-                if i.key == "pin edge" {
-                    edge_options.push(Token::other(','));
-                    edge_options.extend(i.value.unwrap_or_default());
-                } else if i.value.is_none() && directions.contains(&i.key.as_str()) {
+                if i.value.is_none() && directions.contains(&i.key.as_str()) {
                     if i.key != "direction shorthands" {
                         given = Some(i.key.clone());
                     }
@@ -1180,16 +1291,20 @@ impl Engine {
         };
         let mut options = tikra_tokens(&format!("every {}/.try,anchor={anchor},", if pin { "pin" } else { "label" }));
         options.extend(opts);
+        // `pin edge={…}` among the label's options or styles sets the options of its edge, the
+        // last one given winning
+        self.tex.set_meaning(&Token::cs("tikra@pinedge"), super::macro_from(""), true);
         let items = self.node(NodeSpec { options, name: None, at: Some(at), text: text_tokens, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
         if pin {
             // the pin edge: an edge from the node to the pin's label (arrows, decorations…)
             let Some(label) = self.last_node.clone() else { return Ok(items) };
+            let edge_options = super::spy::macro_body(self, "tikra@pinedge");
             let saved = (self.last_node.clone(), self.last_node_name.clone());
             self.nodes.insert("tikra@pin@node".into(), info.clone());
             self.nodes.insert("tikra@pin@label".into(), label);
             self.begin_group();
             self.st.transform = Transform::default();
-            let mut path = tikra_tokens("\\path (tikra@pin@node) edge[every pin edge/.try");
+            let mut path = tikra_tokens("\\path (tikra@pin@node) edge[every pin edge/.try,");
             path.extend(edge_options);
             path.extend(tikra_tokens("] (tikra@pin@label);"));
             let r = self.run_tokens(path);
@@ -1471,8 +1586,10 @@ impl Engine {
                 Some(c) => {
                     let hex = c.hex();
                     let hex = hex.trim_start_matches('#');
-                    // math inside stays math; text goes in \text
-                    if inner.contains('$') {
+                    // in math, a color of math; math inside stays math; text goes in \text
+                    if label::in_math(&out) {
+                        out.push_str(&format!("\\textcolor[HTML]{{{hex}}}{{{inner}}}"));
+                    } else if inner.contains('$') {
                         out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{{}}}$", inner.replace('$', "")));
                     } else {
                         out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{\\text{{{inner}}}}}$"));

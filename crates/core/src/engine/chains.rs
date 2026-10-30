@@ -161,6 +161,8 @@ impl Engine {
             },
             None => (None, s.strip_prefix("by").unwrap_or(s).trim().to_string()),
         };
+        // `by {skip loop=-11mm,tip}`: the braces only group the options
+        let by = crate::keys::strip_braces(&by).to_string();
         match self.st.on_chain.as_mut() {
             Some(c) => c.joins.push((with, by)),
             None => self.st.pending_joins.push((with, by)),
@@ -232,7 +234,11 @@ impl Engine {
             let mut v = tikra_tokens("on chain,every chain in/.try,");
             v.extend(options);
             self.process_keys(v, Some("/tikz"))?;
-            self.chain_node_found()
+            let (names, joins) = self.chain_node_found()?;
+            // `after node path` of the options, then the joins, as after a node
+            let mut path = std::mem::take(&mut self.st.after_node_path);
+            path.extend(joins);
+            Ok((names, path))
         })();
         self.end_group();
         let (names, path) = r?;

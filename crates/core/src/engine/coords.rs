@@ -174,12 +174,12 @@ impl Engine {
                     return Ok(Coord { p: node.center(), node: None });
                 }
             }
-            if let Some(node) = self.lookup_node(name).as_ref() {
+            if let Some(node) = self.lookup_node(name) {
                 return Ok(match anchor {
                     Some(a) => {
                         // a logic gate's anchors as `logic gate anchors use bounding box` is now
                         let gatebox = format!("@gatebox={} {a}", self.tex.meaning_of("iftikra@gatebox") == self.tex.meaning_of("iftrue"));
-                        let p = node.anchor(&gatebox).or_else(|| node.anchor(a));
+                        let p = node.anchor(&gatebox).or_else(|| self.node_anchor(&node, a));
                         Coord { p: p.ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?, node: None }
                     }
                     // the name it is registered by: with the scope's name prefix when that is the one found
@@ -255,13 +255,19 @@ impl Engine {
             }
             "canvas polar" | "polar" | "xyz polar" => {
                 let angle = get("angle").map(|v| self.number(&v)).transpose()?.unwrap_or(0.0);
-                let (rx, ry) = match (get("radius"), get("x radius"), get("y radius")) {
-                    (Some(r), _, _) => {
-                        let v = if system == "canvas polar" { self.length(&r)? } else { self.number(&r)? };
-                        (v, v)
+                // the keys in order: `radius` sets both radii, a later `x radius` changes one again
+                let (mut rx, mut ry) = (0.0, 0.0);
+                for (k, v) in &items {
+                    if !matches!(k.as_str(), "radius" | "x radius" | "y radius") {
+                        continue;
                     }
-                    (None, x, y) => (x.map(|v| self.number(&v)).transpose()?.unwrap_or(0.0), y.map(|v| self.number(&v)).transpose()?.unwrap_or(0.0)),
-                };
+                    let r = if system == "canvas polar" { self.length(v)? } else { self.number(v)? };
+                    match k.as_str() {
+                        "radius" => (rx, ry) = (r, r),
+                        "x radius" => rx = r,
+                        _ => ry = r,
+                    }
+                }
                 let (s, c) = angle.to_radians().sin_cos();
                 let local = if system == "canvas polar" { Point::new(rx * c, ry * s) } else { self.st.x.scale(rx * c).plus(self.st.y.scale(ry * s)) };
                 Ok(Coord { p: self.st.transform.apply(local), node: None })
@@ -307,9 +313,9 @@ impl Engine {
             }
             "node" => {
                 let name = get("name").unwrap_or_default();
-                let node = self.nodes.get(&name).ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
+                let node = self.nodes.get(&name).cloned().ok_or_else(|| Error::Figure(format!("unknown node: {name}")))?;
                 let p = match (get("anchor"), get("angle")) {
-                    (Some(a), _) => node.anchor(&a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?,
+                    (Some(a), _) => self.node_anchor(&node, &a).ok_or_else(|| Error::Figure(format!("unknown anchor: {name}.{a}")))?,
                     (None, Some(g)) => node.anchor(&g).unwrap_or(node.center()),
                     _ => return Ok(Coord { p: node.center(), node: Some(name) }),
                 };
@@ -428,7 +434,16 @@ impl Engine {
                         target = a.plus(Transform::rotation(ang).apply(b.minus(a)));
                     }
                     let (v, unit) = crate::expr::eval_length(&t_text, &self.vars())?;
-                    last = Some(if unit { a.plus(target.minus(a).scale(v / target.minus(a).norm().max(1e-12))) } else { a.lerp(target, v) });
+                    // a distance is measured before the transformation (`scale=3` makes it 3 times as
+                    // long), and one toward the point itself goes up: the direction of no length is (0,1)
+                    let toward = |d: Point| if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(0.0, 1.0) };
+                    last = Some(if unit {
+                        let inv = self.st.transform.inverse();
+                        let (la, lt) = (inv.apply(a), inv.apply(target));
+                        self.st.transform.apply(la.plus(toward(lt.minus(la)).scale(v)))
+                    } else {
+                        a.lerp(target, v)
+                    });
                     let consumed: String = tc[..end].iter().collect();
                     i += 1 + t_end + 1 + (after.chars().count() - target_text.chars().count()) + consumed.chars().count();
                 }

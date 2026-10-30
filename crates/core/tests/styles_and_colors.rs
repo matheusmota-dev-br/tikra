@@ -50,6 +50,9 @@ fn dashes_widths_opacities() {
         assert_eq!(stroke(&t).dash.as_ref().map(|d| d.0.len()), Some(n), "{op}");
     }
     assert!(stroke(&first_path(r"\draw[dashed, solid] (0,0) -- (1,0);")).dash.is_none());
+    // no space needed after `on` and `off`
+    let d = stroke(&first_path(r"\draw[dash pattern=on5pt off3pt on 1pt  off2pt] (0,0) -- (1,0);")).dash.clone().unwrap();
+    assert_eq!(d.0.iter().map(|x| (x / tikra::PT).round()).collect::<Vec<_>>(), [5.0, 3.0, 1.0, 2.0]);
     // a dash that is not a length: TeX stops on it; the statement is dropped, with a warning
     let (c, w) = canvas_and_warnings(r"\draw[dash pattern=on zz] (0,0) -- (1,0);");
     assert!(paths(&c).is_empty() && !w.is_empty(), "{w:?}");
@@ -203,6 +206,35 @@ fn xcolor_parsing() {
 }
 
 #[test]
+fn xcolor_named_sets() {
+    use color::sets::Set;
+    let d = HashMap::new();
+    let hex = |e: &str| color::parse(e, &d).unwrap().hex();
+    // as \extractcolorspecs gives them: the dvipsnames in cmyk, drawn as Ghostscript draws cmyk
+    let set = |s: Set, n: &str| s.color(n).unwrap();
+    assert_eq!(set(Set::Dvips, "BrickRed").model, color::Model::Cmyk([0.0, 0.89, 0.94, 0.28]));
+    assert_eq!(set(Set::Svg, "DimGray"), Color::rgb(0.41, 0.41, 0.41));
+    assert_eq!(set(Set::X11, "Red3"), Color::rgb(0.804, 0.0, 0.0));
+    assert_eq!(set(Set::X11, "Gold2"), Color::rgb(0.932, 0.79, 0.0));
+    // every color of a set is found by its name
+    for (s, n) in [(Set::Dvips, 68), (Set::Svg, 151), (Set::X11, 317)] {
+        let colors = s.colors();
+        assert_eq!(colors.len(), n);
+        for (name, c) in colors {
+            assert_eq!(s.color(name), Some(c), "{name}");
+        }
+    }
+    assert_eq!(Set::Svg.color("Red3"), None);
+    assert_eq!(Set::of_option(" x11names "), Some(Set::X11));
+    assert_eq!(Set::of_option("usenames"), None);
+    // in a document that loads no set (where TeX stops), the dvipsnames first, then the others
+    assert_eq!(hex("Gray"), "#939598");
+    assert_eq!(hex("DimGray"), "#696969");
+    assert_eq!(hex("Red3!50"), "#e68080");
+    assert!(color::parse("Red5", &d).is_none());
+}
+
+#[test]
 fn color_definitions() {
     assert_eq!(color::define("rgb", "1,0.5,0").unwrap().hex(), "#ff8000");
     assert_eq!(color::define("RGB", "255,128,0").unwrap().hex(), "#ff8000");
@@ -250,6 +282,28 @@ fn user_styles() {
     assert_eq!(stroke(&t[2]).color.hex(), "#0000ff", "every path");
     // the node's border, in xcolor's yellow, a cmyk color
     assert_eq!(fill_color(&t[3]).as_deref(), Some("#fff200"));
+}
+
+#[test]
+fn tikzstyle_without_braces_and_set_style() {
+    let c = canvas(
+        r"\tikzstyle my style=[red] \tikzstyle my style+=[dashed]
+          \draw[my style] (0,0) -- (1,0);
+          \begin{scope}[set style={{help lines}+=[dashed]}, set style={{a}=[blue]}, set style={{a}+=[thick]}]
+          \draw[help lines] (0,0) -- (1,0); \draw[a] (0,0) -- (1,0);
+          \end{scope}
+          \draw[help lines] (0,0) -- (1,0);",
+    );
+    let t = paths(&c);
+    // without braces, the name runs to the `=`: `my style+` is another style
+    assert_eq!(stroke(&t[0]).color.hex(), "#ff0000");
+    assert!(stroke(&t[0]).dash.is_none());
+    // `{name}+=[…]` adds to a style, `{name}=[…]` defines one, for the scope
+    assert_eq!(stroke(&t[1]).color.hex(), "#808080");
+    assert!(stroke(&t[1]).dash.is_some());
+    assert_eq!(stroke(&t[2]).color.hex(), "#0000ff");
+    assert!(close(stroke(&t[2]).width, 0.8 * tikra::PT));
+    assert!(stroke(&t[3]).dash.is_none());
 }
 
 #[test]

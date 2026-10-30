@@ -240,6 +240,9 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     };
     let (color, dash, start) = (e.st.stroke_color(), e.st.dash.clone(), e.canvas.items.len());
     operations(e, &mut b, None)?;
+    if b.current.is_some() {
+        e.last_xy = b.point();
+    }
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
     // options in the middle of the path (`[dashed, red]`) are the whole path's: TeX draws its nodes
@@ -397,6 +400,11 @@ fn target(e: &mut Engine, b: &mut Builder, depth: Option<usize>, what: &str) -> 
     }
 }
 
+/// The point a `+(x,y)` is relative to: the last point not given with `+`.
+fn relative_base(b: &Builder) -> Point {
+    b.relative_base.unwrap_or_else(|| b.point())
+}
+
 /// `+(x,y)` or `++(x,y)` (the first `+` already read).
 fn relative(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<Coord, Error> {
     let double = match next(e, depth)? {
@@ -414,7 +422,7 @@ fn relative(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<Coo
     let r = coordinate(e)?;
     // the offset uses only the linear part of the transformation
     let origin = e.st.transform.apply(Point::default());
-    let base = b.relative_base.unwrap_or_else(|| b.point());
+    let base = relative_base(b);
     let p = base.plus(r.p.minus(origin));
     if double {
         b.relative_base = None;
@@ -500,7 +508,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 // `.. coordinate (bc) controls …`: nodes on the curve, before its controls
                 while w == "node" || w == "coordinate" {
                     let coordinate = w == "coordinate";
-                    let (options, name, _, text) = read_node(e, depth, coordinate)?;
+                    let (options, name, _, text) = read_node(e, depth, coordinate, b.point())?;
                     b.mid_nodes.push(MidNode { options, name, text, coordinate, pic: false });
                     w = match next(e, depth)? {
                         Some(Token::Char(c, Cat::Letter)) => word(e, c),
@@ -541,7 +549,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                 }
                 // nodes before the end point go on the curve
-                let mids = read_mid_nodes(e, depth)?;
+                let mids = read_mid_nodes(e, depth, b.point())?;
                 b.mid_nodes.extend(mids);
                 let r = target(e, b, depth, "controls")?;
                 if let Some(o) = c2_offset {
@@ -620,7 +628,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                     e.tex.push_tokens(word_tokens(&w));
                                     break;
                                 }
-                                let (options, name, _, text) = read_node(e, depth, w == "coordinate")?;
+                                let (options, name, _, text) = read_node(e, depth, w == "coordinate", b.point())?;
                                 labels.extend(tikra_tokens(&format!("{w}[")));
                                 labels.extend(options);
                                 labels.extend(tikra_tokens("]"));
@@ -637,7 +645,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             e.tree_edge_out = e.st.tree_edge.clone();
                         } else if w == "edge" {
                             // nodes can follow, then the target
-                            let mids = read_mid_nodes(e, depth)?;
+                            let mids = read_mid_nodes(e, depth, b.point())?;
                             let r = target(e, b, depth, "edge")?;
                             edge(e, b, opts, r, mids)?;
                         } else {
@@ -648,13 +656,13 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "node" | "coordinate" | "pic" if peek_words(e, depth, &["foreach"])? => node_foreach(e, b, &w)?,
                     // `node also [label=…] (a)`: more options for a node that exists
                     "node" if peek_words(e, depth, &["also"])? => {
-                        let (options, name, _, _) = read_node(e, depth, true)?;
+                        let (options, name, _, _) = read_node(e, depth, true, b.point())?;
                         let items = e.late_options(name.as_deref().unwrap_or_default(), options)?;
                         b.node_items.extend(items);
                     }
                     "node" | "coordinate" => {
                         let coordinate = w == "coordinate";
-                        let (options, name, at, text) = read_node(e, depth, coordinate)?;
+                        let (options, name, at, text) = read_node(e, depth, coordinate, relative_base(b))?;
                         if at.is_some() || pending_op.is_none() {
                             let point = b.point();
                             let place = b.last.unwrap_or(OnPath::Point(point));
@@ -682,6 +690,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "cycle" => {
                         if let Some(p0) = b.subpath_start {
                             if let Some(op) = pending_op.take() {
+                                let start = b.segs.len();
                                 // `-| cycle`: by the corner, then closed
                                 if op == "-|" || op == "|-" {
                                     let a = b.point();
@@ -691,6 +700,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                                 }
                                 let from = b.point();
                                 b.segs.push(Segment::Close);
+                                snake(e, b, start)?;
                                 b.last = Some(OnPath::Segment(from, None, p0));
                                 b.current = Some(Coord { p: p0, node: None });
                                 place_mid_nodes(e, b, Some(0.5))?;
@@ -704,7 +714,9 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                             continue;
                         }
                         let r = target(e, b, depth, "rectangle")?;
+                        let start = b.segs.len();
                         rectangle_to(e, b, r);
+                        snake(e, b, start)?;
                         pending_op = None;
                         place_mid_nodes(e, b, Some(0.5))?;
                     }
@@ -728,7 +740,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     "let" => let_operation(e, depth)?,
                     "in" => {}
                     "pic" => {
-                        let (options, name, at, content) = read_node(e, depth, false)?;
+                        let (options, name, at, content) = read_node(e, depth, false, relative_base(b))?;
                         if at.is_none() && pending_op.is_some() {
                             // between an operation and its target: placed on the segment
                             b.mid_nodes.push(MidNode { options, name, text: content, coordinate: false, pic: true });
@@ -901,12 +913,15 @@ fn skip_rest(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
 fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts: Vec<Token>, r: Coord) -> Result<(), Error> {
     match op.as_deref() {
         Some("--") => {
+            let start = b.segs.len();
             line_to(e, b, r);
+            snake(e, b, start)?;
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("-|") | Some("|-") => {
             let a = b.point();
             let corner = if op.as_deref() == Some("-|") { Point::new(r.p.x, a.y) } else { Point::new(a.x, r.p.y) };
+            let first = b.segs.len();
             let touched = e.facts.touched.take();
             line_to(e, b, Coord { p: corner, node: None });
             e.facts.touched = touched;
@@ -922,11 +937,14 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
             };
             // pos runs along both legs: 0.5, the default, is the corner
             b.last = Some(OnPath::Corner(start, corner, end));
+            snake(e, b, first)?;
             place_mid_nodes(e, b, Some(0.5))?;
         }
         Some("to") => to(e, b, to_opts, r)?,
         Some("rectangle") => {
+            let start = b.segs.len();
             rectangle_to(e, b, r);
+            snake(e, b, start)?;
             place_mid_nodes(e, b, Some(0.5))?;
         }
         _ => {
@@ -995,6 +1013,49 @@ fn line_to(e: &mut Engine, b: &mut Builder, r: Coord) {
     b.current = Some(r);
 }
 
+/// `snake=…`: each straight line the path got from `start` on (a closing one too) becomes that
+/// decoration of it, as the snakes library does with each line.
+fn snake(e: &mut Engine, b: &mut Builder, start: usize) -> Result<(), Error> {
+    let Some(name) = e.st.snake.clone() else { return Ok(()) };
+    let added = b.segs.split_off(start.min(b.segs.len()));
+    let end = |s: &Segment| match s {
+        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+        Segment::Close => None,
+    };
+    let mut first = b.segs.iter().rev().find_map(|s| if let Segment::MoveTo(p) = s { Some(*p) } else { None });
+    let mut at = b.segs.last().and_then(end).or(first);
+    e.begin_group();
+    e.st.snake = None;
+    e.st.decoration.name = Some(name);
+    let r = (|| {
+        for s in added {
+            let target = match s {
+                Segment::LineTo(p) => p,
+                Segment::Close => first.unwrap_or_default(),
+                other => {
+                    if let Segment::MoveTo(p) = other {
+                        first = Some(p);
+                    }
+                    at = end(&other).or(at);
+                    b.segs.push(other);
+                    continue;
+                }
+            };
+            let from = at.unwrap_or(target);
+            let decorated = e.decorate_segments(&[Segment::MoveTo(from), Segment::LineTo(target)], None)?;
+            // the decoration goes on from where the path is, in the same subpath
+            b.segs.extend(decorated.into_iter().skip_while(|d| matches!(d, Segment::MoveTo(p) if p.minus(from).norm() < 1e-9)));
+            if matches!(s, Segment::Close) {
+                b.segs.push(Segment::Close);
+            }
+            at = Some(target);
+        }
+        Ok(())
+    })();
+    e.end_group();
+    r
+}
+
 fn curve_to(e: &mut Engine, b: &mut Builder, c1: Point, c2: Point, r: Coord) {
     let a = b.current.clone().map_or(r.p, |a| a.p);
     if b.current.is_none() {
@@ -1054,7 +1115,11 @@ fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, P
         // the ends are the nodes' borders at the angles out and in
         let a = na.as_ref().and_then(|n| n.anchor(&out.to_string())).unwrap_or(from.p);
         let b = nb.as_ref().and_then(|n| n.anchor(&inn.to_string())).unwrap_or(r.p);
-        let (ko, ki) = to_distances(e, a, b);
+        // the angles and the distance are in the picture's coordinate system: under `xscale` or a
+        // slant, the controls go where the transformation takes them
+        let t = e.st.transform;
+        let inverse = t.inverse();
+        let (ko, ki) = to_distances(e, inverse.apply(a), inverse.apply(b));
         // `(p)`, or `+(d)` from the end it belongs to
         let control = |e: &mut Engine, c: Option<Vec<Token>>, base: Point| -> Result<Option<Point>, Error> {
             let Some(v) = c else { return Ok(None) };
@@ -1066,8 +1131,8 @@ fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, P
             let p = e.coordinate(&text)?.p;
             Ok(Some(if plus > 0 { base.plus(p.minus(e.st.transform.apply(Point::default()))) } else { p }))
         };
-        let c1 = control(e, e.st.to.out_control.clone(), from.p)?.unwrap_or_else(|| a.plus(polar(out, ko)));
-        let c2 = control(e, e.st.to.in_control.clone(), r.p)?.unwrap_or_else(|| b.plus(polar(inn, ki)));
+        let c1 = control(e, e.st.to.out_control.clone(), from.p)?.unwrap_or_else(|| a.plus(t.linear(polar(out, ko))));
+        let c2 = control(e, e.st.to.in_control.clone(), r.p)?.unwrap_or_else(|| b.plus(t.linear(polar(inn, ki))));
         return Ok((None, c1, c2, None));
     }
     // relative: the angles are measured from the line between the ends
@@ -1079,12 +1144,15 @@ fn to_curve(e: &mut Engine, from: &Coord, r: &Coord) -> Result<(Option<Point>, P
     };
     let first = na.as_ref().map_or(a0, |n| n.border_toward(rotate(b0, a0, out)));
     let second = nb.as_ref().map_or(b0, |n| n.border_toward(rotate(a0, b0, 180.0 + inn)));
-    let (ko, ki) = to_distances(e, first, second);
-    let d = second.minus(first);
+    // the controls in the picture's coordinate system, as for absolute angles
+    let t = e.st.transform;
+    let (fl, sl) = (t.inverse().apply(first), t.inverse().apply(second));
+    let (ko, ki) = to_distances(e, fl, sl);
+    let d = sl.minus(fl);
     let u = if d.norm() > 1e-12 { d.scale(1.0 / d.norm()) } else { Point::new(1.0, 0.0) };
     let turn = |v: Point| Point::new(u.x * v.x - u.y * v.y, u.y * v.x + u.x * v.y);
-    let c1 = first.plus(turn(polar(out, ko)));
-    let c2 = second.plus(turn(polar(inn, ki)));
+    let c1 = t.apply(fl.plus(turn(polar(out, ko))));
+    let c2 = t.apply(sl.plus(turn(polar(inn, ki))));
     Ok((na.map(|_| first), c1, c2, Some(second)))
 }
 
@@ -1139,8 +1207,9 @@ fn to_path(e: &mut Engine, b: &mut Builder, r: Coord) -> Result<(), Error> {
         return operations(e, b, None);
     }
     if !e.st.to.curve {
+        let start = b.segs.len();
         line_to(e, b, r);
-        return Ok(());
+        return snake(e, b, start);
     }
     e.process_keys(tikra_tokens("every curve to/.try"), Some("/tikz"))?;
     let (start, c1, c2, end) = to_curve(e, &from, &r)?;
@@ -1272,7 +1341,7 @@ fn leading_options(path: &[Token]) -> Option<Vec<Token>> {
 }
 
 /// Nodes between `edge` and its target.
-fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, Error> {
+fn read_mid_nodes(e: &mut Engine, depth: Option<usize>, base: Point) -> Result<Vec<MidNode>, Error> {
     let mut v = Vec::new();
     while let Some(Token::Char('n' | 'c', Cat::Letter)) = peek(e, depth)? {
         let Some(Token::Char(c, _)) = next(e, depth)? else { break };
@@ -1282,7 +1351,7 @@ fn read_mid_nodes(e: &mut Engine, depth: Option<usize>) -> Result<Vec<MidNode>, 
             break;
         }
         let coordinate = w == "coordinate";
-        let (options, name, _, text) = read_node(e, depth, coordinate)?;
+        let (options, name, _, text) = read_node(e, depth, coordinate, base)?;
         v.push(MidNode { options, name, text, coordinate, pic: false });
     }
     Ok(v)
@@ -1310,9 +1379,10 @@ fn place_mid_nodes(e: &mut Engine, b: &mut Builder, default_pos: Option<f64>) ->
     Ok(())
 }
 
-/// `node[options] (name) at (x,y) {text}`, the word already read.
+/// `node[options] (name) at (x,y) {text}`, the word already read; `base` is the point an
+/// `at +(x,y)` is relative to.
 #[allow(clippy::type_complexity)]
-fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(Vec<Token>, Option<String>, Option<Point>, Vec<Token>), Error> {
+fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool, base: Point) -> Result<(Vec<Token>, Option<String>, Option<Point>, Vec<Token>), Error> {
     let mut options = Vec::new();
     let mut name = None;
     let mut at = None;
@@ -1333,13 +1403,13 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                     break;
                 }
             }
-            // a second point after the name is the path's next (`coordinate (a) (1,0)`)
-            Some(t) if t.is_char('(') && name.is_some() => {
+            // a second point after a coordinate's name is the path's next (`coordinate (a) (1,0)`)
+            Some(t) if t.is_char('(') && coordinate && name.is_some() => {
                 e.tex.back(t);
                 break;
             }
-            // a second `(…)` is the path's next point (`coordinate (a) (1,0)`)
-            Some(t) if t.is_char('(') && name.is_none() => {
+            // a node's name; a second one replaces the first (`node (a) (b) {}` is named b)
+            Some(t) if t.is_char('(') => {
                 let n = read_coordinate_tokens(e)?;
                 name = Some(e.tex.expand_to_string(n)?.trim().to_string());
             }
@@ -1356,6 +1426,18 @@ fn read_node(e: &mut Engine, depth: Option<usize>, coordinate: bool) -> Result<(
                 match e.tex.get_token() {
                     Some(Token::Char('t', Cat::Letter)) => match next(e, depth)? {
                         Some(t) if t.is_char('(') => at = Some(coordinate_point(e)?),
+                        // `at +(x,y)` and `at ++(x,y)`: from the path's last point, which stays
+                        Some(t) if t.is_char('+') => {
+                            let mut t = next(e, depth)?;
+                            if matches!(&t, Some(t) if t.is_char('+')) {
+                                t = next(e, depth)?;
+                            }
+                            if !matches!(t, Some(t) if t.is_char('(')) {
+                                return Err(Error::Figure("at without a point".into()));
+                            }
+                            let r = coordinate_point(e)?;
+                            at = Some(base.plus(r.minus(e.st.transform.apply(Point::default()))));
+                        }
                         _ => return Err(Error::Figure("at without a point".into())),
                     },
                     other => {
@@ -1542,7 +1624,7 @@ pub fn arc_segments(c: Point, rx: f64, ry: f64, a0: f64, a1: f64, t: &crate::sce
     v
 }
 
-/// `svg[options] {M 0 0 L 20 20 h 10 a 10 10 0 0 0 -20 0}`: SVG's path data, its unit the pt and its
+/// `svg[options] {M 0 0 L 20 20 h 10 a 10 10 0 0 0 -20 0}` (or `svg "…"`): SVG's path data, its unit the pt and its
 /// y axis up (pgf's `\pgfpathsvg`), in the coordinate system the options make; relative commands
 /// start from the path's current point.
 fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
@@ -1558,7 +1640,9 @@ fn svg_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
         }
         let data = match next(e, depth)? {
             Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
-            _ => return Err(Error::Figure("svg without a {path}".into())),
+            // or in quotes, as the svg.path library also takes it
+            Some(t) if t.is_char('"') => e.tex.read_until_char('"', false)?,
+            _ => return Err(Error::Figure("svg without a {path} or \"path\"".into())),
         };
         let text = e.tex.expand_to_string(data)?;
         svg_data(e, b, &text);
@@ -1976,8 +2060,8 @@ fn plot(e: &mut Engine, b: &mut Builder, depth: Option<usize>, continues: bool) 
             Some(t) if t.is_char('(') => {
                 let tokens = read_coordinate_tokens(e)?;
                 let name = Token::cs(&var);
-                for k in 0..n {
-                    let v = d0 + (d1 - d0) * k as f64 / (n - 1) as f64;
+                let values = e.st.samples_at.clone().unwrap_or_else(|| (0..n).map(|k| d0 + (d1 - d0) * k as f64 / (n - 1) as f64).collect());
+                for v in values {
                     e.tex.set_meaning(&name, macro_from(&super::pgf_number(v)), false);
                     let text = e.math_string(tokens.clone())?;
                     match e.coordinate(&text) {
@@ -2206,7 +2290,8 @@ fn parabola(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(),
     let bend = match bend {
         Some((p, true)) => Some(p.minus(a).plus(saved)),
         Some((p, false)) => Some(p),
-        None => height.map(|h| saved.plus(Point::new(0.0, h))),
+        // the height is a y vector of the picture: `scale` and `yscale` stretch it too
+        None => height.map(|h| saved.plus(e.st.transform.linear(Point::new(0.0, h)))),
     };
     // \pgfpathparabola: to the bend with its vertex there, then on to the end with its vertex at the bend
     let (bend_vector, end_vector) = match bend {
@@ -2255,9 +2340,12 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
             Token::Char(',', _) => continue,
             other => return Err(Error::Figure(format!("let: '{}' unexpected", tex::show_token(other)))),
         };
-        // the number after \p, \n: \p1, \p{name}
+        // the number after \p, \n: \p1, \p{name} (expanded, as a \csname makes it)
         let index = match e.tex.get_token() {
-            Some(Token::Char(_, Cat::Begin)) => tex::tokens_to_string(&e.tex.read_group_body()?),
+            Some(Token::Char(_, Cat::Begin)) => {
+                let name = e.tex.read_group_body()?;
+                e.tex.expand_to_string(name)?
+            }
             Some(Token::Char(c, _)) => c.to_string(),
             _ => String::new(),
         };
@@ -2272,8 +2360,12 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
                     _ => return Err(Error::Figure("let \\p: a point is missing".into())),
                 };
                 let (x, y) = (p.x / crate::PT, p.y / crate::PT);
+                // \x and \y are in the coordinates of the picture's transformation (a point read in a
+                // shifted scope gives what it was given there), so `(\x1,0)` comes back to the point
+                let l = e.st.transform.inverse().apply(p);
+                let (lx, ly) = (l.x / crate::PT, l.y / crate::PT);
                 // \p1, \p{name}: \p takes the name as its argument, as TikZ defines it
-                for (letter, value) in [("p", format!("tikra cs:{x}pt,{y}pt")), ("x", format!("{x}pt")), ("y", format!("{y}pt"))] {
+                for (letter, value) in [("p", format!("tikra cs:{x}pt,{y}pt")), ("x", format!("{lx}pt")), ("y", format!("{ly}pt"))] {
                     e.tex.set_meaning(&Token::cs(&format!("tikra@let@{letter}@{index}")), macro_from(&value), false);
                     let_macro(e, letter)?;
                 }
@@ -2332,12 +2424,8 @@ fn foreach_header(e: &mut Engine) -> Result<(Vec<Token>, Vec<Token>, super::Fore
         vars.push(t);
     }
     let names: Vec<Token> = vars.iter().filter(|t| matches!(t, Token::Cs(_))).cloned().collect();
-    let list_tokens = match e.tex.next_nonspace() {
-        Some(Token::Char(_, Cat::Begin)) => e.tex.read_group_body()?,
-        Some(t) => vec![t],
-        None => Vec::new(),
-    };
-    Ok((names, e.tex.expand_fully(list_tokens)?, super::foreach_options(&opts)))
+    let list = e.foreach_list()?;
+    Ok((names, list, super::foreach_options(&opts)))
 }
 
 /// `node foreach \x in {list} [options] at (…) {text}`: the node once for each item.
@@ -2381,7 +2469,8 @@ fn node_foreach(e: &mut Engine, b: &mut Builder, kind: &str) -> Result<(), Error
                 spec.extend(e.tex.read_until_char(close, false)?);
                 spec.push(Token::other(close));
             }
-            Token::Char(_, Cat::Letter) | Token::Char(_, Cat::Space) => spec.push(t),
+            // `at +(x,y)`
+            Token::Char(_, Cat::Letter) | Token::Char(_, Cat::Space) | Token::Char('+', _) => spec.push(t),
             _ => {
                 e.tex.back(t);
                 break;

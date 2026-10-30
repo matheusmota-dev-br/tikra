@@ -51,7 +51,7 @@ pub const DEFINITIONS: &str = r"
 ";
 
 /// The text of a parameterless macro (`\tikz@lib@spy@lens`), as tokens.
-fn macro_body(e: &Engine, name: &str) -> Vec<Token> {
+pub(super) fn macro_body(e: &Engine, name: &str) -> Vec<Token> {
     match e.tex.meaning_of(name) {
         Meaning::Macro(m) => tex::substitute(&m.body, &[]),
         _ => Vec::new(),
@@ -118,7 +118,9 @@ impl Engine {
         let lens = self.st.transform.compose(&self.st.pending);
         (self.st.transform, self.st.pending) = saved;
         r?;
-        let on = self.coordinate(spy.on.trim().trim_start_matches('(').trim_end_matches(')'))?.p;
+        // the point is read when the scope ends, with the macros it names as they are then
+        let on = self.tex.expand_to_string(tikra_tokens(&spy.on))?;
+        let on = self.coordinate(on.trim().trim_start_matches('(').trim_end_matches(')'))?.p;
         // the node on the point: the other one's shape through the inverse lens
         let shrink = Transform { e: 0.0, f: 0.0, ..lens }.inverse();
         let on_node = format!(

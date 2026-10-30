@@ -216,6 +216,11 @@ keyfn!(k_decorate, |e, v| {
     e.st.decorate = boolean(e, &v)?;
     Ok(())
 });
+keyfn!(k_snake, |e, v| {
+    let n = text(e, &v)?;
+    e.st.snake = if n == "none" { None } else { Some(n) };
+    Ok(())
+});
 keyfn!(k_decoration, |e, v| match v {
     Some(v) => e.process_keys(v, Some("/pgf/decoration")),
     None => Ok(()),
@@ -268,6 +273,8 @@ keyfn!(k_angle, |e, v| {
 keyfn!(k_aspect, |e, v| {
     if let Some(v) = v {
         e.st.decoration.aspect = e.number_of(v)?;
+        // the number, for decoration code to read
+        e.tex.define_string("pgfdecorationsegmentaspect", &super::pgf_number(e.st.decoration.aspect), false);
     }
     Ok(())
 });
@@ -385,6 +392,7 @@ keyfn!(k_postaction, |e, v| {
 /// The keys done natively.
 pub const KEYS: &[(&str, super::options::KeyFn)] = &[
     ("/tikz/decorate", k_decorate),
+    ("/tikz/snake", k_snake),
     ("/tikz/preaction", k_preaction),
     ("/tikz/postaction", k_postaction),
     ("/pgf/decoration", k_decoration),
@@ -444,19 +452,20 @@ pub const KEYS: &[(&str, super::options::KeyFn)] = &[
 
 /// The keys pgf defines as values and styles (`.initial`, `.style`), from its own definitions.
 pub const DEFINITIONS: &str = r"
+\def\pgfdecorationsegmentaspect{0.5}
 \pgfkeys{/pgf/decoration/.cd,
   pre/.initial=lineto, post/.initial=lineto, pre length/.initial=0pt, post length/.initial=0pt,
-  start radius/.initial=2.5pt, end radius/.initial=2.5pt, radius/.style={start radius={#1},end radius={#1}},
+  start radius/.initial=2.5pt, end radius/.initial=2.5pt, radius/.style={/pgf/decoration/start radius={#1},/pgf/decoration/end radius={#1}},
   mirror/.default=true, path has corners/.default=true, reverse path/.default=true, shape sloped/.default=true,
   shape scaled/.default=true,
   shape/.initial=circle, anchor/.initial=center,
   shape start width/.initial=2.5pt, shape start height/.initial=2.5pt,
   shape end width/.initial=2.5pt, shape end height/.initial=2.5pt,
-  shape start size/.style={shape start width={#1},shape start height={#1}},
-  shape end size/.style={shape end width={#1},shape end height={#1}},
-  shape size/.style={shape start size={#1},shape end size={#1}},
-  shape width/.style={shape start width={#1},shape end width={#1}},
-  shape height/.style={shape start height={#1},shape end height={#1}},
+  shape start size/.style={/pgf/decoration/shape start width={#1},/pgf/decoration/shape start height={#1}},
+  shape end size/.style={/pgf/decoration/shape end width={#1},/pgf/decoration/shape end height={#1}},
+  shape size/.style={/pgf/decoration/shape start size={#1},/pgf/decoration/shape end size={#1}},
+  shape width/.style={/pgf/decoration/shape start width={#1},/pgf/decoration/shape end width={#1}},
+  shape height/.style={/pgf/decoration/shape start height={#1},/pgf/decoration/shape end height={#1}},
   foot length/.initial=10pt, stride length/.initial=30pt, foot sep/.initial=4pt, foot angle/.initial=10,
   foot of/.initial=human,
   mark info/sequence number/.initial=0, mark info/distance from start/.initial=,
@@ -474,6 +483,16 @@ pub const DEFINITIONS: &str = r"
   segment aspect/.style={/pgf/decoration/aspect={#1}},
   segment amplitude/.style={/pgf/decoration/amplitude={#1},/pgf/decoration/shape height={2*(#1)}},
   segment object length/.style={/pgf/decoration/shape width={#1},/pgf/decoration/radius={#1}},
+}
+% the snakes library's keys, as the decoration keys they stand for
+\tikzset{
+  line before snake/.style={/pgf/decoration/pre=lineto,/pgf/decoration/pre length={#1}},
+  line after snake/.style={/pgf/decoration/post=lineto,/pgf/decoration/post length={#1}},
+  gap before snake/.style={/pgf/decoration/pre=moveto,/pgf/decoration/pre length={#1}},
+  gap after snake/.style={/pgf/decoration/post=moveto,/pgf/decoration/post length={#1}},
+  gap around snake/.style={gap before snake={#1},gap after snake={#1}},
+  raise snake/.style={/pgf/decoration/raise={#1}}, mirror snake/.style={/pgf/decoration/mirror={#1}},
+  mirror snake/.default=true,
 }
 ";
 
