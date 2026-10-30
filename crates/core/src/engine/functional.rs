@@ -332,6 +332,14 @@ impl Prepared {
 
     /// The box as cells of its colors, placed on the canvas by `place` (from the box's bp).
     pub fn cells(&self, place: &Transform) -> Vec<Item> {
+        self.cells_in(place, self.ll, self.ur)
+    }
+
+    /// The part `lo`–`hi` of the box (bp) as cells: a path shows only the middle of the box, and
+    /// its cells are that much finer.
+    pub fn cells_in(&self, place: &Transform, lo: Point, hi: Point) -> Vec<Item> {
+        let lo = Point::new(lo.x.max(self.ll.x), lo.y.max(self.ll.y));
+        let hi = Point::new(hi.x.min(self.ur.x), hi.y.min(self.ur.y));
         let rect = |x0: f64, y0: f64, x1: f64, y1: f64, color: Color| {
             let corners = [Point::new(x0, y0), Point::new(x1, y0), Point::new(x1, y1), Point::new(x0, y1)].map(|p| place.apply(p));
             let mut segments = vec![Segment::MoveTo(corners[0])];
@@ -342,17 +350,18 @@ impl Prepared {
         // the Mandelbrot set's details are finer: more cells, on white, only those not white
         let fine = matches!(self.kind, Kind::Mandelbrot);
         let n = if fine { 4 * CELLS } else { CELLS };
-        let (w, h) = ((self.ur.x - self.ll.x) / n as f64, (self.ur.y - self.ll.y) / n as f64);
+        let (w, h) = ((hi.x - lo.x) / n as f64, (hi.y - lo.y) / n as f64);
         let mut items = Vec::with_capacity(if fine { 1024 } else { n * n });
         if fine {
-            items.push(rect(self.ll.x, self.ll.y, self.ur.x, self.ur.y, Color::WHITE));
+            items.push(rect(lo.x, lo.y, hi.x, hi.y, Color::WHITE));
         }
-        // each row's cells reach over the next rows (the next one draws on them): no seam shows
-        let over = if fine { 3.0 } else { 0.3 };
+        // each row's cells reach over the whole next row (which draws on them), and each cell over
+        // the next one: no seam shows, even where a cell is thinner than a pixel
+        let over = if fine { 3.0 } else { 1.0 };
         // the rows since the last one that was not all white
         let mut white_rows = usize::MAX;
         for j in 0..n {
-            let at = |i: usize| Point::new(self.ll.x + (i as f64 + 0.5) * w, self.ll.y + (j as f64 + 0.5) * h);
+            let at = |i: usize| Point::new(lo.x + (i as f64 + 0.5) * w, lo.y + (j as f64 + 0.5) * h);
             let row: Vec<Option<Color>> = (0..n).map(|i| self.color(at(i))).collect();
             let white = row.iter().all(|c| c.is_some_and(|c| c.r > 0.99 && c.g > 0.99 && c.b > 0.99));
             white_rows = if white { white_rows.saturating_add(1) } else { 0 };
@@ -371,9 +380,9 @@ impl Prepared {
                 while end < n && row[end] == Some(color) {
                     end += 1;
                 }
-                let (x0, y0) = (self.ll.x + i as f64 * w, self.ll.y + j as f64 * h);
-                let x1 = self.ll.x + end as f64 * w + if end < n { 0.3 * w } else { 0.0 };
-                let y1 = (y0 + h * (1.0 + over)).min(self.ur.y);
+                let (x0, y0) = (lo.x + i as f64 * w, lo.y + j as f64 * h);
+                let x1 = lo.x + end as f64 * w + if end < n { w } else { 0.0 };
+                let y1 = (y0 + h * (1.0 + over)).min(hi.y);
                 items.push(rect(x0, y0, x1, y1, color));
                 i = end;
             }

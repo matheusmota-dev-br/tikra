@@ -245,6 +245,8 @@ fn text_color_font_width_alignment() {
     assert_eq!(r.color.hex(), "#0000ff");
     let wrapped = r"\node[draw, text width=1cm, align=left] {a sentence with several words};";
     assert!(label(wrapped).0.lines.len() > 1);
+    // in another family too (each word in it, not the line as one formula)
+    assert!(label(r"\node[text width=1cm, font=\sffamily] {a sentence with several words};").0.lines.len() > 1);
     // the text width and the inner sep (.3333em) on both sides
     let (w, _) = border_size(wrapped);
     assert!((w - (1.0 + 2.0 * 0.3333 * 10.0 * tikra::PT)).abs() < 1e-4, "{w}");
@@ -308,6 +310,44 @@ fn text_with_sizes_circled_and_grouped_words() {
     // with text width, $…$ and {…} are not split
     let (l, _) = label(r"\node[text width=1cm] {$a + b$ {c d} e};");
     assert!(l.lines.len() >= 2);
+}
+
+#[test]
+fn rows_of_math_in_text_are_not_lines_of_the_node() {
+    // an array's `\\` is its own: one line of text, and the `\\` after it a line of the node
+    let (l, _) = label(r"\node[align=center] {x $\begin{array}{c} a \\ b \end{array}$ y \\ z};");
+    assert_eq!(l.lines.len(), 2);
+    // and so are those of a display and of an alignment (mathra sets them as a whole)
+    for text in [r"\[ a \\ b \]", r"\begin{align*} a &= b \\ c &= d \end{align*}"] {
+        assert_eq!(label(&format!(r"\node[align=center] {{{text}}};")).0.lines.len(), 1, "{text}");
+    }
+    // a color inside math is a color of math, not a formula of its own
+    no_warnings(r"\begin{tikzpicture} \node {$\begin{matrix} a \\ \textcolor{red}{b} \end{matrix}$}; \end{tikzpicture}");
+}
+
+#[test]
+fn newline_breaks_a_paragraphs_line() {
+    // in a text width, as `\\`; out of one TeX sets the words together
+    let (l, _) = label(r"\node[text width=3cm] {one\newline two};");
+    assert_eq!(l.lines.len(), 2);
+    let (l, _) = label(r"\node[align=center] {one\newline two};");
+    assert_eq!(l.lines.len(), 1);
+}
+
+#[test]
+fn a_paragraph_box_in_text_wraps_to_its_width() {
+    let text = "several words that do not fit in two centimeters";
+    for body in [format!(r"\parbox[t]{{2cm}}{{\centering {text}}}"), format!(r"\begin{{minipage}}{{2cm}}{text}\end{{minipage}}"), format!(r"\parbox{{2cm}}{{\raggedleft {text}}}")]
+    {
+        let node = format!(r"\node[draw] {{{body}}};");
+        assert!(label(&node).0.lines.len() >= 3, "{body}");
+        // as wide as the box and the inner sep (.3333em) on both sides
+        let (w, _) = border_size(&node);
+        assert!((w - (2.0 + 2.0 * 0.3333 * 10.0 * tikra::PT)).abs() < 1e-4, "{body}: {w}");
+    }
+    // a width tikra does not know is left as it is
+    let (_, w) = canvas_and_warnings(r"\node {\parbox{zz}{a b}};");
+    assert!(w.iter().any(|a| a.contains("parbox")), "{w:?}");
 }
 
 #[test]
@@ -564,4 +604,162 @@ fn a_placement_offset_without_unit_is_in_points_unless_positioning() {
     // 30 pt across, or 30 cm with the positioning library, as TeX
     assert!(points < 60.0, "{points}");
     assert!(width(&doc(r"\usetikzlibrary{positioning}")) > 800.0);
+}
+
+#[test]
+fn pin_edge_from_the_pin_options_and_their_styles_the_last_one_winning() {
+    let edge = |body: &str| {
+        let c = canvas(body);
+        let s = paths(&c).into_iter().find_map(|d| d.stroke).unwrap_or_else(|| panic!("no pin edge in {body}"));
+        (s.color.hex(), (s.width / tikra::PT * 10.0).round() / 10.0, s.dash.is_some())
+    };
+    // from a style of the pin, as `\tikzstyle{…}=[pin edge={…}]` is used
+    assert_eq!(edge(r"\tikzstyle{p}=[pin edge={red,thick}] \node[pin={[p]above:a}] {x};"), ("#ff0000".into(), 0.8, false));
+    // a second `pin edge` replaces the first; what is not given comes from `every pin edge`
+    assert_eq!(edge(r"\node[pin={[pin edge={red},pin edge={dashed}]above:a}] {x};"), ("#808080".into(), 0.2, true));
+    // `every pin` comes before the pin's own options
+    assert_eq!(edge(r"\tikzset{every pin/.style={pin edge={red}}} \node[pin={[pin edge={thick}]above:a}] {x};"), ("#808080".into(), 0.8, false));
+    // given to the node itself, it does nothing
+    assert_eq!(edge(r"\node[pin edge={red},pin=above:a] {x};"), ("#808080".into(), 0.2, false));
+}
+
+#[test]
+fn quoted_labels_with_a_direction_or_options() {
+    let t = texts(&canvas(r#"\usetikzlibrary{quotes} \node["b" below left, "c" text=red] at (0,0) {x};"#));
+    // TeX: b 12.09pt left of the node's text and 13.96pt lower, c red and 11.33pt higher
+    let (x, b, c) = (t[0].1, t[1].1, t[2].1);
+    assert!(((b.e - x.e) / tikra::PT + 12.09).abs() < 0.2 && ((b.f - x.f) / tikra::PT + 13.96).abs() < 0.2, "{x:?} {b:?}");
+    assert!(((c.f - x.f) / tikra::PT - 11.33).abs() < 0.2, "{x:?} {c:?}");
+    assert_eq!(t[2].0.color.hex(), "#ff0000");
+}
+
+#[test]
+fn edge_from_parent_of_a_child_that_has_children() {
+    // `edge from parent[draw=none]` before the child's own children still hides its edge
+    let c = canvas(r"\node {a} child {node {b} edge from parent[draw=none] child {node {c}}} child {node {d} edge from parent[draw=none]};");
+    let drawn: Vec<_> = paths(&c).into_iter().filter(|d| d.stroke.is_some()).collect();
+    assert_eq!(drawn.len(), 1, "only b to c: {drawn:?}");
+}
+
+#[test]
+fn right_of_takes_the_node_distance_given_after_it() {
+    let at = |options: &str| {
+        let p = point(&format!(r"\begin{{scope}}[node distance=2cm] \coordinate (a) at (0,0); \node[{options}] (n) {{}}; \end{{scope}}"), "n.center");
+        ((p.x * 1e4).round() / 1e4, (p.y * 1e4).round() / 1e4)
+    };
+    // the positions TeX gives
+    assert_eq!(at("right of=a"), (2.0, 0.0));
+    assert_eq!(at("right of=a, node distance=3cm"), (3.0, 0.0));
+    assert_eq!(at("above of=a, node distance=1cm, xshift=1cm"), (1.0, 1.0));
+    assert_eq!(at("right of=a, xshift=1cm, node distance=0.5cm"), (1.5, 0.0));
+    // two of them both shift by the last distance: from (b) at 2cm, 4 + 4
+    assert_eq!(at(r"right of=a, node distance=4cm, right of=a"), (8.0, 0.0));
+    // in its place among the other transformations
+    assert_eq!(at("right of=a, rotate=90, xshift=1cm, node distance=3cm"), (3.0, 1.0));
+}
+
+#[test]
+fn a_style_that_adds_to_the_text_font_ends() {
+    // `\tikz@textfont` is a macro: a key that appends to it, then the font used (as a shape's code
+    // does), does not refer to itself forever
+    no_warnings(
+        r"\makeatletter\tikzset{add font/.code={\expandafter\def\expandafter\tikz@textfont\expandafter{\tikz@textfont#1}}}\begin{tikzpicture}[font=\sffamily]\begingroup\tikzset{add font=\bfseries}\tikz@textfont\endgroup\node[draw] {A};\end{tikzpicture}",
+    );
+}
+
+#[test]
+fn at_a_relative_point_is_from_the_paths_last_point() {
+    // alone, from the origin; on a path, from its last point, which `at` does not move
+    let q = point(r"\node (n) at +(1,0) {};", "n.center");
+    assert!(close_to((q.x, q.y), (1.0, 0.0)), "{q:?}");
+    let body = r"\path (4,0) -- (5,5) node (n) at ++(1,0) {} -- +(1,0) coordinate (m);";
+    for name in ["n.center", "m"] {
+        let q = point(body, name);
+        assert!(close_to((q.x, q.y), (6.0, 5.0)), "{name}: {q:?}");
+    }
+    let q = point(r"\begin{scope}[shift={(1,1)}] \path (2,0) node (n) at +(0,1) {}; \end{scope}", "n.center");
+    assert!(close_to((q.x, q.y), (3.0, 2.0)), "{q:?}");
+    // a `+` with no point after it
+    with_warning(r"\node at +x {};", "at without a point");
+}
+
+#[test]
+fn a_second_name_replaces_the_first() {
+    // `node (a) (b)` is named b; after a coordinate's name, `(…)` is the path's next point
+    let q = point(r"\path (2,0) node (a) (b) {A};", "b.center");
+    assert!(close_to((q.x, q.y), (2.0, 0.0)), "{q:?}");
+    let q = point(r"\path (3,0) node (c) at (1,1) [red] (d) {A};", "d.center");
+    assert!(close_to((q.x, q.y), (1.0, 1.0)), "{q:?}");
+    let (_, w) = canvas_and_warnings(r"\path (2,0) node (a) (b) {A}; \draw (a) -- (1,1);");
+    assert!(w.iter().any(|w| w.contains("unknown coordinate: (a)")), "{w:?}");
+    let q = point(r"\path (4,0) coordinate (f) (5,0) coordinate (g);", "g");
+    assert!(close_to((q.x, q.y), (5.0, 0.0)), "{q:?}");
+}
+
+/// The text a body's nodes show, as the figure tells it.
+fn told(body: &str) -> String {
+    no_warnings(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).description
+}
+
+#[test]
+fn a_text_runs_its_definitions_and_assignments_as_tex_typesets_it() {
+    // definitions before a picture, whose `\foreach \number` is a variable and not TeX's \number
+    let doc = r"\newcommand\inner[1]{\def\w{#1}\begin{tikzpicture}\foreach \number in {1,2} {\draw (\number,0) -- (\number,\w);}\end{tikzpicture}}
+        \begin{tikzpicture} \node {\inner{2}}; \end{tikzpicture}";
+    let (c, w) = tikra::engine::run_document(doc).unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(c.items.iter().filter(|i| matches!(i, tikra::canvas::Item::Path { .. })).count(), 2, "{:?}", c.items);
+    // registers given values, pgfmath's loop, \relax and what is \let to it typeset nothing
+    assert!(told(r"\newcount\k \node {\k=3 \multiply\k by 2 \the\k};").contains(": 6."));
+    assert!(told(r"\newcount\k \node {\k=0 \pgfmathloop\ifnum\pgfmathcounter<4 \advance\k by \pgfmathcounter\relax\repeatpgfmathloop\the\k};").contains(": 6."));
+    assert!(told(r"\let\nothing\relax \node {a\nothing b};").contains(": ab."));
+    assert!(told(r"\node {\def\a{x}\a};").contains(": x."));
+    // a register that is not given a value is an argument, written as it is
+    with_warning(r"\begin{tikzpicture}\newcount\k \node {A\k};\end{tikzpicture}", "\\k");
+}
+
+#[test]
+fn pics_with_a_text_and_one_for_each_item_at_relative_points() {
+    let doc = r"\tikzset{box/.pic={\node (-n) [draw] {\tikzpictext};}}
+        \begin{tikzpicture} \path (1,0) pic foreach \i in {1,2} (p\i) [pic text=T\i] at +(\i,0) {box}; \end{tikzpicture}";
+    let r = no_warnings(doc);
+    assert!(r.description.contains("T1") && r.description.contains("T2"), "{}", r.description);
+    let c = canvas(r"\tikzset{box/.pic={\node (-n) {};}} \path (1,0) pic foreach \i in {1,2} (p\i) at +(\i,0) {box}; \draw (p2-n.center) -- (0,0);");
+    assert!(close_to(points(&paths(&c)[0].segments)[0], (3.0, 0.0)));
+}
+
+#[test]
+fn below_of_takes_the_node_distance_the_node_ends_with() {
+    let at = |options: &str| {
+        let p = point(&format!(r"\node (a) {{A}}; \node[{options}] (b) {{B}};"), "b.center");
+        (p.x, p.y)
+    };
+    // a node distance given after `below of` still counts
+    assert!(close_to(at("below of=a, node distance=3cm"), (0.0, -3.0)), "{:?}", at("below of=a, node distance=3cm"));
+    // the directions add up, all at the last distance
+    assert!(close_to(at("below of=a, right of=a, node distance=2cm"), (2.0, -2.0)));
+    assert!(close_to(at("below of=a, node distance=2cm, right of=a, node distance=3cm"), (3.0, -3.0)));
+    assert!(close_to(at("below of=a, below of=a"), (0.0, -2.0)));
+    // a diagonal one is that far along its angle; `v and h`: the vertical one for below
+    let s = 0.5f64.sqrt();
+    assert!(close_to(at("below right of=a"), (s, -s)));
+    assert!(close_to(at("below of=a, node distance=2cm and 3cm"), (0.0, -2.0)));
+}
+
+#[test]
+fn a_label_angle_may_come_from_a_macro() {
+    // as the expression it expands to, not the default 90
+    let (_, by_macro) = label(r"\def\a{100} \node[label=\a+80:x] at (0,0) {};");
+    let (_, plain) = label(r"\node[label=180:x] at (0,0) {};");
+    assert!(close(by_macro.e, plain.e) && close(by_macro.f, plain.f), "{by_macro:?} {plain:?}");
+}
+
+#[test]
+fn a_word_too_long_for_the_text_width_goes_to_a_line_of_its_own() {
+    // TeX's last pass breaks before it, leaving that line too long, even at the end (a word
+    // with a slash is not hyphenated)
+    let (l, _) = label(r"\node[text width=3em] {AB CDEFG/HIJKL};");
+    assert_eq!(l.lines.len(), 2);
+    let (l, _) = label(r"\node[text width=3em] {CDEFG/HIJKL AB};");
+    assert_eq!(l.lines.len(), 2);
 }

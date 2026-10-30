@@ -93,6 +93,13 @@ impl Engine {
     /// What `code` draws, typeset as a paragraph of its own (pictures, text), the drawing around it
     /// set aside meanwhile.
     pub fn draw_apart(&mut self, code: Vec<Token>) -> Result<Canvas, Error> {
+        let (boxes, layout, words) = self.run_apart(code)?;
+        Ok(super::typeset(&boxes, &layout, &words, 0.0))
+    }
+
+    /// The pictures and words `code` makes and how they are laid out, the drawing around it set
+    /// aside meanwhile.
+    pub(super) fn run_apart(&mut self, code: Vec<Token>) -> Result<super::Apart, Error> {
         let saved_canvas = std::mem::take(&mut self.canvas);
         let saved_boxes = std::mem::take(&mut self.boxes);
         let saved_layout = std::mem::take(&mut self.layout);
@@ -105,15 +112,12 @@ impl Engine {
             self.end_picture();
         }
         self.end_group();
-        let canvas = super::typeset(&self.boxes, &self.layout, &self.words, 0.0);
         self.canvas = saved_canvas;
-        self.boxes = saved_boxes;
-        self.layout = saved_layout;
-        self.words = saved_words;
+        let apart = (std::mem::replace(&mut self.boxes, saved_boxes), std::mem::replace(&mut self.layout, saved_layout), std::mem::replace(&mut self.words, saved_words));
         self.picture_depth = saved_depth;
         self.canvas_frozen = saved_frozen;
         r?;
-        Ok(canvas)
+        Ok(apart)
     }
 
     /// `\begin{tikzfadingfrompicture}[name=…] … \end{tikzfadingfrompicture}` (the `\begin` read).

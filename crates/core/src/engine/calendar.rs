@@ -4,11 +4,15 @@
 //! (`2000-01-01`, `2000-02-last`, `2000-01-01+5`), in one group, with `\pgfcalendarcurrentyear`,
 //! `…month`, `…day` (two digits), `…weekday` (0 is Monday) and `…julian` set, and `\ifdate{tests}{yes}{no}`
 //! choosing by the date: `Sunday`, `weekend`, `equals=…`, `day of month=1`, `between=… and …`…
+//! A test can be a key of the document's, `/pgf/calendar/name/.code`: it sees the date in
+//! `\pgfcalendarifdateyear`, `…month`, `…day`, `…weekday` and the count `\pgfcalendarifdatejulian`,
+//! and says `\pgfcalendarmatchestrue` when the date passes. pgf's own tests stay as they are here
+//! even when the document redefines one (its code is often expl3's, which tikra does not read).
 //!
 //! `\calendar (name) at (point) [options] if (tests) [options] {code} else …;` is a `\pgfcalendar`
 //! whose code puts each day in a scope: `execute before day scope`, then the scope with `execute at
 //! begin day scope`, the `if`s, the day code (a node with the day's number, named
-//! `name-2000-01-20`) and `execute at end day scope`, then `execute after day scope`. The
+//! `name-2000-01-20`, the name given by `(name)` or `name=`) and `execute at end day scope`, then `execute after day scope`. The
 //! arrangements (`week list`, `day list downward`…) and month labels are styles on these hooks;
 //! the shifts they make stay from one day to the next, as the transformation of the group does.
 
@@ -44,6 +48,9 @@ pub fn define(e: &mut Engine) {
         e.tex.define(name, Meaning::Count(r));
         e.tex.set_count(r, v, true);
     }
+    // the date a test of the document's sees, as a count
+    let r = e.tex.new_register();
+    e.tex.define("pgfcalendarifdatejulian", Meaning::Count(r));
 }
 
 /// Today's date and the minutes since midnight; on the web, where there is no clock to read
@@ -65,12 +72,13 @@ pub fn is_calendar(id: u16) -> bool {
 
 /// The calendar's keys and templates, and the names of days and months.
 pub const DEFINITIONS: &str = r"
+\newif\ifpgfcalendarmatches
 \def\tikra@cal@append#1#2{\expandafter\def\expandafter#1\expandafter{#1#2}}
 \def\tikra@cal@prepend#1#2{\def\tikra@cal@temp{#2}\expandafter\expandafter\expandafter\def\expandafter\expandafter\expandafter#1\expandafter\expandafter\expandafter{\expandafter\tikra@cal@temp#1}}
 \def\tikra@cal@before{}\def\tikra@cal@after{}\def\tikra@cal@atbegin{}\def\tikra@cal@atend{}
-\def\tikra@cal@dates{}\def\tikra@cal@width{1}
-\def\tikra@cal@xshift{3.5ex}\def\tikra@cal@yshift{3ex}
-\def\tikra@cal@monthxshift{9ex}\def\tikra@cal@monthyshift{9ex}
+\def\tikra@cal@dates{}\def\tikz@lib@cal@width{1}
+\def\tikz@lib@cal@xshift{3.5ex}\def\tikz@lib@cal@yshift{3ex}
+\def\tikz@lib@cal@month@xshift{9ex}\def\tikz@lib@cal@month@yshift{9ex}
 % each day, month and year is a node with its style and text; a day is named after its date
 \def\tikra@cal@node#1#2{\node[#2every #1]{\csname tikz#1text\endcsname};}
 \def\tikzdaycode{\tikra@cal@node{day}{name=\pgfcalendarsuggestedname,}}
@@ -82,27 +90,27 @@ pub const DEFINITIONS: &str = r"
   execute after day scope/.code={\tikra@cal@append\tikra@cal@after{#1}},
   execute at begin day scope/.code={\tikra@cal@append\tikra@cal@atbegin{#1}},
   execute at end day scope/.code={\tikra@cal@prepend\tikra@cal@atend{#1}},
-  day xshift/.code={\def\tikra@cal@xshift{#1}}, day yshift/.code={\def\tikra@cal@yshift{#1}},
-  month xshift/.code={\def\tikra@cal@monthxshift{#1}}, month yshift/.code={\def\tikra@cal@monthyshift{#1}},
+  day xshift/.code={\def\tikz@lib@cal@xshift{#1}}, day yshift/.code={\def\tikz@lib@cal@yshift{#1}},
+  month xshift/.code={\def\tikz@lib@cal@month@xshift{#1}}, month yshift/.code={\def\tikz@lib@cal@month@yshift{#1}},
   day code/.code={\def\tikzdaycode{#1}}, day text/.code={\def\tikzdaytext{#1}},
   month code/.code={\def\tikzmonthcode{#1}}, month text/.code={\def\tikzmonthtext{#1}},
   year code/.code={\def\tikzyearcode{#1}}, year text/.code={\def\tikzyeartext{#1}},
   if/.code={\tikra@calendarif{#1}}, days/.style={every day/.append style={#1}}, every day/.style={anchor=base east},
   every month/.style={}, every year/.style={},
-  tikra@cal@width/.code={\def\tikra@cal@width{#1}},
+  tikz@lib@cal@width/.code={\def\tikz@lib@cal@width{#1}},
   day list downward/.style={execute before day scope={\tikra@calendar{month down}},
-    execute after day scope={\tikra@calendar{day down}}, tikra@cal@width=1},
+    execute after day scope={\tikra@calendar{day down}}, tikz@lib@cal@width=1},
   day list upward/.style={execute before day scope={\tikra@calendar{month up}},
-    execute after day scope={\tikra@calendar{day up}}, tikra@cal@width=1},
+    execute after day scope={\tikra@calendar{day up}}, tikz@lib@cal@width=1},
   day list right/.style={execute before day scope={\tikra@calendar{month right}},
-    execute after day scope={\tikra@calendar{day right}}, tikra@cal@width=30},
+    execute after day scope={\tikra@calendar{day right}}, tikz@lib@cal@width=30},
   day list left/.style={execute before day scope={\tikra@calendar{month left}},
-    execute after day scope={\tikra@calendar{day left}}, tikra@cal@width=30},
+    execute after day scope={\tikra@calendar{day left}}, tikz@lib@cal@width=30},
   week list/.style={execute before day scope={\tikra@calendar{month down}},
     execute at begin day scope={\tikra@calendar{weekday}},
-    execute after day scope={\tikra@calendar{week}}, tikra@cal@width=7},
+    execute after day scope={\tikra@calendar{week}}, tikz@lib@cal@width=7},
   month list/.style={execute before day scope={\tikra@calendar{month down}\tikra@calendar{month start}},
-    execute at begin day scope={\tikra@calendar{day of month}}, tikra@cal@width=37},
+    execute at begin day scope={\tikra@calendar{day of month}}, tikz@lib@cal@width=37},
   month label left/.style={execute before day scope={\tikra@calendar{label left}},
     every month/.append style={anchor=base east,xshift=-3.5ex}},
   month label left vertical/.style={execute before day scope={\tikra@calendar{label left}},
@@ -141,6 +149,27 @@ pub const DEFINITIONS: &str = r"
 \expandafter\def\csname tikra@cal@short@m.\endcsname{\pgfcalendarmonthshortname{\pgfcalendarcurrentmonth}}
 \expandafter\def\csname tikra@cal@short@mt\endcsname{\pgfcalendarmonthname{\pgfcalendarcurrentmonth}}
 ";
+
+/// The tests `\ifdate` knows itself.
+const TESTS: &[&str] = &[
+    "all",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+    "workday",
+    "weekend",
+    "equals",
+    "day of month",
+    "end of month",
+    "at least",
+    "at most",
+    "between",
+    "Easter",
+];
 
 /// The Julian day number of a date of the Gregorian calendar.
 pub fn julian(year: i64, month: i64, day: i64) -> i64 {
@@ -355,10 +384,29 @@ impl Engine {
 
     /// Whether the date `j` passes one of `tests` (a key list: `Sunday, equals=2000-01-20`).
     fn date_matches(&mut self, j: i64, tests: Vec<Token>) -> Result<bool, Error> {
-        let (year, _, day) = date(j);
+        let (year, month, day) = date(j);
         let wd = weekday(j);
+        for (name, v) in [
+            ("pgfcalendarifdateyear", year.to_string()),
+            ("pgfcalendarifdatemonth", format!("{month:02}")),
+            ("pgfcalendarifdateday", format!("{day:02}")),
+            ("pgfcalendarifdateweekday", wd.to_string()),
+        ] {
+            self.tex.define_string(name, &v, false);
+        }
+        if let Meaning::Count(r) = self.tex.meaning_of("pgfcalendarifdatejulian") {
+            self.tex.set_count(r, j, false);
+        }
         let mut matches = false;
         for item in crate::keys::split_list(&tests) {
+            // a test of the document's: its code says `\pgfcalendarmatchestrue`
+            let path = format!("/pgf/calendar/{}", item.key);
+            if !TESTS.contains(&item.key.as_str()) && self.key_exists(&path) {
+                self.tex.set_meaning(&Token::cs("ifpgfcalendarmatches"), Meaning::Prim(tex::Prim::Iffalse), false);
+                self.run_key(&path, item.value)?;
+                matches |= matches!(self.tex.meaning_of("ifpgfcalendarmatches"), Meaning::Prim(tex::Prim::Iftrue));
+                continue;
+            }
             let value = match item.value {
                 Some(v) => Some(self.math_string(v)?.trim().to_string()),
                 None => None,
@@ -411,8 +459,8 @@ impl Engine {
         }
         self.st.pending = Transform::default();
         self.st.node.at = None;
+        self.st.node.name = None;
         self.process_keys(tikra_tokens("every calendar/.try"), Some("/tikz"))?;
-        let mut prefix = String::new();
         let mut guard = 0;
         loop {
             guard += 1;
@@ -423,8 +471,9 @@ impl Engine {
             match &t {
                 t if t.is_char(';') => break,
                 t if t.is_char('(') => {
+                    // `(name)` is `name=`: the last one names the days
                     let name = self.tex.read_until_char(')', false)?;
-                    prefix = self.tex.expand_to_string(name)?.trim().to_string();
+                    self.st.node.name = Some(self.tex.expand_to_string(name)?.trim().to_string());
                 }
                 t if t.is_char('[') => {
                     let o = self.tex.read_until_char(']', false)?;
@@ -455,6 +504,7 @@ impl Engine {
             }
         }
         self.st.apply_pending();
+        let prefix = self.st.node.name.take().unwrap_or_default();
         // `at (point)` or `at=`: where the calendar's origin goes
         if let Some(p) = self.st.node.at.take() {
             let local = self.st.transform.inverse().apply(p);
@@ -523,7 +573,7 @@ impl Engine {
         }
     }
 
-    /// A length from a calendar macro (`\tikra@cal@xshift`), in cm; `em` and `ex` are the current
+    /// A length from a calendar macro (`\tikz@lib@cal@xshift`), in cm; `em` and `ex` are the current
     /// font's.
     fn calendar_length(&mut self, name: &str) -> Result<f64, Error> {
         let s = self.macro_text(name);
@@ -558,27 +608,27 @@ impl Engine {
         let new_month = day == 1 && j != begin;
         match what {
             "month down" | "month up" if new_month => {
-                let d = self.calendar_length("tikra@cal@monthyshift")?;
+                let d = self.calendar_length("tikz@lib@cal@month@yshift")?;
                 self.calendar_shift(0.0, if what == "month up" { d } else { -d });
             }
             "month right" | "month left" if new_month => {
-                let d = self.calendar_length("tikra@cal@monthxshift")?;
+                let d = self.calendar_length("tikz@lib@cal@month@xshift")?;
                 self.calendar_shift(if what == "month right" { d } else { -d }, 0.0);
             }
             "day down" | "day up" => {
-                let d = self.calendar_length("tikra@cal@yshift")?;
+                let d = self.calendar_length("tikz@lib@cal@yshift")?;
                 self.calendar_shift(0.0, if what == "day up" { d } else { -d });
             }
             "day right" | "day left" => {
-                let d = self.calendar_length("tikra@cal@xshift")?;
+                let d = self.calendar_length("tikz@lib@cal@xshift")?;
                 self.calendar_shift(if what == "day right" { d } else { -d }, 0.0);
             }
             "weekday" => {
-                let d = self.calendar_length("tikra@cal@xshift")?;
+                let d = self.calendar_length("tikz@lib@cal@xshift")?;
                 self.calendar_shift(wd as f64 * d, 0.0);
             }
             "week" if wd == 6 => {
-                let d = self.calendar_length("tikra@cal@yshift")?;
+                let d = self.calendar_length("tikz@lib@cal@yshift")?;
                 self.calendar_shift(0.0, -d);
             }
             "month start" if day == 1 || j == begin => {
@@ -587,7 +637,7 @@ impl Engine {
                 self.tex.define_string("tikra@cal@monthstart", &first.to_string(), false);
             }
             "day of month" => {
-                let d = self.calendar_length("tikra@cal@xshift")?;
+                let d = self.calendar_length("tikz@lib@cal@xshift")?;
                 let first = self.macro_int("tikra@cal@monthstart").unwrap_or(0);
                 self.calendar_shift((day + first - 1) as f64 * d, 0.0);
             }
@@ -599,9 +649,9 @@ impl Engine {
 
     /// The month's label on its first day, placed as `month label …` says, in a group.
     fn calendar_month_label(&mut self, place: &str) -> Result<(), Error> {
-        let x = self.calendar_length("tikra@cal@xshift")?;
-        let y = self.calendar_length("tikra@cal@yshift")?;
-        let width = self.macro_text("tikra@cal@width").parse::<f64>().unwrap_or(1.0);
+        let x = self.calendar_length("tikz@lib@cal@xshift")?;
+        let y = self.calendar_length("tikz@lib@cal@yshift")?;
+        let width = self.macro_text("tikz@lib@cal@width").parse::<f64>().unwrap_or(1.0);
         let ex = self.font_length("1ex")?;
         let row = (width - 1.0) * x;
         let (dx, dy) = match place {
@@ -646,5 +696,50 @@ mod tests {
         .unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
         assert!(canvas.items.len() > 31);
+    }
+
+    #[test]
+    fn name_names_the_days_as_a_name_in_parentheses_does() {
+        // the last of `(name)` and `name=` wins
+        for opts in ["[name=cal,dates=2000-01-01 to 2000-01-31]", "(c) [name=cal,dates=2000-01-01 to 2000-01-31]", "[name=c,dates=2000-01-01 to 2000-01-31] (cal)"] {
+            let doc = format!(r"\begin{{tikzpicture}}\calendar {opts};\draw (cal-2000-01-20.north west) circle (4pt);\end{{tikzpicture}}");
+            let (_, warnings) = super::super::run_document(&doc).unwrap();
+            assert!(warnings.is_empty(), "{opts}: {warnings:?}");
+        }
+    }
+
+    #[test]
+    fn a_test_of_the_document_sees_the_date() {
+        // odd Julian days, and a day of the month given as the value or by default
+        let (canvas, warnings) = super::super::run_document(
+            r"\pgfkeys{/pgf/calendar/odd/.code={\ifodd\pgfcalendarifdatejulian\pgfcalendarmatchestrue\fi}}
+\pgfkeys{/pgf/calendar/on/.default=2,/pgf/calendar/on/.code={\ifnum\pgfcalendarifdateday=#1\relax\ifnum\pgfcalendarifdatemonth=1 \pgfcalendarmatchestrue\fi\fi}}
+\begin{tikzpicture}
+\pgfcalendar{c}{2000-01-01}{2000-01-05}{\ifdate{odd}{\fill (\pgfcalendarcurrentday,0) circle (1pt);}{}}
+\pgfcalendar{c}{2000-01-01}{2000-01-05}{\ifdate{on,on=4}{\fill (\pgfcalendarcurrentday,1) circle (1pt);}{}}
+\end{tikzpicture}",
+        )
+        .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        // 2000-01-01 is the Julian day 2451545: the 1st, 3rd and 5th, then the 2nd and 4th
+        assert_eq!(canvas.items.len(), 5);
+    }
+
+    #[test]
+    fn a_layout_of_the_document_reads_the_calendar_registers() {
+        // pgf's scratch count and the library's shifts, in calendars of whole months side by side
+        let (_, warnings) = super::super::run_document(
+            r"\makeatletter
+\tikzset{my week/.style={execute at begin day scope={\c@pgf@counta=\pgfcalendarcurrentweekday
+  \pgfmathsetlength\pgf@x{\tikz@lib@cal@xshift}\pgf@x=\c@pgf@counta\pgf@x\pgftransformxshift{\pgf@x}},
+  execute after day scope={\ifdate{Sunday}{\pgfmathsetlength\pgf@y{\tikz@lib@cal@yshift}\pgftransformyshift{-\pgf@y}}{}},
+  tikz@lib@cal@width=7}}
+\makeatother
+\begin{tikzpicture}
+\matrix{\calendar[dates=2000-01-01 to 2000-01-last,my week]; & \calendar[dates=2000-02-01 to 2000-02-last,my week]; \\};
+\end{tikzpicture}",
+        )
+        .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

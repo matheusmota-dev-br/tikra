@@ -1242,7 +1242,8 @@ impl<'a> Run<'a> {
 
     fn set_mark_info(&mut self) -> Result<(), Error> {
         let seq = self.seq;
-        let at = if seq == 0 { String::new() } else { format!("{}pt", self.mark_at) };
+        // a dimension, as `\the` writes it (`120.0pt`)
+        let at = if seq == 0 { String::new() } else { crate::tex::dimen::show((self.mark_at * 65536.0).round() as i64) };
         let e = &mut *self.e;
         e.tex.define_string(&crate::keys::macro_name("/pgf/decoration/mark info/sequence number"), &seq.to_string(), false);
         e.tex.define_string(&crate::keys::macro_name("/pgf/decoration/mark info/distance from start"), &at, false);

@@ -90,16 +90,16 @@ Every example of the TikZ manual and of the pgfplots manual is drawn by pdflatex
 
 ## Input
 
-A full `standalone` document, a bare `tikzpicture` or `pgfpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset`, `\pgfplotsset`, `\newcommand` and `\def`; `\usetikzlibrary` lines are accepted, and every library is available. `\pagecolor` paints the page behind the figure.
+A full `standalone` document, a bare `tikzpicture` or `pgfpicture`, an inline `\tikz`, a lone `axis` environment, or loose TikZ statements. The preamble is read for `\definecolor`, `\colorlet`, `\tikzset`, `\pgfplotsset`, `\newcommand`, `\def` and `\DeclareMathOperator`; `\usetikzlibrary` lines are accepted, and every library is available. `\pagecolor` paints the page behind the figure.
 
 ## What it draws
 
 TikZ and pgf as the manuals describe them, through a small TeX interpreter (macros, `\def`, `\newcommand`, conditionals, registers, `\foreach`, pgfmath and `\tikzmath`):
 
 - **Paths and coordinates**: every path operation (`--`, `|-`, `to`, `.. controls ..`, `arc`, `circle`, `rectangle`, `grid`, `plot`, `svg`, `let`), `calc`, positioning, polar and 3D coordinates, intersections, `through`, transformations and `transform canvas`, nonlinear transformations, `spy`, views (`meet`, `slice`).
-- **Nodes and shapes**: every shape library (geometric, symbols, arrows, multipart, callouts, misc), labels and pins, `quotes`, matrices and `matrix of nodes`, `fit`, pics and `\pgfdeclareshape`; text with `text width`, alignment, line breaking with hyphenation, `itemize`, simple `tabular`, font sizes and families.
+- **Nodes and shapes**: every shape library (geometric, symbols, arrows, multipart, callouts, misc), labels and pins, `quotes`, matrices and `matrix of nodes`, `fit`, pics and `\pgfdeclareshape`; text with `text width`, alignment, line breaking with hyphenation, `itemize`, simple `tabular`, saved boxes (`\savebox`, `\usebox`), font sizes and families.
 - **Diagrams**: chains, trees, the `graphs` library, mind maps, automata, Petri nets, ER diagrams, circuits (`circuits.ee.IEC`, logic gates), calendars, folding, turtle and Lindenmayer systems.
-- **Painting**: arrow tips (`arrows.meta`, `bending`), dashes, opacity, transparency groups and blend modes, shadings (axial, radial, ball, declared and functional), fadings, patterns (classic, `patterns.meta`, declared), shadows, backgrounds and layers, animations as a snapshot at a given time (`make snapshot of`, `\pgfsysanimsnapshot`), every decoration (`pathmorphing`, `pathreplacing`, `markings`, `shapes`, `text`, `fractals`, `footprints`).
+- **Painting**: arrow tips (`arrows.meta`, `bending`), dashes, opacity, transparency groups and blend modes, shadings (axial, radial, ball, declared and functional), fadings, patterns (classic, `patterns.meta`, declared), shadows, backgrounds and layers, animations as a snapshot at a given time (`make snapshot of`, `\pgfsysanimsnapshot`), every decoration (`pathmorphing`, `pathreplacing`, `markings`, `shapes`, `text`, `fractals`, `footprints`) and the older `snakes` library.
 - **pgfplots**: 2D and 3D axes, `\addplot` of expressions, coordinates and tables, marks, legends, colorbars and colormaps, bar charts and histograms, error bars, `fill between`, surfaces, meshes, patches and contours (`shader=interp` shaded smoothly), images placed on the axes (`\addplot graphics` with a PNG), polar, ternary, Smith charts, `dateplot`, group plots and statistics; and the `datavisualization` library.
 
 The details, and what is left out, are in [`spec/subset.md`](https://github.com/matheusmota-dev-br/tikra/blob/main/spec/subset.md) and [docs/conformance.md](https://github.com/matheusmota-dev-br/tikra/blob/main/docs/conformance.md).

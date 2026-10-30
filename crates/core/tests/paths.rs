@@ -89,6 +89,51 @@ fn calc_midpoint_sum_factors_and_rotation() {
 }
 
 #[test]
+fn calc_distance_is_measured_before_the_transformation() {
+    let at = |options: &str, b: &str| {
+        let body = format!(r"\begin{{scope}}[{options}] \coordinate (A) at (0,0); \coordinate (B) at {b}; \coordinate (C) at ($(A)!1cm!(B)$); \end{{scope}}");
+        let q = point(&body, "C");
+        (q.x, q.y)
+    };
+    assert!(close_to(at("scale=3", "(2,0)"), (3.0, 0.0)));
+    assert!(close_to(at("xscale=3", "(0,2)"), (0.0, 1.0)));
+    let s = 0.5f64.sqrt();
+    assert!(close_to(at("xscale=3", "(2,2)"), (3.0 * s, s)));
+    assert!(close_to(at("shift={(1,1)}, rotate=90", "(2,0)"), (1.0, 2.0)));
+}
+
+#[test]
+fn let_gives_points_in_the_scopes_coordinates() {
+    // a point read in a shifted scope is what it was given there, so `(\x1,0)` comes back below it
+    let body = r"\coordinate (A) at (1,0);
+        \begin{scope}[xshift=6cm] \coordinate (B) at (1,2); \path let \p1 = (B), \p2 = (A) in (\x1,0) coordinate (C) (\x2,\y2) coordinate (D); \end{scope}";
+    for (name, x) in [("C", 7.0), ("D", 1.0)] {
+        let q = point(body, name);
+        assert!(close_to((q.x, q.y), (x, 0.0)), "{name}: {q:?}");
+    }
+    let q = point(r"\begin{scope}[scale=2] \coordinate (B) at (1,1); \path let \p1 = (B) in (\x1,0) coordinate (C); \end{scope}", "C");
+    assert!(close_to((q.x, q.y), (2.0, 0.0)), "{q:?}");
+    // a name in braces is expanded
+    let q = point(r"\def\nm{a} \path let \p{\nm} = (1,2) in (\p{a}) coordinate (C);", "C");
+    assert!(close_to((q.x, q.y), (1.0, 2.0)), "{q:?}");
+}
+
+#[test]
+fn a_unit_vector_from_a_node_is_in_the_scopes_coordinates() {
+    // x=(m) in a shifted and scaled scope is the vector to m from the scope's origin
+    let body = r"\coordinate (o) at (1,0);
+        \begin{scope}[shift={(3,0)}, scale=2] \coordinate (m) at (1,0);
+          \begin{scope}[x={(m)}, y={(0,1)}] \coordinate (a) at (1,0); \end{scope}
+          \begin{scope}[x={(o)}, y={(0,1)}] \coordinate (b) at (1,0); \end{scope}
+          \begin{scope}[x={(1,0)}, y={(0,1)}] \coordinate (c) at (1,0); \end{scope}
+        \end{scope}";
+    for (name, x) in [("a", 5.0), ("b", 1.0), ("c", 5.0)] {
+        let q = point(body, name);
+        assert!(close_to((q.x, q.y), (x, 0.0)), "{name}: {q:?}");
+    }
+}
+
+#[test]
 fn calc_errors_become_warnings() {
     for bad in [r"($(A)!0.5$)", r"($(A)!0.5!$)", r"($(A)!0.5!(B$)", r"($(A)!xx!(B)$)", r"($(A$)", r"($(Z)!0.5!(A)$)"] {
         let (_, w) = canvas_and_warnings(&format!(r"\coordinate (A) at (0,0); \coordinate (B) at (1,0); \draw {bad} -- (1,1);"));
@@ -235,6 +280,21 @@ fn plot_of_expression_coordinates_and_smooth() {
     // non-finite points are skipped
     let t = first_path(r"\draw[domain=-1:1, samples=3] plot (\x, {1/\x});");
     assert_eq!(points(&t.segments).len(), 2);
+}
+
+#[test]
+fn plot_samples_at_a_list() {
+    let xs = |body: &str| points(&first_path(body).segments).iter().map(|p| p.0).collect::<Vec<_>>();
+    // the values of a `\foreach` list, `...` included, in their order
+    assert_eq!(xs(r"\draw plot[samples at={0,1,3}] (\x, {\x*\x});"), [0.0, 1.0, 3.0]);
+    assert_eq!(xs(r"\draw plot[samples at={0,0.5,...,2}] (\x, 0);"), [0.0, 0.5, 1.0, 1.5, 2.0]);
+    assert_eq!(xs(r"\draw[variable=\t, samples at={2,1}] plot (\t, 0);"), [2.0, 1.0]);
+    // `samples` or `domain` after it take over again, as in TeX; before it, they do not
+    assert_eq!(xs(r"\draw plot[samples at={0,1,3}, samples=3] (\x, 0);"), [-5.0, 0.0, 5.0]);
+    assert_eq!(xs(r"\draw plot[samples at={0,1,3}, domain=0:4] (\x, 0);").len(), 25);
+    assert_eq!(xs(r"\draw plot[samples=4, samples at={0,1,3}] (\x, 0);"), [0.0, 1.0, 3.0]);
+    let (_, w) = canvas_and_warnings(r"\draw plot[samples at={0,zz}] (\x, 0);");
+    assert!(!w.is_empty());
 }
 
 #[test]
@@ -493,4 +553,75 @@ fn transform_canvas_of_a_path_is_for_that_path_only() {
     let c = canvas(r"\clip (0,0) circle (1); \fill (1,0) circle (1);");
     let fill = c.items.iter().position(|i| matches!(i, Item::Path { fill: Some(_), .. })).unwrap();
     assert!(!c.items[..fill].iter().any(|i| matches!(i, Item::End)), "{:?}", c.items);
+}
+
+#[test]
+fn svg_path_data_in_quotes() {
+    // the svg.path library takes the data in quotes as in braces
+    let quoted = first_path(r#"\draw svg "M0,0 L20,10 l5,0";"#).segments;
+    assert_eq!(quoted, first_path(r"\draw svg {M0,0 L20,10 l5,0};").segments);
+    assert_eq!(quoted.len(), 3);
+    let scaled = first_path(r#"\draw svg[scale=2] "M0,0 L20,10";"#).segments;
+    assert!(matches!(scaled[1], Segment::LineTo(p) if close(p.x, 40.0 * tikra::PT)), "{scaled:?}");
+}
+
+#[test]
+fn parabola_height_is_scaled_with_the_picture() {
+    // the bend is a point of the picture: twice as high under scale=2
+    let t = first_path(r"\begin{scope}[scale=2] \draw (0,0) parabola[parabola height=1cm] +(2,0); \end{scope}");
+    let p = points(&t.segments);
+    assert!(close_to(p[1], (2.0, 2.0)), "the bend in {p:?}");
+}
+
+#[test]
+fn let_points_are_in_the_picture_coordinates() {
+    // \x1 of (1,1) under scale=2 is 1cm: (\x1,0) is scaled again, to 2cm
+    let t = first_path(r"\begin{scope}[scale=2] \draw let \p1=(1,1) in (0,0) -- (\x1,0); \end{scope}");
+    assert!(close_to(points(&t.segments)[1], (2.0, 0.0)), "{:?}", points(&t.segments));
+    // in a shifted, turned and scaled scope, (\x1,\y1) of a named point is that point again
+    let c = canvas(r"\coordinate (a) at (1,1); \begin{scope}[xshift=1cm,rotate=90,scale=2] \draw let \p1=(a) in (0,0) -- (\x1,\y1); \end{scope}");
+    let p = points(&paths(&c)[0].segments);
+    assert!(close_to(p[1], (1.0, 1.0)), "{p:?}");
+}
+
+fn pt(p: Point) -> (f64, f64) {
+    (p.x, p.y)
+}
+
+#[test]
+fn polar_radius_keys_are_read_in_order() {
+    // `radius` sets both radii; a later `x radius` sets one of them again, and the other way round
+    assert!(close_to(pt(point("", "xyz polar cs:angle=180,radius=1,x radius=2")), (-2.0, 0.0)));
+    assert!(close_to(pt(point("", "xyz polar cs:angle=0,x radius=2,radius=1")), (1.0, 0.0)));
+    assert!(close_to(pt(point("", "polar cs:angle=90,radius=1,y radius=3")), (0.0, 3.0)));
+}
+
+#[test]
+fn to_curves_follow_the_transformation() {
+    let controls = |body: &str| match first_path(body).segments[1] {
+        Segment::CurveTo(c1, c2, _) => (pt(c1), pt(c2)),
+        s => panic!("{s:?}"),
+    };
+    // the distance is measured in the picture's units (3 there, so 0.3915·3 = 1.1745), not on the
+    // page, where xscale makes it 6
+    let (c1, c2) = controls(r"\begin{scope}[xscale=2] \draw (0,0) to[out=-90,in=-90] (3,0); \end{scope}");
+    assert!(close_to(c1, (0.0, -1.1745)) && close_to(c2, (6.0, -1.1745)), "{c1:?} {c2:?}");
+    // the angles turn with the picture
+    let (c1, _) = controls(r"\begin{scope}[rotate=90] \draw (0,0) to[out=0,in=180] (1,0); \end{scope}");
+    assert!(close_to(c1, (0.0, 0.3915)), "{c1:?}");
+    // and slant with it
+    let (c1, _) = controls(r"\begin{scope}[xslant=1] \draw (0,0) to[out=90,in=90] (1,0); \end{scope}");
+    assert!(close_to(c1, (0.3915, 0.3915)), "{c1:?}");
+    // so do the bends, measured from the line in the picture's units
+    let (c1, _) = controls(r"\begin{scope}[xscale=2] \draw (0,0) to[bend left=30] (3,0); \end{scope}");
+    let (s, c) = 30f64.to_radians().sin_cos();
+    assert!(close_to(c1, (2.0 * 1.1745 * c, 1.1745 * s)), "{c1:?}");
+}
+
+#[test]
+fn calc_distance_toward_the_point_itself_goes_up() {
+    // a direction of no length is (0,1), turned or not
+    let body = r"\coordinate (a) at (1,1);";
+    assert!(close_to(pt(point(body, "$(a)!0.5cm!(a)$")), (1.0, 1.5)));
+    assert!(close_to(pt(point(body, "$(a)!0.5cm!90:(a)$")), (1.0, 1.5)));
 }

@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 pub mod brewer;
+pub mod sets;
 
 /// The xcolor model of a color, which decides that of its mixes: a mix is in its first color's model
 /// (`red!50!cyan` is rgb, `cyan!50!red` cmyk), but a gray first color takes the second's
@@ -196,13 +197,6 @@ fn named(name: &str) -> Option<Color> {
         "purple" => rgb(0.75, 0.0, 0.25),
         "teal" => rgb(0.0, 0.5, 0.5),
         "violet" => rgb(0.5, 0.0, 0.5),
-        // the most common dvipsnames, all cmyk
-        "ForestGreen" => Some(Color::cmyk(0.91, 0.0, 0.88, 0.12)),
-        "NavyBlue" => Some(Color::cmyk(0.94, 0.54, 0.0, 0.0)),
-        "RoyalBlue" => Some(Color::cmyk(1.0, 0.5, 0.0, 0.0)),
-        "Maroon" => Some(Color::cmyk(0.0, 0.87, 0.68, 0.32)),
-        "Goldenrod" => Some(Color::cmyk(0.0, 0.1, 0.84, 0.0)),
-        "Gray" => Some(Color::cmyk(0.0, 0.0, 0.0, 0.5)),
         _ => None,
     }
 }
@@ -252,7 +246,7 @@ fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
         });
     }
     let parts: Vec<&str> = e.split('!').map(str::trim).collect();
-    let lookup = |n: &str| defined.get(n).copied().or_else(|| named(n)).or_else(|| brewer::color(n));
+    let lookup = |n: &str| defined.get(n).copied().or_else(|| named(n)).or_else(|| sets::color(n)).or_else(|| brewer::color(n));
     let mut color = lookup(parts[0])?;
     let mut i = 1;
     while i < parts.len() {

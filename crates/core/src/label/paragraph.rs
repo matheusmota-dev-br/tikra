@@ -141,7 +141,7 @@ fn try_pass(items: &[Item], hsize: f32, left: Skip, right: Skip, threshold: f64,
         let mut best: [Option<(f64, usize, f32)>; 4] = [None; 4];
         let mut kept = Vec::with_capacity(active.len());
         let mut dropped: Option<(f64, usize, f32)> = None;
-        for &a in &active {
+        for (i, &a) in active.iter().enumerate() {
             let node = nodes[a];
             let s = start_after(node.at);
             let natural = if s <= b { w[b] - w[s] } else { 0.0 } + pen_width + (left.width + right.width) as f64;
@@ -177,7 +177,10 @@ fn try_pass(items: &[Item], hsize: f32, left: Skip, right: Skip, threshold: f64,
                 kept.push(a);
             }
             if bad > threshold {
-                if last_pass && (overfull || forced) && dropped.is_none_or(|d| node.total < d.0) {
+                // the final pass takes a line too long only from the one active node left: the
+                // others before it went, and none comes after (TeX's artificial demerits)
+                let alone = kept.is_empty() && i + 1 == active.len() && best.iter().all(Option::is_none);
+                if last_pass && (overfull || forced) && alone {
                     dropped = Some((node.total, a, ratio));
                 }
                 continue;

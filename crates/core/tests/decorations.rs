@@ -113,6 +113,18 @@ fn markings_with_arrows_and_nodes() {
 }
 
 #[test]
+fn mark_distance_is_written_as_tex_writes_a_dimension() {
+    // `120.0pt`, as `\the` writes it: a mark is drawn only if the text is that
+    let (items, w) = picture(
+        r"\def\want{120.0pt}
+          \path[decoration={markings, mark=at position 120pt with {\edef\d{\pgfkeysvalueof{/pgf/decoration/mark info/distance from start}}
+            \edef\d{\detokenize\expandafter{\d}}\edef\w{\detokenize\expandafter{\want}}\ifx\d\w \fill (0,0) circle (1pt);\fi}}, decorate] (0,0) -- (10,0);",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(paths(&items).len(), 1);
+}
+
+#[test]
 fn marks_between_positions() {
     let (items, _) = picture(r"\path[decoration={markings, mark=between positions 0 and 1 step 0.25 with {\fill (0,0) circle (1pt);}}, decorate] (0,0) -- (4,0);");
     assert_eq!(paths(&items).len(), 5);
@@ -242,4 +254,49 @@ fn a_control_space_in_text_effects_is_a_space() {
     // `\ ` at the end of the text: a blank, not a backslash that takes the closing brace with it
     let (_, w) = picture(r"\path[decoration={text effects along path, text={ab!\ }}, decorate] (0,0) -- (3,0);");
     assert!(w.is_empty(), "{w:?}");
+}
+
+#[test]
+fn snakes_decorate_each_line_of_the_path() {
+    let same = |snake: &str, decorated: &str| {
+        let (a, w) = picture(snake);
+        assert!(w.is_empty(), "{w:?}");
+        let (b, _) = picture(decorated);
+        assert_eq!(format!("{:?}", paths(&a)), format!("{:?}", paths(&b)), "{snake}");
+    };
+    // each line is decorated on its own, from the option on
+    same(r"\draw[snake=zigzag] (0,0) -- (3,0) -- (3,2);", r"\draw (0,0) decorate[decoration=zigzag]{-- (3,0)} decorate[decoration=zigzag]{-- (3,2)};");
+    same(r"\draw (0,0) -- (1,0) [snake=coil] -- (2,0);", r"\draw (0,0) -- (1,0) decorate[decoration=coil]{-- (2,0)};");
+    same(r"\draw[snake=zigzag] (0,0) |- (2,1);", r"\draw (0,0) decorate[decoration=zigzag]{-- (0,1)} decorate[decoration=zigzag]{-- (2,1)};");
+    same(r"\draw[snake=zigzag] (0,0) to (2,1);", r"\draw (0,0) decorate[decoration=zigzag]{-- (2,1)};");
+    // the older names of the decoration keys
+    same(
+        r"\draw[snake=zigzag, line before snake=2mm, line after snake=5mm, segment amplitude=4pt] (0,0) -- (3,0);",
+        r"\draw[decorate, decoration={zigzag, pre=lineto, pre length=2mm, post=lineto, post length=5mm, amplitude=4pt}] (0,0) -- (3,0);",
+    );
+    same(
+        r"\draw[snake=ticks, segment length=5mm, gap around snake=3mm] (0,0) -- (3,0);",
+        r"\draw[decorate, decoration={ticks, segment length=5mm, pre=moveto, pre length=3mm, post=moveto, post length=3mm}] (0,0) -- (3,0);",
+    );
+    same(
+        r"\draw[snake=brace, gap before snake=1mm, gap after snake=2mm, raise snake=2pt, mirror snake] (0,0) -- (3,0);",
+        r"\draw[decorate, decoration={brace, pre=moveto, pre length=1mm, post=moveto, post length=2mm, raise=2pt, mirror}] (0,0) -- (3,0);",
+    );
+    same(r"\draw[snake=zigzag, snake=none] (0,0) -- (3,0);", r"\draw (0,0) -- (3,0);");
+    // the sides of a rectangle and the line that closes a path too, then closed
+    for body in [r"\draw[snake=zigzag] (0,0) rectangle (3,2);", r"\draw[snake=zigzag] (0,0) -- (3,2) -| cycle;", r"\draw[snake=zigzag] (0,0) -- (3,0) -- (3,2) -- cycle;"] {
+        let (items, _) = picture(body);
+        let s = &paths(&items)[0];
+        assert!(matches!(s.last(), Some(Segment::Close)), "{body}: {s:?}");
+        let p = ends(s);
+        assert!(p.len() > 30 && near(*p.last().unwrap(), 0.0, 0.0), "{body}: {p:?}");
+        assert!(p.iter().all(|q| q.y < 2.0 + 3.0 * PT), "{body}: {p:?}");
+    }
+    same(r"\draw[snake=zigzag] (0,0) rectangle node{} (3,2);", r"\draw[snake=zigzag] (0,0) rectangle (3,2);");
+    // a line after the path was closed starts from where it was closed
+    let (items, _) = picture(r"\draw[snake=zigzag] (0,0) -- (1,0) -- cycle -- (2,1);");
+    let s = &paths(&items)[0];
+    let after = s.iter().position(|x| matches!(x, Segment::Close)).unwrap();
+    let p = ends(&s[after + 1..]);
+    assert!(near(p[0], 0.0, 0.0) && near(*p.last().unwrap(), 2.0, 1.0) && p.len() > 5, "{s:?}");
 }

@@ -186,6 +186,18 @@ fn delimiters_beside_a_matrix() {
 }
 
 #[test]
+fn the_cells_style_is_not_the_delimiters() {
+    // `nodes={…}` is for the cells: a delimiter is not a 1 cm circle, which would put it half a
+    // centimeter further out
+    let it = items(r"\matrix[matrix of nodes, nodes={draw,circle,minimum size=1cm}, left delimiter=(] {a & b\\};");
+    let cell = it.iter().find_map(|i| if let Item::Path { segments, stroke: Some(_), .. } = i { Some(segments.clone()) } else { None }).unwrap();
+    let left = cell.iter().filter(|s| !matches!(s, Segment::Close)).map(|s| point(s).x).fold(f64::MAX, f64::min);
+    // the leftmost text is the delimiter's
+    let delimiter = it.iter().filter_map(|i| if let Item::Text { place, .. } = i { Some(place.e) } else { None }).fold(f64::MAX, f64::min);
+    assert!(delimiter < left && left - delimiter < 0.6, "the delimiter at {delimiter}, the cells from {left}");
+}
+
+#[test]
 fn pgfmath_results_with_units_are_in_points() {
     let p = paths(r"\pgfmathsetmacro\l{1cm} \draw (0,0) -- (\l pt,0);");
     assert!(near(point(&p[0][1]).minus(point(&p[0][0])), 1.0, 0.0), "{p:?}");
@@ -209,6 +221,65 @@ fn a_spy_shows_the_picture_magnified_and_clipped() {
     // the magnified line is centered on the node at (3,0): 2.5 right of the spied point
     assert!(near(b0.lerp(b1, 0.5).minus(a0.lerp(a1, 0.5)), 2.5, 0.0), "{lines:?}");
     assert!(it.iter().any(|i| matches!(i, Item::Clip { .. })));
+}
+
+#[test]
+fn a_spy_reads_its_point_when_the_scope_ends() {
+    // with the macros it names as they are then
+    let it =
+        picture("[spy using outlines={magnification=2,size=1cm}]", r"\def\k{-1} \fill (0,-1) circle (1pt); \fill (0,1) circle (1pt); \spy on (0,\k) in node at (3,0); \gdef\k{1}");
+    // the node on the point: a square of 0.5 cm around (0,1)
+    let on = it
+        .iter()
+        .find_map(|i| match i {
+            Item::Path { segments, stroke: Some(_), .. } if segments.len() == 5 => Some(segments.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let mid = first_point(&on).lerp(point(&on[2]), 0.5);
+    // 2 cm above the first dot, at (0,-1)
+    let dot = it.iter().find_map(|i| if let Item::Path { segments, fill: Some(_), .. } = i { Some(segments.clone()) } else { None }).unwrap();
+    let (lo, hi) = dot.iter().fold((Point::new(f64::MAX, f64::MAX), Point::new(f64::MIN, f64::MIN)), |(lo, hi), s| match s {
+        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => (Point::new(lo.x.min(p.x), lo.y.min(p.y)), Point::new(hi.x.max(p.x), hi.y.max(p.y))),
+        Segment::Close => (lo, hi),
+    });
+    assert!(near(mid.minus(lo.lerp(hi, 0.5)), 0.0, 2.0), "{on:?}");
+}
+
+#[test]
+fn a_functional_shading_is_sampled_under_its_path_only() {
+    // the path shows the middle of the shading's box: its 64 rows are there, not over the whole
+    // box, and each row's cells reach over the whole next row, which draws on them: no seam shows
+    // between rows thinner than a pixel
+    for shade in [r"\shade[shading=color wheel] (0,0) rectangle (5,5);", r"\shade[upper left=red,upper right=green,lower left=blue,lower right=yellow] (0,0) rectangle (5,5);"] {
+        let cells: Vec<(f64, f64)> = items(shade)
+            .iter()
+            .filter_map(|i| match i {
+                Item::Path { segments, fill: Some(f), .. } if matches!(f.paint, Paint::Solid(_)) => Some((first_point(segments).y, point(&segments[2]).y)),
+                _ => None,
+            })
+            .collect();
+        let mut starts: Vec<f64> = cells.iter().map(|c| c.0).collect();
+        starts.sort_by(f64::total_cmp);
+        starts.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        let row = 5.0 / 64.0;
+        assert!(starts.windows(2).all(|w| (w[1] - w[0] - row).abs() < 1e-6), "{shade}: {starts:?}");
+        let top = starts.last().unwrap() + row;
+        assert!(cells.iter().all(|&(y0, y1)| y1 - y0 > 2.0 * row - 1e-6 || (y1 - top).abs() < 1e-6), "{shade}: {cells:?}");
+    }
+}
+
+#[test]
+fn chainin_continues_with_after_node_path() {
+    // a join of one's own, as `after node path`: the edge from the previous node on the chain;
+    // given no value, its `#1` (`\pgfkeysnovalue`) is nothing
+    let it = items(
+        r"\tikzset{link/.code={\tikzset{after node path={(\tikzchainprevious) edge[->] #1 (\tikzchaincurrent)}}}}
+          \node (a) at (0,0) {A}; \node (b) at (2,0) {B}; \node (c) at (4,0) {C};
+          { [start chain] \chainin (a); \chainin (b) [link]; \chainin (c) [link={node[above] {x}}]; }",
+    );
+    let edges = it.iter().filter(|i| matches!(i, Item::Path { segments, stroke: Some(_), fill: None } if segments.len() == 2)).count();
+    assert_eq!(edges, 2, "{it:?}");
 }
 
 #[test]
