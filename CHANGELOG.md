@@ -4,9 +4,9 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
-## Unreleased
+## 1.8.0 - 2026-10-29
 
-Multi-line nodes on TeX's baseline, and path options and colors where TeX puts them.
+The figures of texample.net drawn as TeX draws them, the CircuiTikZ manual's last figures, multi-line nodes on TeX's baseline, and labels set by mathra 1.9.1.
 
 - `pin=\a:\a`, `label=\a:…`: an angle held in a macro (a `\foreach` variable) is expanded instead of ignored ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
 - A `to` path keeps the `+` reference point: after `to[…] +(2,0)`, `+(0,0)` is still the start ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
@@ -88,6 +88,9 @@ Multi-line nodes on TeX's baseline, and path options and colors where TeX puts t
 - The angle of `label=` and `pin=` may come from a macro (`label=\a+15:text`), instead of silently becoming 90 (#137).
 - `\draw[circle connection bar] (a) edge (b)` is outlined and `\fill[color,…]` fills it in that color; a mind map's edges stay filled with the concept colors (#138).
 - Labels are set by mathra 1.9.1: a slanted letter at the end of math gets its italic correction, as in TeX (`$V$`, `$f$` are wider), and italic text (`\itshape`, `\textit`, `\emph`) is mathra's italic text, without those corrections, as wide as TeX sets it (#143).
+- Our 100% (the figures a converter can reproduce) is 2480 of 2486, as in 1.7.0.
+
+**Matches TeX:** 2371 of 2502 figures of the manuals (94.8%).
 
 Figures: `labels-multiline` `labels-pins-quotes` `text-alignment-boxes`
 
