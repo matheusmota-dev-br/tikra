@@ -15,4 +15,4 @@ homepage = "https://github.com/matheusmota-dev-br/tikra"
 # the core's published name lives only here and in crates/core/Cargo.toml
 tikra = { path = "crates/core", version = "1.7.0" }
 # math labels are typeset by mathra; to work against a local checkout, see "Development" in the README
-mathra = { version = "1.8.0", features = ["latin-modern"] }
+mathra = { version = "1.9.1", features = ["latin-modern"] }

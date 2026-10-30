@@ -239,24 +239,33 @@ fn families(text: &str, all: Option<&str>, bold: bool, face: mathra::font::MathF
             }
             p.chars().map(|c| if c.is_ascii_digit() { char::from_u32(0x1D7E2 + (c as u32 - '0' as u32)).unwrap_or(c) } else { c }).collect()
         };
+        // italic as mathra's italic text: no italic correction between the letters nor after the
+        // words, as in TeX's text (math would put one after each letter that ends a list)
+        let run = |r: &str| -> String {
+            match family {
+                "mathit" => format!("\\text{{\\itshape {r}}}"),
+                "mathbfit" => format!("\\text{{\\bfseries\\itshape {r}}}"),
+                _ => format!("\\{family}{{{}}}", digits(r)),
+            }
+        };
         // letters and digits in the family; the rest (`-`, `,`, `.`) as text, or math would make a
         // hyphen a minus sign with space around it
         let word = |p: &str| -> String {
             let mut out = String::new();
-            let mut run = String::new();
+            let mut letters = String::new();
             for c in p.chars() {
                 if c.is_alphanumeric() {
-                    run.push(c);
+                    letters.push(c);
                     continue;
                 }
-                if !run.is_empty() {
-                    out.push_str(&format!("\\{family}{{{}}}", digits(&run)));
-                    run.clear();
+                if !letters.is_empty() {
+                    out.push_str(&run(&letters));
+                    letters.clear();
                 }
                 out.push_str(&format!("\\text{{{c}}}"));
             }
-            if !run.is_empty() {
-                out.push_str(&format!("\\{family}{{{}}}", digits(&run)));
+            if !letters.is_empty() {
+                out.push_str(&run(&letters));
             }
             out
         };
