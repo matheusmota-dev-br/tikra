@@ -29,6 +29,20 @@ fn relative_coordinates() {
 }
 
 #[test]
+fn current_point_is_local() {
+    // after the group, ++ counts from where it began, and the line goes on from where it ended
+    let t = first_path(r"\draw (2,0) -- ++(1,0) { [current point is local] -- ++(0,1) } -- ++(-1,0);");
+    assert_eq!(t.segments.iter().filter(|s| matches!(s, Segment::MoveTo(_))).count(), 1, "{:?}", t.segments);
+    let p = points(&t.segments);
+    assert!(close_to(p[2], (3.0, 1.0)) && close_to(p[3], (2.0, 0.0)), "{p:?}");
+    // also to a point given absolutely: one line from the group's last point
+    let t = first_path(r"\draw (0,-1) -- (1,-1) { [current point is local] (0,1) -- (1,1) } -- (2,2);");
+    assert!(matches!(t.segments.last(), Some(Segment::LineTo(_))), "{:?}", t.segments);
+    let p = points(&t.segments);
+    assert!(close_to(p[p.len() - 2], (1.0, 1.0)) && close_to(p[p.len() - 1], (2.0, 2.0)), "{p:?}");
+}
+
+#[test]
 fn polar_coordinates_with_and_without_unit() {
     let t = first_path(r"\draw (0,0) -- (90:2) -- (0:1cm);");
     let p = points(&t.segments);

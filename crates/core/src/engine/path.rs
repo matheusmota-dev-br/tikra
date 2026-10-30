@@ -586,16 +586,13 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 b.groups.push(b.current.clone());
             }
             Token::Char(_, Cat::End) => {
-                // `current point is local`: the path goes on from where the group began
+                // `current point is local`: relative points count again from where the group began,
+                // while the path goes on from where it ended
                 let local = e.st.current_point_local;
                 e.end_group();
                 if let Some(c) = b.groups.pop() {
                     if local {
-                        // the path goes on from there: a move, when the group went elsewhere
-                        match c {
-                            Some(c) if b.current.as_ref().is_some_and(|now| now.p != c.p) => b.move_to(c),
-                            c => b.current = c,
-                        }
+                        b.current = c;
                     }
                 }
             }
