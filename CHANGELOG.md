@@ -87,6 +87,7 @@ Multi-line nodes on TeX's baseline, and path options and colors where TeX puts t
 - pgfmath: an array of strings, `{"red","blue"}[1]`, gives its item (#136).
 - The angle of `label=` and `pin=` may come from a macro (`label=\a+15:text`), instead of silently becoming 90 (#137).
 - `\draw[circle connection bar] (a) edge (b)` is outlined and `\fill[color,…]` fills it in that color; a mind map's edges stay filled with the concept colors (#138).
+- Labels are set by mathra 1.9.1: a slanted letter at the end of math gets its italic correction, as in TeX (`$V$`, `$f$` are wider), and italic text (`\itshape`, `\textit`, `\emph`) is mathra's italic text, without those corrections, as wide as TeX sets it (#143).
 
 Figures: `labels-multiline` `labels-pins-quotes` `text-alignment-boxes`
 
