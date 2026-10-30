@@ -414,6 +414,10 @@ pub struct Engine {
     pub colors: HashMap<String, Color>,
     /// `\pagecolor`: the color of the page behind the figure
     page_color: Option<Color>,
+    /// `varwidth=…` of the `standalone` class: the widest the page gets (cm)
+    varwidth: Option<f64>,
+    /// the group depth inside `\begin{document}`, where a `\color` lasts to the page's end
+    document_depth: Option<usize>,
     scopes: Vec<PgfScope>,
     /// how many pictures are open (`tikzpicture` inside `tikzpicture` is a scope)
     pub picture_depth: usize,
@@ -615,6 +619,8 @@ impl Clone for Engine {
             nodes: self.nodes.clone(),
             colors: self.colors.clone(),
             page_color: self.page_color,
+            varwidth: self.varwidth,
+            document_depth: self.document_depth,
             scopes: self.scopes.clone(),
             picture_depth: self.picture_depth,
             pictures: self.pictures,
@@ -760,6 +766,8 @@ impl Engine {
             nodes: HashMap::new(),
             colors: HashMap::new(),
             page_color: None,
+            varwidth: None,
+            document_depth: None,
             scopes: Vec::new(),
             picture_depth: 0,
             pictures: 0,
@@ -1051,6 +1059,24 @@ impl Engine {
                 }
             }
             self.layout.push(if self.in_table() { Layout::Row } else { Layout::Break });
+            return Ok(());
+        }
+        if self.picture_depth == 0 && name == " " {
+            // `\ `: an interword space, also after a command that eats the spaces after it
+            self.layout.push(Layout::Space);
+            return Ok(());
+        }
+        if self.picture_depth == 0 && TEXT_STYLES.contains(&name) {
+            // `Ti\emph{k}Z`: set with the word it is in, as a node's text is
+            let arg = self.argument()?;
+            let text = format!("\\{name}{{{}}}", tex::tokens_to_string(&self.tex.expand_fully(arg)?));
+            match self.layout.last() {
+                Some(Layout::Word(i)) => self.words[*i].1.push_str(&text),
+                _ => {
+                    self.layout.push(Layout::Word(self.words.len()));
+                    self.words.push((self.st.font.clone(), text));
+                }
+            }
             return Ok(());
         }
         if self.picture_depth > 0 {
@@ -1678,6 +1704,13 @@ impl Engine {
                     self.st.fill_color = None;
                     self.st.text_color = None;
                 }
+                // a `\color` of the page's text, in no group: it is still on at the paragraph's end,
+                // and `varwidth` takes its whole width (a color's end is not text it can measure)
+                if let (0, Some(w), Some(d)) = (self.picture_depth, self.varwidth, self.document_depth) {
+                    if self.tex.group_depth() == d && !self.layout.contains(&Layout::Width(w)) {
+                        self.layout.push(Layout::Width(w));
+                    }
+                }
                 Ok(())
             }
             Cmd::Pgfqbox => {
@@ -2151,7 +2184,14 @@ impl Engine {
 
     fn standalone_options(&mut self, o: Vec<Token>) -> Result<(), Error> {
         for item in crate::keys::split_list(&o) {
-            if item.key == "border" {
+            if item.key == "varwidth" {
+                if let Some(v) = item.value {
+                    let s = self.tex.expand_to_string(v)?;
+                    if let Ok(w) = self.length(s.trim()) {
+                        self.varwidth = Some(w);
+                    }
+                }
+            } else if item.key == "border" {
                 if let Some(v) = item.value {
                     let s = self.tex.expand_to_string(v)?;
                     let first = s.split_whitespace().next().unwrap_or("0pt").to_string();
@@ -2638,6 +2678,9 @@ impl Engine {
                     let _ = self.optional()?;
                 }
                 self.begin_group();
+                if name == "document" {
+                    self.document_depth = Some(self.tex.group_depth());
+                }
                 Ok(())
             }
             _ => {
@@ -3096,6 +3139,10 @@ pub fn foreach_items(list: &[Token]) -> Vec<Vec<Token>> {
     }
     out
 }
+
+/// The text commands that change the style of their argument, set in the text around the pictures
+/// as in a node's text.
+const TEXT_STYLES: &[&str] = &["emph", "textit", "textbf", "textsl", "textsc", "texttt", "textsf", "textrm", "textup", "textmd", "textnormal"];
 
 /// TeX's interword space and line spacing for Computer Modern at 10 pt, in cm.
 const SPACE: f64 = 3.33333 * crate::PT;

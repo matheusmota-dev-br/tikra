@@ -238,12 +238,28 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         from_node: None,
         fresh_link: false,
     };
+    let (color, dash, start) = (e.st.stroke_color(), e.st.dash.clone(), e.canvas.items.len());
     operations(e, &mut b, None)?;
     if b.current.is_some() {
         e.last_xy = b.point();
     }
     // a node left between an operation and a target that never came
     place_mid_nodes(e, &mut b, None)?;
+    // options in the middle of the path (`[dashed, red]`) are the whole path's: TeX draws its nodes
+    // after it, with its final color and dashes where they have their own none
+    if (e.st.stroke_color(), &e.st.dash) != (color, &dash) {
+        let (to_color, to_dash) = (e.st.stroke_color(), e.st.dash.clone());
+        for item in e.canvas.items[start..].iter_mut().chain(b.node_items.iter_mut()) {
+            if let crate::canvas::Item::Path { stroke: Some(st), .. } = item {
+                if st.color == color {
+                    st.color = to_color;
+                }
+                if st.dash == dash {
+                    st.dash = to_dash.clone();
+                }
+            }
+        }
+    }
     let mut segs = std::mem::take(&mut b.segs);
     // a move to a node waits for the next point, which tells it where on the border to start
     // (`\tikz@moveto@waiting`): alone (`\draw (a) edge (b);`), it never reaches the path
@@ -544,7 +560,17 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
             }
             Token::Char('[', _) => {
                 let o = e.tex.read_until_char(']', false)?;
+                let before = (e.st.color, e.st.draw_color, e.st.fill_color, e.st.text_paint_color());
                 e.process_keys(o, Some("/tikz"))?;
+                // in a `{…}` group of the path, a color is only the text's: the path, and the nodes'
+                // lines and fills, keep the path's (`{[red] to[V=1] (0,2)}` has its label red)
+                if !b.groups.is_empty() && (e.st.color, e.st.draw_color, e.st.fill_color) != (before.0, before.1, before.2) {
+                    let text = e.st.text_paint_color();
+                    (e.st.color, e.st.draw_color, e.st.fill_color) = (before.0, before.1, before.2);
+                    if text != before.3 {
+                        e.st.text_color = Some(text);
+                    }
+                }
                 e.st.apply_pending();
                 insert_path(e);
             }
@@ -565,7 +591,11 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 e.end_group();
                 if let Some(c) = b.groups.pop() {
                     if local {
-                        b.current = c;
+                        // the path goes on from there: a move, when the group went elsewhere
+                        match c {
+                            Some(c) if b.current.as_ref().is_some_and(|now| now.p != c.p) => b.move_to(c),
+                            c => b.current = c,
+                        }
                     }
                 }
             }
@@ -1222,6 +1252,8 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
     if let Some(s) = b.to_start.take() {
         b.move_to(s);
     }
+    // what the target set for a `+(…)` after it: a user's to path, whatever its points, does not change it
+    let relative_base = b.relative_base;
     e.begin_group();
     e.st.quotes_on_path = true;
     e.st.quoted.clear();
@@ -1237,6 +1269,7 @@ fn to(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord) -> Result<(),
         run_hook(e, "tikz@atend@to")
     })();
     e.end_group();
+    b.relative_base = relative_base;
     res
 }
 

@@ -1482,6 +1482,18 @@ impl Engine {
                 (k, _) => self.warn(format!("image option '{k}' ignored")),
             }
         }
+        // the `mwe` package's placeholder, which documents load as if it were a file of theirs
+        if file.trim().trim_end_matches(".pdf") == "example-image-a" {
+            let bp = 2.54 / 72.0;
+            let (nw, nh) = (320.0 * bp, 240.0 * bp);
+            let (w, h) = match (width, height) {
+                (Some(w), Some(h)) => (w, h),
+                (Some(w), None) => (w, w * nh / nw),
+                (None, Some(h)) => (h * nw / nh, h),
+                (None, None) => (nw * scale, nh * scale),
+            };
+            return Ok(Some((self.example_image(w, h), Point::default(), Point::new(w, h))));
+        }
         let image = graphics::load_png(&file);
         let natural = image.as_ref().map(|(_, n)| *n).ok();
         let (w, h) = match (width, height, natural) {
@@ -1497,6 +1509,43 @@ impl Engine {
             Err(m) => self.warn(format!("image not drawn: {m}")),
         }
         Ok(Some((drawn, Point::default(), Point::new(w, h))))
+    }
+
+    /// `example-image-a` of the `mwe` package, `w` by `h` from the origin: as its PDF draws it on
+    /// its 320 by 240 bp, a 75% gray box with its diagonals and middle lines in 60% gray, a frame
+    /// and a 160 bp Latin Modern Sans `A`.
+    fn example_image(&mut self, w: f64, h: f64) -> Vec<Item> {
+        // cm per bp of the image
+        let (sx, sy) = (w / 320.0, h / 240.0);
+        let p = |x: f64, y: f64| Point::new(x * sx, y * sy);
+        let rect = |inset: f64| {
+            vec![
+                Segment::MoveTo(p(inset, inset)),
+                Segment::LineTo(p(inset, 240.0 - inset)),
+                Segment::LineTo(p(320.0 - inset, 240.0 - inset)),
+                Segment::LineTo(p(320.0 - inset, inset)),
+                Segment::Close,
+            ]
+        };
+        let base = self.stroke();
+        let stroke = |gray: f64, width: f64| Stroke { color: crate::color::Color::gray(gray), width: width * sx, dash: None, ..base.clone() };
+        let lines = [(0.0, 0.0, 320.0, 240.0), (320.0, 0.0, 0.0, 240.0), (160.0, 0.0, 160.0, 240.0), (0.0, 120.0, 320.0, 120.0)];
+        let mut items = vec![
+            Item::Path { segments: rect(0.0), fill: Some(Fill { paint: Paint::Solid(crate::color::Color::gray(0.75)), opacity: 1.0, even_odd: false }), stroke: None },
+            Item::Path {
+                segments: lines.iter().flat_map(|&(a, b, c, d)| [Segment::MoveTo(p(a, b)), Segment::LineTo(p(c, d))]).collect(),
+                fill: None,
+                stroke: Some(stroke(0.6, 0.79701)),
+            },
+            // (its 1.59404 bp frame is clipped to the box: the inner half)
+            Item::Path { segments: rect(0.39851), fill: None, stroke: Some(stroke(0.0, 0.79702)) },
+        ];
+        let mut warnings = Vec::new();
+        let label = label::compose_label("A", "\\sffamily", None, 'l', crate::color::Color::BLACK, &mut warnings);
+        // 160 bp, from the 10 pt the label is set in
+        let k = 160.0 * sx / (10.0 * PT);
+        items.push(Item::Text { label, place: Transform { a: k, b: 0.0, c: 0.0, d: k, e: 110.042 * sx, f: 63.623 * sy }, opacity: 1.0 });
+        items
     }
 
     fn inline_colors(&mut self, text: &str) -> String {

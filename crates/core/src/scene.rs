@@ -118,6 +118,9 @@ pub struct Label {
     pub skips: Vec<f64>,
     /// The font its glyphs are of.
     pub font: mathra::font::MathFont,
+    /// How far the label's baseline is below its first line's, in cm: TeX's box of several lines
+    /// sits on its last line's baseline (or around the math axis, a `tabular`).
+    pub lift: f64,
 }
 
 impl Label {
@@ -125,7 +128,7 @@ impl Label {
         self.lines.iter().map(|c| c.width).fold(0.0f32, f32::max) as f64 * self.scale
     }
     pub fn height(&self) -> f64 {
-        self.lines.first().map_or(0.0, |c| c.height as f64 * self.scale)
+        self.lines.first().map_or(0.0, |c| c.height as f64 * self.scale) + self.lift
     }
     pub fn depth(&self) -> f64 {
         let n = self.lines.len();
@@ -136,6 +139,6 @@ impl Label {
     }
     /// Where line `k`'s baseline is, from the first's (cm, y up: 0 or less).
     pub fn baseline(&self, k: usize) -> f64 {
-        -(k as f64 * self.line_height + self.skips.iter().take(k).sum::<f64>())
+        self.lift - (k as f64 * self.line_height + self.skips.iter().take(k).sum::<f64>())
     }
 }

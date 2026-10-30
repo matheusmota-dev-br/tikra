@@ -6,6 +6,16 @@ Each release has a headline (the line under its title), what changed, and the fi
 
 ## Unreleased
 
+Multi-line nodes on TeX's baseline, and path options and colors where TeX puts them.
+
+- `pin=\a:\a`, `label=\a:…`: an angle held in a macro (a `\foreach` variable) is expanded instead of ignored ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- A `to` path keeps the `+` reference point: after `to[…] +(2,0)`, `+(0,0)` is still the start ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- In the text around pictures: `\emph`, `\textit` and the like, the control space `\ `, and `\pgfversion` (3.1.12) ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- `\pgfuseimage` and `\includegraphics` of mwe's `example-image-a` draw TeX Live's placeholder ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- A color set inside a path's `{…}` group colors only its text; options in the middle of a path (`[dashed, red]`) also apply to the nodes drawn earlier on it; leaving a `current point is local` group moves back to where it began ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- standalone's `varwidth=`: a `\color` at the document's top level makes the page that wide, as TeX does ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- A node's lines (`align=`) sit on the last line's baseline, as TeX's `\vbox` does (in a `text width`, on the first), and a `tabular` on the math axis; `@{}` next to a column of a tabular takes its `\tabcolsep` away ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
+- Code that builds a `scene::Label` listing every field needs the new `lift` ([#112](https://github.com/matheusmota-dev-br/tikra/issues/112)).
 - xcolor's named color sets: every color of the dvipsnames (`BrickRed`, `MidnightBlue`), svgnames (`DimGray`, `Gold`) and x11names (`Red3`, `Gold2`), with the values TeX gives them. A set loaded with `\usepackage[…]{xcolor}`, a class option or `\PassOptionsToPackage{…}{xcolor}` defines its colors over those before it, as in xcolor (`Gray` is the svgnames' after `[dvipsnames,svgnames]`); in a document that loads no set, where TeX stops on the name, the name is still drawn, the dvipsnames' first (#56).
 - `\xdefinecolor` defines a color as `\definecolor` does (#57).
 - `\the<counter>` of a `\newcounter` is the counter's value, as LaTeX prints it: in an expression (`(\thea/100*360:1)`), a color (`red!\thedensity`) and a node's text (#66).
@@ -77,6 +87,8 @@ Each release has a headline (the line under its title), what changed, and the fi
 - pgfmath: an array of strings, `{"red","blue"}[1]`, gives its item (#136).
 - The angle of `label=` and `pin=` may come from a macro (`label=\a+15:text`), instead of silently becoming 90 (#137).
 - `\draw[circle connection bar] (a) edge (b)` is outlined and `\fill[color,…]` fills it in that color; a mind map's edges stay filled with the concept colors (#138).
+
+Figures: `labels-multiline` `labels-pins-quotes` `text-alignment-boxes`
 
 ## 1.7.0 - 2026-10-29
 

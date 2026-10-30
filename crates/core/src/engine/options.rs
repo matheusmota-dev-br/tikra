@@ -2512,6 +2512,7 @@ const DEFINITIONS: &str = r"
 \def\tikra@setstyle#1#2=[#3]#4\tikra@stop{\def\tikra@temp{#2}\ifx\tikra@temp\pgfutil@empty\pgfkeysalso{#1/.style={#3}}\else\pgfkeysalso{#1/.append style={#3}}\fi}
 \tikzset{set style/.code={\tikra@setstyle#1\tikra@stop}}
 \def\pgfmathsetseed#1{\pgfmathparse{#1}\tikra@setseed{\pgfmathresult}}
+\def\pgfversion{3.1.12}
 \def\pgfmathrand{\pgfmathparse{rand}}\def\pgfmathrnd{\pgfmathparse{rnd}}
 \def\pgfmathrandominteger#1#2#3{\pgfmathtruncatemacro#1{random(#2,#3)}}
 \def\pgfmathrandomitem#1#2{\pgfmathtruncatemacro\tikra@rl{random(\csname pgfmath@randomlist@#2\endcsname)}\edef#1{\expandafter\noexpand\csname pgfmath@randomlist@#2@\tikra@rl\endcsname}}
