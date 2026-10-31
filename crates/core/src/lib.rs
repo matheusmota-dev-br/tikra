@@ -87,11 +87,15 @@ pub struct Options {
     /// The animations library played in a browser, with SMIL, `begin on=click` included, instead of
     /// the still picture TikZ would give. A PNG stays still. Off by default.
     pub play: bool,
+    /// Each bar and mark of a plot is an element of its own, with its values (`data-x`, `data-y`) and
+    /// a tip for the mouse and the keyboard; with the animation, the bars grow one by one. Off by
+    /// default.
+    pub points: bool,
 }
 
 impl Options {
     pub fn locale(locale: Locale) -> Options {
-        Options { locale, animate: false, steps: false, source: false, parts: false, play: false }
+        Options { locale, animate: false, steps: false, source: false, parts: false, play: false, points: false }
     }
 
     /// These options, with the construction animation.
@@ -107,6 +111,11 @@ impl Options {
     /// These options, with each element numbered by its step and tied to the code that drew it.
     pub fn source(self) -> Options {
         Options { source: true, ..self }
+    }
+
+    /// These options, with each point of a plot an element of its own.
+    pub fn points(self) -> Options {
+        Options { points: true, ..self }
     }
 
     /// These options, with the animations library played.
@@ -228,7 +237,8 @@ fn convert_slide(code: &str, options: &Options, libraries: &[&'static extension:
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
     let wrapped = usize::from(wrapped);
-    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, engine::Run { map: options.source || options.parts, slide, play: options.play })?;
+    let (mut canvas, warnings, facts) =
+        engine::run_document_mapped(&input, libraries, engine::Run { map: options.source || options.parts, slide, play: options.play, points: options.points })?;
     for s in &mut canvas.sources {
         s.first.0 = s.first.0.saturating_sub(wrapped).max(1);
         s.last.0 = s.last.0.saturating_sub(wrapped).max(1);

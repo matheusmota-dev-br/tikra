@@ -435,6 +435,10 @@ pub struct Engine {
     pub pauses: usize,
     /// The animations library is played, not shown still.
     pub play: bool,
+    /// Each bar and mark of a plot is an element of its own, with its values.
+    pub points: bool,
+    /// The values of the plot's points, by where they are on the canvas.
+    pub point_values: HashMap<(i64, i64), (String, String)>,
     /// The animations read for the object being drawn, what they turn around, and the group depths
     /// of the scopes with animations.
     pub animations: Vec<crate::canvas::Animation>,
@@ -657,6 +661,8 @@ impl Clone for Engine {
             slides: self.slides,
             pauses: self.pauses,
             play: self.play,
+            points: self.points,
+            point_values: self.point_values.clone(),
             animations: self.animations.clone(),
             animation_center: self.animation_center,
             animated_scopes: self.animated_scopes.clone(),
@@ -828,6 +834,8 @@ impl Engine {
             slides: 1,
             pauses: 1,
             play: false,
+            points: false,
+            point_values: HashMap::new(),
             animations: Vec::new(),
             animation_center: None,
             animated_scopes: Vec::new(),
@@ -3670,6 +3678,8 @@ pub struct Run {
     pub slide: usize,
     /// The animations library played, not shown still.
     pub play: bool,
+    /// Each bar and mark of a plot an element of its own, with its values.
+    pub points: bool,
 }
 
 /// [`run_document_with`], as `run` says.
@@ -3677,6 +3687,7 @@ pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::L
     let mut e = Engine::with_libraries(libraries);
     e.slide = run.slide.max(1);
     e.play = run.play;
+    e.points = run.points;
     let map = run.map;
     crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise

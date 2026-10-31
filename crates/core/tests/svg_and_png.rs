@@ -430,6 +430,44 @@ mod played {
     }
 }
 
+mod points {
+    use tikra::{convert, convert_with, Options};
+
+    const BARS: &str = "\\begin{tikzpicture}\\begin{axis}[ybar]\\addplot coordinates {(1,2) (2,5) (3,-3)};\\end{axis}\\end{tikzpicture}";
+    const MARKS: &str = "\\begin{tikzpicture}\\begin{axis}\\addplot[mark=*] coordinates {(1,2.5) (2,5)};\\end{axis}\\end{tikzpicture}";
+
+    #[test]
+    fn each_bar_is_its_own_with_its_values() {
+        let svg = convert_with(BARS, &Options::default().points()).unwrap().svg;
+        assert_eq!(svg.matches(r#"class="tr-point""#).count(), 3, "{svg}");
+        assert!(svg.contains(r#"tabindex="0" aria-label="2, 5" data-x="2" data-y="5""#), "{svg}");
+        assert!(svg.contains(r#"data-x="3" data-y="-3""#));
+        assert!(svg.contains(r#"<text class="tr-tip""#) && svg.contains(".tr-point:focus .tr-tip"));
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn each_mark_is_its_own_with_its_values() {
+        let svg = convert_with(MARKS, &Options::default().points()).unwrap().svg;
+        assert!(svg.contains(r#"data-x="1" data-y="2.5""#) && svg.contains(r#"data-x="2" data-y="5""#), "{svg}");
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn with_the_animation_bars_grow_from_their_base() {
+        let svg = convert_with(BARS, &Options::default().points().animated()).unwrap().svg;
+        assert!(svg.contains(r#"class="tr-up""#) && svg.contains(r#"class="tr-down""#) && svg.contains("@keyframes tr-gy"), "{svg}");
+        assert_eq!(svg.matches(r#"class="tr-up""#).count(), 2);
+    }
+
+    #[test]
+    fn the_bars_are_drawn_the_same() {
+        let (points, plain) = (convert_with(BARS, &Options::default().points()).unwrap().svg, convert(BARS).unwrap().svg);
+        assert!(!plain.contains("tr-point"));
+        assert_eq!(tikra::png(&points, 96.0, true).unwrap(), tikra::png(&plain, 96.0, true).unwrap());
+    }
+}
+
 #[cfg(feature = "motion")]
 mod motion {
     use tikra::motion::{apng, gif, Motion};

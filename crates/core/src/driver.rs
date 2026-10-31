@@ -7,7 +7,7 @@ use std::fmt::Write;
 use mathra::font::{GlyphId, MathFont};
 use mathra::layout::Item as MathItem;
 
-use crate::canvas::{Animation, Canvas, Cap, Fill, Item, Join, Moving, Paint, Shading, SourceSpan, Stroke};
+use crate::canvas::{Animation, Canvas, Cap, DataPoint, Fill, Item, Join, Moving, Paint, Shading, SourceSpan, Stroke};
 use crate::scene::{Label, Point, Segment, Transform};
 
 /// Big points per centimeter.
@@ -419,6 +419,13 @@ struct Steps {
     depth: usize,
     moving: Vec<Moves>,
     animated: usize,
+    /// The points open, by their depth, with the tip each ends with.
+    point_tips: Vec<(usize, String)>,
+    /// The points of the next path, if it is bars, and whether they stand up.
+    bars: Option<(Vec<DataPoint>, bool)>,
+    /// Bars or marks were written: the SVG needs its rules.
+    has_points: bool,
+    has_bars: bool,
 }
 
 /// A group of `Item::Animated` being drawn: its depth, the `</g>`s beyond its own, and what each
@@ -428,6 +435,34 @@ struct Moves {
     closes: usize,
     id: String,
     animations: Vec<Animation>,
+}
+
+/// The start of a point's group: focusable, with its values for a page, a reader and its tip.
+fn point_open(p: &DataPoint) -> String {
+    let (x, y) = (escape(&p.x), escape(&p.y));
+    format!(r#"<g class="tr-point" tabindex="0" aria-label="{x}, {y}" data-x="{x}" data-y="{y}">"#)
+}
+
+/// A point's tip, over where it is: hidden until the point is under the mouse or has the focus.
+fn point_tip(p: &DataPoint) -> String {
+    format!(r#"<text class="tr-tip" x="{}" y="{}">{}, {}</text>"#, n(p.at.x * BP), n(-p.at.y * BP - 4.0), escape(&p.x), escape(&p.y))
+}
+
+/// The class a bar grows with: from its base, toward its value.
+fn bar_class(p: &DataPoint, vertical: bool) -> &'static str {
+    let down = p.x.starts_with('-') && !vertical || p.y.starts_with('-') && vertical;
+    match (vertical, down) {
+        (true, false) => "tr-up",
+        (true, true) => "tr-down",
+        (false, false) => "tr-right",
+        (false, true) => "tr-left",
+    }
+}
+
+/// The path's subpaths, each its own.
+fn subpaths(segments: &[Segment]) -> Vec<&[Segment]> {
+    let starts: Vec<usize> = segments.iter().enumerate().filter(|(_, s)| matches!(s, Segment::MoveTo(_))).map(|(i, _)| i).collect();
+    starts.iter().enumerate().map(|(k, &a)| &segments[a..starts.get(k + 1).copied().unwrap_or(segments.len())]).collect()
 }
 
 /// An animation as an SVG element: on the object with the id `id` if it waits for an event.
@@ -493,7 +528,22 @@ fn animate_element(body: &mut String, at: usize, moving: &[Moves]) {
 impl Steps {
     /// For what is not drawn in place: a pattern's tile, a mask.
     fn off() -> Steps {
-        Steps { on: false, animate: false, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false, depth: 0, moving: Vec::new(), animated: 0 }
+        Steps {
+            on: false,
+            animate: false,
+            count: 0,
+            source: String::new(),
+            part: None,
+            told: HashSet::new(),
+            open: false,
+            depth: 0,
+            moving: Vec::new(),
+            animated: 0,
+            point_tips: Vec::new(),
+            bars: None,
+            has_points: false,
+            has_bars: false,
+        }
     }
 
     /// The attributes of the next step: its number and, animated, a stroke drawn along its length
@@ -545,12 +595,31 @@ impl Steps {
 
     /// The animation's rules: all the steps within about six seconds, however many there are.
     fn style(&self) -> String {
+        let tips = if self.has_points {
+            "<style>.tr-tip{visibility:hidden;font:7px sans-serif;text-anchor:middle;fill:#15120E;stroke:#fff;stroke-width:2px;paint-order:stroke}\
+             .tr-point:hover .tr-tip,.tr-point:focus .tr-tip{visibility:visible}\
+             .tr-point:focus{outline:1px solid currentColor}</style>"
+        } else {
+            ""
+        };
         if !self.animate || self.count == 0 {
-            return String::new();
+            return tips.to_string();
         }
         let step = (6.0 / self.count as f64).min(0.25);
+        let bars = if self.has_bars {
+            format!(
+                "<style>@keyframes tr-gy{{from{{transform:scaleY(0)}}}}@keyframes tr-gx{{from{{transform:scaleX(0)}}}}\
+                 .tr-up,.tr-down,.tr-left,.tr-right{{transform-box:fill-box;animation-duration:.6s;animation-timing-function:ease-out;animation-fill-mode:both;animation-delay:calc(var(--i)*{}s)}}\
+                 .tr-up,.tr-down{{animation-name:tr-gy}}.tr-left,.tr-right{{animation-name:tr-gx}}\
+                 .tr-up{{transform-origin:50% 100%}}.tr-down{{transform-origin:50% 0}}.tr-right{{transform-origin:0 50%}}.tr-left{{transform-origin:100% 50%}}\
+                 @media (prefers-reduced-motion:reduce){{.tr-up,.tr-down,.tr-left,.tr-right{{animation:none}}}}</style>",
+                num(step, 4)
+            )
+        } else {
+            String::new()
+        };
         format!(
-            "<style>@keyframes tr-d{{from{{stroke-dashoffset:1.01;fill-opacity:0}}70%{{stroke-dashoffset:0;fill-opacity:0}}}}\
+            "{tips}{bars}<style>@keyframes tr-d{{from{{stroke-dashoffset:1.01;fill-opacity:0}}70%{{stroke-dashoffset:0;fill-opacity:0}}}}\
              @keyframes tr-f{{from{{opacity:0}}}}\
              .tr-d{{stroke-dasharray:1 2;animation:tr-d .9s ease-in-out both}}\
              .tr-f{{animation:tr-f .45s ease-out both}}\
@@ -636,7 +705,7 @@ fn seams(items: &[Item]) -> HashMap<usize, (Vec<(Point, Point)>, f64)> {
                 let inside = Point { x: (min.0 + max.0) / 2.0, y: (min.1 + max.1) / 2.0 };
                 fills.push(Side { item: i, place, edges, narrow: (max.0 - min.0).min(max.1 - min.1), inside });
             }
-            Item::Path { .. } | Item::Text { .. } | Item::Image { .. } | Item::Source(_) => {}
+            Item::Path { .. } | Item::Text { .. } | Item::Image { .. } | Item::Source(_) | Item::Bars { .. } => {}
             _ => place += 1,
         }
     }
@@ -698,7 +767,10 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
         } else if !matches!(item, Item::Path { .. }) {
             steps.leave(body);
         }
-        if matches!(item, Item::Clip { .. } | Item::Group { .. } | Item::Crisp | Item::Blend { .. } | Item::Transform { .. } | Item::Fade { .. } | Item::FadePicture { .. }) {
+        if matches!(
+            item,
+            Item::Clip { .. } | Item::Group { .. } | Item::Crisp | Item::Blend { .. } | Item::Transform { .. } | Item::Fade { .. } | Item::FadePicture { .. } | Item::Point(_)
+        ) {
             steps.depth += 1;
         }
         let at = body.len();
@@ -709,7 +781,7 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                         break 'item;
                     }
                     let d = path_data(segments);
-                    if let (Some((edges, width)), Some(f @ Fill { paint: Paint::Solid(c), .. })) = (seams.get(&i), fill) {
+                    if let (Some((edges, width)), Some(f @ Fill { paint: Paint::Solid(c), .. })) = (seams.get(&i).filter(|_| steps.bars.is_none()), fill) {
                         let fa = fill_attributes(f, defs);
                         let seam: Vec<Segment> = edges.iter().flat_map(|(a, b)| [Segment::MoveTo(*a), Segment::LineTo(*b)]).collect();
                         let _ = write!(
@@ -759,6 +831,18 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                         let _ = write!(a, r#" opacity="{}""#, n(o.max(0.0)));
                     }
                     let dashed = a.contains("stroke-dasharray");
+                    if let Some((points, vertical)) = steps.bars.take() {
+                        let parts = subpaths(segments);
+                        if parts.len() == points.len() {
+                            steps.has_points = true;
+                            steps.has_bars = true;
+                            for (part, p) in parts.iter().zip(&points) {
+                                let step = steps.next(false).replace(r#"class="tr-f""#, &format!(r#"class="{}""#, bar_class(p, vertical)));
+                                let _ = write!(body, r#"{}<path d="{}"{a}{step}/>{}</g>"#, point_open(p), path_data(part), point_tip(p));
+                            }
+                            break 'item;
+                        }
+                    }
                     a.push_str(&steps.next(stroke.is_some() && !dashed));
                     let _ = write!(body, r#"<path d="{d}"{a}/>"#);
                 }
@@ -825,7 +909,18 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                         base64(png)
                     );
                 }
+                Item::Point(p) => {
+                    steps.has_points = true;
+                    body.push_str(&point_open(p));
+                    steps.point_tips.push((steps.depth, point_tip(p)));
+                }
+                Item::Bars { points, vertical } => steps.bars = Some((points.clone(), *vertical)),
                 Item::End => {
+                    if steps.point_tips.last().is_some_and(|t| t.0 == steps.depth) {
+                        if let Some((_, tip)) = steps.point_tips.pop() {
+                            body.push_str(&tip);
+                        }
+                    }
                     body.push_str("</g>");
                     if steps.moving.last().is_some_and(|m| m.depth == steps.depth) {
                         if let Some(m) = steps.moving.pop() {
@@ -917,8 +1012,22 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     }
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
-    let mut steps =
-        Steps { on: steps || animate, animate, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false, depth: 0, moving: Vec::new(), animated: 0 };
+    let mut steps = Steps {
+        on: steps || animate,
+        animate,
+        count: 0,
+        source: String::new(),
+        part: None,
+        told: HashSet::new(),
+        open: false,
+        depth: 0,
+        moving: Vec::new(),
+        animated: 0,
+        point_tips: Vec::new(),
+        bars: None,
+        has_points: false,
+        has_bars: false,
+    };
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps, &canvas.sources, &canvas.parts);
     glyphs.append(&mut defs.glyphs);
     let mut seen = HashSet::new();

@@ -96,3 +96,9 @@ def test_animations_played():
     figure = r"\usetikzlibrary{animations}\tikz \fill[red] :fill = {0s=\"red\", 1s=\"blue\"} (0,0) circle (1pt);".replace('\\"', '"')
     assert "<animate" in tikra.tikz_to_svg(figure, play=True)
     assert "<animate" not in tikra.tikz_to_svg(figure)
+
+
+def test_points():
+    figure = r"\begin{tikzpicture}\begin{axis}[ybar]\addplot coordinates {(1,2) (2,5)};\end{axis}\end{tikzpicture}"
+    assert 'data-x="2" data-y="5"' in tikra.tikz_to_svg(figure, points=True)
+    assert "tr-point" not in tikra.tikz_to_svg(figure)

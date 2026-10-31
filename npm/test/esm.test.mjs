@@ -77,3 +77,9 @@ test("the animations library played", () => {
   assert.match(tikzToSvg(figure, { play: true }), /<animate /);
   assert.doesNotMatch(tikzToSvg(figure), /<animate/);
 });
+
+test("each point of a plot an element of its own", () => {
+  const figure = String.raw`\begin{tikzpicture}\begin{axis}[ybar]\addplot coordinates {(1,2) (2,5)};\end{axis}\end{tikzpicture}`;
+  assert.match(tikzToSvg(figure, { points: true }), /data-x="2" data-y="5"/);
+  assert.doesNotMatch(tikzToSvg(figure), /tr-point/);
+});
