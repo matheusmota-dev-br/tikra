@@ -1,0 +1,34 @@
+# A real VoiceOver reads a figure made with `--parts`: what a screen reader's user would hear.
+name: voiceover
+
+on:
+  pull_request:
+    paths: ["crates/core/src/describe.rs", "crates/core/src/driver.rs", "tools/voiceover/**", ".github/workflows/voiceover.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  walk:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: guidepup/setup-action@0.21.0
+      - run: cargo build --release -p tikra-cli
+      - run: |
+          mkdir -p out
+          target/release/tikra examples/walk.tex --parts -o out/walk.svg
+          { echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Figure</title></head><body><main><h1>Figure</h1>'; cat out/walk.svg; echo '</main></body></html>'; } > out/walk.html
+      - run: npm install --no-save --prefix tools/voiceover @guidepup/guidepup@0.39.0
+      - run: node tools/voiceover/walk.mjs "$PWD/out/walk.html" out/spoken.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voiceover
+          path: out
