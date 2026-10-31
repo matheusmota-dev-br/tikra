@@ -46,3 +46,9 @@ fn the_narration_example_is_silent_on_the_free_line() {
     assert!(out.parts.iter().any(|p| p.sentence.contains("Sun")), "{:?}", out.parts);
     assert!(out.parts.iter().any(|p| p.sentence.is_empty()), "{:?}", out.parts);
 }
+
+#[test]
+fn the_play_example_waits_for_a_click() {
+    let svg = convert_with(&example("play"), &Options::default().play()).unwrap().svg;
+    assert!(svg.contains(".click+0s") && svg.contains(r#"repeatCount="indefinite""#), "{svg}");
+}
