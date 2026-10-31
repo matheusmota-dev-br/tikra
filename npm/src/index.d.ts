@@ -8,7 +8,7 @@ export interface Result {
   /** What was ignored or approximated: unsupported commands, labels with broken LaTeX. */
   warnings: string[];
   /** With `source` or `parts`: what each statement drew, in words, and its place in the code. Otherwise empty. */
-  parts: { source: string; text: string }[];
+  parts: { source: string; text: string; sentence: string }[];
 }
 
 /** mathra's languages: the figure in words (`alt`, `description`) is told in them; the drawing is the same. */

@@ -251,13 +251,24 @@ fn each_thing_drawn_is_a_part_with_its_words() {
 }
 
 #[test]
+fn a_step_has_a_sentence_or_nothing() {
+    let code = "\\begin{tikzpicture}\n\\node (a) at (0,0) {Start};\n\\node (b) at (3,0) {End};\n\\draw[->] (a) -- (b);\n\\draw (0,1) -- (1,1);\n\\end{tikzpicture}";
+    let r = tikra::convert_with(code, &tikra::Options::default().source()).unwrap();
+    let said: Vec<&str> = r.parts.iter().map(|p| p.sentence.as_str()).collect();
+    assert_eq!(said, ["Text in the figure: Start.", "Text in the figure: End.", "Connections: from Start to End.", ""]);
+    let pt = tikra::convert_with(code, &tikra::Options::locale("pt-BR".parse().unwrap()).source()).unwrap();
+    assert!(pt.parts[2].sentence.contains("Start") && pt.parts[2].sentence != r.parts[2].sentence, "{}", pt.parts[2].sentence);
+}
+
+#[test]
 fn the_parts_are_told_in_every_language() {
     let code = "\\begin{tikzpicture}\\node (a) {A};\\node (b) at (2,0) {B};\\draw[->] (a) -- (b);\\draw (0,1) -- (1,1);\\end{tikzpicture}";
     for code_of in ["en", "pt-BR", "es", "fr", "de", "it", "ru", "zh", "ja", "ko", "hi", "ar", "id", "tr", "nl", "pl"] {
         let locale = code_of.parse().unwrap();
         let r = tikra::convert_with(code, &tikra::Options::locale(locale).parts()).unwrap();
         assert_eq!(r.parts.len(), 4, "{code_of}");
-        assert!(r.parts.iter().all(|p| !p.text.trim().is_empty() && !p.text.contains('{')), "{code_of}: {:?}", r.parts);
+        assert!(r.parts.iter().all(|p| !p.text.trim().is_empty() && !p.text.contains('{') && !p.sentence.contains('{')), "{code_of}: {:?}", r.parts);
+        assert!(r.parts[..3].iter().all(|p| !p.sentence.is_empty()), "{code_of}: {:?}", r.parts);
     }
 }
 

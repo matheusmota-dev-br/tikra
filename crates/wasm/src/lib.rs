@@ -19,7 +19,7 @@ fn options(locale: Option<String>, animate: Option<bool>, steps: Option<bool>, s
 pub fn convert_json(code: &str, locale: Option<String>, animate: Option<bool>, steps: Option<bool>, source: Option<bool>, parts: Option<bool>) -> Result<String, String> {
     let r = tikra::convert_with(code, &options(locale, animate, steps, source, parts)?).map_err(|e| e.to_string())?;
     let points: Vec<_> = r.points.iter().map(|p| serde_json::json!({ "name": p.name, "x": p.x, "y": p.y })).collect();
-    let parts: Vec<_> = r.parts.iter().map(|p| serde_json::json!({ "source": p.source, "text": p.text })).collect();
+    let parts: Vec<_> = r.parts.iter().map(|p| serde_json::json!({ "source": p.source, "text": p.text, "sentence": p.sentence })).collect();
     Ok(serde_json::json!({ "svg": r.svg, "alt": r.alt, "description": r.description, "warnings": r.warnings, "points": points, "origin": [r.origin.0, r.origin.1], "parts": parts }).to_string())
 }
 
