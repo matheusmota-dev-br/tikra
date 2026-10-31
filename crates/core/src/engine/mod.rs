@@ -199,13 +199,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("tikra@decoration", Cmd::DecorationBegin),
     ("tikra@enddecoration", Cmd::DecorationEnd),
     ("tikra@decoratecurrentpath", Cmd::DecorateCurrentPath),
-    ("only", Cmd::Only),
-    ("uncover", Cmd::Uncover),
-    ("visible", Cmd::Visible),
-    ("invisible", Cmd::Invisible),
-    ("onslide", Cmd::Onslide),
-    ("alt", Cmd::Alt),
-    ("pause", Cmd::Pause),
     ("path", Cmd::Path),
     ("draw", Cmd::Draw),
     ("fill", Cmd::Fill),
@@ -917,7 +910,7 @@ impl Engine {
     /// Runs the input until it ends.
     pub fn run(&mut self) -> Result<(), Error> {
         while let Some(t) = self.tex.get_x_token()? {
-            let statement = self.spans.is_some() && matches!(self.tex.meaning(&t), Meaning::Native(id) if id < NATIVE_KEY_BASE);
+            let statement = self.spans.is_some() && (matches!(self.tex.meaning(&t), Meaning::Native(id) if id < NATIVE_KEY_BASE) || overlays::named(&self.tex, &t).is_some());
             if statement {
                 self.open_source();
             }
@@ -1072,7 +1065,12 @@ impl Engine {
             }
             Meaning::Char(c, _) if matches!(t, Token::Char(..)) => self.text(c),
             Meaning::Undefined => {
-                if let Token::Cs(name) = &t {
+                if let Some(cmd) = overlays::named(&self.tex, &t) {
+                    self.count_step()?;
+                    self.tex.new_statement();
+                    let r = self.overlay_command(cmd);
+                    self.recover(r, &t)?;
+                } else if let Token::Cs(name) = &t {
                     self.unknown_command(name)?;
                 } else if matches!(t, Token::Char('~', Cat::Active)) && self.picture_depth == 0 {
                     // `~`: an interword space where the line cannot break
@@ -1470,9 +1468,6 @@ impl Engine {
     }
 
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
-        if let Some(cmd) = [Cmd::Only, Cmd::Uncover, Cmd::Visible, Cmd::Invisible, Cmd::Onslide, Cmd::Alt, Cmd::Pause].into_iter().find(|c| *c as u16 == id) {
-            return self.overlay_command(cmd);
-        }
         if basic::is_basic(id) {
             return self.basic_command(id);
         }

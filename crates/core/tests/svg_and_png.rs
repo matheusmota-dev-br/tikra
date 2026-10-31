@@ -342,6 +342,17 @@ mod overlays {
     }
 
     #[test]
+    fn their_names_are_free_for_the_code() {
+        // `\alt` is not defined as LaTeX sees it, so `\providecommand` defines it
+        let code = r"\providecommand{\alt}{2}\begin{tikzpicture}\draw (0,0) -- (\alt,1);\end{tikzpicture}";
+        let r = convert(code).unwrap();
+        assert!(r.warnings.is_empty() && lines(&r.svg) == 1, "{:?}", r.warnings);
+        let code = r"\ifdefined\pause\def\w{1}\else\def\w{2}\fi\begin{tikzpicture}\draw (0,0) -- (\w,1);\end{tikzpicture}";
+        assert!(convert(code).unwrap().svg.contains("56.892"));
+        assert_eq!(drawn(&picture(r"\newcommand{\only}[1]{#1}\only{\draw (0,1) -- (1,1);}")), [2]);
+    }
+
+    #[test]
     fn a_figure_without_overlays_is_one_slide_as_ever() {
         let code = picture("");
         assert_eq!(slides(&code, &Options::default()).unwrap()[0].svg, convert(&code).unwrap().svg);

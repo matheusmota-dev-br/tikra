@@ -4,7 +4,7 @@
 //! (`\uncover`, which keeps it). Written from the Beamer manual's account of how they behave.
 
 use crate::canvas::Item;
-use crate::tex::{self, Token};
+use crate::tex::{self, Meaning, Token};
 use crate::Error;
 
 use super::{Cmd, Engine};
@@ -77,6 +77,26 @@ pub fn parse(spec: &str, pauses: &mut usize) -> Option<(Slides, usize)> {
     (!ranges.is_empty()).then_some((Slides(ranges), last))
 }
 
+/// The overlay command `t` is, if the code has not given its name a meaning. They are not defined
+/// as LaTeX sees it, so `\\providecommand{\\alt}` and `\\ifdefined\\alt` work as without Beamer:
+/// the names are free, and only a command nobody defined is read as an overlay.
+pub fn named(tex: &tex::Tex, t: &Token) -> Option<Cmd> {
+    let Token::Cs(name) = t else { return None };
+    if !matches!(tex.meaning(t), Meaning::Undefined) {
+        return None;
+    }
+    match &**name {
+        "only" => Some(Cmd::Only),
+        "uncover" => Some(Cmd::Uncover),
+        "visible" => Some(Cmd::Visible),
+        "invisible" => Some(Cmd::Invisible),
+        "onslide" => Some(Cmd::Onslide),
+        "alt" => Some(Cmd::Alt),
+        "pause" => Some(Cmd::Pause),
+        _ => None,
+    }
+}
+
 /// Whether a command starts a path, and takes `<…>` after its name: `\draw<2->`, `\node<1>`.
 pub fn takes_a_specification(id: u16) -> bool {
     [Cmd::Path, Cmd::Draw, Cmd::Fill, Cmd::Filldraw, Cmd::Clip, Cmd::Shade, Cmd::Shadedraw, Cmd::Pattern, Cmd::Node, Cmd::Coordinate, Cmd::Matrix, Cmd::Pic]
@@ -87,7 +107,7 @@ pub fn takes_a_specification(id: u16) -> bool {
 /// Whether a command can run while the rest of the slide is hidden with nothing around it: it
 /// draws nothing itself, or opens what stays open after it.
 pub fn stays_out(id: u16) -> bool {
-    [Cmd::Begin, Cmd::End, Cmd::Only, Cmd::Uncover, Cmd::Visible, Cmd::Invisible, Cmd::Onslide, Cmd::Alt, Cmd::Pause].iter().any(|c| *c as u16 == id)
+    [Cmd::Begin, Cmd::End].iter().any(|c| *c as u16 == id)
 }
 
 impl Engine {
