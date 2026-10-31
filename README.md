@@ -46,6 +46,7 @@ Types included; more in [`crates/python/README.md`](https://github.com/matheusmo
 $ tikra figure.tex -o figure.svg
 $ tikra figure.tex -o figure.png --dpi 300       # white background
 $ tikra figure.tex -o figure.png --transparent
+$ tikra figure.tex -o figure.gif                # the figure drawing itself; .apng too
 $ cat figure.tex | tikra --warnings              # SVG on stdout, warnings listed
 $ tikra figure.tex --describe                    # the figure in words: alt text and description
 $ tikra figure.tex -o figure.svg --locale pt-BR  # its words in Portuguese; the drawing is the same

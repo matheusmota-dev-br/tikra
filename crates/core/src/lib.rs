@@ -24,6 +24,8 @@ pub mod extension;
 pub mod keys;
 #[doc(hidden)]
 pub mod label;
+#[cfg(feature = "motion")]
+pub mod motion;
 #[doc(hidden)]
 pub mod scene;
 #[doc(hidden)]
@@ -303,6 +305,21 @@ pub fn png(svg: &str, dpi: f32, background: bool) -> Result<Vec<u8>, Error> {
     }
     resvg::render(&tree, tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, 0.0, (f64::from(height) - h) as f32), &mut image.as_mut());
     image.encode_png().map_err(png_error)
+}
+
+/// An SVG with no animation as RGBA pixels on white, stretched to `width` × `height`.
+#[cfg(feature = "motion")]
+pub(crate) fn raster(svg: &str, width: u32, height: u32) -> Result<Vec<u8>, Error> {
+    use resvg::{tiny_skia, usvg};
+    if u64::from(width) * u64::from(height) > MAX_PIXELS {
+        return Err(Error::Png(format!("image too large: {width} × {height} px (cap of {MAX_PIXELS} pixels)")));
+    }
+    let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).map_err(png_error)?;
+    let mut image = tiny_skia::Pixmap::new(width, height).ok_or(Error::Png("image too large".into()))?;
+    image.fill(tiny_skia::Color::WHITE);
+    let (sx, sy) = (width as f32 / tree.size().width(), height as f32 / tree.size().height());
+    resvg::render(&tree, tiny_skia::Transform::from_scale(sx, sy), &mut image.as_mut());
+    Ok(image.take())
 }
 
 /// Errors from the rasterization libraries (invalid SVG, PNG encoding failure).

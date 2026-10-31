@@ -5,11 +5,14 @@ const HELP: &str = "\
 tikra — TikZ figures to SVG and PNG, no TeX install
 
 USAGE
-  tikra <file.tex> [-o out.svg|out.png] [options]
+  tikra <file.tex> [-o out.svg|out.png|out.gif|out.apng] [options]
   cat figure.tex | tikra -o figure.png
 
 OPTIONS
-  -o, --output <file>     .svg or .png (by its name); without -o, prints the SVG
+  -o, --output <file>     .svg, .png, or the animation as .gif or .apng (by its name); without
+                          -o, prints the SVG
+      --width <n>         GIF and APNG width in pixels (default 560)
+      --fps <n>           GIF and APNG frames per second (default 15)
       --dpi <n>           PNG resolution (default 300)
       --transparent       PNG without the white background
       --warnings          lists what was ignored or approximated
@@ -31,6 +34,7 @@ fn main() -> ExitCode {
     let mut show_warnings = false;
     let mut describe = false;
     let mut options = tikra::Options::default();
+    let mut motion = tikra::motion::Motion::default();
     let mut it = env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -44,6 +48,8 @@ fn main() -> ExitCode {
             }
             "-o" | "--output" => output = it.next(),
             "--dpi" => dpi = it.next().and_then(|v| v.parse().ok()).unwrap_or(300.0),
+            "--width" => motion.width = it.next().and_then(|v| v.parse().ok()).unwrap_or(motion.width),
+            "--fps" => motion.fps = it.next().and_then(|v| v.parse().ok()).unwrap_or(motion.fps),
             "--transparent" => background = false,
             "--warnings" => show_warnings = true,
             "--describe" => describe = true,
@@ -76,6 +82,11 @@ fn main() -> ExitCode {
             }
         },
     };
+    let moving = |s: &str, ext: &str| s.len() > ext.len() && s.ends_with(ext);
+    let animation = output.as_deref().is_some_and(|s| moving(s, ".gif") || moving(s, ".apng"));
+    if animation {
+        options = options.animated();
+    }
     let r = match tikra::convert_with(&code, &options) {
         Ok(r) => r,
         Err(e) => {
@@ -95,6 +106,20 @@ fn main() -> ExitCode {
         println!("description: {}", r.description);
     }
     match output {
+        Some(s) if animation => {
+            let bytes = if s.ends_with(".gif") { tikra::motion::gif(&r.svg, motion) } else { tikra::motion::apng(&r.svg, motion) };
+            match bytes.map(|b| fs::write(&s, b)) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    eprintln!("tikra: could not write {s}: {e}");
+                    return ExitCode::from(1);
+                }
+                Err(e) => {
+                    eprintln!("tikra: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
         Some(s) if s.ends_with(".png") => match tikra::png(&r.svg, dpi, background) {
             Ok(b) => {
                 if let Err(e) = fs::write(&s, b) {

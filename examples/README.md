@@ -6,3 +6,4 @@ One small figure for each thing the construction animation's steps made possible
 |---|---|---|
 | `source-map.tex` | playground, `--source` | Click a stroke to find its line, or put the cursor on a line to see what it drew. The macro and the loop point at their calls, and each `\addplot` at its own line. |
 | `diff-before.tex`, `diff-after.tex` | playground | Paste the first, press Keep this version, paste the second, press Compare. The figure grew to the left, and only what changed is colored. |
+| `construction.tex` | `-o .gif`, `-o .apng` | The figure drawing itself, from the terminal. Try `--width` and `--fps`. |

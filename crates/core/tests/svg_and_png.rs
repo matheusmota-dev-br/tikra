@@ -234,3 +234,45 @@ fn fills_side_by_side_leave_no_seam_between_them() {
     let svg = no_warnings(r"\tikz { \fill[red] (0,0) -- (1,0) -- (1,1) -- cycle; \fill[blue] (0,0) -- (1,0) -- (0.5,0.5) -- cycle; }").svg;
     assert!(!svg.contains("<g><path"), "{svg}");
 }
+
+#[cfg(feature = "motion")]
+mod motion {
+    use tikra::motion::{apng, gif, Motion};
+
+    const FIGURE: &str = r"\begin{tikzpicture} \draw[->] (0,0) -- (1,1); \draw[dashed] (0,1) -- (1,0); \fill[red] (2,0) circle (2pt); \node at (3,0) {$x$}; \end{tikzpicture}";
+
+    fn animated() -> String {
+        tikra::convert_with(FIGURE, &tikra::Options::default().animated()).unwrap().svg
+    }
+
+    #[test]
+    fn a_gif_is_a_looping_gif_of_the_size_asked_for() {
+        let bytes = gif(&animated(), Motion { width: 120, fps: 10 }).unwrap();
+        assert!(bytes.starts_with(b"GIF89a") && bytes.ends_with(&[0x3b]));
+        assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 120);
+        assert!(bytes.windows(11).any(|w| w == b"NETSCAPE2.0"));
+    }
+
+    #[test]
+    fn an_apng_has_its_frames_and_their_control_chunks() {
+        let bytes = apng(&animated(), Motion { width: 120, fps: 10 }).unwrap();
+        assert!(bytes.starts_with(b"\x89PNG"));
+        let at = bytes.windows(4).position(|w| w == b"acTL").unwrap();
+        let frames = u32::from_be_bytes(bytes[at + 4..at + 8].try_into().unwrap());
+        assert!(frames > 2);
+        assert_eq!(bytes.windows(4).filter(|w| *w == b"fcTL").count(), frames as usize);
+    }
+
+    #[test]
+    fn the_same_figure_gives_the_same_bytes() {
+        let m = Motion { width: 120, fps: 10 };
+        assert_eq!(gif(&animated(), m).unwrap(), gif(&animated(), m).unwrap());
+        assert_eq!(apng(&animated(), m).unwrap(), apng(&animated(), m).unwrap());
+    }
+
+    #[test]
+    fn a_still_svg_is_refused_with_a_reason() {
+        let still = tikra::convert(FIGURE).unwrap().svg;
+        assert!(gif(&still, Motion::default()).unwrap_err().to_string().contains("animated"));
+    }
+}
