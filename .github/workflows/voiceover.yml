@@ -25,8 +25,12 @@ jobs:
           mkdir -p out
           target/release/tikra examples/walk.tex --parts -o out/walk.svg
           { echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Figure</title></head><body><main><h1>Figure</h1>'; cat out/walk.svg; echo '</main></body></html>'; } > out/walk.html
-      - run: npm install --no-save --prefix tools/voiceover @guidepup/guidepup@0.39.0
-      - run: node tools/voiceover/walk.mjs "$PWD/out/walk.html" out/spoken.txt
+      - run: npm install --no-save @guidepup/guidepup@0.39.0 @guidepup/setup@0.29.3
+        working-directory: tools/voiceover
+      - run: npx @guidepup/setup install
+        working-directory: tools/voiceover
+      - run: node walk.mjs "$GITHUB_WORKSPACE/out/walk.html" "$GITHUB_WORKSPACE/out/spoken.txt"
+        working-directory: tools/voiceover
       - uses: actions/upload-artifact@v4
         if: always()
         with:
