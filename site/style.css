@@ -137,6 +137,24 @@
   .chips button:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
   .out { display: flex; flex-direction: column; }
+  .modes { display: flex; align-items: stretch; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding-right: 12px; }
+  .mode-tabs { display: flex; min-width: 0; }
+  .mode { border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: 14px/1 var(--font-body); padding: 14px 14px 11px; cursor: pointer; white-space: nowrap; }
+  .mode:hover { color: var(--ink); }
+  .mode[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 700; }
+  .export { position: relative; align-self: center; }
+  #export-toggle { white-space: nowrap; padding: 8px 12px; font-size: 13px; }
+  .export-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(300px, 80vw); display: grid; gap: 12px; padding: 12px; background: var(--surface); border: 1px solid var(--ink); }
+  .export-menu[hidden], .export-group[hidden], .mode-panel[hidden] { display: none; }
+  .export-group { display: flex; flex-wrap: wrap; gap: 6px; }
+  .export-group h4 { width: 100%; margin: 0; font: 500 11px/1.3 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .export-group .button { padding: 7px 10px; font-size: 12.5px; }
+  .examples { max-width: 60%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 13px/1.3 var(--font-body); padding: 6px 8px; }
+  .mode-panel { border-top: 1px solid var(--line); min-height: 58px; }
+  .mode-panel .steps, .mode-panel .versions { border-top: 0; }
+  .mode-panel .source-hint { padding-top: 12px; }
+  .out-foot { display: flex; padding: 6px 16px 10px; }
+  @media (max-width: 560px) { .mode { padding-inline: 8px; } .modes { padding-right: 8px; } }
   .paper {
     flex: 1; min-height: 240px; position: relative; border-radius: 0px 0px 0 0;
     background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
