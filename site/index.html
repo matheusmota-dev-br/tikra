@@ -22,6 +22,7 @@
     <a class="name" href="#">tikra</a>
     <nav>
       <a href="#playground">Playground</a>
+      <a href="#playground" data-tutorials>Tutorials</a>
       <a href="gallery.html">Gallery</a>
       <a href="changelog.html">Evolution</a>
       <a href="#docs">Docs</a>
@@ -50,11 +51,13 @@
     <figure class="hero-figure" id="hero-figure" aria-label="The Lorenz attractor, drawn by tikra"></figure>
   </header>
 
+  <aside class="tutor" id="tutor" aria-label="Tutorial" hidden></aside>
   <div class="play" id="playground">
     <div class="card editor">
       <div class="editor-head">
         <span class="label">TikZ</span>
         <select class="examples" id="examples" aria-label="Load an example"></select>
+        <button class="button" id="tutor-open" type="button">Learn</button>
       </div>
       <div class="code">
         <pre id="highlight" aria-hidden="true"></pre>
@@ -292,6 +295,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
 <script src="params.js"></script>
 <script src="source-map.js"></script>
 <script src="diff.js"></script>
+<script src="tutorial.js"></script>
 <script src="interactive.js"></script>
 <script src="lorenz.js"></script>
 <script src="interactive-page.js"></script>
@@ -458,6 +462,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   function showFigure() {
     // comparing, the page draws the two versions: a figure's handles wait for the other modes
     const comparing = mode === "compare" && kept;
+    preview.classList.remove("traced");
     if (!comparing && interactive?.update(tex.value)) { showVersions(); return; }
     interactive?.destroy();
     interactive = null;
@@ -683,6 +688,24 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   refreshParams = tikraParams.mount($("params"), { code: () => tex.value, change: (code) => { tex.value = code; update(); } });
   tex.addEventListener("input", update);
   tikraSource.attach(preview, tex);
+  // the page as the tutorials need it: a figure ready in a mode, and what the packages can draw
+  const render = (code, o = {}) => JSON.parse(api.render(code, locale, o.animate ?? false, o.steps ?? false, o.source ?? false, o.parts ?? false, o.play ?? false, o.points ?? false));
+  tikraTutorial.mount({
+    tex, preview, render,
+    mode: () => mode,
+    clickThrough: (code) => api.clickThrough(code, locale),
+    show: (svg) => { preview.innerHTML = svg; },
+    async begin(code, next) {
+      kept = null;
+      $("version-views").hidden = true;
+      setMode("figure");
+      load(code);
+      interactive?.stop({ redraw: false });
+      setMode(next);
+      // the step slider's render comes a moment after the figure
+      await new Promise((r) => setTimeout(r, 400));
+    },
+  });
   function keepVersion() {
     if (!last) return;
     kept = drawn();
