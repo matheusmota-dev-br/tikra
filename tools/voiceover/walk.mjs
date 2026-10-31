@@ -13,8 +13,14 @@ execFileSync("open", ["-a", "Safari", page]);
 await sleep(4000);
 await voiceOver.start();
 await sleep(2000);
-for (let k = 0; k < 14; k++) {
+// Safari's toolbar can have the cursor first: into the page, once it is on it
+let inside = false;
+for (let k = 0; k < 28; k++) {
   await voiceOver.next();
+  if (!inside && (await voiceOver.lastSpokenPhrase()).includes("web content")) {
+    await voiceOver.interact();
+    inside = true;
+  }
 }
 const log = await voiceOver.spokenPhraseLog();
 await voiceOver.stop();
