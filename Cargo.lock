@@ -658,6 +658,7 @@ dependencies = [
 name = "tikra-cli"
 version = "1.8.2"
 dependencies = [
+ "resvg",
  "tikra",
 ]
 
