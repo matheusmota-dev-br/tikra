@@ -54,6 +54,7 @@
     <div class="card editor">
       <div class="editor-head">
         <span class="label">TikZ</span>
+        <select class="examples" id="examples" aria-label="Load an example"></select>
       </div>
       <div class="code">
         <pre id="highlight" aria-hidden="true"></pre>
@@ -68,51 +69,82 @@
 \end{tikzpicture}</textarea>
       </div>
       <div class="params" id="params" aria-label="Numbers in the code" hidden></div>
-      <div class="chips" id="chips" aria-label="Examples"></div>
-      <div class="chips drag-chips" id="drag-chips" aria-label="Examples to drag"><span>Drag on the figure</span></div>
     </div>
 
     <div class="card out">
+      <div class="modes">
+        <div class="mode-tabs" role="tablist" aria-label="What to do with the figure">
+          <button class="mode" type="button" role="tab" data-mode="figure" aria-selected="true">Figure</button>
+          <button class="mode" type="button" role="tab" data-mode="build" aria-selected="false">Build</button>
+          <button class="mode" type="button" role="tab" data-mode="compare" aria-selected="false">Compare</button>
+          <button class="mode" type="button" role="tab" data-mode="pen" aria-selected="false">Pen</button>
+        </div>
+        <div class="export">
+          <button class="button" id="export-toggle" type="button" aria-expanded="false" aria-controls="export-menu">Export ▾</button>
+          <div class="export-menu" id="export-menu" hidden>
+            <div class="export-group" data-for="figure compare">
+              <h4>Image</h4>
+              <button class="button" id="download" type="button">SVG</button>
+              <button class="button" id="download-png" type="button">PNG</button>
+              <button class="button" id="download-interactive" type="button" hidden title="One HTML file: drag the figure's named points, no network needed">Interactive HTML</button>
+            </div>
+            <div class="export-group" data-for="build" hidden>
+              <h4>Animation</h4>
+              <button class="button" id="download-gif" type="button">GIF</button>
+              <button class="button" id="download-video" type="button" hidden>Video</button>
+              <button class="button" id="download-animated" type="button">Animated SVG</button>
+            </div>
+            <div class="export-group" data-for="pen" hidden>
+              <h4>Pen</h4>
+              <button class="button" id="download-pen-svg" type="button">SVG</button>
+              <button class="button" id="download-pen-gif" type="button">GIF</button>
+              <button class="button" id="download-gcode" type="button" title="Strokes for a pen plotter, in mm">G-code</button>
+              <button class="button" id="download-hpgl" type="button" title="Strokes for a pen plotter">HPGL</button>
+            </div>
+            <div class="export-group">
+              <h4>Share</h4>
+              <button class="button" id="copy-svg" type="button">Copy SVG</button>
+              <button class="button" id="copy-link" type="button">Copy link</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="paper">
-        <span class="label">SVG</span>
         <div class="preview" id="preview" aria-live="polite"><span class="status">Loading WebAssembly…</span></div>
       </div>
-      <div class="steps" id="steps" hidden>
-        <button class="button" id="step-back" type="button" aria-label="One step back">◀</button>
-        <input type="range" id="step" min="0" max="0" value="0" aria-label="Step of the drawing">
-        <button class="button" id="step-next" type="button" aria-label="One step forward">▶</button>
-        <output id="step-label" aria-live="polite"></output>
+      <div class="mode-panel" data-panel="figure">
+        <p class="source-hint" id="source-hint" hidden>Click the figure to find its code, or put the cursor on a line to see what it drew. With the keyboard, Tab to the figure and walk it with the arrows.</p>
       </div>
-      <p class="step-caption" id="step-caption" aria-live="polite"></p>
-      <div class="versions" id="versions" hidden>
-        <button class="button" id="version-keep" type="button">Keep this version</button>
-        <span class="views" id="version-views" hidden>
-          <button class="button" id="version-before" type="button">Before</button>
-          <button class="button" id="version-after" type="button">After</button>
-          <button class="button" id="version-compare" type="button">Compare</button>
-        </span>
-        <span class="version-note" id="version-note" aria-live="polite"></span>
+      <div class="mode-panel" data-panel="build" hidden>
+        <div class="steps" id="steps" hidden>
+          <button class="button solid" id="animate" type="button">▶ Animate</button>
+          <button class="button" id="step-back" type="button" aria-label="One step back">◀</button>
+          <input type="range" id="step" min="0" max="0" value="0" aria-label="Step of the drawing">
+          <button class="button" id="step-next" type="button" aria-label="One step forward">▶</button>
+          <output id="step-label" aria-live="polite"></output>
+        </div>
+        <p class="step-caption" id="step-caption" aria-live="polite"></p>
       </div>
-      <pre class="version-code" id="version-code" hidden></pre>
-      <p class="source-hint" id="source-hint" hidden>Click the figure to find its code, or put the cursor on a line to see what it drew. With the keyboard, Tab to the figure and walk it with the arrows.</p>
+      <div class="mode-panel" data-panel="compare" hidden>
+        <div class="versions" id="versions">
+          <button class="button" id="version-keep" type="button">Keep this version</button>
+          <span class="views" id="version-views" hidden>
+            <button class="button" id="version-before" type="button">Before</button>
+            <button class="button" id="version-after" type="button">After</button>
+            <button class="button" id="version-compare" type="button">Compare</button>
+          </span>
+          <span class="version-note" id="version-note" aria-live="polite">Keep this version, change the code, and see what moved.</span>
+        </div>
+        <pre class="version-code" id="version-code" hidden></pre>
+      </div>
+      <div class="mode-panel" data-panel="pen" hidden>
+        <div class="versions">
+          <button class="button solid" id="pen-play" type="button">✎ Draw with a pen</button>
+          <span class="version-note">A pen plotter's strokes: fills and letters become outlines.</span>
+        </div>
+      </div>
       <div class="messages" id="messages"></div>
-      <div class="actions">
-        <button class="button solid" id="animate" type="button">▶ Animate</button>
-        <button class="button" id="download-gif" type="button">Download GIF</button>
-        <button class="button" id="download-video" type="button" hidden>Download video</button>
-        <button class="button" id="pen-play" type="button">✎ Draw with a pen</button>
-        <button class="button" id="download-pen-gif" type="button">Pen GIF</button>
-        <button class="button" id="download-pen-svg" type="button">Pen SVG</button>
-        <button class="button" id="download-gcode" type="button" title="Strokes for a pen plotter, in mm">G-code</button>
-        <button class="button" id="download-hpgl" type="button" title="Strokes for a pen plotter">HPGL</button>
-        <button class="button" id="download" type="button">Download SVG</button>
-        <button class="button" id="download-animated" type="button">Animated SVG</button>
-        <button class="button" id="download-interactive" type="button" hidden title="One HTML file: drag the figure's named points, no network needed">Interactive HTML</button>
-        <button class="button" id="download-png" type="button">Download PNG</button>
-        <button class="button" id="copy-svg" type="button">Copy SVG</button>
-        <button class="button" id="copy-link" type="button">Copy link</button>
-        <span class="stats" id="stats" aria-live="polite"></span>
-      </div>
+      <div class="out-foot"><span class="stats" id="stats" aria-live="polite"></span></div>
     </div>
   </div>
 
@@ -601,23 +633,47 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   showInstall(0);
   $("install-copy").onclick = async (e) => { await navigator.clipboard.writeText($("install-cmd").textContent); flash(e.target, "Copied"); };
 
-  // the figures whose numbers move a point they name: dragged on the figure itself
-  for (const figure of CORPUS.filter((f) => f.topic === "parameters" && /\\coordinate\s*\(/.test(f.tex))) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = caption(figure.name);
-    b.onclick = () => load(figure.tex);
-    $("drag-chips").append(b);
+  // the examples: a figure of the list, then those whose numbers move a point they name
+  const exampleGroup = (label, figures) => {
+    const group = Object.assign(document.createElement("optgroup"), { label });
+    for (const figure of figures) {
+      group.append(Object.assign(document.createElement("option"), { value: figure.name, textContent: caption(figure.name) }));
+    }
+    $("examples").append(group);
+  };
+  $("examples").append(Object.assign(document.createElement("option"), { value: "", textContent: "Examples…" }));
+  exampleGroup("Figures", CHIPS.map((name) => CORPUS.find((f) => f.name === name)).filter(Boolean));
+  exampleGroup("Drag on the figure", CORPUS.filter((f) => f.topic === "parameters" && /\\coordinate\s*\(/.test(f.tex)));
+  $("examples").onchange = (e) => {
+    const figure = CORPUS.find((f) => f.name === e.target.value);
+    if (figure) load(figure.tex);
+  };
+
+  // what the page is doing with the figure: each mode shows its controls, and its exports
+  let mode = "figure";
+  function setMode(next) {
+    if (next === mode) return;
+    if (view !== "after") setView("after");
+    stopAnimation();
+    if (stepped) goToStep(stepped.count); else if (last) showFigure();
+    mode = next;
+    for (const b of document.querySelectorAll(".mode")) b.setAttribute("aria-selected", String(b.dataset.mode === mode));
+    for (const p of document.querySelectorAll(".mode-panel")) p.hidden = p.dataset.panel !== mode;
+    for (const g of document.querySelectorAll(".export-group[data-for]")) g.hidden = !g.dataset.for.split(" ").includes(mode);
+    if (mode === "compare" && kept) setView("compare");
   }
-  for (const name of CHIPS) {
-    const figure = CORPUS.find((f) => f.name === name);
-    if (!figure) continue;
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = caption(name);
-    b.onclick = () => load(figure.tex);
-    $("chips").append(b);
-  }
+  for (const b of document.querySelectorAll(".mode")) b.onclick = () => setMode(b.dataset.mode);
+
+  const exportMenu = (open) => {
+    $("export-menu").hidden = !open;
+    $("export-toggle").setAttribute("aria-expanded", String(open));
+  };
+  $("export-toggle").onclick = () => exportMenu($("export-menu").hidden);
+  document.addEventListener("click", (e) => { if (!e.target.closest(".export")) exportMenu(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("export-menu").hidden) { exportMenu(false); $("export-toggle").focus(); }
+  });
+
   for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => { tab = b.dataset.tab; showTab(); };
   refreshParams = tikraParams.mount($("params"), { code: () => tex.value, change: (code) => { tex.value = code; update(); } });
   tex.addEventListener("input", update);
@@ -656,7 +712,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       alert(`Could not make the GIF: ${String(err.message ?? err)}`);
     } finally {
       b.disabled = false;
-      b.textContent = "Download GIF";
+      b.textContent = "GIF";
     }
   };
   $("step").oninput = (e) => goToStep(Number(e.target.value));
@@ -703,7 +759,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       alert(`Could not make the GIF: ${String(err.message ?? err)}`);
     } finally {
       b.disabled = false;
-      b.textContent = "Pen GIF";
+      b.textContent = "GIF";
     }
   };
 
@@ -719,7 +775,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       alert(`Could not make the video: ${String(err.message ?? err)}`);
     } finally {
       b.disabled = false;
-      b.textContent = "Download video";
+      b.textContent = "Video";
     }
   };
   $("download").onclick = () => { if (last) save(new Blob([last.svg], { type: "image/svg+xml" }), "figure.svg"); };
