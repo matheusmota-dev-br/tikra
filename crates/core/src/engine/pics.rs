@@ -76,6 +76,15 @@ impl Engine {
             }
             self.process_keys(v, Some("/tikz/pics"))?;
         }
+        // tikzmark's `pic anchor=(-out)`: moved for that coordinate of it to be where it goes
+        let anchor = crate::extension::Context { e: self }.macro_text("tikra@picanchor");
+        if !anchor.trim().is_empty() {
+            let name = format!("{}{}", self.st.name_prefix, anchor.trim().trim_matches(['(', ')']));
+            let code = keys::value(&self.tex, "/tikz/pics/code").unwrap_or_default();
+            if let (Ok(p), _) = self.run_unseen(code, |e| e.coordinate(&name).map(|c| c.p))? {
+                self.st.transform = Transform::translation(at.x - p.x, at.y - p.y).compose(&self.st.transform);
+            }
+        }
         for key in ["setup code", "background code", "code", "foreground code"] {
             let code = keys::value(&self.tex, &format!("/tikz/pics/{key}")).unwrap_or_default();
             if keys::trim(&code).is_empty() {

@@ -179,7 +179,7 @@ pub enum Usage {
     /// stroked as the node's lines are, with these caps and joins (an arrow tip the shape draws)
     TipStroke(crate::canvas::Cap, crate::canvas::Join),
     /// a library's shape's path: painted as it says, in its color, dash pattern and caps if it has them
-    Library { paint: crate::extension::ShapePaint, color: Option<String>, dash: Option<Vec<f64>>, cap: Option<crate::extension::LineCap> },
+    Library { paint: crate::extension::ShapePaint, color: Option<String>, dash: Option<Vec<f64>>, cap: Option<crate::extension::LineCap>, opacity: Option<f64> },
 }
 
 #[derive(Debug, Clone)]

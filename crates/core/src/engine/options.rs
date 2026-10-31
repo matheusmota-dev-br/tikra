@@ -865,6 +865,10 @@ keyfn!(k_arrows, |e, v| {
 });
 
 keyfn!(k_default_arrow, |e, v| {
+    // without a value it declares nothing: a library can give it a meaning (`bare arrow`)
+    if v.is_none() {
+        return e.process_keys(tikra_tokens("bare arrow/.try"), Some("/tikz"));
+    }
     // TikZ's `>`: `\pgfdeclarearrow{name=<->, means=…}`
     let s = text(e, &v)?;
     std::rc::Rc::make_mut(&mut e.st.tips).declare("<->", &s);
@@ -2504,7 +2508,7 @@ const DEFINITIONS: &str = r"
   /tikz/pics/foreground code/.initial=, angle radius/.initial=5mm, angle eccentricity/.initial=.6,
   every pic/.style={}, every matrix/.style={}, every cell/.style={}, every child/.style={}, every child node/.style={}, edge from parent/.style={draw}, name prefix/.code={\tikra@nameprefix{#1}},
   every edge quotes/.style={auto}, every label quotes/.style={}, every pin quotes/.style={}, quotes mean pin/.code={\def\tikra@quotes@pin{1}}, quotes mean label/.code={\def\tikra@quotes@pin{0}}, every node quotes/.style={}, every fit/.style={},
-  absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true, pic type/.code={},
+  absolute/.code={\def\tikra@absolute{#1}}, absolute/.default=true, pic type/.code={}, pic anchor/.code={\def\tikra@picanchor{#1}},
   pic text/.code={\def\tikzpictext{#1}}, pic text options/.code={\def\tikzpictextoptions{#1}},
 }
 \def\tikzoption#1{\@ifnextchar[{\tikra@optiondefault{#1}}{\tikra@option{#1}}}\def\tikra@option#1#2{\tikzset{#1/.code={#2}}}\def\tikra@optiondefault#1[#2]#3{\tikzset{#1/.code={#3},#1/.default={#2}}}\let\tikz@textfont\pgfutil@empty\let\tikz@atbegin@to\pgfutil@empty\let\tikz@atend@to\pgfutil@empty
