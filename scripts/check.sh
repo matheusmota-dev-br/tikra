@@ -24,6 +24,7 @@ check_wasm() {
   CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
     cargo test -p "$name-wasm" --target wasm32-unknown-unknown
   site/build.sh
+  node --test site/test/*.cjs
   npm/build.sh && npm/test/run.sh
 }
 

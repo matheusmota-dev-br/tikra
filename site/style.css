@@ -148,6 +148,17 @@
   .preview [data-src] { cursor: pointer; }
   .preview.traced [data-src]:not(.on) { opacity: 0.15; }
   .source-hint { margin: 0; padding: 0 24px 12px; font-size: 13px; color: var(--muted); }
+  .versions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+  .versions[hidden], .views[hidden], .version-code[hidden] { display: none; }
+  .versions .button { padding: 6px 10px; font-size: 12px; line-height: 1; }
+  .views { display: inline-flex; gap: 4px; }
+  .views .button[aria-pressed="true"] { background: var(--btn); color: var(--btn-ink); }
+  .version-note { font: 12.5px/1.4 var(--font-mono); color: var(--muted); }
+  .version-code { margin: 0; padding: 8px 16px; border-top: 1px solid var(--line); font: 12.5px/1.6 var(--font-mono); overflow-x: auto; }
+  .version-code .add { color: #1F7A4D; }
+  .version-code .del { color: var(--accent-ink); }
+  .diff-stage { position: relative; height: 300px; max-width: calc(100% - 20px); margin: 0 auto; background: #fff; padding: 10px; box-sizing: content-box; }
+  .diff-stage svg { position: absolute; inset: 10px; width: calc(100% - 20px); height: calc(100% - 20px); }
   .preview .status { margin: 0 auto; font-size: 15px; color: var(--muted); }
   /* the figure step by step: what was drawn up to the slider */
   .steps { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
