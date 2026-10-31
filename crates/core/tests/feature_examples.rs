@@ -26,7 +26,7 @@ fn every_example_converts_without_warnings() {
 #[test]
 fn the_source_map_example_has_each_plot_on_its_line() {
     let svg = convert_with(&example("source-map"), &Options::default().source()).unwrap().svg;
-    assert!(svg.contains(r#"data-src="21:5-"#) && svg.contains(r#"data-src="22:5-"#), "{svg}");
+    assert!(svg.contains(r#"data-src="20:5-"#) && svg.contains(r#"data-src="21:5-"#), "{svg}");
 }
 
 #[test]
