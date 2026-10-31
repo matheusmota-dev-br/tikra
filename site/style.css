@@ -149,6 +149,8 @@
   .preview [data-part]:focus { outline: none; }
   .preview [data-part]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .preview.traced [data-src]:not(.on) { opacity: 0.15; }
+  .step-caption { margin: 0; padding: 0 16px; font-size: 15px; line-height: 1.5; }
+  .step-caption:empty { display: none; }
   .source-hint { margin: 0; padding: 0 24px 12px; font-size: 13px; color: var(--muted); }
   .versions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
   .versions[hidden], .views[hidden], .version-code[hidden] { display: none; }

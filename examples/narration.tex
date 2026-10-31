@@ -1,0 +1,9 @@
+% Move the step slider in the playground: nodes and connections have a sentence, free lines do not.
+\begin{tikzpicture}[box/.style={draw, circle, minimum size=1cm}]
+  \node[box] (a) at (0,0) {Sun};
+  \node[box] (b) at (4,0) {Earth};
+  \node[box] (c) at (4,3) {Moon};
+  \draw[->] (a) -- node[below] {light} (b);
+  \draw[->] (b) -- (c);
+  \draw[dashed] (0,3) -- (2,3);
+\end{tikzpicture}

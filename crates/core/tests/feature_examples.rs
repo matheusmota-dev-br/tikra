@@ -39,3 +39,10 @@ fn the_walk_example_tells_its_connections() {
 fn the_slides_example_has_four() {
     assert_eq!(tikra::slides(&example("slides"), &Options::default()).unwrap().len(), 4);
 }
+
+#[test]
+fn the_narration_example_is_silent_on_the_free_line() {
+    let out = convert_with(&example("narration"), &Options::default().source()).unwrap();
+    assert!(out.parts.iter().any(|p| p.sentence.contains("Sun")), "{:?}", out.parts);
+    assert!(out.parts.iter().any(|p| p.sentence.is_empty()), "{:?}", out.parts);
+}

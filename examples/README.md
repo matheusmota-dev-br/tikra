@@ -10,3 +10,4 @@ One small figure for each thing the construction animation's steps made possible
 | `walk.tex` | playground, `--parts` | Press Tab to reach the figure and walk it with the arrows. With a screen reader, each part is read on its own. |
 | `slides.tex` | `--slides`, `--click` | Four slides from one figure: `\pause`, `\uncover`, `\only` and `\draw<4>`. The `--click` SVG advances on each click in a browser. |
 | `plotter.tex` | `-o .gcode`, `-o .hpgl` | Strokes for a pen plotter. Paste the G-code in any online viewer. Try `--paper 210x297` and `--keep-order`. |
+| `narration.tex` | playground | Move the step slider: the nodes and connections have a sentence under it, and the free line stays silent. Change the language to hear them in it. |

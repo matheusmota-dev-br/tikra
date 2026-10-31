@@ -83,6 +83,7 @@
         <button class="button" id="step-next" type="button" aria-label="One step forward">▶</button>
         <output id="step-label" aria-live="polite"></output>
       </div>
+      <p class="step-caption" id="step-caption" aria-live="polite"></p>
       <div class="versions" id="versions" hidden>
         <button class="button" id="version-keep" type="button">Keep this version</button>
         <span class="views" id="version-views" hidden>
@@ -352,16 +353,18 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     clearTimeout(stepsTimer);
     stepped = null;
     $("steps").hidden = true;
+    $("step-caption").textContent = "";
     $("source-hint").hidden = true;
     if (last) stepsTimer = setTimeout(readSteps, 250);
   }
   function readSteps() {
     if (!last) return;
     try {
-      const svg = convert(tex.value, false, false, true, true).svg;
+      const r = convert(tex.value, false, false, true, true);
+      const svg = r.svg;
       const count = Number(/data-steps="(\d+)"/.exec(svg)?.[1] ?? 0);
       if (count < 2) return;
-      stepped = { svg, count };
+      stepped = { svg, count, parts: Object.fromEntries((r.parts ?? []).map((p) => [p.source, p.sentence])) };
       $("step").max = String(count);
       $("step").value = String(count);
       showStep(count);
@@ -374,8 +377,14 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       }
     } catch { /* the figure was drawn; without its steps the slider stays hidden */ }
   }
+  // what the step drew, in words; nothing while the figure is whole, or when there is little to say
+  function tellStep(k) {
+    const el = k > 0 && k < stepped.count ? new DOMParser().parseFromString(stepped.svg, "image/svg+xml").querySelector(`[data-step="${k - 1}"]`) : null;
+    $("step-caption").textContent = stepped.parts[el?.dataset.src] ?? "";
+  }
   function showStep(k) {
     $("step-label").textContent = `${k} of ${stepped.count}`;
+    tellStep(k);
     $("step-back").disabled = k <= 0;
     $("step-next").disabled = k >= stepped.count;
   }

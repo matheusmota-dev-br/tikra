@@ -337,8 +337,10 @@ pub fn describe(f: &Facts, locale: Locale) -> Description {
 }
 
 /// What one statement of the source map drew, in a sentence: the figure's own words about only
-/// that part of it, so the 16 languages come with them. Empty when there is nothing to tell.
-pub fn describe_part(f: &Facts, source: usize, locale: Locale) -> String {
+/// that part of it, so the 16 languages come with them: a short name for the part, and a whole
+/// sentence for a caption, empty when all there is to say is that a shape was drawn. Both are empty
+/// when there is nothing to tell.
+pub fn describe_part(f: &Facts, source: usize, locale: Locale) -> (String, String) {
     let here = Some(source);
     let mut part = Facts {
         data_visualizations: 0,
@@ -372,20 +374,24 @@ pub fn describe_part(f: &Facts, source: usize, locale: Locale) -> String {
     let shapes = f.shapes_of.get(&source).copied().unwrap_or(0);
     let w = Words { locale };
     if !part.axes.is_empty() {
-        return describe(&part, locale).alt;
+        let alt = describe(&part, locale).alt;
+        let sentence = w.sentence(&alt);
+        return (alt, sentence);
     }
     let (links, _) = told_links(&part, &w);
     if !links.is_empty() {
-        return links.join(w.phrase("sep.list"));
+        let list = links.join(w.phrase("sep.list"));
+        let sentence = w.sentence(&w.t("connections", &[&list]));
+        return (list, sentence);
     }
     let texts: Vec<String> = visible_nodes(&part).iter().map(|n| w.spoken(&n.text)).filter(|t| !t.is_empty()).collect();
     if !texts.is_empty() {
-        return w.quoted_list(&texts);
+        return (w.quoted_list(&texts), w.sentence(&w.t("text.figure", &[&w.capped(&texts, LIST_NODES)])));
     }
     if shapes > 0 {
-        return w.count("shape", shapes);
+        return (w.count("shape", shapes), String::new());
     }
-    String::new()
+    (String::new(), String::new())
 }
 
 /// The connections in words, each once, and the nodes they join.

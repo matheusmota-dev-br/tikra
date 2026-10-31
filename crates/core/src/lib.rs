@@ -143,7 +143,11 @@ pub struct Output {
 pub struct Part {
     /// Its place in the code, as in `data-src`.
     pub source: String,
+    /// A short name for it: `aria-label` of the SVG's parts.
     pub text: String,
+    /// A sentence for a caption of the step. Empty when there is nothing to say but that a shape
+    /// was drawn: better no caption than a hollow one.
+    pub sentence: String,
 }
 
 /// A node or coordinate with a name, and where it is in the SVG (see [`Output::points`]).
@@ -224,14 +228,14 @@ fn convert_slide(code: &str, options: &Options, libraries: &[&'static extension:
     let words = describe::describe(&facts, options.locale);
     let parts: Vec<Part> = (0..canvas.sources.len())
         .map(|id| (id, describe::describe_part(&facts, id, options.locale)))
-        .filter(|(_, text)| !text.is_empty())
-        .map(|(id, text)| {
+        .filter(|(_, (text, _))| !text.is_empty())
+        .map(|(id, (text, sentence))| {
             let s = canvas.sources[id];
-            Part { source: format!("{}:{}-{}:{}", s.first.0, s.first.1, s.last.0, s.last.1), text }
+            Part { source: format!("{}:{}-{}:{}", s.first.0, s.first.1, s.last.0, s.last.1), text, sentence }
         })
         .collect();
     if options.parts {
-        canvas.parts = (0..canvas.sources.len()).map(|id| describe::describe_part(&facts, id, options.locale)).collect();
+        canvas.parts = (0..canvas.sources.len()).map(|id| describe::describe_part(&facts, id, options.locale).0).collect();
     }
     let svg = driver::svg_with(&canvas, code, &words, options.steps || options.source || options.parts, options.animate);
     let mut all = early;
