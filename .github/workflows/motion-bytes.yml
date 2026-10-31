@@ -1,0 +1,49 @@
+# The GIF and the APNG come out the same, byte for byte, on every platform: the promise of the
+# packages, and the one thing the tests on a single machine cannot see.
+name: motion-bytes
+
+on:
+  pull_request:
+    paths: ["crates/core/**", "crates/cli/**", "examples/construction.tex", "Cargo.lock", ".github/workflows/motion-bytes.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  make:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p tikra-cli
+      - shell: bash
+        run: |
+          mkdir out
+          target/release/tikra examples/construction.tex -o out/construction.gif
+          target/release/tikra examples/construction.tex -o out/construction.apng
+          target/release/tikra examples/construction.tex --pen -o out/pen.gif
+          target/release/tikra examples/construction.tex --pen -o out/pen.apng
+          target/release/tikra examples/construction.tex -o out/figure.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bytes-${{ matrix.os }}
+          path: out
+
+  compare:
+    needs: make
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: |
+          status=0
+          for file in construction.gif construction.apng pen.gif pen.apng figure.png; do
+            echo "== $file"
+            sha256sum bytes-*/"$file" | tee sums
+            [ "$(cut -d' ' -f1 sums | sort -u | wc -l)" = 1 ] || status=1
+          done
+          exit $status
