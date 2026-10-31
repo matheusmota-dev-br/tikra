@@ -1,0 +1,9 @@
+% A figure a screen reader and the keyboard can walk through, one thing at a time.
+\begin{tikzpicture}[box/.style={draw, rounded corners, minimum width=2cm, minimum height=8mm}]
+  \node[box] (idea) at (0,0) {Idea};
+  \node[box] (draft) at (4,0) {Draft};
+  \node[box] (review) at (8,0) {Review};
+  \draw[->] (idea) -- (draft);
+  \draw[->] (draft) -- (review);
+  \draw[->, dashed] (review) to[bend left] node[below] {changes} (draft);
+\end{tikzpicture}
