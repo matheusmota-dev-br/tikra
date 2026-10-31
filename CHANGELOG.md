@@ -11,6 +11,7 @@ Each release has a headline (the line under its title), what changed, and the fi
 - tikzmark's `pic anchor=(-out)`: a pic placed by a coordinate of its own ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
 - `Context::is_dashed`, for an extension to draw by the path's dashes ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
 - `pin={[pin distance=…]…}` and `label={[label distance=…]…}`: the distance among a pin's or a label's own options is the one used ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
+- Labels are set by mathra 1.9.2: `\boldmath` sets letters in bold italic and reaches the text of a `\rotatebox`, and `\SI{+10}{V}` and `\SI{.25}{V}` print their values as siunitx does.
 
 ## 1.8.0 - 2026-10-29
 
