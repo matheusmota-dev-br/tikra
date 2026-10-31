@@ -7,11 +7,11 @@ export function wrap(raw, isReady) {
   return {
     tikzToSvg(code, options) {
       check();
-      return raw.tikzToSvg(code, options?.locale ?? null, options?.animate ?? null, options?.steps ?? null, options?.source ?? null, options?.parts ?? null, options?.play ?? null);
+      return raw.tikzToSvg(code, options?.locale ?? null, options?.animate ?? null, options?.steps ?? null, options?.source ?? null, options?.parts ?? null, options?.play ?? null, options?.points ?? null);
     },
     render(code, options) {
       check();
-      return JSON.parse(raw.render(code, options?.locale ?? null, options?.animate ?? null, options?.steps ?? null, options?.source ?? null, options?.parts ?? null, options?.play ?? null));
+      return JSON.parse(raw.render(code, options?.locale ?? null, options?.animate ?? null, options?.steps ?? null, options?.source ?? null, options?.parts ?? null, options?.play ?? null, options?.points ?? null));
     },
     slides(code, options) {
       check();

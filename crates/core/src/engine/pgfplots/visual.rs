@@ -2,7 +2,7 @@
 //! (lines, `smooth`, `const plot`, `jump mark`, combs, `ybar`/`xbar`, intervals), `\closedcycle`,
 //! `fill between`, error bars, and the marks drawn afterwards, as pgf's mark handler draws them.
 
-use crate::canvas::{Fill, Item, Paint};
+use crate::canvas::{DataPoint, Fill, Item, Paint};
 use crate::keys as pk;
 use crate::scene::{Point, Segment, Transform};
 use crate::tex::{self, Token};
@@ -110,6 +110,34 @@ pub fn draw_plot(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &F
     r
 }
 
+/// A number as a point's value reads: four decimals at most.
+fn value_text(v: f64) -> String {
+    let s = format!("{v:.4}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// The values of the `i`th point, as given when the plot still has them all.
+fn values_of(p: &Plot, pts: &[[f64; 3]], i: usize) -> (String, String) {
+    match (p.coords.len() == pts.len()).then(|| &p.coords[i]) {
+        Some(c) => (value_text(c.x), value_text(c.y)),
+        None => (value_text(pts[i][0]), value_text(pts[i][1])),
+    }
+}
+
+/// Where a point lands, as a key: marks are drawn later, and find their values by it.
+fn point_key(p: Point) -> (i64, i64) {
+    ((p.x * 1e4).round() as i64, (p.y * 1e4).round() as i64)
+}
+
+/// The values of the plot's points, for its marks.
+fn note_values(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) {
+    for (i, at) in canvas_points(f, pts).into_iter().enumerate() {
+        if let Some(at) = at {
+            e.point_values.insert(point_key(at), values_of(p, pts, i));
+        }
+    }
+}
+
 fn define(e: &mut Engine, name: &str, value: &str) {
     e.tex.set_meaning(&Token::cs(name), super::super::macro_from(value), false);
 }
@@ -191,6 +219,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
     } else {
         cp.clone()
     };
+    if e.points {
+        note_values(e, p, pts, f);
+    }
+    let mut bars: Vec<DataPoint> = Vec::new();
     let mut segs: Vec<Segment> = Vec::new();
     let bar_width = keys::length(e, "/pgf/bar width").unwrap_or(10.0 * PT);
     define(e, "pgfplotbarwidth", &format!("{}pt", bar_width / PT));
@@ -296,6 +328,10 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
                 let c0 = from.plus(ua.scale(bar_shift - bar_width / 2.0));
                 let c1 = to.plus(ua.scale(bar_shift + bar_width / 2.0));
                 rect(&mut segs, c0, c1);
+                if e.points {
+                    let (x, y) = values_of(p, pts, i);
+                    bars.push(DataPoint { x, y, at: to.plus(ua.scale(bar_shift)) });
+                }
             }
         }
         "ybar interval" | "xbar interval" => {
@@ -483,6 +519,9 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             }
         }
         let outer = e.st.clone();
+        if !bars.is_empty() {
+            e.canvas.push(Item::Bars { points: std::mem::take(&mut bars), vertical: handler == "ybar" });
+        }
         e.finish_path(segs.clone(), &outer, "addplot")?;
         let _ = draw;
     }
@@ -1232,7 +1271,15 @@ pub fn draw_mark_set(e: &mut Engine, name: &str, size: f64, local: &Transform, p
             Use::Fill => (Some(fill.clone()), None),
             Use::FillStroke => (Some(fill.clone()), Some(stroke.clone())),
         };
+        let values = if e.points { e.point_values.get(&point_key(p)).cloned() } else { None };
+        let point = values.is_some();
+        if let Some((x, y)) = values {
+            e.canvas.push(Item::Point(DataPoint { x, y, at: p }));
+        }
         e.canvas.push(Item::Path { segments: segs, fill: f, stroke: s });
+        if point {
+            e.canvas.push(Item::End);
+        }
     }
     Ok(())
 }

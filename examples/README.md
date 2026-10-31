@@ -12,3 +12,4 @@ One small figure for each thing the construction animation's steps made possible
 | `plotter.tex` | `-o .gcode`, `-o .hpgl` | Strokes for a pen plotter. Paste the G-code in any online viewer. Try `--paper 210x297` and `--keep-order`. |
 | `narration.tex` | playground | Move the step slider: the nodes and connections have a sentence under it, and the free line stays silent. Change the language to hear them in it. |
 | `play.tex` | `--play` | Open the SVG in a browser: the dot crosses, the line turns, and the square changes color when clicked. Without `--play`, the same code gives a still picture. |
+| `points.tex` | `--points` | Open the SVG in a browser and hover a bar or a mark, or press Tab, to see its values. With `--animate` too, the bars grow from the axis. |

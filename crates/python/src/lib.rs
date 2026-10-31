@@ -1,3 +1,6 @@
+// one option per argument: this is the raw boundary, and the packages wrap it in named options
+#![allow(clippy::too_many_arguments)]
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -7,28 +10,29 @@ fn error(e: tikra::Error) -> PyErr {
 
 /// The options from a language code (`pt-BR`, `fr`…), with the construction animation and the
 /// numbered steps and their place in the code or not.
-fn options(locale: &str, animate: bool, steps: bool, source: bool, parts: bool, play: bool) -> PyResult<tikra::Options> {
+fn options(locale: &str, animate: bool, steps: bool, source: bool, parts: bool, play: bool, points: bool) -> PyResult<tikra::Options> {
     let o: tikra::Options = locale.parse().map(tikra::Options::locale).map_err(PyValueError::new_err)?;
     let o = if animate { o.animated() } else { o };
     let o = if steps { o.steps() } else { o };
     let o = if source { o.source() } else { o };
     let o = if parts { o.parts() } else { o };
-    Ok(if play { o.play() } else { o })
+    let o = if play { o.play() } else { o };
+    Ok(if points { o.points() } else { o })
 }
 
 /// Converts a TikZ figure to SVG, with the figure in words in `locale`.
 #[pyfunction]
-#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false, parts = false, play = false))]
-fn tikz_to_svg(code: &str, locale: &str, animate: bool, steps: bool, source: bool, parts: bool, play: bool) -> PyResult<String> {
-    tikra::convert_with(code, &options(locale, animate, steps, source, parts, play)?).map(|r| r.svg).map_err(error)
+#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false, parts = false, play = false, points = false))]
+fn tikz_to_svg(code: &str, locale: &str, animate: bool, steps: bool, source: bool, parts: bool, play: bool, points: bool) -> PyResult<String> {
+    tikra::convert_with(code, &options(locale, animate, steps, source, parts, play, points)?).map(|r| r.svg).map_err(error)
 }
 
 /// The SVG, the figure in words (alt text and description) and the warnings (what was ignored or
 /// approximated); `tikra.render` turns them into a dict.
 #[pyfunction]
-#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false, parts = false, play = false))]
-fn render(code: &str, locale: &str, animate: bool, steps: bool, source: bool, parts: bool, play: bool) -> PyResult<(String, String, String, Vec<String>)> {
-    tikra::convert_with(code, &options(locale, animate, steps, source, parts, play)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
+#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false, parts = false, play = false, points = false))]
+fn render(code: &str, locale: &str, animate: bool, steps: bool, source: bool, parts: bool, play: bool, points: bool) -> PyResult<(String, String, String, Vec<String>)> {
+    tikra::convert_with(code, &options(locale, animate, steps, source, parts, play, points)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
 }
 
 /// Rasterizes an SVG written by tikra to PNG bytes.
@@ -58,7 +62,7 @@ fn tikz_to_apng(code: &str, width: u32, fps: u32) -> PyResult<Vec<u8>> {
 #[pyfunction]
 #[pyo3(signature = (code, *, locale = "en"))]
 fn slides(code: &str, locale: &str) -> PyResult<Vec<String>> {
-    let slides = tikra::slides(code, &options(locale, false, false, false, false, false)?).map_err(error)?;
+    let slides = tikra::slides(code, &options(locale, false, false, false, false, false, false)?).map_err(error)?;
     Ok(slides.into_iter().map(|s| s.svg).collect())
 }
 
@@ -66,7 +70,7 @@ fn slides(code: &str, locale: &str) -> PyResult<Vec<String>> {
 #[pyfunction]
 #[pyo3(signature = (code, *, locale = "en"))]
 fn click_through(code: &str, locale: &str) -> PyResult<String> {
-    let slides = tikra::slides(code, &options(locale, false, false, false, false, false)?).map_err(error)?;
+    let slides = tikra::slides(code, &options(locale, false, false, false, false, false, false)?).map_err(error)?;
     tikra::click_through(&slides).ok_or_else(|| PyValueError::new_err("could not join the slides"))
 }
 

@@ -135,6 +135,13 @@ pub enum Item {
         place: Transform,
     },
     End,
+    /// What follows, up to the matching `End`, is a point of a plot, drawn on its own.
+    Point(DataPoint),
+    /// The next path is one bar per subpath, for these points of a plot.
+    Bars {
+        points: Vec<DataPoint>,
+        vertical: bool,
+    },
     /// What follows, up to the matching `End`, moves: the animations library played. `center` is
     /// what turns and scalings are around.
     Animated {
@@ -144,6 +151,14 @@ pub enum Item {
     /// Draws nothing: what follows, up to the next one, came from this span of
     /// [`Canvas::sources`]. Only there when the source map was asked for.
     Source(usize),
+}
+
+/// A point of a plot: its values, as they read, and where it is on the canvas.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataPoint {
+    pub x: String,
+    pub y: String,
+    pub at: Point,
 }
 
 /// What an animation changes.
@@ -283,6 +298,8 @@ impl Item {
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.translate(d)),
             Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End | Item::Source(_) => {}
             Item::Animated { center, .. } => *center = center.plus(d),
+            Item::Point(p) => p.at = p.at.plus(d),
+            Item::Bars { points, .. } => points.iter_mut().for_each(|p| p.at = p.at.plus(d)),
         }
     }
 
@@ -312,6 +329,8 @@ impl Item {
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.transform(t)),
             Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End | Item::Source(_) => {}
             Item::Animated { center, .. } => *center = t.apply(*center),
+            Item::Point(p) => p.at = t.apply(p.at),
+            Item::Bars { points, .. } => points.iter_mut().for_each(|p| p.at = t.apply(p.at)),
         }
     }
 }

@@ -27,6 +27,8 @@ export interface Options {
   parts?: boolean;
   /** The animations library played in a browser, with SMIL, instead of a still picture. Default `false`. */
   play?: boolean;
+  /** Each bar and mark of a plot an element of its own, with `data-x`, `data-y` and a tip for the mouse and the keyboard; with `animate`, bars grow one by one. Default `false`. */
+  points?: boolean;
 }
 
 export interface PngOptions {

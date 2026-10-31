@@ -68,3 +68,16 @@ fn the_parts_change_no_pixel() {
         assert!(tikra::png(&plain, 40.0, true).unwrap() == tikra::png(&parts, 40.0, true).unwrap(), "{}", f.display());
     }
 }
+
+/// Each point an element of its own: the same picture, and every group closed.
+#[test]
+fn the_points_change_no_pixel() {
+    let files = figures(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus")));
+    for f in files {
+        let tex = std::fs::read_to_string(&f).unwrap();
+        let plain = tikra::convert(&tex).unwrap().svg;
+        let points = tikra::convert_with(&tex, &tikra::Options::default().points()).unwrap().svg;
+        assert_eq!(points.matches("<g").count(), points.matches("</g>").count(), "{}", f.display());
+        assert!(tikra::png(&plain, 40.0, true).unwrap() == tikra::png(&points, 40.0, true).unwrap(), "{}", f.display());
+    }
+}
