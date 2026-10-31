@@ -228,7 +228,14 @@ fn badge(_cx: &mut Context, input: &ShapeInput) -> Result<NodeShape, Error> {
         paths: vec![
             ShapePath { segments: square.clone(), paint: ShapePaint::Background, color: Some("green".into()), ..Default::default() },
             ShapePath { segments: square.clone(), paint: ShapePaint::Fill, color: Some("blue".into()), ..Default::default() },
-            ShapePath { segments: square, paint: ShapePaint::Stroke(0.02), color: Some("red!50!black".into()), dash: Some(vec![0.1, 0.05]), cap: Some(LineCap::Round) },
+            ShapePath {
+                segments: square,
+                paint: ShapePaint::Stroke(0.02),
+                color: Some("red!50!black".into()),
+                dash: Some(vec![0.1, 0.05]),
+                cap: Some(LineCap::Round),
+                ..Default::default()
+            },
             ShapePath { segments: dot, paint: ShapePaint::Solid, color: Some("no such color".into()), ..Default::default() },
         ],
         texts: vec![

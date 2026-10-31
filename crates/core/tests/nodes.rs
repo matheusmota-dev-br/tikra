@@ -624,6 +624,16 @@ fn pin_edge_from_the_pin_options_and_their_styles_the_last_one_winning() {
 }
 
 #[test]
+fn pin_and_label_distance_among_their_own_options() {
+    let gap = |body: &str| {
+        let t = texts(&canvas(body));
+        (t[1].1.e - t[0].1.e).abs()
+    };
+    assert!(gap(r"\node[pin={[pin distance=1cm]0:a}] {x};") > 1.5 * gap(r"\node[pin={[pin distance=0.1cm]0:a}] {x};"));
+    assert!(gap(r"\node[label={[label distance=1cm]0:a}] {x};") > 1.5 * gap(r"\node[label=0:a] {x};"));
+}
+
+#[test]
 fn quoted_labels_with_a_direction_or_options() {
     let t = texts(&canvas(r#"\usetikzlibrary{quotes} \node["b" below left, "c" text=red] at (0,0) {x};"#));
     // TeX: b 12.09pt left of the node's text and 13.96pt lower, c red and 11.33pt higher
@@ -762,4 +772,13 @@ fn a_word_too_long_for_the_text_width_goes_to_a_line_of_its_own() {
     assert_eq!(l.lines.len(), 2);
     let (l, _) = label(r"\node[text width=3em] {CDEFG/HIJKL AB};");
     assert_eq!(l.lines.len(), 2);
+}
+
+#[test]
+fn pic_anchor_moves_a_pic_to_its_coordinate() {
+    let pics = r"\tikzset{pics/bar/.style={code={\draw (0,0) coordinate (-a) -- (2,0) coordinate (-b);}}}";
+    let at = |body: &str| bounds(&first_path(&format!("{pics}{body}")).segments);
+    let (plain, _) = at(r"\path (1,0) pic {bar};");
+    let (moved, _) = at(r"\path (1,0) pic[pic anchor=(-b)] {bar};");
+    assert!((plain.x - moved.x - 2.0).abs() < 1e-6, "{plain:?} {moved:?}");
 }

@@ -206,6 +206,8 @@ pub struct ShapePath {
     pub dash: Option<Vec<f64>>,
     /// A stroke's line caps.
     pub cap: Option<LineCap>,
+    /// A fill's opacity instead of the node's `fill opacity`.
+    pub opacity: Option<f64>,
 }
 
 /// How the ends of a stroke are drawn (`line cap`).
@@ -377,6 +379,11 @@ impl Context<'_> {
     /// The line width in force, in cm.
     pub fn line_width(&self) -> f64 {
         self.e.st.line_width
+    }
+
+    /// Whether the current stroke is dashed.
+    pub fn is_dashed(&self) -> bool {
+        self.e.st.dash.as_ref().is_some_and(|d| !d.0.is_empty())
     }
 
     /// Whether `transform shape` is on: nodes turn and scale with the picture.

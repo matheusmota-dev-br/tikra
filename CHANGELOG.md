@@ -4,6 +4,14 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+- A shape path of an extension can have an `opacity` of its own: code listing every field of `ShapePath` needs it ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
+- `>` with no value runs `bare arrow/.try`, for libraries to give it a meaning ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
+- tikzmark's `pic anchor=(-out)`: a pic placed by a coordinate of its own ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
+- `Context::is_dashed`, for an extension to draw by the path's dashes ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
+- `pin={[pin distance=…]…}` and `label={[label distance=…]…}`: the distance among a pin's or a label's own options is the one used ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
+
 ## 1.8.0 - 2026-10-29
 
 The figures of texample.net drawn as TeX draws them, the CircuiTikZ manual's last figures, multi-line nodes on TeX's baseline, and labels set by mathra 1.9.1.

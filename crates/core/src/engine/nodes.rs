@@ -103,7 +103,7 @@ fn library_geometry(shape: crate::extension::NodeShape) -> Geometry {
                 PathSegment::Close => Segment::Close,
             })
             .collect();
-        g.path(Layer::Background, segments, Usage::Library { paint: path.paint, color: path.color, dash: path.dash, cap: path.cap });
+        g.path(Layer::Background, segments, Usage::Library { paint: path.paint, color: path.color, dash: path.dash, cap: path.cap, opacity: path.opacity });
     }
     g.texts = shape.texts.into_iter().map(|t| ShapeText { tex: t.text, at: t.at, color: None, anchor: Some(t.anchor), font: t.font, turn: t.turn, upright: t.upright }).collect();
     g
@@ -1037,7 +1037,7 @@ impl Engine {
                     Usage::Stroke => (None, Some(e.stroke())),
                     Usage::TipStroke(cap, join) => (None, Some(crate::canvas::Stroke { cap: *cap, join: *join, ..e.stroke() })),
                     Usage::LineFill => (Some(Fill { paint: Paint::Solid(e.st.stroke_color()), opacity: e.st.fill_opacity, even_odd: false }), None),
-                    Usage::Library { paint, color, dash, cap } => {
+                    Usage::Library { paint, color, dash, cap, opacity: own_opacity } => {
                         let own = color.as_deref().and_then(|c| {
                             let found = e.color(c);
                             if found.is_none() {
@@ -1045,7 +1045,7 @@ impl Engine {
                             }
                             found
                         });
-                        let opacity = e.st.fill_opacity;
+                        let opacity = own_opacity.unwrap_or(e.st.fill_opacity);
                         let solid = |c: crate::color::Color| Fill { paint: Paint::Solid(c), opacity, even_odd: false };
                         match paint {
                             ShapePaint::Stroke(w) => {
@@ -1217,10 +1217,18 @@ impl Engine {
         let mut given = None;
         // `label position` among the label's options is its default position (`\tikz@label@angle`
         // expands it after them)
+        let distance_key = if pin { "pin distance" } else { "label distance" };
+        let mut given_distance = None;
         for i in keys::split_list(&opts) {
             if i.key == "label position" {
                 if let Some(v) = &i.value {
                     given = Some(tex::tokens_to_string(v).trim().to_string());
+                }
+            }
+            // and the distance among them is read after them too
+            if i.key == distance_key {
+                if let Some(v) = i.value {
+                    given_distance = self.length_of(v).ok();
                 }
             }
         }
@@ -1267,7 +1275,11 @@ impl Engine {
             "center" | "centered" => f64::NAN,
             other => self.number(other).unwrap_or(90.0),
         };
-        let distance = if pin { self.key_length("/tikz/pin distance", 3.0 * 0.1515) } else { self.key_length("/tikz/label distance", 0.0) };
+        let distance = match given_distance {
+            Some(d) => d,
+            None if pin => self.key_length("/tikz/pin distance", 3.0 * 0.1515),
+            None => self.key_length("/tikz/label distance", 0.0),
+        };
         // as `tikz@label@post`: at the node's anchor of that (whole) angle, moved away from the
         // center by the distance, with the anchor on the side away from the node
         let absolute = matches!(self.tex.meaning_of("tikra@absolute"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "true");
