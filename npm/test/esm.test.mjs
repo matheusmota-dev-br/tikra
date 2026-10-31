@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { init, tikzToSvg, render, slides, clickThrough, png, version } from "@mathlabs/tikra";
+import { init, tikzToSvg, render, slides, clickThrough, gcode, hpgl, penSvg, penStills, png, version } from "@mathlabs/tikra";
 
 const FIGURE = String.raw`\begin{tikzpicture}\draw[->] (0,0) -- (1,1) node[right] {$x$};\end{tikzpicture}`;
 
@@ -82,4 +82,12 @@ test("each point of a plot an element of its own", () => {
   const figure = String.raw`\begin{tikzpicture}\begin{axis}[ybar]\addplot coordinates {(1,2) (2,5)};\end{axis}\end{tikzpicture}`;
   assert.match(tikzToSvg(figure, { points: true }), /data-x="2" data-y="5"/);
   assert.doesNotMatch(tikzToSvg(figure), /tr-point/);
+});
+
+test("the pen", () => {
+  const figure = String.raw`\tikz \draw (0,0) -- (1,1);`;
+  assert.match(gcode(figure), /^G21/);
+  assert.match(hpgl(figure), /^IN;/);
+  assert.match(penSvg(figure, { seconds: 2 }), /<animateMotion/);
+  assert.equal(penStills(figure, 4).length, 5);
 });

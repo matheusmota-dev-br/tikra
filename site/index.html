@@ -100,6 +100,11 @@
         <button class="button solid" id="animate" type="button">▶ Animate</button>
         <button class="button" id="download-gif" type="button">Download GIF</button>
         <button class="button" id="download-video" type="button" hidden>Download video</button>
+        <button class="button" id="pen-play" type="button">✎ Draw with a pen</button>
+        <button class="button" id="download-pen-gif" type="button">Pen GIF</button>
+        <button class="button" id="download-pen-svg" type="button">Pen SVG</button>
+        <button class="button" id="download-gcode" type="button" title="Strokes for a pen plotter, in mm">G-code</button>
+        <button class="button" id="download-hpgl" type="button" title="Strokes for a pen plotter">HPGL</button>
         <button class="button" id="download" type="button">Download SVG</button>
         <button class="button" id="download-animated" type="button">Animated SVG</button>
         <button class="button" id="download-interactive" type="button" hidden title="One HTML file: drag the figure's named points, no network needed">Interactive HTML</button>
@@ -343,12 +348,15 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   let stopLoop = null;
   function stopAnimation() {
     if (stopLoop) { stopLoop(); stopLoop = null; interactive?.show(); }
+    penOn = false;
+    $("pen-play").textContent = "✎ Draw with a pen";
     $("animate").textContent = "▶ Animate";
   }
 
   // the figure step by step: the SVG with its steps numbered, read off the typing path; the slider
   // at k shows the first k steps, at the end the whole figure
   let stepsTimer = 0, stepped = null;
+  let penOn = false;
   function scheduleSteps() {
     clearTimeout(stepsTimer);
     stepped = null;
@@ -371,7 +379,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       $("steps").hidden = false;
       $("source-hint").hidden = false;
       // the same drawing, with each element tied to its code
-      if (preview.querySelector(":scope > svg:not([data-steps])")) {
+      if (!penOn && preview.querySelector(":scope > svg:not([data-steps])")) {
         preview.innerHTML = svg;
         tikraSource.walk(preview);
       }
@@ -655,6 +663,50 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   $("step-back").onclick = () => goToStep(Number($("step").value) - 1);
   $("step-next").onclick = () => goToStep(Number($("step").value) + 1);
   // the video is recorded in real time: the button counts it down
+  // a pen drawing the figure: the SVG plays by itself, and comes as a GIF too
+  const PEN_FPS = 15, PEN_SECONDS = 10;
+  $("pen-play").onclick = () => {
+    if (!last) return;
+    if (penOn) { stopAnimation(); showFigure(); return; }
+    stopAnimation();
+    try {
+      interactive?.stop({ redraw: false });
+      preview.innerHTML = api.pen(tex.value, "svg", null, PEN_SECONDS, null, null);
+      penOn = true;
+      $("pen-play").textContent = "■ Stop the pen";
+    } catch (err) {
+      alert(`Could not draw with a pen: ${String(err.message ?? err)}`);
+    }
+  };
+  const penFile = (id, format, type, name) => {
+    $(id).onclick = () => {
+      if (!last) return;
+      try {
+        save(new Blob([api.pen(tex.value, format, null, PEN_SECONDS, null, null)], { type }), name);
+      } catch (err) {
+        alert(`Could not make the file: ${String(err.message ?? err)}`);
+      }
+    };
+  };
+  penFile("download-pen-svg", "svg", "image/svg+xml", "figure-pen.svg");
+  penFile("download-gcode", "gcode", "text/plain", "figure.gcode");
+  penFile("download-hpgl", "hpgl", "text/plain", "figure.hpgl");
+  $("download-pen-gif").onclick = async (e) => {
+    const b = e.target;
+    if (!last || b.disabled) return;
+    b.disabled = true;
+    try {
+      const stills = JSON.parse(api.penStills(tex.value, PEN_SECONDS * PEN_FPS, null, PEN_SECONDS, null, null));
+      const bytes = await tikraAnimation.gifOfStills(stills, { fps: PEN_FPS, progress: (p) => (b.textContent = `GIF ${Math.round(p * 100)}%`) });
+      save(new Blob([bytes], { type: "image/gif" }), "figure-pen.gif");
+    } catch (err) {
+      alert(`Could not make the GIF: ${String(err.message ?? err)}`);
+    } finally {
+      b.disabled = false;
+      b.textContent = "Pen GIF";
+    }
+  };
+
   $("download-video").hidden = !tikraAnimation.recordable();
   $("download-video").onclick = async (e) => {
     const b = e.target;

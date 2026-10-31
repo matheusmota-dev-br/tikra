@@ -58,6 +58,47 @@ pub fn click_svg(code: &str, locale: Option<String>) -> Result<String, String> {
     tikra::click_through(&slides).ok_or_else(|| "could not join the slides".to_string())
 }
 
+/// What the pen does with a figure.
+fn pen_options(keep_order: Option<bool>, seconds: Option<f64>, paper_width: Option<f64>, paper_height: Option<f64>) -> tikra::pen::Pen {
+    let mut pen = tikra::pen::Pen { keep_order: keep_order.unwrap_or(false), paper: paper_width.zip(paper_height), ..Default::default() };
+    if let Some(s) = seconds {
+        pen.seconds = s;
+    }
+    pen
+}
+
+/// The figure for a pen: `format` is `gcode`, `hpgl` or `svg`, a pen drawing it.
+pub fn pen_text(code: &str, format: &str, keep_order: Option<bool>, seconds: Option<f64>, paper_width: Option<f64>, paper_height: Option<f64>) -> Result<String, String> {
+    let svg = tikra::convert(code).map_err(|e| e.to_string())?.svg;
+    let pen = pen_options(keep_order, seconds, paper_width, paper_height);
+    match format {
+        "gcode" => tikra::pen::gcode(&svg, &pen),
+        "hpgl" => tikra::pen::hpgl(&svg, &pen),
+        "svg" => tikra::pen::animation(&svg, &pen),
+        other => return Err(format!("unknown format for the pen: {other}")),
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// The pen's drawing as `count` + 1 still SVGs, a JSON array: the frames of a GIF.
+pub fn pen_stills_json(code: &str, count: usize, keep_order: Option<bool>, seconds: Option<f64>, paper_width: Option<f64>, paper_height: Option<f64>) -> Result<String, String> {
+    let svg = tikra::convert(code).map_err(|e| e.to_string())?.svg;
+    let stills = tikra::pen::stills(&svg, &pen_options(keep_order, seconds, paper_width, paper_height), count).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(stills).to_string())
+}
+
+/// `penText` for JavaScript.
+#[wasm_bindgen]
+pub fn pen(code: &str, format: &str, keep_order: Option<bool>, seconds: Option<f64>, paper_width: Option<f64>, paper_height: Option<f64>) -> Result<String, JsError> {
+    pen_text(code, format, keep_order, seconds, paper_width, paper_height).map_err(|e| JsError::new(&e))
+}
+
+/// `penStillsJson` for JavaScript.
+#[wasm_bindgen(js_name = penStills)]
+pub fn pen_stills(code: &str, count: usize, keep_order: Option<bool>, seconds: Option<f64>, paper_width: Option<f64>, paper_height: Option<f64>) -> Result<String, JsError> {
+    pen_stills_json(code, count, keep_order, seconds, paper_width, paper_height).map_err(|e| JsError::new(&e))
+}
+
 /// `slidesJson` for JavaScript.
 #[wasm_bindgen(js_name = slides)]
 pub fn slides_js(code: &str, locale: Option<String>) -> Result<String, JsError> {

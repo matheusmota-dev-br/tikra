@@ -48,6 +48,7 @@ $ tikra figure.tex -o figure.png --dpi 300       # white background
 $ tikra figure.tex -o figure.png --transparent
 $ tikra figure.tex -o figure.gif                # the figure drawing itself; .apng too
 $ tikra figure.tex -o figure.gcode               # strokes for a pen plotter; .hpgl too
+$ tikra figure.tex --pen -o figure.svg           # a pen drawing the figure; .gif and .apng too
 $ tikra figure.tex --slides -o figure           # Beamer's \\only<2->…: figure-1.svg, figure-2.svg…
 $ tikra figure.tex --click -o figure.svg        # the same slides in one SVG that advances on a click
 $ cat figure.tex | tikra --warnings              # SVG on stdout, warnings listed

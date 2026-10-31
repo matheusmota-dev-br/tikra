@@ -27,6 +27,7 @@ pub mod label;
 #[cfg(feature = "motion")]
 pub mod motion;
 #[doc(hidden)]
+pub mod pen;
 pub mod scene;
 mod slides;
 #[doc(hidden)]

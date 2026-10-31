@@ -9,7 +9,7 @@ One small figure for each thing the construction animation's steps made possible
 | `construction.tex` | `-o .gif`, `-o .apng` | The figure drawing itself, from the terminal. Try `--width` and `--fps`. |
 | `walk.tex` | playground, `--parts` | Press Tab to reach the figure and walk it with the arrows. With a screen reader, each part is read on its own. |
 | `slides.tex` | `--slides`, `--click` | Four slides from one figure: `\pause`, `\uncover`, `\only` and `\draw<4>`. The `--click` SVG advances on each click in a browser. |
-| `plotter.tex` | `-o .gcode`, `-o .hpgl` | Strokes for a pen plotter. Paste the G-code in any online viewer. Try `--paper 210x297` and `--keep-order`. |
+| `plotter.tex` | `-o .gcode`, `-o .hpgl`, `--pen` | Strokes for a pen plotter, and a pen drawing them: `plotter-pen.svg` plays by itself in a browser, `plotter-pen.gif` anywhere. In the playground, press Draw with a pen. Try `--seconds`, `--paper 210x297` and `--keep-order`. |
 | `narration.tex` | playground | Move the step slider: the nodes and connections have a sentence under it, and the free line stays silent. Change the language to hear them in it. |
 | `play.tex` | `--play` | Open the SVG in a browser: the dot crosses, the line turns, and the square changes color when clicked. Without `--play`, the same code gives a still picture. |
 | `points.tex` | `--points` | Open the SVG in a browser and hover a bar or a mark, or press Tab, to see its values. With `--animate` too, the bars grow from the axis. |

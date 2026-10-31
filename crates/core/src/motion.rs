@@ -292,7 +292,38 @@ fn lzw(indices: &[u8]) -> Vec<u8> {
 /// The construction animation of an SVG from [`crate::Options::animated`] as GIF bytes, looping,
 /// on white.
 pub fn gif(svg: &str, motion: Motion) -> Result<Vec<u8>, Error> {
-    let f = frames(svg, motion)?;
+    encode_gif(&frames(svg, motion)?)
+}
+
+/// The frames of a pen drawing the figure of `svg`.
+fn pen_frames(svg: &str, pen: &crate::pen::Pen, motion: Motion) -> Result<Frames, Error> {
+    if motion.fps == 0 || motion.width == 0 {
+        return Err(Error::Png("the width and the frames per second must be over 0".into()));
+    }
+    let (w, h) = crate::pen::sheet(svg, pen)?;
+    let even = |v: f64| ((v / 2.0).round() as u32 * 2).max(16);
+    let (width, height) = (even(f64::from(motion.width)), even(f64::from(motion.width) * h / w));
+    let last = ((pen.seconds * f64::from(motion.fps)).ceil() as usize).max(2);
+    let mut images = Vec::with_capacity(last + 1);
+    for still in crate::pen::stills(svg, pen, last)? {
+        images.push(raster(&still, width, height)?);
+    }
+    let mut delays = vec![(100.0 / f64::from(motion.fps)).round().max(2.0) as u16; images.len()];
+    delays[last] = (HOLD * 100.0) as u16;
+    Ok(Frames { width, height, images, delays })
+}
+
+/// A pen drawing the figure of `svg`, the SVG tikra wrote for it, as GIF bytes.
+pub fn pen_gif(svg: &str, pen: &crate::pen::Pen, motion: Motion) -> Result<Vec<u8>, Error> {
+    encode_gif(&pen_frames(svg, pen, motion)?)
+}
+
+/// A pen drawing the figure of `svg`, the SVG tikra wrote for it, as APNG bytes.
+pub fn pen_apng(svg: &str, pen: &crate::pen::Pen, motion: Motion) -> Result<Vec<u8>, Error> {
+    encode_apng(&pen_frames(svg, pen, motion)?)
+}
+
+fn encode_gif(f: &Frames) -> Result<Vec<u8>, Error> {
     let colors = palette(f.images.last().map_or(&[][..], Vec::as_slice));
     let word = |v: u32| [(v & 255) as u8, (v >> 8) as u8];
     let mut out = b"GIF89a".to_vec();
@@ -331,7 +362,10 @@ pub fn gif(svg: &str, motion: Motion) -> Result<Vec<u8>, Error> {
 /// The construction animation of an SVG from [`crate::Options::animated`] as APNG bytes, looping,
 /// on white.
 pub fn apng(svg: &str, motion: Motion) -> Result<Vec<u8>, Error> {
-    let f = frames(svg, motion)?;
+    encode_apng(&frames(svg, motion)?)
+}
+
+fn encode_apng(f: &Frames) -> Result<Vec<u8>, Error> {
     let failed = |e: png::EncodingError| Error::Png(e.to_string());
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, f.width, f.height);
