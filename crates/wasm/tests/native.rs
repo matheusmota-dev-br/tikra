@@ -1,7 +1,7 @@
 //! Outside the browser: the happy path of the exported functions, and the errors before they become
 //! a `JsError` (creating a `JsError` only works inside wasm; that is in tests/web.rs).
 
-use tikra_wasm::{click_svg, convert_json, png_bytes, slides_json, svg, tikz_to_svg};
+use tikra_wasm::{click_svg, convert_json, pen_stills_json, pen_text, png_bytes, slides_json, svg, tikz_to_svg};
 
 const FIGURE: &str = r"\begin{tikzpicture}\draw[->] (0,0) -- (1,1) node[right] {$x$};\end{tikzpicture}";
 
@@ -76,4 +76,13 @@ fn the_slides_of_a_figure() {
     let json: Vec<String> = serde_json::from_str(&slides_json(figure, None).unwrap()).unwrap();
     assert_eq!(json.len(), 2);
     assert!(click_svg(figure, None).unwrap().contains(r#"data-slides="2""#));
+}
+
+#[test]
+fn the_pen() {
+    assert!(pen_text(FIGURE, "gcode", None, None, None, None).unwrap().starts_with("G21"));
+    assert!(pen_text(FIGURE, "svg", None, Some(2.0), None, None).unwrap().contains("<animateMotion"));
+    assert!(pen_text(FIGURE, "pdf", None, None, None, None).is_err());
+    let stills: Vec<String> = serde_json::from_str(&pen_stills_json(FIGURE, 3, None, None, None, None).unwrap()).unwrap();
+    assert_eq!(stills.len(), 4);
 }

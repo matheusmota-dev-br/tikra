@@ -166,6 +166,28 @@ var tikraAnimation = (() => {
     return encode(w, h, frames, delays, progress);
   }
 
+  // still SVGs as GIF bytes, the last one held: frames another part of the page has already made
+  async function gifOfStills(stills, { width = 560, fps = 15, progress = () => {} } = {}) {
+    const [w, h] = size(stills[0], width);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const frames = [];
+    for (let k = 0; k < stills.length; k++) {
+      const img = await loadImage(stills[k]);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      frames.push(ctx.getImageData(0, 0, w, h).data);
+      progress((k + 1) / stills.length * 0.8);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    const delay = Math.round(100 / fps);
+    const delays = frames.map((_, k) => (k === frames.length - 1 ? Math.round(HOLD * 100) : delay));
+    return encode(w, h, frames, delays, progress);
+  }
+
   // the formats a browser records, the first it knows: WebM in Chrome and Firefox, MP4 in Safari
   const FORMATS = [["video/webm;codecs=vp9", "webm"], ["video/webm", "webm"], ["video/mp4", "mp4"]];
   const recordable = () => typeof MediaRecorder === "function" && FORMATS.some(([t]) => MediaRecorder.isTypeSupported(t));
@@ -309,5 +331,5 @@ var tikraAnimation = (() => {
     return new Uint8Array(out);
   }
 
-  return { duration, loop, gif, video, recordable, withControls };
+  return { duration, loop, gif, gifOfStills, video, recordable, withControls };
 })();

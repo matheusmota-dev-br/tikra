@@ -59,6 +59,31 @@ def click_through(code: str, *, locale: str = "en") -> str:
     return _tikra.click_through(code, locale=locale)
 
 
+def tikz_to_gcode(code: str, *, keep_order: bool = False, paper: tuple[float, float] | None = None) -> str:
+    """The figure's strokes as G-code for a pen plotter, in mm."""
+    return _tikra.tikz_to_gcode(code, keep_order=keep_order, paper=paper)
+
+
+def tikz_to_hpgl(code: str, *, keep_order: bool = False, paper: tuple[float, float] | None = None) -> str:
+    """The figure's strokes as HPGL for a pen plotter."""
+    return _tikra.tikz_to_hpgl(code, keep_order=keep_order, paper=paper)
+
+
+def tikz_to_pen_svg(code: str, *, seconds: float = 10.0, keep_order: bool = False, paper: tuple[float, float] | None = None) -> str:
+    """An SVG where a pen draws the figure in a loop, with no script: it plays in a browser."""
+    return _tikra.tikz_to_pen_svg(code, seconds=seconds, keep_order=keep_order, paper=paper)
+
+
+def tikz_to_pen_gif(code: str, *, seconds: float = 10.0, width: int = 560, fps: int = 15, keep_order: bool = False, paper: tuple[float, float] | None = None) -> bytes:
+    """A pen drawing the figure, as GIF bytes."""
+    return _tikra.tikz_to_pen_gif(code, seconds=seconds, width=width, fps=fps, keep_order=keep_order, paper=paper)
+
+
+def tikz_to_pen_apng(code: str, *, seconds: float = 10.0, width: int = 560, fps: int = 15, keep_order: bool = False, paper: tuple[float, float] | None = None) -> bytes:
+    """A pen drawing the figure, as APNG bytes."""
+    return _tikra.tikz_to_pen_apng(code, seconds=seconds, width=width, fps=fps, keep_order=keep_order, paper=paper)
+
+
 def tikz_to_gif(code: str, *, width: int = 560, fps: int = 15) -> bytes:
     """The figure's construction animation as GIF bytes, on white, looping."""
     return _tikra.tikz_to_gif(code, width=width, fps=fps)
@@ -84,4 +109,4 @@ def png(svg: str, *, dpi: float = 300, background: bool = True) -> bytes:
     return bytes(_tikra.png(svg, dpi=dpi, background=background))
 
 
-__all__ = ["Result", "__version__", "click_through", "core_version", "png", "render", "slides", "tikz_to_apng", "tikz_to_gif", "tikz_to_svg"]
+__all__ = ["Result", "__version__", "click_through", "core_version", "png", "render", "slides", "tikz_to_apng", "tikz_to_gcode", "tikz_to_gif", "tikz_to_hpgl", "tikz_to_pen_apng", "tikz_to_pen_gif", "tikz_to_pen_svg", "tikz_to_svg"]

@@ -1,7 +1,6 @@
-mod pen;
-
 use std::process::ExitCode;
 use std::{env, fs, io};
+use tikra::pen;
 
 const HELP: &str = "\
 tikra — TikZ figures to SVG and PNG, no TeX install
@@ -14,6 +13,8 @@ OPTIONS
   -o, --output <file>     .svg, .png, or the animation as .gif or .apng (by its name); without
                           -o, prints the SVG
                           .gcode, .hpgl or .plt are strokes for a pen plotter
+      --pen               a pen drawing the figure: .svg (plays by itself in a browser), .gif or
+                          .apng; add --seconds <n> for how long it takes (default 10)
       --keep-order        plotter: TikZ's order, not the one that lifts the pen least
       --paper <w>x<h>     plotter: the paper in mm; centers the figure, and shrinks it to fit
       --pen-up <code>     G-code that lifts the pen (default G0 Z5)
@@ -49,6 +50,7 @@ fn main() -> ExitCode {
     let mut motion = tikra::motion::Motion::default();
     let (mut slides, mut click) = (false, false);
     let mut pen = pen::Pen::default();
+    let mut draw_with_pen = false;
     let mut it = env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -73,6 +75,8 @@ fn main() -> ExitCode {
             "--parts" => options = options.parts(),
             "--play" => options = options.play(),
             "--points" => options = options.points(),
+            "--pen" => draw_with_pen = true,
+            "--seconds" => pen.seconds = it.next().and_then(|v| v.parse().ok()).unwrap_or(pen.seconds),
             "--keep-order" => pen.keep_order = true,
             "--paper" => pen.paper = it.next().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
             "--pen-up" => pen.up = it.next().unwrap_or(pen.up),
@@ -110,7 +114,7 @@ fn main() -> ExitCode {
     }
     let moving = |s: &str, ext: &str| s.len() > ext.len() && s.ends_with(ext);
     let animation = output.as_deref().is_some_and(|s| moving(s, ".gif") || moving(s, ".apng"));
-    if animation {
+    if animation && !draw_with_pen {
         options = options.animated();
     }
     let r = match tikra::convert_with(&code, &options) {
@@ -132,6 +136,26 @@ fn main() -> ExitCode {
         println!("description: {}", r.description);
     }
     match output {
+        Some(s) if draw_with_pen && !(s.ends_with(".gcode") || s.ends_with(".hpgl") || s.ends_with(".plt")) => {
+            let bytes = if s.ends_with(".gif") {
+                tikra::motion::pen_gif(&r.svg, &pen, motion)
+            } else if s.ends_with(".apng") {
+                tikra::motion::pen_apng(&r.svg, &pen, motion)
+            } else {
+                pen::animation(&r.svg, &pen).map(String::into_bytes)
+            };
+            match bytes.map(|b| fs::write(&s, b)) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    eprintln!("tikra: could not write {s}: {e}");
+                    return ExitCode::from(1);
+                }
+                Err(e) => {
+                    eprintln!("tikra: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
         Some(s) if s.ends_with(".gcode") || s.ends_with(".hpgl") || s.ends_with(".plt") => {
             let text = if s.ends_with(".gcode") { pen::gcode(&r.svg, &pen) } else { pen::hpgl(&r.svg, &pen) };
             match text.map(|t| fs::write(&s, t)) {

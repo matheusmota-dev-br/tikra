@@ -74,12 +74,63 @@ fn click_through(code: &str, locale: &str) -> PyResult<String> {
     tikra::click_through(&slides).ok_or_else(|| PyValueError::new_err("could not join the slides"))
 }
 
+/// What the pen does with a figure, and the figure's SVG.
+fn pen_of(code: &str, keep_order: bool, seconds: f64, paper: Option<(f64, f64)>) -> PyResult<(String, tikra::pen::Pen)> {
+    let svg = tikra::convert(code).map_err(error)?.svg;
+    Ok((svg, tikra::pen::Pen { keep_order, seconds, paper, ..Default::default() }))
+}
+
+/// The figure's strokes as G-code.
+#[pyfunction]
+#[pyo3(signature = (code, *, keep_order = false, paper = None))]
+fn tikz_to_gcode(code: &str, keep_order: bool, paper: Option<(f64, f64)>) -> PyResult<String> {
+    let (svg, pen) = pen_of(code, keep_order, 10.0, paper)?;
+    tikra::pen::gcode(&svg, &pen).map_err(error)
+}
+
+/// The figure's strokes as HPGL.
+#[pyfunction]
+#[pyo3(signature = (code, *, keep_order = false, paper = None))]
+fn tikz_to_hpgl(code: &str, keep_order: bool, paper: Option<(f64, f64)>) -> PyResult<String> {
+    let (svg, pen) = pen_of(code, keep_order, 10.0, paper)?;
+    tikra::pen::hpgl(&svg, &pen).map_err(error)
+}
+
+/// An SVG where a pen draws the figure.
+#[pyfunction]
+#[pyo3(signature = (code, *, seconds = 10.0, keep_order = false, paper = None))]
+fn tikz_to_pen_svg(code: &str, seconds: f64, keep_order: bool, paper: Option<(f64, f64)>) -> PyResult<String> {
+    let (svg, pen) = pen_of(code, keep_order, seconds, paper)?;
+    tikra::pen::animation(&svg, &pen).map_err(error)
+}
+
+/// A pen drawing the figure, as GIF bytes.
+#[pyfunction]
+#[pyo3(signature = (code, *, seconds = 10.0, width = 560, fps = 15, keep_order = false, paper = None))]
+fn tikz_to_pen_gif(code: &str, seconds: f64, width: u32, fps: u32, keep_order: bool, paper: Option<(f64, f64)>) -> PyResult<Vec<u8>> {
+    let (svg, pen) = pen_of(code, keep_order, seconds, paper)?;
+    tikra::motion::pen_gif(&svg, &pen, tikra::motion::Motion { width, fps }).map_err(error)
+}
+
+/// A pen drawing the figure, as APNG bytes.
+#[pyfunction]
+#[pyo3(signature = (code, *, seconds = 10.0, width = 560, fps = 15, keep_order = false, paper = None))]
+fn tikz_to_pen_apng(code: &str, seconds: f64, width: u32, fps: u32, keep_order: bool, paper: Option<(f64, f64)>) -> PyResult<Vec<u8>> {
+    let (svg, pen) = pen_of(code, keep_order, seconds, paper)?;
+    tikra::motion::pen_apng(&svg, &pen, tikra::motion::Motion { width, fps }).map_err(error)
+}
+
 #[pymodule]
 #[pyo3(name = "_tikra")]
 fn tikra_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tikz_to_svg, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(png, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_gcode, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_hpgl, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_pen_svg, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_pen_gif, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_pen_apng, m)?)?;
     m.add_function(wrap_pyfunction!(slides, m)?)?;
     m.add_function(wrap_pyfunction!(click_through, m)?)?;
     m.add_function(wrap_pyfunction!(tikz_to_gif, m)?)?;

@@ -53,6 +53,27 @@ export function slides(code: string, options?: Pick<Options, "locale">): string[
 /** The slides as one SVG that advances on a click and needs no script. It takes a browser: an `<img>` takes no clicks. */
 export function clickThrough(code: string, options?: Pick<Options, "locale">): string;
 
+export interface PenOptions {
+  /** Keep the order TikZ drew in, instead of the one that lifts the pen least. Default `false`. */
+  keepOrder?: boolean;
+  /** How long the animated pen takes to draw the figure, in seconds. Default 10. */
+  seconds?: number;
+  /** The paper in mm, `[width, height]`: the figure is centered on it, and shrunk to fit. */
+  paper?: [number, number];
+}
+
+/** The figure's strokes as G-code for a pen plotter, in mm. */
+export function gcode(code: string, options?: PenOptions): string;
+
+/** The figure's strokes as HPGL for a pen plotter. */
+export function hpgl(code: string, options?: PenOptions): string;
+
+/** An SVG where a pen draws the figure in a loop, with no script: it plays by itself in a browser. */
+export function penSvg(code: string, options?: PenOptions): string;
+
+/** The pen's drawing as `count` + 1 still SVGs, evenly spaced: the frames of a GIF or a video. */
+export function penStills(code: string, count: number, options?: PenOptions): string[];
+
 /** Rasterizes an SVG written by tikra to PNG bytes. Throws on an invalid SVG or dpi, or past 100 megapixels. */
 export function png(svg: string, options?: PngOptions): Uint8Array;
 

@@ -102,3 +102,12 @@ def test_points():
     figure = r"\begin{tikzpicture}\begin{axis}[ybar]\addplot coordinates {(1,2) (2,5)};\end{axis}\end{tikzpicture}"
     assert 'data-x="2" data-y="5"' in tikra.tikz_to_svg(figure, points=True)
     assert "tr-point" not in tikra.tikz_to_svg(figure)
+
+
+def test_the_pen():
+    figure = r"\tikz \draw (0,0) -- (1,1);"
+    assert tikra.tikz_to_gcode(figure).startswith("G21")
+    assert tikra.tikz_to_hpgl(figure).startswith("IN;")
+    assert "<animateMotion" in tikra.tikz_to_pen_svg(figure, seconds=2)
+    assert tikra.tikz_to_pen_gif(figure, seconds=1, width=64, fps=4).startswith(b"GIF89a")
+    assert tikra.tikz_to_pen_apng(figure, seconds=1, width=64, fps=4).startswith(b"\x89PNG")

@@ -16,4 +16,3 @@ path = "src/main.rs"
 
 [dependencies]
 tikra = { workspace = true, features = ["motion"] }
-resvg = { version = "0.45", default-features = false }
