@@ -4,7 +4,9 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
-## Unreleased
+## 1.8.1 - 2026-10-30
+
+The distance of a pin or a label among its own options, tikzmark's `pic anchor`, what extensions need to draw, and labels set by mathra 1.9.2.
 
 - A shape path of an extension can have an `opacity` of its own: code listing every field of `ShapePath` needs it ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
 - `>` with no value runs `bare arrow/.try`, for libraries to give it a meaning ([#146](https://github.com/matheusmota-dev-br/tikra/issues/146)).
