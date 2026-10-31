@@ -1062,7 +1062,9 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
         let _ = write!(s, r#"<desc id="tr-desc-{id:08x}">{}</desc>"#, escape(&words.text));
     }
     let _ = write!(s, r#"<metadata><tikra:source type="tikz">{}</tikra:source></metadata>"#, escape(source));
-    let _ = write!(s, "{}<defs>{}</defs>{body}</svg>", steps.style(), defs.text);
+    // a screen reader would stop at each glyph kept here, with only "image" to say
+    let hidden = if canvas.parts.is_empty() { "" } else { r#" aria-hidden="true""# };
+    let _ = write!(s, "{}<defs{hidden}>{}</defs>{body}</svg>", steps.style(), defs.text);
     s
 }
 

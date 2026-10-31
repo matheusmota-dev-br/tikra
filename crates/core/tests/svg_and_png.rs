@@ -264,6 +264,7 @@ fn a_step_has_a_sentence_or_nothing() {
 fn a_reader_stops_once_at_each_part() {
     let code = "\\begin{tikzpicture}\\node[draw] (a) {A};\\draw[->] (0,1) -- (1,1);\\clip (0,0) rectangle (1,1);\\end{tikzpicture}";
     let svg = tikra::convert_with(code, &tikra::Options::default().parts()).unwrap().svg;
+    assert!(svg.contains(r#"<defs aria-hidden="true">"#), "{svg}");
     // every drawn element is inside a stop or hidden from the reader
     let body = svg.split("</defs>").nth(1).unwrap();
     assert!(body.matches(r#"role="img" tabindex="0""#).count() >= 2, "{body}");
