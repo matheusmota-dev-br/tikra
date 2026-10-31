@@ -31,15 +31,18 @@ impl Default for Pen {
 }
 
 /// The strokes of what a group draws.
-fn walk(group: &usvg::Group, height: f64, out: &mut Vec<Stroke>) {
+///
+/// The transformation is added up here, group by group: `abs_transform` applies a `<use>`'s twice,
+/// which leaves each glyph a hundredth of its size.
+fn walk(group: &usvg::Group, parent: usvg::Transform, height: f64, out: &mut Vec<Stroke>) {
     if group.opacity().get() == 0.0 {
         return;
     }
+    let t = parent.pre_concat(group.transform());
     for node in group.children() {
         match node {
-            usvg::Node::Group(g) => walk(g, height, out),
+            usvg::Node::Group(g) => walk(g, t, height, out),
             usvg::Node::Path(p) if p.is_visible() && (p.fill().is_some() || p.stroke().is_some()) => {
-                let t = p.abs_transform();
                 let at = |q: usvg::tiny_skia_path::Point| {
                     let (x, y) = (f64::from(q.x), f64::from(q.y));
                     let (sx, kx, ky, sy, tx, ty) = (f64::from(t.sx), f64::from(t.kx), f64::from(t.ky), f64::from(t.sy), f64::from(t.tx), f64::from(t.ty));
@@ -96,7 +99,7 @@ pub fn strokes(svg: &str) -> Result<(Vec<Stroke>, (f64, f64)), String> {
     let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).map_err(|e| e.to_string())?;
     let (w, h) = (f64::from(tree.size().width()) * MM, f64::from(tree.size().height()) * MM);
     let mut out = Vec::new();
-    walk(tree.root(), h, &mut out);
+    walk(tree.root(), usvg::Transform::identity(), h, &mut out);
     Ok((out, (w, h)))
 }
 
@@ -227,6 +230,26 @@ mod tests {
         let square = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96"><path d="M0 0 L96 0 L96 96 L0 96 Z" fill="red"/><g opacity="0"><path d="M0 0 L96 96" stroke="black"/></g></svg>"#;
         let (drawn, _) = lengths(&gcode(square, &Pen::default()).unwrap());
         assert!((drawn - 4.0 * 25.4).abs() < 0.01, "{drawn}");
+    }
+
+    #[test]
+    fn a_glyph_keeps_its_size() {
+        // as tikra writes text: a glyph in its font's units, scaled by a `<use>` in a group
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96"><defs><path id="g" d="M0 0 L500 0 L500 700 Z"/></defs><g transform="translate(10 20)" fill="#000000"><use href="#g" transform="translate(1 0) scale(0.01 -0.01)"/></g></svg>"##;
+        let (all, _) = strokes(svg).unwrap();
+        let xs: Vec<f64> = all[0].iter().map(|p| p.0).collect();
+        let ys: Vec<f64> = all[0].iter().map(|p| p.1).collect();
+        let span = |v: &[f64]| v.iter().cloned().fold(f64::MIN, f64::max) - v.iter().cloned().fold(f64::MAX, f64::min);
+        assert!((span(&xs) - 5.0 * MM).abs() < 1e-3 && (span(&ys) - 7.0 * MM).abs() < 1e-3, "{:?}", all[0]);
+        assert!((xs[0] - 11.0 * MM).abs() < 1e-3, "{:?}", all[0]);
+    }
+
+    #[test]
+    fn real_text_has_real_size() {
+        let svg = tikra::convert(r"\begin{tikzpicture}\node {$y = a \sin kx$};\end{tikzpicture}").unwrap().svg;
+        let (all, _) = strokes(&svg).unwrap();
+        let widest = all.iter().map(|s| s.iter().map(|p| p.0).fold(f64::MIN, f64::max) - s.iter().map(|p| p.0).fold(f64::MAX, f64::min)).fold(0.0, f64::max);
+        assert!(all.len() > 10 && widest > 0.5, "{} strokes, widest {widest} mm", all.len());
     }
 
     #[test]
