@@ -139,7 +139,7 @@
   .out { display: flex; flex-direction: column; }
   .editor-head .button { padding: 6px 10px; font-size: 13px; line-height: 1.2; white-space: nowrap; }
   .editor-head .examples { flex: 1; min-width: 0; }
-  .tutor { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 40; display: grid; gap: 8px; padding: 12px 16px; margin-bottom: 12px; background: var(--surface); border: 2px solid var(--ink); }
+  .tutor { display: grid; gap: 8px; padding: 12px 16px; margin-bottom: 12px; background: var(--surface); border: 2px solid var(--ink); }
   .tutor[hidden], .tutor-hand[hidden] { display: none; }
   .tutor h3 { margin: 0; font: 400 20px/1.2 var(--font-display); }
   .tutor-head { display: flex; align-items: center; gap: 10px; }
@@ -155,9 +155,10 @@
   .tutor-list button { display: grid; gap: 1px; width: 100%; padding: 7px 8px; border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer; font: 15px/1.3 var(--font-body); }
   .tutor-list button:hover { background: var(--surface-2); }
   .tutor-list span { font-size: 13px; color: var(--muted); }
-  .tutor-target { outline: 3px solid var(--accent); outline-offset: 3px; scroll-margin-top: 200px; }
+  @keyframes tutor-nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1px); } 80% { transform: translateX(1px); } }
+  .tutor-nudge { animation: tutor-nudge 0.5s ease-in-out 1; }
   .tutor-hand { position: fixed; z-index: 41; left: -11px; top: -11px; width: 22px; height: 22px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 45%, transparent); border: 2px solid var(--accent); pointer-events: none; transition: transform 0.4s ease; }
-  @media (prefers-reduced-motion: reduce) { .tutor-hand { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .tutor-hand { transition: none; } .tutor-nudge { animation: none; } }
   .modes { display: flex; align-items: stretch; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding-right: 12px; }
   .mode-tabs { display: flex; min-width: 0; }
   .mode { border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: 14px/1 var(--font-body); padding: 14px 14px 11px; cursor: pointer; white-space: nowrap; }

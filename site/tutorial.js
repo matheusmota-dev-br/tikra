@@ -152,12 +152,19 @@ var tikraTutorial = (() => {
     const hand = Object.assign(document.createElement("div"), { className: "tutor-hand", hidden: true });
     document.body.append(hand);
     const finished = remembered();
-    let lesson = null, at = 0, timer = 0, token = 0, marked = null;
+    let lesson = null, at = 0, timer = 0, token = 0;
     const seen = { moved: false };
     const sleep = (ms) => new Promise((r) => setTimeout(r, calm ? 0 : ms));
 
     // where the page's own controls are clicked and dragged, with a hand the reader can follow
     async function point(el, x, y) {
+      // asked to show it, the page may bring it into view; only then
+      const box = el.getBoundingClientRect();
+      if (box.top < 0 || box.bottom > innerHeight) {
+        el.scrollIntoView({ block: "center", behavior: "instant" });
+        await sleep(60);
+        x = 0;
+      }
       if (!x) { const r = el.getBoundingClientRect(); x = r.left + r.width / 2; y = r.top + r.height / 2; }
       hand.hidden = false;
       hand.style.transform = `translate(${x}px, ${y}px)`;
@@ -208,11 +215,14 @@ var tikraTutorial = (() => {
       },
     });
 
-    function mark(selector) {
-      marked?.classList.remove("tutor-target");
-      marked = selector ? q(selector) : null;
-      marked?.classList.add("tutor-target");
-      marked?.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
+    // a nudge on the control a step is about, once: the page does not move, and nothing stays lit
+    function nudge(selector) {
+      const el = selector ? q(selector) : null;
+      if (!el) return;
+      el.classList.remove("tutor-nudge");
+      void el.getBoundingClientRect();
+      el.classList.add("tutor-nudge");
+      el.addEventListener("animationend", () => el.classList.remove("tutor-nudge"), { once: true });
     }
     function stop() {
       clearInterval(timer);
@@ -221,18 +231,14 @@ var tikraTutorial = (() => {
     }
     function close() {
       stop();
-      mark(null);
       lesson = null;
       panel.hidden = true;
       q("#tutor-open")?.focus();
     }
     function list() {
       stop();
-      mark(null);
       lesson = null;
-      const opening = panel.hidden;
       panel.hidden = false;
-      if (opening) panel.scrollIntoView({ block: "start", behavior: calm ? "auto" : "smooth" });
       panel.innerHTML = `<div class="tutor-head"><h3>Tutorials</h3><button class="tutor-x" type="button" aria-label="Close the tutorials">×</button></div>
         <ul class="tutor-list">${LESSONS.map((l) => `<li><button type="button" data-lesson="${l.id}"><b>${finished.has(l.id) ? "✓ " : ""}${l.title}</b><span>${l.about}</span></button></li>`).join("")}</ul>`;
     }
@@ -248,7 +254,7 @@ var tikraTutorial = (() => {
     function step() {
       stop();
       const s = lesson.steps[at], last = at === lesson.steps.length - 1;
-      mark(s.mark);
+      nudge(s.mark);
       panel.innerHTML = `<div class="tutor-head"><h3>${lesson.title}</h3><span class="tutor-count">${at + 1} of ${lesson.steps.length}</span><button class="tutor-x" type="button" aria-label="Close the tutorials">×</button></div>
         <p class="tutor-say">${s.say}</p>
         <p class="tutor-state" id="tutor-state" aria-live="polite">${s.free ? "" : "Your turn."}</p>
