@@ -47,6 +47,16 @@ def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: 
     return _tikra.tikz_to_svg(code, locale=locale, animate=animate, steps=steps, source=source, parts=parts)
 
 
+def slides(code: str, *, locale: str = "en") -> list[str]:
+    """The SVG of each slide of a figure with Beamer's overlays. A figure without them has one."""
+    return _tikra.slides(code, locale=locale)
+
+
+def click_through(code: str, *, locale: str = "en") -> str:
+    """The slides as one SVG that advances on a click. It takes a browser, not an ``<img>``."""
+    return _tikra.click_through(code, locale=locale)
+
+
 def tikz_to_gif(code: str, *, width: int = 560, fps: int = 15) -> bytes:
     """The figure's construction animation as GIF bytes, on white, looping."""
     return _tikra.tikz_to_gif(code, width=width, fps=fps)
@@ -72,4 +82,4 @@ def png(svg: str, *, dpi: float = 300, background: bool = True) -> bytes:
     return bytes(_tikra.png(svg, dpi=dpi, background=background))
 
 
-__all__ = ["Result", "__version__", "core_version", "png", "render", "tikz_to_apng", "tikz_to_gif", "tikz_to_svg"]
+__all__ = ["Result", "__version__", "click_through", "core_version", "png", "render", "slides", "tikz_to_apng", "tikz_to_gif", "tikz_to_svg"]

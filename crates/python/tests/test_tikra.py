@@ -84,3 +84,9 @@ def test_the_animation_as_gif_and_apng():
 def test_the_parts():
     svg = tikra.tikz_to_svg(r"\tikz \draw (0,0) -- (1,1);", parts=True)
     assert 'tabindex="0"' in svg and 'role="group"' in svg
+
+
+def test_slides():
+    figure = r"\begin{tikzpicture}\draw (0,0) -- (1,0); \only<2>{\draw (0,1) -- (1,1);}\end{tikzpicture}"
+    assert len(tikra.slides(figure)) == 2
+    assert 'data-slides="2"' in tikra.click_through(figure)

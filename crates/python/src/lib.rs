@@ -53,12 +53,30 @@ fn tikz_to_apng(code: &str, width: u32, fps: u32) -> PyResult<Vec<u8>> {
     tikra::motion::apng(&svg, tikra::motion::Motion { width, fps }).map_err(error)
 }
 
+/// The SVG of each slide of a figure with Beamer's overlays.
+#[pyfunction]
+#[pyo3(signature = (code, *, locale = "en"))]
+fn slides(code: &str, locale: &str) -> PyResult<Vec<String>> {
+    let slides = tikra::slides(code, &options(locale, false, false, false, false)?).map_err(error)?;
+    Ok(slides.into_iter().map(|s| s.svg).collect())
+}
+
+/// The slides as one SVG that advances on a click.
+#[pyfunction]
+#[pyo3(signature = (code, *, locale = "en"))]
+fn click_through(code: &str, locale: &str) -> PyResult<String> {
+    let slides = tikra::slides(code, &options(locale, false, false, false, false)?).map_err(error)?;
+    tikra::click_through(&slides).ok_or_else(|| PyValueError::new_err("could not join the slides"))
+}
+
 #[pymodule]
 #[pyo3(name = "_tikra")]
 fn tikra_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tikz_to_svg, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(png, m)?)?;
+    m.add_function(wrap_pyfunction!(slides, m)?)?;
+    m.add_function(wrap_pyfunction!(click_through, m)?)?;
     m.add_function(wrap_pyfunction!(tikz_to_gif, m)?)?;
     m.add_function(wrap_pyfunction!(tikz_to_apng, m)?)?;
     // the Python package has its own version (crates/python/Cargo.toml); the core's is `core_version`

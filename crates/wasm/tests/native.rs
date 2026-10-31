@@ -1,7 +1,7 @@
 //! Outside the browser: the happy path of the exported functions, and the errors before they become
 //! a `JsError` (creating a `JsError` only works inside wasm; that is in tests/web.rs).
 
-use tikra_wasm::{convert_json, png_bytes, svg, tikz_to_svg};
+use tikra_wasm::{click_svg, convert_json, png_bytes, slides_json, svg, tikz_to_svg};
 
 const FIGURE: &str = r"\begin{tikzpicture}\draw[->] (0,0) -- (1,1) node[right] {$x$};\end{tikzpicture}";
 
@@ -67,4 +67,12 @@ fn png_defaults() {
 fn the_source_map_is_asked_for_apart() {
     assert!(!svg(FIGURE, None, None, None, None, None).unwrap().contains("data-src"));
     assert!(svg(FIGURE, None, None, None, Some(true), None).unwrap().contains(r#" data-src="1:"#));
+}
+
+#[test]
+fn the_slides_of_a_figure() {
+    let figure = r"\begin{tikzpicture}\draw (0,0) -- (1,0); \only<2>{\draw (0,1) -- (1,1);}\end{tikzpicture}";
+    let json: Vec<String> = serde_json::from_str(&slides_json(figure, None).unwrap()).unwrap();
+    assert_eq!(json.len(), 2);
+    assert!(click_svg(figure, None).unwrap().contains(r#"data-slides="2""#));
 }

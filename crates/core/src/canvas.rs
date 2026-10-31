@@ -184,6 +184,9 @@ pub struct Canvas {
     pub sources: Vec<SourceSpan>,
     /// What each of those statements drew, in words, for the SVG's parts: empty without them.
     pub parts: Vec<String>,
+    /// How many slides the overlays of the code have shown: 1 without any, and 0 on a canvas that
+    /// is not a whole figure's.
+    pub slides: usize,
 }
 
 impl Canvas {

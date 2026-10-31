@@ -23,6 +23,30 @@ pub fn convert_json(code: &str, locale: Option<String>, animate: Option<bool>, s
     Ok(serde_json::json!({ "svg": r.svg, "alt": r.alt, "description": r.description, "warnings": r.warnings, "points": points, "origin": [r.origin.0, r.origin.1], "parts": parts }).to_string())
 }
 
+/// The SVG of each slide of a figure with Beamer's overlays, as a JSON array.
+pub fn slides_json(code: &str, locale: Option<String>) -> Result<String, String> {
+    let slides = tikra::slides(code, &options(locale, None, None, None, None)?).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(slides.iter().map(|s| &s.svg).collect::<Vec<_>>()).to_string())
+}
+
+/// The slides of a figure as one SVG that advances on a click.
+pub fn click_svg(code: &str, locale: Option<String>) -> Result<String, String> {
+    let slides = tikra::slides(code, &options(locale, None, None, None, None)?).map_err(|e| e.to_string())?;
+    tikra::click_through(&slides).ok_or_else(|| "could not join the slides".to_string())
+}
+
+/// `slidesJson` for JavaScript.
+#[wasm_bindgen(js_name = slides)]
+pub fn slides_js(code: &str, locale: Option<String>) -> Result<String, JsError> {
+    slides_json(code, locale).map_err(|e| JsError::new(&e))
+}
+
+/// `clickSvg` for JavaScript.
+#[wasm_bindgen(js_name = clickThrough)]
+pub fn click_through_js(code: &str, locale: Option<String>) -> Result<String, JsError> {
+    click_svg(code, locale).map_err(|e| JsError::new(&e))
+}
+
 /// The PNG bytes of an SVG written by tikra. `dpi` defaults to 300, `background` (white) to true.
 pub fn png_bytes(svg: &str, dpi: Option<f32>, background: Option<bool>) -> Result<Vec<u8>, String> {
     tikra::png(svg, dpi.unwrap_or(300.0), background.unwrap_or(true)).map_err(|e| e.to_string())

@@ -8,3 +8,4 @@ One small figure for each thing the construction animation's steps made possible
 | `diff-before.tex`, `diff-after.tex` | playground | Paste the first, press Keep this version, paste the second, press Compare. The figure grew to the left, and only what changed is colored. |
 | `construction.tex` | `-o .gif`, `-o .apng` | The figure drawing itself, from the terminal. Try `--width` and `--fps`. |
 | `walk.tex` | playground, `--parts` | Press Tab to reach the figure and walk it with the arrows. With a screen reader, each part is read on its own. |
+| `slides.tex` | `--slides`, `--click` | Four slides from one figure: `\pause`, `\uncover`, `\only` and `\draw<4>`. The `--click` SVG advances on each click in a browser. |

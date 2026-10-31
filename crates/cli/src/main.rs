@@ -20,6 +20,8 @@ OPTIONS
       --animate           the SVG draws itself in the browser, in the order TikZ drew it
       --steps             each element numbered by its step (data-step), with no animation
       --source            and with the place in the code that drew it (data-src)
+      --slides            Beamer's overlays: one file per slide, out-1.svg, out-2.svg…
+      --click             Beamer's overlays: one SVG that advances on a click
       --parts             each thing drawn a group a screen reader and the keyboard can reach
   -l, --locale <code>     the language of the figure in words: en (default), pt-BR, es, fr, de,
                           it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl (the drawing is the same)
@@ -36,6 +38,7 @@ fn main() -> ExitCode {
     let mut describe = false;
     let mut options = tikra::Options::default();
     let mut motion = tikra::motion::Motion::default();
+    let (mut slides, mut click) = (false, false);
     let mut it = env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -58,6 +61,8 @@ fn main() -> ExitCode {
             "--steps" => options = options.steps(),
             "--source" => options = options.source(),
             "--parts" => options = options.parts(),
+            "--slides" => slides = true,
+            "--click" => click = true,
             "-l" | "--locale" => match it.next().unwrap_or_default().parse() {
                 Ok(l) => options.locale = l,
                 Err(e) => {
@@ -84,6 +89,9 @@ fn main() -> ExitCode {
             }
         },
     };
+    if slides || click {
+        return write_slides(&code, &options, output.as_deref(), click);
+    }
     let moving = |s: &str, ext: &str| s.len() > ext.len() && s.ends_with(ext);
     let animation = output.as_deref().is_some_and(|s| moving(s, ".gif") || moving(s, ".apng"));
     if animation {
@@ -142,6 +150,37 @@ fn main() -> ExitCode {
         }
         None if !show_warnings && !describe => println!("{}", r.svg),
         None => {}
+    }
+    ExitCode::SUCCESS
+}
+
+/// The slides of a figure with overlays, as files or as one SVG that advances on a click.
+fn write_slides(code: &str, options: &tikra::Options, output: Option<&str>, click: bool) -> ExitCode {
+    let slides = match tikra::slides(code, options) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("tikra: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let mut files: Vec<(String, String)> = Vec::new();
+    let out = output.unwrap_or("slides.svg");
+    if click {
+        let Some(svg) = tikra::click_through(&slides) else {
+            eprintln!("tikra: could not join the slides");
+            return ExitCode::from(1);
+        };
+        files.push((out.to_string(), svg));
+    } else {
+        let stem = out.strip_suffix(".svg").unwrap_or(out);
+        files.extend(slides.iter().enumerate().map(|(k, s)| (format!("{stem}-{}.svg", k + 1), s.svg.clone())));
+    }
+    for (name, svg) in files {
+        if let Err(e) = fs::write(&name, svg) {
+            eprintln!("tikra: could not write {name}: {e}");
+            return ExitCode::from(1);
+        }
+        println!("{name}");
     }
     ExitCode::SUCCESS
 }

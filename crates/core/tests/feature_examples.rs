@@ -34,3 +34,8 @@ fn the_walk_example_tells_its_connections() {
     let out = convert_with(&example("walk"), &Options::default().parts()).unwrap();
     assert!(out.parts.iter().any(|p| p.text == "from Idea to Draft"), "{:?}", out.parts);
 }
+
+#[test]
+fn the_slides_example_has_four() {
+    assert_eq!(tikra::slides(&example("slides"), &Options::default()).unwrap().len(), 4);
+}
