@@ -73,3 +73,9 @@ def test_the_source_map():
     figure = r"\tikz \draw (0,0) -- (1,1);"
     assert "data-src" not in tikra.tikz_to_svg(figure)
     assert 'data-src="1:' in tikra.tikz_to_svg(figure, source=True)
+
+
+def test_the_animation_as_gif_and_apng():
+    figure = r"\tikz \draw (0,0) -- (1,1);"
+    assert tikra.tikz_to_gif(figure, width=64, fps=5).startswith(b"GIF89a")
+    assert tikra.tikz_to_apng(figure, width=64, fps=5).startswith(b"\x89PNG")

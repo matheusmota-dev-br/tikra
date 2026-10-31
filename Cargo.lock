@@ -648,6 +648,7 @@ name = "tikra"
 version = "1.8.2"
 dependencies = [
  "mathra",
+ "png",
  "resvg",
  "serde_json",
  "ttf-parser",

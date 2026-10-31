@@ -13,5 +13,5 @@ name = "tikra_python"
 crate-type = ["cdylib"]
 
 [dependencies]
-tikra.workspace = true
+tikra = { workspace = true, features = ["motion"] }
 pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }

@@ -15,4 +15,4 @@ name = "tikra"
 path = "src/main.rs"
 
 [dependencies]
-tikra.workspace = true
+tikra = { workspace = true, features = ["motion"] }

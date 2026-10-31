@@ -36,12 +36,30 @@ fn png(svg: &str, dpi: f32, background: bool) -> PyResult<Vec<u8>> {
     tikra::png(svg, dpi, background).map_err(error)
 }
 
+/// The construction animation as GIF bytes.
+#[pyfunction]
+#[pyo3(signature = (code, *, width = 560, fps = 15))]
+fn tikz_to_gif(code: &str, width: u32, fps: u32) -> PyResult<Vec<u8>> {
+    let svg = tikra::convert_with(code, &tikra::Options::default().animated()).map_err(error)?.svg;
+    tikra::motion::gif(&svg, tikra::motion::Motion { width, fps }).map_err(error)
+}
+
+/// The construction animation as APNG bytes.
+#[pyfunction]
+#[pyo3(signature = (code, *, width = 560, fps = 15))]
+fn tikz_to_apng(code: &str, width: u32, fps: u32) -> PyResult<Vec<u8>> {
+    let svg = tikra::convert_with(code, &tikra::Options::default().animated()).map_err(error)?.svg;
+    tikra::motion::apng(&svg, tikra::motion::Motion { width, fps }).map_err(error)
+}
+
 #[pymodule]
 #[pyo3(name = "_tikra")]
 fn tikra_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tikz_to_svg, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(png, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_gif, m)?)?;
+    m.add_function(wrap_pyfunction!(tikz_to_apng, m)?)?;
     // the Python package has its own version (crates/python/Cargo.toml); the core's is `core_version`
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("core_version", tikra::VERSION)?;

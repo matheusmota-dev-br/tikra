@@ -46,6 +46,16 @@ def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: 
     return _tikra.tikz_to_svg(code, locale=locale, animate=animate, steps=steps, source=source)
 
 
+def tikz_to_gif(code: str, *, width: int = 560, fps: int = 15) -> bytes:
+    """The figure's construction animation as GIF bytes, on white, looping."""
+    return _tikra.tikz_to_gif(code, width=width, fps=fps)
+
+
+def tikz_to_apng(code: str, *, width: int = 560, fps: int = 15) -> bytes:
+    """The figure's construction animation as APNG bytes, on white, looping."""
+    return _tikra.tikz_to_apng(code, width=width, fps=fps)
+
+
 def render(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False) -> Result:
     """The SVG, the figure in words (in ``locale``) and the warnings at once."""
     svg, alt, description, warnings = _tikra.render(code, locale=locale, animate=animate, steps=steps, source=source)
@@ -61,4 +71,4 @@ def png(svg: str, *, dpi: float = 300, background: bool = True) -> bytes:
     return bytes(_tikra.png(svg, dpi=dpi, background=background))
 
 
-__all__ = ["Result", "__version__", "core_version", "png", "render", "tikz_to_svg"]
+__all__ = ["Result", "__version__", "core_version", "png", "render", "tikz_to_apng", "tikz_to_gif", "tikz_to_svg"]
