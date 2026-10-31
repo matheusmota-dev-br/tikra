@@ -127,13 +127,13 @@
       </div>
       <div class="mode-panel" data-panel="compare" hidden>
         <div class="versions" id="versions">
-          <button class="button" id="version-keep" type="button">Keep this version</button>
+          <button class="button" id="version-keep" type="button">Use this one as Before</button>
           <span class="views" id="version-views" hidden>
             <button class="button" id="version-before" type="button">Before</button>
             <button class="button" id="version-after" type="button">After</button>
             <button class="button" id="version-compare" type="button">Compare</button>
           </span>
-          <span class="version-note" id="version-note" aria-live="polite">Keep this version, change the code, and see what moved.</span>
+          <span class="version-note" id="version-note" aria-live="polite"></span>
         </div>
         <pre class="version-code" id="version-code" hidden></pre>
       </div>
@@ -456,10 +456,12 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   // that its numbers move, dragged to change them; the plain SVG otherwise
   let interactive = null;
   function showFigure() {
-    if (interactive?.update(tex.value)) { showVersions(); return; }
+    // comparing, the page draws the two versions: a figure's handles wait for the other modes
+    const comparing = mode === "compare" && kept;
+    if (!comparing && interactive?.update(tex.value)) { showVersions(); return; }
     interactive?.destroy();
     interactive = null;
-    if (last.points?.length && tikraParams.find(tex.value).length) {
+    if (!comparing && last.points?.length && tikraParams.find(tex.value).length) {
       try {
         interactive = tikraInteractive.mount(preview, { code: tex.value, render: (c) => convert(c), change: (c) => { tex.value = c; update(); } });
         showVersions();
@@ -471,7 +473,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   }
 
   // the figure against a version kept earlier: Before, After, or the two on one stage
-  let kept = null, view = "after";
+  let kept = null, view = "after", mode = "figure";
   function pressed() {
     for (const [id, name] of [["version-before", "before"], ["version-after", "after"], ["version-compare", "compare"]]) {
       $(id).setAttribute("aria-pressed", String(view === name));
@@ -488,12 +490,11 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     pressed();
     if (view === "before") { preview.innerHTML = kept.svg; return; }
     if (view !== "compare") return;
-    if (interactive) { $("version-note").textContent = "Figures with handles cannot be compared yet"; return; }
     try {
       const { node, script } = tikraDiff.stage(kept, drawn());
       preview.replaceChildren(node);
       const changes = script.filter(([k]) => k !== " ");
-      $("version-note").textContent = changes.length ? `${changes.filter(([k]) => k === "+").length} added, ${changes.filter(([k]) => k === "-").length} removed` : "No changes in the code";
+      $("version-note").textContent = changes.length ? `${changes.filter(([k]) => k === "+").length} added, ${changes.filter(([k]) => k === "-").length} removed` : "Change the code or a slider: this version stays as Before";
       $("version-code").replaceChildren(...changes.map(([k, line]) => Object.assign(document.createElement("span"), { className: k === "+" ? "add" : "del", textContent: `${k} ${line}\n` })));
       $("version-code").hidden = !changes.length;
     } catch { /* the figure stays as it is drawn */ }
@@ -646,21 +647,25 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   exampleGroup("Drag on the figure", CORPUS.filter((f) => f.topic === "parameters" && /\\coordinate\s*\(/.test(f.tex)));
   $("examples").onchange = (e) => {
     const figure = CORPUS.find((f) => f.name === e.target.value);
-    if (figure) load(figure.tex);
+    if (!figure) return;
+    kept = null;
+    $("version-views").hidden = true;
+    load(figure.tex);
+    if (mode === "compare") keepVersion();
   };
 
   // what the page is doing with the figure: each mode shows its controls, and its exports
-  let mode = "figure";
   function setMode(next) {
     if (next === mode) return;
+    mode = next;
     if (view !== "after") setView("after");
     stopAnimation();
     if (stepped) goToStep(stepped.count); else if (last) showFigure();
-    mode = next;
     for (const b of document.querySelectorAll(".mode")) b.setAttribute("aria-selected", String(b.dataset.mode === mode));
     for (const p of document.querySelectorAll(".mode-panel")) p.hidden = p.dataset.panel !== mode;
     for (const g of document.querySelectorAll(".export-group[data-for]")) g.hidden = !g.dataset.for.split(" ").includes(mode);
-    if (mode === "compare" && kept) setView("compare");
+    // the figure as it is now is what the changes are measured against, until it is replaced
+    if (mode === "compare") { if (kept) setView("compare"); else keepVersion(); }
   }
   for (const b of document.querySelectorAll(".mode")) b.onclick = () => setMode(b.dataset.mode);
 
@@ -678,14 +683,14 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   refreshParams = tikraParams.mount($("params"), { code: () => tex.value, change: (code) => { tex.value = code; update(); } });
   tex.addEventListener("input", update);
   tikraSource.attach(preview, tex);
-  $("version-keep").addEventListener("click", () => {
+  function keepVersion() {
     if (!last) return;
     kept = drawn();
     $("version-views").hidden = false;
-    $("version-note").textContent = "Kept. Change the code, then compare.";
-    $("version-keep").textContent = "Keep this one instead";
+    $("version-keep").textContent = "Use this one as Before";
     setView("compare");
-  });
+  }
+  $("version-keep").addEventListener("click", keepVersion);
   $("version-before").addEventListener("click", () => setView("before"));
   $("version-after").addEventListener("click", () => setView("after"));
   $("version-compare").addEventListener("click", () => setView("compare"));
