@@ -55,3 +55,16 @@ fn the_source_map_only_adds_its_attribute() {
         assert_eq!(mapped.matches(r#" data-step=""#).count(), mapped.matches(r#" data-src=""#).count(), "{}", f.display());
     }
 }
+
+/// The parts are groups around what is drawn: the picture is the same, and every group is closed.
+#[test]
+fn the_parts_change_no_pixel() {
+    let files = figures(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus")));
+    for f in files {
+        let tex = std::fs::read_to_string(&f).unwrap();
+        let plain = tikra::convert(&tex).unwrap().svg;
+        let parts = tikra::convert_with(&tex, &tikra::Options::default().parts()).unwrap().svg;
+        assert_eq!(parts.matches("<g").count(), parts.matches("</g>").count(), "{}", f.display());
+        assert!(tikra::png(&plain, 40.0, true).unwrap() == tikra::png(&parts, 40.0, true).unwrap(), "{}", f.display());
+    }
+}

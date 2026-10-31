@@ -971,7 +971,7 @@ impl Engine {
             // with the texts a library's shape draws (a chip's pin names)
             let own = info.geometry.texts.iter().filter(|t| t.anchor.is_some()).map(|t| t.tex.as_str());
             let all: Vec<&str> = texts.iter().map(|(_, t)| t.as_str()).chain(own).filter(|t| !t.trim().is_empty()).collect();
-            self.facts.nodes.push(crate::describe::NodeFact { key, named: registered.is_some(), text: all.join(" "), at: info.center(), on_link: false });
+            self.facts.nodes.push(crate::describe::NodeFact { key, named: registered.is_some(), text: all.join(" "), at: info.center(), on_link: false, source: self.source });
         }
         if let Some(slot @ None) = self.tree_child_names.last_mut() {
             *slot = Some(registered.clone().unwrap_or_default());

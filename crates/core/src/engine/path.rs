@@ -278,6 +278,9 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
     let m = &e.st.mode;
     if !segs.is_empty() && e.facts.mute == 0 && (m.draw || m.fill || m.shade || m.pattern) {
         e.facts.shapes += 1;
+        if let Some(id) = e.source {
+            *e.facts.shapes_of.entry(id).or_default() += 1;
+        }
     }
     e.note_links(std::mem::take(&mut b.links));
     e.finish_path(segs, outer, "path")?;
@@ -372,7 +375,7 @@ fn note_link(e: &mut Engine, b: &mut Builder, r: &Coord) {
     let touched = e.facts.touched.take();
     let Some(to) = r.node.clone().or(touched).filter(|n| joinable(e, n)) else { return };
     if let Some(from) = b.from_node.clone().filter(|n| joinable(e, n)) {
-        b.links.push(Link { from, to: to.clone(), arrow: Arrow::None, labels: Vec::new() });
+        b.links.push(Link { from, to: to.clone(), arrow: Arrow::None, labels: Vec::new(), source: None });
         b.fresh_link = true;
     }
     b.from_node = Some(to);
@@ -1577,7 +1580,8 @@ impl Engine {
             (true, false) => Arrow::Backward,
             (true, true) => Arrow::Both,
         };
-        self.facts.links.extend(links.into_iter().map(|l| Link { arrow, ..l }));
+        let source = self.source;
+        self.facts.links.extend(links.into_iter().map(|l| Link { arrow, source, ..l }));
     }
 
     /// A radius: with a unit in cm, without one in the x unit (as TikZ scales circle radii).

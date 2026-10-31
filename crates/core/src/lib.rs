@@ -79,11 +79,15 @@ pub struct Options {
     /// (`data-src="line:column-line:column"`, from 1): what a macro or a `\\foreach` draws is at
     /// the line that called it, an `\\addplot` at its own. Off by default.
     pub source: bool,
+    /// Each thing the figure's code draws is a part a reader can reach: a group with its words
+    /// (`aria-label`, in `locale`) that takes the keyboard's focus, inside an `<svg>` a screen
+    /// reader can enter. The numbers and places of [`Options::source`] come with it. Off by default.
+    pub parts: bool,
 }
 
 impl Options {
     pub fn locale(locale: Locale) -> Options {
-        Options { locale, animate: false, steps: false, source: false }
+        Options { locale, animate: false, steps: false, source: false, parts: false }
     }
 
     /// These options, with the construction animation.
@@ -99,6 +103,11 @@ impl Options {
     /// These options, with each element numbered by its step and tied to the code that drew it.
     pub fn source(self) -> Options {
         Options { source: true, ..self }
+    }
+
+    /// These options, with the figure split in parts a reader can walk through.
+    pub fn parts(self) -> Options {
+        Options { parts: true, ..self }
     }
 }
 
@@ -123,6 +132,17 @@ pub struct Output {
     /// at the SVG's corner, so the same point lands elsewhere when the figure grows to the left or
     /// up; less `origin`, it does not: the way to follow a point from one drawing to the next.
     pub origin: (f64, f64),
+    /// What each statement drew, in words, in the order of the code, with the source map or the
+    /// parts: a page's caption for a step, say.
+    pub parts: Vec<Part>,
+}
+
+/// A statement of the code and what it drew, in words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Part {
+    /// Its place in the code, as in `data-src`.
+    pub source: String,
+    pub text: String,
 }
 
 /// A node or coordinate with a name, and where it is in the SVG (see [`Output::points`]).
@@ -169,13 +189,24 @@ pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'stat
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
     let wrapped = usize::from(wrapped);
-    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, options.source)?;
+    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, options.source || options.parts)?;
     for s in &mut canvas.sources {
         s.first.0 = s.first.0.saturating_sub(wrapped).max(1);
         s.last.0 = s.last.0.saturating_sub(wrapped).max(1);
     }
     let words = describe::describe(&facts, options.locale);
-    let svg = driver::svg_with(&canvas, code, &words, options.steps || options.source, options.animate);
+    let parts: Vec<Part> = (0..canvas.sources.len())
+        .map(|id| (id, describe::describe_part(&facts, id, options.locale)))
+        .filter(|(_, text)| !text.is_empty())
+        .map(|(id, text)| {
+            let s = canvas.sources[id];
+            Part { source: format!("{}:{}-{}:{}", s.first.0, s.first.1, s.last.0, s.last.1), text }
+        })
+        .collect();
+    if options.parts {
+        canvas.parts = (0..canvas.sources.len()).map(|id| describe::describe_part(&facts, id, options.locale)).collect();
+    }
+    let svg = driver::svg_with(&canvas, code, &words, options.steps || options.source || options.parts, options.animate);
     let mut all = early;
     all.extend(warnings);
     let mut points: Vec<NamedPoint> = Vec::new();
@@ -187,7 +218,7 @@ pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'stat
         }
     }
     let origin = canvas.origin.map_or((0.0, 0.0), |d| (d.x * driver::BP, -d.y * driver::BP));
-    Ok(Output { svg, alt: words.alt, description: words.text, warnings: all, points, origin })
+    Ok(Output { svg, alt: words.alt, description: words.text, warnings: all, points, origin, parts })
 }
 
 /// TikZ that went through a Markdown generator: code fences, `\\draw` and `\[red\]`.

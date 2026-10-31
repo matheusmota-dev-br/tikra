@@ -557,7 +557,7 @@ fn note_axis(e: &mut Engine, axis: &Axis, f: &Frame) {
         colored |= p.mesh.is_some() || p.patch || p.scatter || p.handler.starts_with("contour");
         let points = p.coords.iter().map(|c| [c.x, c.y, c.z]).collect();
         let boxplot = p.boxplot.as_ref().map(|b| [b.lower_whisker, b.lower_quartile, b.median, b.upper_quartile, b.upper_whisker]);
-        series.push(Series { kind: plot_kind(p, marks_only), name, expression: p.expression.clone(), points, boxplot });
+        series.push(Series { source: p.source, kind: plot_kind(p, marks_only), name, expression: p.expression.clone(), points, boxplot });
     }
     let kind = if f.polar {
         "polar"
@@ -579,6 +579,7 @@ fn note_axis(e: &mut Engine, axis: &Axis, f: &Frame) {
         (lo.is_finite() && hi.is_finite() && lo <= hi).then_some([lo, hi])
     };
     let fact = AxisFact {
+        source: axis.source,
         kind,
         three_d: f.three_d,
         title: keys::value(e, "/pgfplots/title"),
@@ -1739,9 +1740,11 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 let index_of_type = plots[..k].iter().filter(|q| q.handler == p.handler && !q.forget).count();
                 k += 1;
                 let before = e.canvas.items.len();
+                let source = std::mem::replace(&mut e.source, p.source);
                 e.mark_source(p.source);
                 let r = super::visual::draw_plot(e, p, &pts, &base, &f, of_type, index_of_type);
                 e.mark_source(axis.source);
+                e.source = source;
                 if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main_end <= before {
                     let drawn: Vec<Item> = e.canvas.items.drain(before..).collect();
                     let at = pre_main_end.min(e.canvas.items.len());
@@ -1757,10 +1760,12 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
             }
             Entry::Tikz(tokens, source) => {
                 e.mark_source(*source);
+                let here = std::mem::replace(&mut e.source, *source);
                 // what the axis' body draws is the figure's
                 let mute = std::mem::take(&mut e.facts.mute);
                 let r = e.run_tokens(tokens.clone());
                 e.facts.mute = mute;
+                e.source = here;
                 if let Err(err) = r {
                     if super::super::is_limit(&err) {
                         return Err(err);

@@ -93,7 +93,7 @@
         <span class="version-note" id="version-note" aria-live="polite"></span>
       </div>
       <pre class="version-code" id="version-code" hidden></pre>
-      <p class="source-hint" id="source-hint" hidden>Click the figure to find its code, or put the cursor on a line to see what it drew.</p>
+      <p class="source-hint" id="source-hint" hidden>Click the figure to find its code, or put the cursor on a line to see what it drew. With the keyboard, Tab to the figure and walk it with the arrows.</p>
       <div class="messages" id="messages"></div>
       <div class="actions">
         <button class="button solid" id="animate" type="button">▶ Animate</button>
@@ -285,7 +285,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     ["tr", "Türkçe"], ["nl", "Nederlands"], ["pl", "Polski"]];
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const convert = (code, animate = false, steps = false, source = false) => JSON.parse(api.render(code, locale, animate, steps, source));
+  const convert = (code, animate = false, steps = false, source = false, parts = false) => JSON.parse(api.render(code, locale, animate, steps, source, parts));
 
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
@@ -358,7 +358,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   function readSteps() {
     if (!last) return;
     try {
-      const svg = convert(tex.value, false, false, true).svg;
+      const svg = convert(tex.value, false, false, true, true).svg;
       const count = Number(/data-steps="(\d+)"/.exec(svg)?.[1] ?? 0);
       if (count < 2) return;
       stepped = { svg, count };
@@ -368,7 +368,10 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       $("steps").hidden = false;
       $("source-hint").hidden = false;
       // the same drawing, with each element tied to its code
-      if (preview.querySelector(":scope > svg:not([data-steps])")) preview.innerHTML = svg;
+      if (preview.querySelector(":scope > svg:not([data-steps])")) {
+        preview.innerHTML = svg;
+        tikraSource.walk(preview);
+      }
     } catch { /* the figure was drawn; without its steps the slider stays hidden */ }
   }
   function showStep(k) {
@@ -386,7 +389,10 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     // the whole figure is the plain SVG; a part of it, the numbered one with the rest hidden
     if (k === stepped.count) {
       showFigure();
-      if (!interactive) preview.innerHTML = stepped.svg;
+      if (!interactive) {
+        preview.innerHTML = stepped.svg;
+        tikraSource.walk(preview);
+      }
       return;
     }
     if (!preview.querySelector("svg[data-steps]")) preview.innerHTML = stepped.svg;

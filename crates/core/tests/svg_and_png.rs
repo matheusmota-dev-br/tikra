@@ -235,6 +235,47 @@ fn fills_side_by_side_leave_no_seam_between_them() {
     assert!(!svg.contains("<g><path"), "{svg}");
 }
 
+#[test]
+fn each_thing_drawn_is_a_part_with_its_words() {
+    let code = "\\begin{tikzpicture}\n\\node (a) at (0,0) {Start};\n\\node (b) at (3,0) {End};\n\\draw[->] (a) -- (b);\n\\draw (0,1) -- (1,1);\n\\end{tikzpicture}";
+    let plain = tikra::convert_with(code, &tikra::Options::default().source()).unwrap();
+    let r = tikra::convert_with(code, &tikra::Options::default().parts()).unwrap();
+    let texts: Vec<&str> = r.parts.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(texts, ["“Start”", "“End”", "from Start to End", "one shape"]);
+    assert_eq!(r.parts[0].source, "2:1-2:27");
+    assert!(r.svg.contains(r#"role="group" aria-labelledby"#) && r.svg.contains(r#"role="group" tabindex="0" aria-label="from Start to End""#), "{}", r.svg);
+    // the words come with the source map too, and the SVG only with the parts
+    assert_eq!(plain.parts, r.parts);
+    assert!(!plain.svg.contains("data-part") && plain.svg.contains(r#"role="img""#));
+    assert!(!tikra::convert(code).unwrap().svg.contains("data-part"));
+}
+
+#[test]
+fn the_parts_are_told_in_every_language() {
+    let code = "\\begin{tikzpicture}\\node (a) {A};\\node (b) at (2,0) {B};\\draw[->] (a) -- (b);\\draw (0,1) -- (1,1);\\end{tikzpicture}";
+    for code_of in ["en", "pt-BR", "es", "fr", "de", "it", "ru", "zh", "ja", "ko", "hi", "ar", "id", "tr", "nl", "pl"] {
+        let locale = code_of.parse().unwrap();
+        let r = tikra::convert_with(code, &tikra::Options::locale(locale).parts()).unwrap();
+        assert_eq!(r.parts.len(), 4, "{code_of}");
+        assert!(r.parts.iter().all(|p| !p.text.trim().is_empty() && !p.text.contains('{')), "{code_of}: {:?}", r.parts);
+    }
+}
+
+#[test]
+fn a_part_after_a_clip_keeps_its_group_apart() {
+    let code = r"\begin{tikzpicture}\begin{scope}[opacity=.5,transparency group]\draw (0,0) -- (1,1);\draw (1,0) -- (0,1);\end{scope}\draw (2,0) -- (3,0);\end{tikzpicture}";
+    let svg = tikra::convert_with(code, &tikra::Options::default().parts()).unwrap().svg;
+    assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count(), "{svg}");
+}
+
+#[test]
+fn an_addplot_is_a_part_of_its_own() {
+    let code = "\\begin{tikzpicture}\n\\begin{axis}[xlabel=time]\n\\addplot coordinates {(0,0) (1,1)};\n\\end{axis}\n\\end{tikzpicture}";
+    let r = tikra::convert_with(code, &tikra::Options::default().parts()).unwrap();
+    assert!(r.parts.iter().any(|p| p.source.starts_with("2:")), "{:?}", r.parts);
+    assert!(r.parts.iter().any(|p| p.source.starts_with("3:") && p.text.contains("Line")), "{:?}", r.parts);
+}
+
 #[cfg(feature = "motion")]
 mod motion {
     use tikra::motion::{apng, gif, Motion};

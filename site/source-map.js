@@ -36,6 +36,11 @@ var tikraSource = (() => {
     return null;
   }
 
+  // the figure's parts as one stop of the Tab key: the arrows walk between them
+  function walk(root) {
+    root.querySelectorAll("[data-part][tabindex]").forEach((el, i) => { el.tabIndex = i ? -1 : 0; });
+  }
+
   function attach(preview, tex) {
     const elements = () => [...preview.querySelectorAll("[data-src]")];
     function trace(spans) {
@@ -48,6 +53,22 @@ var tikraSource = (() => {
       const spans = [...new Set(elements().map((el) => el.dataset.src))];
       trace(spans.length ? at(tex.value, tex.selectionStart, spans) : []);
     }
+    preview.addEventListener("keydown", (e) => {
+      const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      const parts = [...preview.querySelectorAll("[data-part][tabindex]")];
+      const at = parts.indexOf(e.target);
+      if (!by || at < 0) return;
+      e.preventDefault();
+      const next = parts[(at + by + parts.length) % parts.length];
+      e.target.tabIndex = -1;
+      next.tabIndex = 0;
+      next.focus();
+    });
+    preview.addEventListener("focusin", (e) => {
+      const el = e.target.matches?.("[data-part]") ? e.target.querySelector("[data-src]") : null;
+      if (el) trace([el.dataset.src]);
+    });
+    preview.addEventListener("focusout", clear);
     preview.addEventListener("click", (e) => {
       const el = near(e.clientX, e.clientY, preview);
       if (!el) return;
@@ -63,5 +84,5 @@ var tikraSource = (() => {
     return { clear };
   }
 
-  return { attach, at, range };
+  return { attach, at, range, walk };
 })();

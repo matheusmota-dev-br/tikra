@@ -140,7 +140,7 @@ impl Engine {
             return Err(Error::Figure("a circle connection bar cannot connect a node of shape 'coordinate'".into()));
         }
         if self.facts.mute == 0 {
-            self.facts.links.push(crate::describe::Link { from: from.clone(), to: to.clone(), arrow: crate::describe::Arrow::None, labels: Vec::new() });
+            self.facts.links.push(crate::describe::Link { from: from.clone(), to: to.clone(), arrow: crate::describe::Arrow::None, labels: Vec::new(), source: self.source });
         }
         // the radii as pgf measures them: from the center to the west anchor, on the canvas
         let radius = |n: &super::nodes::NodeInfo| n.center().x - n.anchor("west").unwrap_or(n.center()).x;
