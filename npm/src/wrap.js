@@ -13,6 +13,14 @@ export function wrap(raw, isReady) {
       check();
       return JSON.parse(raw.render(code, options?.locale ?? null, options?.animate ?? null, options?.steps ?? null, options?.source ?? null, options?.parts ?? null));
     },
+    slides(code, options) {
+      check();
+      return JSON.parse(raw.slides(code, options?.locale ?? null));
+    },
+    clickThrough(code, options) {
+      check();
+      return raw.clickThrough(code, options?.locale ?? null);
+    },
     png(svg, options) {
       check();
       const o = options ?? {};

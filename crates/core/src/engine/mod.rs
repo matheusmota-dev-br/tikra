@@ -25,6 +25,7 @@ pub mod nodes;
 pub mod nonlinear;
 pub mod options;
 pub mod output;
+pub mod overlays;
 pub mod path;
 pub mod patterns;
 pub mod pgfplots;
@@ -56,6 +57,13 @@ pub use state::GState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Cmd {
+    Only,
+    Uncover,
+    Visible,
+    Invisible,
+    Onslide,
+    Alt,
+    Pause,
     Path,
     Draw,
     Fill,
@@ -191,6 +199,13 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("tikra@decoration", Cmd::DecorationBegin),
     ("tikra@enddecoration", Cmd::DecorationEnd),
     ("tikra@decoratecurrentpath", Cmd::DecorateCurrentPath),
+    ("only", Cmd::Only),
+    ("uncover", Cmd::Uncover),
+    ("visible", Cmd::Visible),
+    ("invisible", Cmd::Invisible),
+    ("onslide", Cmd::Onslide),
+    ("alt", Cmd::Alt),
+    ("pause", Cmd::Pause),
     ("path", Cmd::Path),
     ("draw", Cmd::Draw),
     ("fill", Cmd::Fill),
@@ -413,6 +428,15 @@ pub struct Engine {
     pub source: Option<usize>,
     /// Where the outermost picture starts, in those spans.
     picture_source: Option<usize>,
+    /// The slide being drawn (see `overlays`), how many the code has shown so far, and Beamer's
+    /// counter of pauses.
+    pub slide: usize,
+    pub slides: usize,
+    pub pauses: usize,
+    /// A `\\pause` or a bare `\\onslide` hides what follows on this slide.
+    slide_hidden: bool,
+    /// Inside what is being hidden.
+    hiding: usize,
     pub st: GState,
     saved: Vec<GState>,
     pub canvas: Canvas,
@@ -622,6 +646,11 @@ impl Clone for Engine {
             spans: self.spans.clone(),
             source: self.source,
             picture_source: self.picture_source,
+            slide: self.slide,
+            slides: self.slides,
+            pauses: self.pauses,
+            slide_hidden: self.slide_hidden,
+            hiding: self.hiding,
             st: self.st.clone(),
             saved: self.saved.clone(),
             canvas: self.canvas.clone(),
@@ -784,6 +813,11 @@ impl Engine {
             spans: None,
             source: None,
             picture_source: None,
+            slide: 1,
+            slides: 1,
+            pauses: 1,
+            slide_hidden: false,
+            hiding: 0,
             depth: 0,
             text_reported: false,
             key_fns: Vec::new(),
@@ -1023,7 +1057,17 @@ impl Engine {
                 }
                 self.count_step()?;
                 self.tex.new_statement();
-                let r = self.command(id, &t);
+                if overlays::takes_a_specification(id) {
+                    let off = self.statement_is_off();
+                    if matches!(off, Ok(true)) {
+                        return Ok(());
+                    }
+                }
+                let r = if self.slide_hidden && self.hiding == 0 && self.picture_depth > 0 && !overlays::stays_out(id) {
+                    self.hiding_around(|e| e.command(id, &t))
+                } else {
+                    self.command(id, &t)
+                };
                 self.recover(r, &t)?;
             }
             Meaning::Char(c, _) if matches!(t, Token::Char(..)) => self.text(c),
@@ -1426,6 +1470,9 @@ impl Engine {
     }
 
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
+        if let Some(cmd) = [Cmd::Only, Cmd::Uncover, Cmd::Visible, Cmd::Invisible, Cmd::Onslide, Cmd::Alt, Cmd::Pause].into_iter().find(|c| *c as u16 == id) {
+            return self.overlay_command(cmd);
+        }
         if basic::is_basic(id) {
             return self.basic_command(id);
         }
@@ -3587,12 +3634,13 @@ pub fn run_document_noting(code: &str) -> Result<(Canvas, Vec<String>, crate::de
 
 /// [`run_document_noting`] with libraries from outside defined.
 pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Library]) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
-    run_document_mapped(code, libraries, false)
+    run_document_mapped(code, libraries, false, 1)
 }
 
 /// [`run_document_with`], with each statement's place in the code on the canvas if `map`.
-pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::Library], map: bool) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
+pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::Library], map: bool, slide: usize) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
     let mut e = Engine::with_libraries(libraries);
+    e.slide = slide;
     crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
     e.canvas.margin = 2.0 * crate::PT;
@@ -3612,6 +3660,7 @@ pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::L
     let margin = e.canvas.margin;
     e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
     e.canvas.page_color = e.page_color;
+    e.canvas.slides = e.slides;
     e.canvas.sources = source_spans(code, e.spans.as_deref().unwrap_or_default());
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();

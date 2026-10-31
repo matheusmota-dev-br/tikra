@@ -13,7 +13,7 @@ use crate::scene::{Label, Point, Segment, Transform};
 /// Big points per centimeter.
 pub const BP: f64 = 72.0 / 2.54;
 
-fn n(v: f64) -> String {
+pub(crate) fn n(v: f64) -> String {
     num(v, 3)
 }
 
@@ -59,7 +59,7 @@ pub fn path_data(segs: &[Segment]) -> String {
     d.trim_end().to_string()
 }
 
-fn escape(t: &str) -> String {
+pub(crate) fn escape(t: &str) -> String {
     t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 

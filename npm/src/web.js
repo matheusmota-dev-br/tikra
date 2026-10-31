@@ -13,4 +13,4 @@ export function init(input) {
   return loading;
 }
 
-export const { tikzToSvg, render, png, version } = wrap(raw, () => ready);
+export const { tikzToSvg, render, slides, clickThrough, png, version } = wrap(raw, () => ready);

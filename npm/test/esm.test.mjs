@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { init, tikzToSvg, render, png, version } from "@mathlabs/tikra";
+import { init, tikzToSvg, render, slides, clickThrough, png, version } from "@mathlabs/tikra";
 
 const FIGURE = String.raw`\begin{tikzpicture}\draw[->] (0,0) -- (1,1) node[right] {$x$};\end{tikzpicture}`;
 
@@ -64,4 +64,10 @@ test("the parts come with their words", () => {
   assert.match(r.svg, /role="group" tabindex="0"/);
   assert.ok(r.parts.length > 0 && r.parts[0].text);
   assert.equal(render(FIGURE).parts.length, 0);
+});
+
+test("the slides of a figure", () => {
+  const figure = String.raw`\begin{tikzpicture}\draw (0,0) -- (1,0); \only<2>{\draw (0,1) -- (1,1);}\end{tikzpicture}`;
+  assert.equal(slides(figure).length, 2);
+  assert.match(clickThrough(figure), /data-slides="2"/);
 });

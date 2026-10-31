@@ -43,6 +43,12 @@ export function tikzToSvg(code: string, options?: Options): string;
 /** Converts a TikZ figure and returns the SVG, the figure in words and the warnings. */
 export function render(code: string, options?: Options): Result;
 
+/** Each slide of a figure with Beamer's overlays (`\\pause`, `\\only<2->{…}`, `\\uncover<…>{…}`, `\\draw<2->`), as SVG. A figure without them has one. */
+export function slides(code: string, options?: Pick<Options, "locale">): string[];
+
+/** The slides as one SVG that advances on a click and needs no script. It takes a browser: an `<img>` takes no clicks. */
+export function clickThrough(code: string, options?: Pick<Options, "locale">): string;
+
 /** Rasterizes an SVG written by tikra to PNG bytes. Throws on an invalid SVG or dpi, or past 100 megapixels. */
 export function png(svg: string, options?: PngOptions): Uint8Array;
 

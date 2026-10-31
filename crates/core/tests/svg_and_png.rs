@@ -276,6 +276,93 @@ fn an_addplot_is_a_part_of_its_own() {
     assert!(r.parts.iter().any(|p| p.source.starts_with("3:") && p.text.contains("Line")), "{:?}", r.parts);
 }
 
+mod overlays {
+    use tikra::{click_through, convert, slides, Options};
+
+    fn lines(svg: &str) -> usize {
+        svg.split("</metadata>").nth(1).unwrap().matches("<path").count()
+    }
+
+    fn drawn(code: &str) -> Vec<usize> {
+        slides(code, &Options::default()).unwrap().iter().map(|s| lines(&s.svg)).collect()
+    }
+
+    fn picture(body: &str) -> String {
+        format!(r"\begin{{tikzpicture}}\draw (0,0) -- (1,0);{body}\end{{tikzpicture}}")
+    }
+
+    #[test]
+    fn only_and_its_slides() {
+        assert_eq!(drawn(&picture(r"\only<2->{\draw (0,1) -- (1,1);}\only<3>{\draw (0,2) -- (1,2);}")), [1, 2, 3]);
+    }
+
+    #[test]
+    fn a_draw_can_take_them_itself() {
+        assert_eq!(drawn(&picture(r"\draw<2> (0,1) -- (1,1); \node<3-> at (0,2) {};\fill<3> (0,0) circle (1pt);")), [1, 2, 2]);
+    }
+
+    #[test]
+    fn uncover_keeps_its_room_and_only_does_not() {
+        let size = |o: &tikra::Output| o.svg.split("viewBox=\"").nth(1).unwrap().split('"').next().unwrap().to_string();
+        let kept = slides(&picture(r"\uncover<2>{\draw (0,3) -- (1,3);}"), &Options::default()).unwrap();
+        assert_eq!(size(&kept[0]), size(&kept[1]));
+        assert!(kept[0].svg.contains(r#"<g opacity="0">"#) && !kept[1].svg.contains(r#"<g opacity="0">"#));
+        let gone = slides(&picture(r"\only<2>{\draw (0,3) -- (1,3);}"), &Options::default()).unwrap();
+        assert_ne!(size(&gone[0]), size(&gone[1]));
+    }
+
+    #[test]
+    fn pause_hides_what_follows_until_its_slide() {
+        let s = slides(&picture(r"\pause\draw (0,1) -- (1,1);\pause\draw (0,2) -- (1,2);"), &Options::default()).unwrap();
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[0].svg.matches(r#"<g opacity="0">"#).count(), 2);
+        assert_eq!(s[1].svg.matches(r#"<g opacity="0">"#).count(), 1);
+        assert_eq!(s[2].svg.matches(r#"<g opacity="0">"#).count(), 0);
+    }
+
+    #[test]
+    fn a_loop_gives_each_slide_its_own() {
+        let code = picture(r"\foreach \i in {1,2,3} { \only<\i>{\draw (0,\i) -- (1,\i);} }");
+        assert_eq!(drawn(&code), [2, 2, 2]);
+    }
+
+    #[test]
+    fn the_counter_goes_on_with_plus() {
+        assert_eq!(drawn(&picture(r"\only<+->{\draw (0,1) -- (1,1);}\only<+->{\draw (0,2) -- (1,2);}")), [2, 3]);
+    }
+
+    #[test]
+    fn alt_visible_invisible_and_onslide() {
+        assert_eq!(drawn(&picture(r"\alt<2>{\draw (0,1) -- (1,1); \draw (0,2) -- (1,2);}{\draw (0,3) -- (1,3);}")), [2, 3]);
+        let s = slides(&picture(r"\invisible<1>{\draw (0,1) -- (1,1);}\visible<3>{\draw (0,2) -- (1,2);}"), &Options::default()).unwrap();
+        assert_eq!(s.iter().map(|o| o.svg.matches(r#"<g opacity="0">"#).count()).collect::<Vec<_>>(), [2, 1, 0]);
+        let bare = slides(&picture(r"\onslide<2->\draw (0,1) -- (1,1);\onslide\draw (0,2) -- (1,2);"), &Options::default()).unwrap();
+        assert_eq!(bare[0].svg.matches(r#"<g opacity="0">"#).count(), 1);
+        assert_eq!(bare[1].svg.matches(r#"<g opacity="0">"#).count(), 0);
+    }
+
+    #[test]
+    fn a_figure_without_overlays_is_one_slide_as_ever() {
+        let code = picture("");
+        assert_eq!(slides(&code, &Options::default()).unwrap()[0].svg, convert(&code).unwrap().svg);
+    }
+
+    #[test]
+    fn a_plain_conversion_is_the_last_slide() {
+        let code = picture(r"\only<2>{\draw (0,1) -- (1,1);}");
+        assert_eq!(convert(&code).unwrap().svg, slides(&code, &Options::default()).unwrap()[1].svg);
+    }
+
+    #[test]
+    fn one_svg_that_advances_on_a_click() {
+        let s = slides(&picture(r"\only<2>{\draw[fill=red] (-2,1) rectangle (1,1.5);}"), &Options::default()).unwrap();
+        let svg = click_through(&s).unwrap();
+        assert!(svg.contains(r#"data-slides="2""#) && svg.contains(r#"begin="trNext1.click""#) && svg.contains(r#"id="tr-slide-2""#));
+        // a PNG shows the first slide
+        assert!(tikra::png(&svg, 72.0, true).is_ok());
+    }
+}
+
 #[cfg(feature = "motion")]
 mod motion {
     use tikra::motion::{apng, gif, Motion};

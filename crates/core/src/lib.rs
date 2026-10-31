@@ -28,6 +28,7 @@ pub mod label;
 pub mod motion;
 #[doc(hidden)]
 pub mod scene;
+mod slides;
 #[doc(hidden)]
 pub mod tex;
 mod times;
@@ -165,6 +166,32 @@ pub fn convert_with(code: &str, options: &Options) -> Result<Output, Error> {
 
 /// [`convert_with`], with libraries from outside tikra defined next to TikZ's own (see [`extension`]).
 pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'static extension::Library]) -> Result<Output, Error> {
+    let (first, count) = convert_slide(code, options, libraries, 1)?;
+    // overlays: the figure as its last slide leaves it
+    Ok(if count > 1 { convert_slide(code, options, libraries, count)?.0 } else { first })
+}
+
+/// Each slide of a figure with Beamer's overlays (`\\pause`, `\\only<2->{…}`, `\\uncover<…>{…}`,
+/// `\\draw<2->`…), in order. A figure without them has one. [`click_through`] makes one SVG of them.
+pub fn slides(code: &str, options: &Options) -> Result<Vec<Output>, Error> {
+    let mut out = Vec::new();
+    let mut count = 1;
+    while out.len() < count {
+        let (o, more) = convert_slide(code, options, &[], out.len() + 1)?;
+        count = count.max(more);
+        out.push(o);
+    }
+    Ok(out)
+}
+
+/// The slides of [`slides`] as one SVG that advances on a click, and comes back to the first after
+/// the last. It takes a browser, opening it or inline in a page: an `<img>` takes no clicks.
+pub fn click_through(slides: &[Output]) -> Option<String> {
+    slides::click_through(slides)
+}
+
+/// A slide of the figure, and how many slides its code has shown.
+fn convert_slide(code: &str, options: &Options, libraries: &[&'static extension::Library], slide: usize) -> Result<(Output, usize), Error> {
     label::set_kerning(mathra::layout::kerning::TextKerning::Ot1);
     let mut early = Vec::new();
     // TikZ escaped twice (\\draw, \\coordinate): the same repair mathra applies to equations
@@ -189,7 +216,7 @@ pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'stat
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
     let wrapped = usize::from(wrapped);
-    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, options.source || options.parts)?;
+    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, options.source || options.parts, slide)?;
     for s in &mut canvas.sources {
         s.first.0 = s.first.0.saturating_sub(wrapped).max(1);
         s.last.0 = s.last.0.saturating_sub(wrapped).max(1);
@@ -218,7 +245,8 @@ pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'stat
         }
     }
     let origin = canvas.origin.map_or((0.0, 0.0), |d| (d.x * driver::BP, -d.y * driver::BP));
-    Ok(Output { svg, alt: words.alt, description: words.text, warnings: all, points, origin, parts })
+    let count = canvas.slides;
+    Ok((Output { svg, alt: words.alt, description: words.text, warnings: all, points, origin, parts }, count))
 }
 
 /// TikZ that went through a Markdown generator: code fences, `\\draw` and `\[red\]`.
