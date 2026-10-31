@@ -4,6 +4,25 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.9.0 - 2026-10-31
+
+Figures that build themselves, and more: each element knows the code that drew it, Beamer's overlays, the animations library played, GIF and APNG from the terminal, a pen that draws the figure, screen readers that walk through it, and a playground in modes with tutorials.
+
+- Each element can say the code that drew it: `--source`, `{ source: true }`, `source=True` write `data-src="line:column-line:column"` ([#152](https://github.com/matheusmota-dev-br/tikra/issues/152)).
+- Beamer's overlays: `\pause`, `\only`, `\uncover`, `\visible`, `\invisible`, `\onslide`, `\alt` and `\draw<2->`. `--slides` writes one SVG per slide, `--click` one SVG that advances on a click, and `slides` and `clickThrough` do it in the packages. A plain conversion draws the last slide, so a `beamer` document that used to skip them changes ([#156](https://github.com/matheusmota-dev-br/tikra/issues/156)).
+- The animations library played in a browser: `--play`, with SMIL and no script, `begin on=click` included. Without it the figure is the still picture it was ([#159](https://github.com/matheusmota-dev-br/tikra/issues/159)).
+- The construction animation as GIF and APNG, outside the browser: `-o figure.gif`, `-o figure.apng`, and `tikz_to_gif` and `tikz_to_apng` in Python, the same bytes on Linux, macOS and Windows ([#154](https://github.com/matheusmota-dev-br/tikra/issues/154)).
+- A figure for a pen plotter: `-o figure.gcode` and `.hpgl`, with `gcode` and `hpgl` in the packages, and `--pen` to watch a pen draw it as an SVG, a GIF or an APNG ([#157](https://github.com/matheusmota-dev-br/tikra/issues/157)).
+- A figure a screen reader and the keyboard can walk through: `--parts` makes each thing drawn one stop, with its words in the figure's language, read aloud by VoiceOver in the tests ([#155](https://github.com/matheusmota-dev-br/tikra/issues/155)).
+- `Output::parts`: what each statement drew, in words, and a sentence for a caption ([#158](https://github.com/matheusmota-dev-br/tikra/issues/158)).
+- Each bar and mark of a plot on its own: `--points` gives them `data-x`, `data-y` and a tip for the mouse and the keyboard, and with the animation the bars grow from the axis ([#160](https://github.com/matheusmota-dev-br/tikra/issues/160)).
+- The playground has modes: Figure, Build, Compare and Pen, each with its own controls and exports. Click a stroke to find its code, walk the steps with captions, and compare a figure with an earlier version on the figure itself ([#153](https://github.com/matheusmota-dev-br/tikra/issues/153)).
+- Eight tutorials run on the playground's real controls: try each step, or press Show me.
+- For code in Rust: `Item` has new variants and `Output` a new field, so a `match` over every `Item`, or an `Output` built by hand, needs them.
+- What the packages draw by default does not change, but for `beamer` documents.
+
+Figures: `clock-snapshots` `bezier-control-points`
+
 ## 1.8.2 - 2026-10-31
 
 The site, banner and icon take an identity of their own, the Lorenz attractor to play with, and a new demo video.
