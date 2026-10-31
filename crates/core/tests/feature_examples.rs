@@ -52,3 +52,9 @@ fn the_play_example_waits_for_a_click() {
     let svg = convert_with(&example("play"), &Options::default().play()).unwrap().svg;
     assert!(svg.contains(".click+0s") && svg.contains(r#"repeatCount="indefinite""#), "{svg}");
 }
+
+#[test]
+fn the_points_example_has_four_bars_and_four_marks() {
+    let svg = convert_with(&example("points"), &Options::default().points()).unwrap().svg;
+    assert_eq!(svg.matches(r#"class="tr-point""#).count(), 8, "{svg}");
+}
