@@ -83,7 +83,7 @@ def test_the_animation_as_gif_and_apng():
 
 def test_the_parts():
     svg = tikra.tikz_to_svg(r"\tikz \draw (0,0) -- (1,1);", parts=True)
-    assert 'tabindex="0"' in svg and 'role="group"' in svg
+    assert 'tabindex="0"' in svg and 'role="img" tabindex' in svg
 
 
 def test_slides():

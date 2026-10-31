@@ -23,7 +23,7 @@ export interface Options {
   steps?: boolean;
   /** Each element numbered by its step and with the place in the code that drew it (`data-src="line:column-line:column"`, from 1): what a macro or a `\\foreach` draws is at the line that called it. Default `false`. */
   source?: boolean;
-  /** Each thing the code draws is a group with its words (`aria-label`) that a screen reader and the keyboard can reach. Default `false`. */
+  /** Each thing the code draws is one stop with its words (`aria-label`) that a screen reader and the keyboard can reach. Default `false`. */
   parts?: boolean;
   /** The animations library played in a browser, with SMIL, instead of a still picture. Default `false`. */
   play?: boolean;

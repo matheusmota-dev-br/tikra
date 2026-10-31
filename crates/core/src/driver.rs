@@ -564,14 +564,16 @@ impl Steps {
     }
 
     /// Before an element: the group of its part, one a reader can reach. The first group of a part
-    /// has its words; what the part draws after a clip or a group ends is in others, kept out of
-    /// the reader's way.
+    /// has its words; what the part draws after a clip or a group ends, and a part with nothing to
+    /// say, are in others, kept out of the reader's way.
     fn enter(&mut self, body: &mut String, parts: &[String]) {
         let (false, Some(id)) = (self.open, self.part) else { return };
-        let Some(words) = parts.get(id).filter(|w| !w.is_empty()) else { return };
+        let Some(words) = parts.get(id) else { return };
         self.open = true;
-        if self.told.insert(id) {
-            let _ = write!(body, r#"<g role="group" tabindex="0" aria-label="{}" data-part="{id}">"#, escape(words));
+        // the role `img` makes a part one stop: inside a group, a screen reader stops at each of its
+        // paths and glyphs, and says only "image"
+        if !words.is_empty() && self.told.insert(id) {
+            let _ = write!(body, r#"<g role="img" tabindex="0" aria-label="{}" data-part="{id}">"#, escape(words));
         } else {
             let _ = write!(body, r#"<g aria-hidden="true" data-part="{id}">"#);
         }
@@ -1060,7 +1062,9 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
         let _ = write!(s, r#"<desc id="tr-desc-{id:08x}">{}</desc>"#, escape(&words.text));
     }
     let _ = write!(s, r#"<metadata><tikra:source type="tikz">{}</tikra:source></metadata>"#, escape(source));
-    let _ = write!(s, "{}<defs>{}</defs>{body}</svg>", steps.style(), defs.text);
+    // a screen reader would stop at each glyph kept here, with only "image" to say
+    let hidden = if canvas.parts.is_empty() { "" } else { r#" aria-hidden="true""# };
+    let _ = write!(s, "{}<defs{hidden}>{}</defs>{body}</svg>", steps.style(), defs.text);
     s
 }
 
