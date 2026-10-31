@@ -1739,7 +1739,9 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 let index_of_type = plots[..k].iter().filter(|q| q.handler == p.handler && !q.forget).count();
                 k += 1;
                 let before = e.canvas.items.len();
+                e.mark_source(p.source);
                 let r = super::visual::draw_plot(e, p, &pts, &base, &f, of_type, index_of_type);
+                e.mark_source(axis.source);
                 if p.fill_between.is_some() && before <= e.canvas.items.len() && pre_main_end <= before {
                     let drawn: Vec<Item> = e.canvas.items.drain(before..).collect();
                     let at = pre_main_end.min(e.canvas.items.len());
@@ -1753,7 +1755,8 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                     Err(err) => e.warn(format!("\\addplot: {err}; plot not drawn")),
                 }
             }
-            Entry::Tikz(tokens) => {
+            Entry::Tikz(tokens, source) => {
+                e.mark_source(*source);
                 // what the axis' body draws is the figure's
                 let mute = std::mem::take(&mut e.facts.mute);
                 let r = e.run_tokens(tokens.clone());
@@ -1764,6 +1767,7 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                     }
                     e.warn(format!("statement in axis: {err}"));
                 }
+                e.mark_source(axis.source);
             }
         }
     }

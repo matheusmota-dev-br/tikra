@@ -67,3 +67,9 @@ def test_png_errors():
 def test_versions():
     assert tikra.__version__.count(".") == 2
     assert tikra.core_version.count(".") == 2
+
+
+def test_the_source_map():
+    figure = r"\tikz \draw (0,0) -- (1,1);"
+    assert "data-src" not in tikra.tikz_to_svg(figure)
+    assert 'data-src="1:' in tikra.tikz_to_svg(figure, source=True)

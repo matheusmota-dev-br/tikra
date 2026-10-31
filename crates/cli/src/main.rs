@@ -16,6 +16,7 @@ OPTIONS
       --describe          prints the figure in words: its alt text and its description
       --animate           the SVG draws itself in the browser, in the order TikZ drew it
       --steps             each element numbered by its step (data-step), with no animation
+      --source            and with the place in the code that drew it (data-src)
   -l, --locale <code>     the language of the figure in words: en (default), pt-BR, es, fr, de,
                           it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl (the drawing is the same)
   -V, --version
@@ -48,6 +49,7 @@ fn main() -> ExitCode {
             "--describe" => describe = true,
             "--animate" => options = options.animated(),
             "--steps" => options = options.steps(),
+            "--source" => options = options.source(),
             "-l" | "--locale" => match it.next().unwrap_or_default().parse() {
                 Ok(l) => options.locale = l,
                 Err(e) => {

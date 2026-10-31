@@ -339,6 +339,50 @@ impl Prim {
     }
 }
 
+/// What has been read of the main text since a statement started, as offsets in characters.
+#[derive(Debug, Clone, Default)]
+struct Reading {
+    first: Option<usize>,
+    end: usize,
+    /// The last tokens read from the text, and where.
+    recent: Vec<(Token, usize, usize)>,
+    /// Those put back to look ahead: a statement that peeks at what follows did not read it.
+    backed: Vec<(Token, usize, usize)>,
+}
+
+impl Reading {
+    /// `t` comes from the text, from `start` to just before `end`.
+    fn read(&mut self, t: Token, start: usize, end: usize) {
+        self.first.get_or_insert(start);
+        self.end = end;
+        if self.recent.len() >= 64 {
+            self.recent.drain(..32);
+        }
+        self.recent.push((t, start, end));
+    }
+
+    /// `t` is put back: if it is the last one read, it has not been read yet.
+    fn back(&mut self, t: &Token) {
+        if self.recent.last().is_some_and(|r| r.0 == *t) {
+            let Some(r) = self.recent.pop() else { return };
+            self.end = self.recent.last().map_or(r.1, |p| p.2);
+            if self.first == Some(r.1) {
+                self.first = None;
+            }
+            self.backed.push(r);
+        }
+    }
+
+    /// `t` comes from a token list: if it is one put back, it is read now.
+    fn again(&mut self, t: &Token) {
+        if self.backed.last().is_some_and(|r| r.0 == *t) {
+            if let Some((t, start, end)) = self.backed.pop() {
+                self.read(t, start, end);
+            }
+        }
+    }
+}
+
 /// Where tokens come from: a token list, or text read with the current category codes.
 #[derive(Clone)]
 enum Frame {
@@ -399,6 +443,8 @@ pub type Map<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[derive(Clone)]
 pub struct Tex {
     input: Vec<Frame>,
+    /// How far the main text has been read, for the source map. `None` when nobody asked.
+    reading: Option<Reading>,
     meanings: Map<Rc<str>, Meaning>,
     active: Map<char, Meaning>,
     pub counts: Map<u32, i64>,
@@ -527,6 +573,7 @@ impl Tex {
     pub fn new() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
+            reading: None,
             meanings: Map::default(),
             active: Map::default(),
             counts: Map::default(),
@@ -824,6 +871,7 @@ impl Tex {
     pub fn new_lexer() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
+            reading: None,
             meanings: Map::default(),
             active: Map::default(),
             counts: Map::default(),
@@ -972,7 +1020,31 @@ impl Tex {
     }
 
     pub fn back(&mut self, t: Token) {
+        if let Some(r) = &mut self.reading {
+            r.back(&t);
+        }
         self.push_tokens([t]);
+    }
+
+    /// Starts noting how far the main text has been read: the text on top of the input is it.
+    pub fn note_reading(&mut self) {
+        self.reading = Some(Reading::default());
+    }
+
+    /// The characters of the main text read since the last [`Tex::end_statement`], from the first
+    /// one to just after the last.
+    pub fn statement_span(&self) -> Option<(usize, usize)> {
+        let r = self.reading.as_ref()?;
+        Some((r.first.unwrap_or(r.end), r.end))
+    }
+
+    /// A statement is over. Inside a macro's expansion the next one is still in the same call.
+    pub fn end_statement(&mut self) {
+        let Some(r) = &mut self.reading else { return };
+        let waiting: Option<usize> = self.input.iter().skip(1).map(|f| if let Frame::Tokens(l) = f { Some(l.len()) } else { None }).sum();
+        if waiting == Some(r.backed.len()) {
+            r.first = None;
+        }
     }
 
     /// The number of input frames (for reading only what was pushed after this point).
@@ -1020,12 +1092,18 @@ impl Tex {
                 Frame::Tokens(list) => Some(list.pop_front()),
                 Frame::Text { .. } => None,
             };
+            let listed = from_list.is_some();
             let t = match from_list {
                 Some(t) => t,
                 None => self.read_text_token(),
             };
             match t {
-                Some(t) => return Some(t),
+                Some(t) => {
+                    if let (Some(r), true) = (&mut self.reading, listed) {
+                        r.again(&t);
+                    }
+                    return Some(t);
+                }
                 None => {
                     self.input.pop();
                 }
@@ -1040,7 +1118,9 @@ impl Tex {
             Some(Frame::Text { chars, pos, skip_blanks }) => (chars.clone(), *pos, *skip_blanks),
             _ => return None,
         };
+        let mut start;
         let result = loop {
+            start = pos;
             let Some(&c) = chars.get(pos) else { break None };
             let next = chars.get(pos + 1).copied();
             let cat = self.catcode(c);
@@ -1130,6 +1210,11 @@ impl Tex {
         if let Some(Frame::Text { pos: p, skip_blanks, .. }) = self.input.last_mut() {
             *p = pos;
             *skip_blanks = skip;
+        }
+        if self.input.len() == 1 {
+            if let (Some(r), Some(t)) = (&mut self.reading, &result) {
+                r.read(t.clone(), start, pos);
+            }
         }
         result
     }

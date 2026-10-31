@@ -53,3 +53,8 @@ test("png", () => {
 test("version", () => {
   assert.match(version(), /^\d+\.\d+\.\d+/);
 });
+
+test("the source map is asked for apart", () => {
+  assert.doesNotMatch(tikzToSvg(FIGURE), /data-src/);
+  assert.match(tikzToSvg(FIGURE, { source: true }), / data-src="1:/);
+});

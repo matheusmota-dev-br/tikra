@@ -135,6 +135,16 @@ pub enum Item {
         place: Transform,
     },
     End,
+    /// Draws nothing: what follows, up to the next one, came from this span of
+    /// [`Canvas::sources`]. Only there when the source map was asked for.
+    Source(usize),
+}
+
+/// A statement's place in the code: the line and column of its first and last characters, from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub first: (usize, usize),
+    pub last: (usize, usize),
 }
 
 /// Grows the box `min`–`max` to include `p`.
@@ -170,6 +180,8 @@ pub struct Canvas {
     pub origin: Option<Point>,
     /// `\pagecolor`: painted behind the figure, margin included.
     pub page_color: Option<Color>,
+    /// The places [`Item::Source`] points to: empty without the source map.
+    pub sources: Vec<SourceSpan>,
 }
 
 impl Canvas {
@@ -232,7 +244,7 @@ impl Item {
             // the items inside move too: the transformation moves with them
             Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.translate(d)),
-            Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End => {}
+            Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End | Item::Source(_) => {}
         }
     }
 
@@ -260,7 +272,7 @@ impl Item {
             // a transformed group inside: the outer transformation around it
             Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.transform(t)),
-            Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End => {}
+            Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End | Item::Source(_) => {}
         }
     }
 }

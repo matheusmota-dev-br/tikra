@@ -7,7 +7,7 @@ use std::fmt::Write;
 use mathra::font::{GlyphId, MathFont};
 use mathra::layout::Item as MathItem;
 
-use crate::canvas::{Canvas, Cap, Fill, Item, Join, Paint, Shading, Stroke};
+use crate::canvas::{Canvas, Cap, Fill, Item, Join, Paint, Shading, SourceSpan, Stroke};
 use crate::scene::{Label, Point, Segment, Transform};
 
 /// Big points per centimeter.
@@ -121,7 +121,7 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
         Paint::Tile { items, origin, size, transform: t } => {
             // the tile's items drawn first (their own definitions come before the pattern)
             let (mut inner, mut glyphs) = (String::new(), Vec::new());
-            items_svg(&items.0, &mut inner, defs, &mut glyphs, &mut Steps::off());
+            items_svg(&items.0, &mut inner, defs, &mut glyphs, &mut Steps::off(), &[]);
             defs.glyphs.append(&mut glyphs);
             let id = defs.id("p");
             let (w, h) = (size.x * BP, size.y * BP);
@@ -408,12 +408,14 @@ struct Steps {
     on: bool,
     animate: bool,
     count: usize,
+    /// With the source map: where what is being drawn came from, as an attribute.
+    source: String,
 }
 
 impl Steps {
     /// For what is not drawn in place: a pattern's tile, a mask.
     fn off() -> Steps {
-        Steps { on: false, animate: false, count: 0 }
+        Steps { on: false, animate: false, count: 0, source: String::new() }
     }
 
     /// The attributes of the next step: its number and, animated, a stroke drawn along its length
@@ -425,10 +427,11 @@ impl Steps {
         }
         let i = self.count;
         self.count += 1;
+        let source = &self.source;
         match (self.animate, drawn) {
-            (false, _) => format!(r#" data-step="{i}""#),
-            (true, true) => format!(r#" data-step="{i}" class="tr-d" pathLength="1" style="--i:{i}""#),
-            (true, false) => format!(r#" data-step="{i}" class="tr-f" style="--i:{i}""#),
+            (false, _) => format!(r#" data-step="{i}"{source}"#),
+            (true, true) => format!(r#" data-step="{i}"{source} class="tr-d" pathLength="1" style="--i:{i}""#),
+            (true, false) => format!(r#" data-step="{i}"{source} class="tr-f" style="--i:{i}""#),
         }
     }
 
@@ -534,7 +537,7 @@ fn seams(items: &[Item]) -> HashMap<usize, (Vec<(Point, Point)>, f64)> {
                 let inside = Point { x: (min.0 + max.0) / 2.0, y: (min.1 + max.1) / 2.0 };
                 fills.push(Side { item: i, place, edges, narrow: (max.0 - min.0).min(max.1 - min.1), inside });
             }
-            Item::Path { .. } | Item::Text { .. } | Item::Image { .. } => {}
+            Item::Path { .. } | Item::Text { .. } | Item::Image { .. } | Item::Source(_) => {}
             _ => place += 1,
         }
     }
@@ -583,7 +586,7 @@ fn seams(items: &[Item]) -> HashMap<usize, (Vec<(Point, Point)>, f64)> {
 const SEAM: f64 = 2.0 / BP;
 
 /// The items as SVG elements, into `body`; their definitions (gradients, clips, masks) into `defs`.
-fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<(MathFont, GlyphId)>, steps: &mut Steps) {
+fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<(MathFont, GlyphId)>, steps: &mut Steps, sources: &[SourceSpan]) {
     let seams = seams(items);
     for (i, item) in items.iter().enumerate() {
         match item {
@@ -686,7 +689,7 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 // the picture as a luminance mask: white opaque, black and nothing transparent
                 let mut inner = String::new();
                 // a mask is not drawn: it is not animated
-                items_svg(items, &mut inner, defs, glyphs, &mut Steps::off());
+                items_svg(items, &mut inner, defs, glyphs, &mut Steps::off(), sources);
                 let id = defs.id("m");
                 let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
                 let _ = write!(body, r#"<g mask="url(#{id})">"#);
@@ -709,6 +712,9 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 );
             }
             Item::End => body.push_str("</g>"),
+            Item::Source(id) => {
+                steps.source = sources.get(*id).map_or(String::new(), |s| format!(r#" data-src="{}:{}-{}:{}""#, s.first.0, s.first.1, s.last.0, s.last.1));
+            }
         }
     }
 }
@@ -758,8 +764,8 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     }
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
-    let mut steps = Steps { on: steps || animate, animate, count: 0 };
-    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps);
+    let mut steps = Steps { on: steps || animate, animate, count: 0, source: String::new() };
+    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps, &canvas.sources);
     glyphs.append(&mut defs.glyphs);
     let mut seen = HashSet::new();
     for (font, g) in glyphs {

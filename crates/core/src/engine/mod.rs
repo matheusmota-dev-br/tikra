@@ -407,6 +407,12 @@ pub const MAX_DEPTH: usize = 64;
 
 pub struct Engine {
     pub tex: Tex,
+    /// The source map: the statements' spans in characters of the code (none: not asked for), and
+    /// the one being run, an index in it.
+    pub spans: Option<Vec<(usize, usize)>>,
+    pub source: Option<usize>,
+    /// Where the outermost picture starts, in those spans.
+    picture_source: Option<usize>,
     pub st: GState,
     saved: Vec<GState>,
     pub canvas: Canvas,
@@ -613,6 +619,9 @@ impl Clone for Engine {
     fn clone(&self) -> Self {
         Engine {
             tex: self.tex.clone(),
+            spans: self.spans.clone(),
+            source: self.source,
+            picture_source: self.picture_source,
             st: self.st.clone(),
             saved: self.saved.clone(),
             canvas: self.canvas.clone(),
@@ -772,6 +781,9 @@ impl Engine {
             picture_depth: 0,
             pictures: 0,
             steps: 0,
+            spans: None,
+            source: None,
+            picture_source: None,
             depth: 0,
             text_reported: false,
             key_fns: Vec::new(),
@@ -871,9 +883,42 @@ impl Engine {
     /// Runs the input until it ends.
     pub fn run(&mut self) -> Result<(), Error> {
         while let Some(t) = self.tex.get_x_token()? {
+            let statement = self.spans.is_some() && matches!(self.tex.meaning(&t), Meaning::Native(id) if id < NATIVE_KEY_BASE);
+            if statement {
+                self.open_source();
+            }
             self.execute(t)?;
+            if statement {
+                self.close_source();
+            } else {
+                self.tex.end_statement();
+            }
         }
         Ok(())
+    }
+
+    /// The source map: what is drawn from here on came from the statement that starts here.
+    fn open_source(&mut self) {
+        let Some(span) = self.tex.statement_span() else { return };
+        let Some(spans) = &mut self.spans else { return };
+        spans.push(span);
+        self.source = Some(spans.len() - 1);
+        self.mark_source(self.source);
+    }
+
+    /// The source map: the statement ended where the reading is now.
+    fn close_source(&mut self) {
+        if let (Some(id), Some((_, end)), Some(spans)) = (self.source, self.tex.statement_span(), &mut self.spans) {
+            spans[id].1 = end;
+        }
+        self.tex.end_statement();
+    }
+
+    /// What is drawn from here on came from this statement, kept for later (an `\\addplot`).
+    pub fn mark_source(&mut self, source: Option<usize>) {
+        if let Some(id) = source {
+            self.canvas.push(Item::Source(id));
+        }
     }
 
     /// Runs `tokens` to completion (a loop body, a style's code), then returns.
@@ -2312,6 +2357,8 @@ impl Engine {
             // each picture is drawn on its own canvas, laid out with the others at the end
             let margin = self.canvas.margin;
             self.canvas = Canvas { margin, ..Canvas::default() };
+            self.mark_source(self.source);
+            self.picture_source = self.source;
             self.canvas_frozen = false;
             self.last_xy = Point::default();
         }
@@ -2416,6 +2463,7 @@ impl Engine {
         self.begin_group();
         let main = std::mem::take(&mut self.canvas.items);
         self.on_layer.push((name, main));
+        self.mark_source(self.source);
     }
 
     fn end_on_layer(&mut self) {
@@ -2464,9 +2512,16 @@ impl Engine {
     fn end_picture(&mut self) {
         // execute at end picture, while the picture is still open
         let end = self.scope_ends.pop().unwrap_or_default();
+        // what the picture's options ask for at its end comes from where they are
+        let source = self.source;
+        if self.picture_depth == 1 {
+            self.source = self.picture_source;
+            self.mark_source(self.source);
+        }
         if let Err(e) = self.run_tokens(end) {
             self.warn(format!("execute at end picture: {e}"));
         }
+        self.source = source;
         while !self.on_layer.is_empty() {
             self.end_on_layer();
         }
@@ -3499,6 +3554,27 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
     (all, out)
 }
 
+/// Spans in characters of `code` as lines and columns, from 1, without the blanks at their end.
+fn source_spans(code: &str, spans: &[(usize, usize)]) -> Vec<crate::canvas::SourceSpan> {
+    let chars: Vec<char> = code.chars().collect();
+    let mut starts = vec![0];
+    starts.extend(chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i + 1));
+    let place = |i: usize| {
+        let line = starts.partition_point(|&s| s <= i);
+        (line, i - starts[line - 1] + 1)
+    };
+    spans
+        .iter()
+        .map(|&(first, end)| {
+            let mut last = end.max(first + 1) - 1;
+            while last > first && chars.get(last).is_none_or(|c| c.is_whitespace()) {
+                last -= 1;
+            }
+            crate::canvas::SourceSpan { first: place(first), last: place(last) }
+        })
+        .collect()
+}
+
 /// Runs a whole document (or figure) and returns the canvas and the warnings.
 pub fn run_document(code: &str) -> Result<(Canvas, Vec<String>), Error> {
     run_document_noting(code).map(|(canvas, warnings, _)| (canvas, warnings))
@@ -3511,11 +3587,20 @@ pub fn run_document_noting(code: &str) -> Result<(Canvas, Vec<String>, crate::de
 
 /// [`run_document_noting`] with libraries from outside defined.
 pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Library]) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
+    run_document_mapped(code, libraries, false)
+}
+
+/// [`run_document_with`], with each statement's place in the code on the canvas if `map`.
+pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::Library], map: bool) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
     let mut e = Engine::with_libraries(libraries);
     crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
     e.canvas.margin = 2.0 * crate::PT;
     e.tex.push_text(code);
+    if map {
+        e.spans = Some(Vec::new());
+        e.tex.note_reading();
+    }
     e.run()?;
     // anything left open is closed
     while e.picture_depth > 0 {
@@ -3527,6 +3612,7 @@ pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Lib
     let margin = e.canvas.margin;
     e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
     e.canvas.page_color = e.page_color;
+    e.canvas.sources = source_spans(code, e.spans.as_deref().unwrap_or_default());
     let mut warnings = std::mem::take(&mut e.tex.warnings);
     warnings.dedup();
     let _ = Transform::default();
