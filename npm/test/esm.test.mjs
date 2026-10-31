@@ -61,7 +61,7 @@ test("the source map is asked for apart", () => {
 
 test("the parts come with their words", () => {
   const r = render(FIGURE, { parts: true });
-  assert.match(r.svg, /role="group" tabindex="0"/);
+  assert.match(r.svg, /role="img" tabindex="0"/);
   assert.ok(r.parts.length > 0 && r.parts[0].text);
   assert.equal(render(FIGURE).parts.length, 0);
 });

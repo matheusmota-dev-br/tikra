@@ -243,7 +243,7 @@ fn each_thing_drawn_is_a_part_with_its_words() {
     let texts: Vec<&str> = r.parts.iter().map(|p| p.text.as_str()).collect();
     assert_eq!(texts, ["“Start”", "“End”", "from Start to End", "one shape"]);
     assert_eq!(r.parts[0].source, "2:1-2:27");
-    assert!(r.svg.contains(r#"role="group" aria-labelledby"#) && r.svg.contains(r#"role="group" tabindex="0" aria-label="from Start to End""#), "{}", r.svg);
+    assert!(r.svg.contains(r#"role="group" aria-labelledby"#) && r.svg.contains(r#"role="img" tabindex="0" aria-label="from Start to End""#), "{}", r.svg);
     // the words come with the source map too, and the SVG only with the parts
     assert_eq!(plain.parts, r.parts);
     assert!(!plain.svg.contains("data-part") && plain.svg.contains(r#"role="img""#));
@@ -258,6 +258,17 @@ fn a_step_has_a_sentence_or_nothing() {
     assert_eq!(said, ["Text in the figure: Start.", "Text in the figure: End.", "Connections: from Start to End.", ""]);
     let pt = tikra::convert_with(code, &tikra::Options::locale("pt-BR".parse().unwrap()).source()).unwrap();
     assert!(pt.parts[2].sentence.contains("Start") && pt.parts[2].sentence != r.parts[2].sentence, "{}", pt.parts[2].sentence);
+}
+
+#[test]
+fn a_reader_stops_once_at_each_part() {
+    let code = "\\begin{tikzpicture}\\node[draw] (a) {A};\\draw[->] (0,1) -- (1,1);\\clip (0,0) rectangle (1,1);\\end{tikzpicture}";
+    let svg = tikra::convert_with(code, &tikra::Options::default().parts()).unwrap().svg;
+    // every drawn element is inside a stop or hidden from the reader
+    let body = svg.split("</defs>").nth(1).unwrap();
+    assert!(body.matches(r#"role="img" tabindex="0""#).count() >= 2, "{body}");
+    assert!(!body.contains(r#"role="group""#), "{body}");
+    assert_eq!(body.matches("data-part=").count(), body.matches(r#"role="img""#).count() + body.matches(r#"aria-hidden="true""#).count(), "{body}");
 }
 
 #[test]
