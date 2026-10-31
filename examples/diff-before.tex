@@ -1,0 +1,8 @@
+% Keep this version in the playground, then paste diff-after.tex and press Compare.
+\begin{tikzpicture}
+  \draw[help lines] (0,0) grid (4,3);
+  \draw[->, thick] (0,0) -- (4,0);
+  \draw[->, thick] (0,0) -- (0,3);
+  \draw[blue, thick] (0,0.5) .. controls (1.5,3) and (2.5,0) .. (4,2.5);
+  \fill[red] (2,1.5) circle (2pt);
+\end{tikzpicture}
