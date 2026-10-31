@@ -4,6 +4,18 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.8.2 - 2026-10-31
+
+The site, banner and icon take an identity of their own, the Lorenz attractor to play with, and a new demo video.
+
+- Byrne's red, blue and yellow on ivory in the banner, the icon and the site, with ink as the dark theme.
+- The top of the site is the Lorenz attractor, drawn by tikra on every frame: two paths start 0.001 apart and part. Drag it to turn it, and change the time, rho and the gap.
+- Code blocks are colored, the gallery's sources and the SVG tab included.
+- A new 60-second demo video in the README and on the site.
+- What the packages draw does not change.
+
+Figures: `lorenz-attractor`
+
 ## 1.8.1 - 2026-10-30
 
 The distance of a pin or a label among its own options, tikzmark's `pic anchor`, what extensions need to draw, and labels set by mathra 1.9.2.
