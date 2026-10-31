@@ -27,7 +27,7 @@ class Result(TypedDict):
     """What was ignored or approximated: unsupported commands, labels with broken LaTeX."""
 
 
-def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False, parts: bool = False) -> str:
+def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False, parts: bool = False, play: bool = False) -> str:
     """Converts a TikZ figure to SVG, with the figure in words (its ``<title>`` and ``<desc>``) in
     ``locale``: one of mathra's languages, ``en``, ``pt-BR``, ``es``, ``fr``, ``de``, ``it``, ``ru``,
     ``zh``, ``ja``, ``ko``, ``hi``, ``ar``, ``id``, ``tr``, ``nl``, ``pl``. The drawing is the same in all.
@@ -42,9 +42,10 @@ def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: 
     (``data-step``, and ``data-steps`` on the ``<svg>``), with no CSS, for a page that walks through
     the figure itself. ``source=True`` numbers them and adds the place in the code that drew each
     one (``data-src="line:column-line:column"``, from 1). ``parts=True`` makes each thing drawn a
-    group a screen reader and the keyboard can reach.
+    group a screen reader and the keyboard can reach. ``play=True`` plays the animations library in a
+    browser, instead of the still picture.
     """
-    return _tikra.tikz_to_svg(code, locale=locale, animate=animate, steps=steps, source=source, parts=parts)
+    return _tikra.tikz_to_svg(code, locale=locale, animate=animate, steps=steps, source=source, parts=parts, play=play)
 
 
 def slides(code: str, *, locale: str = "en") -> list[str]:
@@ -67,9 +68,9 @@ def tikz_to_apng(code: str, *, width: int = 560, fps: int = 15) -> bytes:
     return _tikra.tikz_to_apng(code, width=width, fps=fps)
 
 
-def render(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False, parts: bool = False) -> Result:
+def render(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False, parts: bool = False, play: bool = False) -> Result:
     """The SVG, the figure in words (in ``locale``) and the warnings at once."""
-    svg, alt, description, warnings = _tikra.render(code, locale=locale, animate=animate, steps=steps, source=source, parts=parts)
+    svg, alt, description, warnings = _tikra.render(code, locale=locale, animate=animate, steps=steps, source=source, parts=parts, play=play)
     return {"svg": svg, "alt": alt, "description": description, "warnings": warnings}
 
 

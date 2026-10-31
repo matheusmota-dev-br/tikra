@@ -71,3 +71,9 @@ test("the slides of a figure", () => {
   assert.equal(slides(figure).length, 2);
   assert.match(clickThrough(figure), /data-slides="2"/);
 });
+
+test("the animations library played", () => {
+  const figure = String.raw`\usetikzlibrary{animations}\tikz \fill[red] :fill = {0s="red", 1s="blue"} (0,0) circle (1pt);`;
+  assert.match(tikzToSvg(figure, { play: true }), /<animate /);
+  assert.doesNotMatch(tikzToSvg(figure), /<animate/);
+});

@@ -374,6 +374,62 @@ mod overlays {
     }
 }
 
+mod played {
+    use tikra::{convert, convert_with, Options};
+
+    const FIGURE: &str = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\fill[red] :fill = {0s=\"red\", 2s=\"blue\", freeze} :xshift = {1s=\"0cm\", 3s=\"2cm\", repeats=2} (0,0) circle (1pt);\\draw (0,0) -- (1,0) :fill = {0s=\"red\", 2s=\"blue\"} :rotate = {0s=\"0\", 1s=\"90\", begin on=click};\\end{tikzpicture}";
+
+    #[test]
+    fn the_keyframes_reach_the_svg() {
+        let svg = convert_with(FIGURE, &Options::default().play()).unwrap().svg;
+        assert!(svg.contains(r##"<animate attributeName="fill" values="#ff0000;#0000ff" keyTimes="0;1" dur="2s" begin="0s" fill="freeze"/>"##), "{svg}");
+        assert!(svg.contains(r#"type="translate" values="0 0;56.69291338582677 0" keyTimes="0;1" dur="2s" begin="1s" repeatCount="2" fill="remove""#), "{svg}");
+        assert!(svg.contains(r#"type="rotate" values="-0;-90" keyTimes="0;1" dur="1s" begin="trAnim2.click+0s""#), "{svg}");
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn a_fill_is_not_animated_on_what_has_none() {
+        let svg = convert_with(FIGURE, &Options::default().play()).unwrap().svg;
+        assert_eq!(svg.matches(r#"attributeName="fill""#).count(), 1, "{svg}");
+    }
+
+    #[test]
+    fn without_the_option_the_figure_is_still() {
+        assert!(!convert(FIGURE).unwrap().svg.contains("animate"));
+    }
+
+    #[test]
+    fn a_png_of_a_played_figure_is_the_still_one() {
+        let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\fill[red] :fill = {0s=\"red\", 2s=\"blue\"} (0,0) circle (1pt);\\draw (0,0) -- (1,0) :opacity = {0s=\"1\", 1s=\"0\"};\\end{tikzpicture}";
+        let (played, still) = (convert_with(code, &Options::default().play()).unwrap().svg, convert(code).unwrap().svg);
+        assert_eq!(tikra::png(&played, 72.0, true).unwrap(), tikra::png(&still, 72.0, true).unwrap());
+    }
+
+    #[test]
+    fn a_turn_is_around_the_object_wherever_the_figure_lands() {
+        let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\draw (0,0) -- (1,1) :rotate = {0s=\"0\", 1s=\"90\"};\\end{tikzpicture}";
+        let svg = convert_with(code, &Options::default().play()).unwrap().svg;
+        assert!(!svg.contains("translate(--") && !svg.contains("translate(- "), "{svg}");
+        let inner = svg.split(r#"<g transform="translate("#).nth(2).unwrap().split(')').next().unwrap();
+        assert!(inner.split(' ').all(|v| v.parse::<f64>().is_ok()), "{inner}");
+    }
+
+    #[test]
+    fn a_scope_moves_all_it_draws() {
+        let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\begin{scope}[animate={myself:opacity={0s=\"1\",1s=\"0\"}}]\\draw (0,0) -- (1,0);\\draw (0,1) -- (1,1);\\end{scope}\\draw (0,2) -- (1,2);\\end{tikzpicture}";
+        let r = convert_with(code, &Options::default().play()).unwrap();
+        assert_eq!(r.svg.matches(r#"attributeName="opacity""#).count(), 2, "{}", r.svg);
+    }
+
+    #[test]
+    fn another_objects_animation_says_it_is_not_played() {
+        let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\draw (0,0) -- (1,0) [animate={other:fill={0s=\"red\",1s=\"blue\"}}];\\end{tikzpicture}";
+        let r = convert_with(code, &Options::default().play()).unwrap();
+        assert!(r.warnings.iter().any(|w| w.contains("other")), "{:?}", r.warnings);
+    }
+}
+
 #[cfg(feature = "motion")]
 mod motion {
     use tikra::motion::{apng, gif, Motion};

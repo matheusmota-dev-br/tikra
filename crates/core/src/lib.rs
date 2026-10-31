@@ -84,11 +84,14 @@ pub struct Options {
     /// (`aria-label`, in `locale`) that takes the keyboard's focus, inside an `<svg>` a screen
     /// reader can enter. The numbers and places of [`Options::source`] come with it. Off by default.
     pub parts: bool,
+    /// The animations library played in a browser, with SMIL, `begin on=click` included, instead of
+    /// the still picture TikZ would give. A PNG stays still. Off by default.
+    pub play: bool,
 }
 
 impl Options {
     pub fn locale(locale: Locale) -> Options {
-        Options { locale, animate: false, steps: false, source: false, parts: false }
+        Options { locale, animate: false, steps: false, source: false, parts: false, play: false }
     }
 
     /// These options, with the construction animation.
@@ -104,6 +107,11 @@ impl Options {
     /// These options, with each element numbered by its step and tied to the code that drew it.
     pub fn source(self) -> Options {
         Options { source: true, ..self }
+    }
+
+    /// These options, with the animations library played.
+    pub fn play(self) -> Options {
+        Options { play: true, ..self }
     }
 
     /// These options, with the figure split in parts a reader can walk through.
@@ -220,7 +228,7 @@ fn convert_slide(code: &str, options: &Options, libraries: &[&'static extension:
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
     let wrapped = usize::from(wrapped);
-    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, options.source || options.parts, slide)?;
+    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, engine::Run { map: options.source || options.parts, slide, play: options.play })?;
     for s in &mut canvas.sources {
         s.first.0 = s.first.0.saturating_sub(wrapped).max(1);
         s.last.0 = s.last.0.saturating_sub(wrapped).max(1);
