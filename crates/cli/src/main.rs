@@ -1,3 +1,5 @@
+mod pen;
+
 use std::process::ExitCode;
 use std::{env, fs, io};
 
@@ -5,12 +7,17 @@ const HELP: &str = "\
 tikra — TikZ figures to SVG and PNG, no TeX install
 
 USAGE
-  tikra <file.tex> [-o out.svg|out.png|out.gif|out.apng] [options]
+  tikra <file.tex> [-o out.svg|out.png|out.gif|out.apng|out.gcode|out.hpgl] [options]
   cat figure.tex | tikra -o figure.png
 
 OPTIONS
   -o, --output <file>     .svg, .png, or the animation as .gif or .apng (by its name); without
                           -o, prints the SVG
+                          .gcode, .hpgl or .plt are strokes for a pen plotter
+      --keep-order        plotter: TikZ's order, not the one that lifts the pen least
+      --paper <w>x<h>     plotter: the paper in mm; centers the figure, and shrinks it to fit
+      --pen-up <code>     G-code that lifts the pen (default G0 Z5)
+      --pen-down <code>   G-code that lowers the pen (default G0 Z0)
       --width <n>         GIF and APNG width in pixels (default 560)
       --fps <n>           GIF and APNG frames per second (default 15)
       --dpi <n>           PNG resolution (default 300)
@@ -39,6 +46,7 @@ fn main() -> ExitCode {
     let mut options = tikra::Options::default();
     let mut motion = tikra::motion::Motion::default();
     let (mut slides, mut click) = (false, false);
+    let mut pen = pen::Pen::default();
     let mut it = env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -61,6 +69,10 @@ fn main() -> ExitCode {
             "--steps" => options = options.steps(),
             "--source" => options = options.source(),
             "--parts" => options = options.parts(),
+            "--keep-order" => pen.keep_order = true,
+            "--paper" => pen.paper = it.next().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
+            "--pen-up" => pen.up = it.next().unwrap_or(pen.up),
+            "--pen-down" => pen.down = it.next().unwrap_or(pen.down),
             "--slides" => slides = true,
             "--click" => click = true,
             "-l" | "--locale" => match it.next().unwrap_or_default().parse() {
@@ -116,6 +128,20 @@ fn main() -> ExitCode {
         println!("description: {}", r.description);
     }
     match output {
+        Some(s) if s.ends_with(".gcode") || s.ends_with(".hpgl") || s.ends_with(".plt") => {
+            let text = if s.ends_with(".gcode") { pen::gcode(&r.svg, &pen) } else { pen::hpgl(&r.svg, &pen) };
+            match text.map(|t| fs::write(&s, t)) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    eprintln!("tikra: could not write {s}: {e}");
+                    return ExitCode::from(1);
+                }
+                Err(e) => {
+                    eprintln!("tikra: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
         Some(s) if animation => {
             let bytes = if s.ends_with(".gif") { tikra::motion::gif(&r.svg, motion) } else { tikra::motion::apng(&r.svg, motion) };
             match bytes.map(|b| fs::write(&s, b)) {

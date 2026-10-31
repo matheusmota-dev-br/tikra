@@ -1,0 +1,8 @@
+% Strokes for a pen plotter: curves, a fill that becomes its outline, and text.
+\begin{tikzpicture}
+  \draw (0,0) rectangle (6,4);
+  \foreach \a in {0,30,...,330} \draw (3,2) -- +(\a:1.5);
+  \draw (3,2) circle (1.5);
+  \fill (3,2) circle (3mm);
+  \node at (3,0.4) {tikra};
+\end{tikzpicture}
