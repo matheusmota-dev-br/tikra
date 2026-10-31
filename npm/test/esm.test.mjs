@@ -58,3 +58,10 @@ test("the source map is asked for apart", () => {
   assert.doesNotMatch(tikzToSvg(FIGURE), /data-src/);
   assert.match(tikzToSvg(FIGURE, { source: true }), / data-src="1:/);
 });
+
+test("the parts come with their words", () => {
+  const r = render(FIGURE, { parts: true });
+  assert.match(r.svg, /role="group" tabindex="0"/);
+  assert.ok(r.parts.length > 0 && r.parts[0].text);
+  assert.equal(render(FIGURE).parts.length, 0);
+});

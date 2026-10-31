@@ -30,6 +30,8 @@ pub struct Facts {
     pub author_alt: String,
     /// The node the coordinate just read names (`(a)`, `(a.east)`), for the path's connections.
     pub touched: Option<String>,
+    /// The paths of each statement of the source map, by its place there.
+    pub shapes_of: HashMap<usize, usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +44,8 @@ pub struct NodeFact {
     pub at: Point,
     /// A label on a connection (`-- node {yes} (b)`), told with it.
     pub on_link: bool,
+    /// The statement that placed it, in the source map.
+    pub source: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,10 +64,14 @@ pub struct Link {
     pub arrow: Arrow,
     /// The nodes placed on it, by index into [`Facts::nodes`].
     pub labels: Vec<usize>,
+    /// The statement that drew it, in the source map.
+    pub source: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct AxisFact {
+    /// Its `\\begin{axis}`, in the source map.
+    pub source: Option<usize>,
     /// `polar`, `ternary`, `smith` or empty.
     pub kind: &'static str,
     pub three_d: bool,
@@ -81,6 +89,8 @@ pub struct AxisFact {
 
 #[derive(Debug, Clone, Default)]
 pub struct Series {
+    /// Its `\\addplot`, in the source map.
+    pub source: Option<usize>,
     pub kind: &'static str,
     /// Its legend entry, as TeX.
     pub name: String,
@@ -250,42 +260,7 @@ pub fn describe(f: &Facts, locale: Locale) -> Description {
         return Description { alt: author.clone(), text: author, by_author: true };
     }
     let nodes = visible_nodes(f);
-    let name_of = |key: &str| -> Option<String> {
-        let n = f.nodes.iter().rev().find(|n| n.key == key)?;
-        let t = w.spoken(&n.text);
-        if !t.is_empty() {
-            Some(t)
-        } else if n.named && !n.key.contains('@') {
-            // a name the author gave (internal names have an `@`)
-            Some(n.key.clone())
-        } else {
-            None
-        }
-    };
-    let mut links: Vec<String> = Vec::new();
-    let mut joined: Vec<&str> = Vec::new();
-    for l in &f.links {
-        let (Some(a), Some(b)) = (name_of(&l.from), name_of(&l.to)) else { continue };
-        for k in [&l.from, &l.to] {
-            if !joined.contains(&k.as_str()) {
-                joined.push(k);
-            }
-        }
-        let mut s = match l.arrow {
-            _ if l.from == l.to => w.t("link.self", &[&a]),
-            Arrow::Forward => w.t("link.forward", &[&a, &b]),
-            Arrow::Backward => w.t("link.forward", &[&b, &a]),
-            Arrow::Both => w.t("link.both", &[&a, &b]),
-            Arrow::None => w.t("link.none", &[&a, &b]),
-        };
-        let labels: Vec<String> = l.labels.iter().map(|&i| w.spoken(&f.nodes[i].text)).filter(|t| !t.is_empty()).collect();
-        if !labels.is_empty() {
-            s = w.t("link.labeled", &[&s, &w.quoted_list(&labels)]);
-        }
-        if !links.contains(&s) {
-            links.push(s);
-        }
-    }
+    let (links, joined) = told_links(f, &w);
     let texts: Vec<(String, bool)> = nodes.iter().map(|n| (w.spoken(&n.text), is_number(&n.text))).filter(|t| !t.0.is_empty()).collect();
     let words: Vec<String> = texts.iter().map(|t| t.0.clone()).collect();
 
@@ -359,6 +334,99 @@ pub fn describe(f: &Facts, locale: Locale) -> Description {
     }
     let text = if parts.is_empty() { w.sentence(&alt) } else { parts.join(w.phrase("sep.sentence")) };
     Description { alt, text, by_author: false }
+}
+
+/// What one statement of the source map drew, in a sentence: the figure's own words about only
+/// that part of it, so the 16 languages come with them. Empty when there is nothing to tell.
+pub fn describe_part(f: &Facts, source: usize, locale: Locale) -> String {
+    let here = Some(source);
+    let mut part = Facts {
+        data_visualizations: 0,
+        shapes: 0,
+        mute: 0,
+        author_alt: String::new(),
+        touched: None,
+        shapes_of: HashMap::new(),
+        nodes: f.nodes.clone(),
+        links: Vec::new(),
+        axes: Vec::new(),
+    };
+    // the other nodes stay, unseen, to name what this part connects
+    for n in &mut part.nodes {
+        n.on_link = n.on_link || n.source != here;
+    }
+    part.links = f.links.iter().filter(|l| l.source == here).cloned().collect();
+    for a in &f.axes {
+        if a.source == here {
+            part.axes.push(AxisFact { series: Vec::new(), ..a.clone() });
+        } else if a.series.iter().any(|s| s.source == here) {
+            part.axes.push(AxisFact {
+                source: None,
+                title: String::new(),
+                labels: Default::default(),
+                series: a.series.iter().filter(|s| s.source == here).cloned().collect(),
+                ..a.clone()
+            });
+        }
+    }
+    let shapes = f.shapes_of.get(&source).copied().unwrap_or(0);
+    let w = Words { locale };
+    if !part.axes.is_empty() {
+        return describe(&part, locale).alt;
+    }
+    let (links, _) = told_links(&part, &w);
+    if !links.is_empty() {
+        return links.join(w.phrase("sep.list"));
+    }
+    let texts: Vec<String> = visible_nodes(&part).iter().map(|n| w.spoken(&n.text)).filter(|t| !t.is_empty()).collect();
+    if !texts.is_empty() {
+        return w.quoted_list(&texts);
+    }
+    if shapes > 0 {
+        return w.count("shape", shapes);
+    }
+    String::new()
+}
+
+/// The connections in words, each once, and the nodes they join.
+fn told_links(f: &Facts, w: &Words) -> (Vec<String>, Vec<String>) {
+    let name_of = |key: &str| -> Option<String> {
+        let n = f.nodes.iter().rev().find(|n| n.key == key)?;
+        let t = w.spoken(&n.text);
+        if !t.is_empty() {
+            Some(t)
+        } else if n.named && !n.key.contains('@') {
+            // a name the author gave (internal names have an `@`)
+            Some(n.key.clone())
+        } else {
+            None
+        }
+    };
+    let mut links: Vec<String> = Vec::new();
+    let mut joined: Vec<String> = Vec::new();
+    for l in &f.links {
+        let (Some(a), Some(b)) = (name_of(&l.from), name_of(&l.to)) else { continue };
+        for k in [&l.from, &l.to] {
+            if !joined.contains(k) {
+                joined.push(k.clone());
+            }
+        }
+        let mut s = match l.arrow {
+            _ if l.from == l.to => w.t("link.self", &[&a]),
+            Arrow::Forward => w.t("link.forward", &[&a, &b]),
+            Arrow::Backward => w.t("link.forward", &[&b, &a]),
+            Arrow::Both => w.t("link.both", &[&a, &b]),
+            Arrow::None => w.t("link.none", &[&a, &b]),
+        };
+        let labels: Vec<String> = l.labels.iter().map(|&i| w.spoken(&f.nodes[i].text)).filter(|t| !t.is_empty()).collect();
+        if !labels.is_empty() {
+            s = w.t("link.labeled", &[&s, &w.quoted_list(&labels)]);
+        }
+        if !links.contains(&s) {
+            links.push(s);
+        }
+    }
+    (links, joined)
 }
 
 /// The nodes worth telling: with text or a name, not on a connection, the last of each name.

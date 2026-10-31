@@ -182,6 +182,8 @@ pub struct Canvas {
     pub page_color: Option<Color>,
     /// The places [`Item::Source`] points to: empty without the source map.
     pub sources: Vec<SourceSpan>,
+    /// What each of those statements drew, in words, for the SVG's parts: empty without them.
+    pub parts: Vec<String>,
 }
 
 impl Canvas {

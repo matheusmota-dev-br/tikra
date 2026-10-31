@@ -7,26 +7,27 @@ fn error(e: tikra::Error) -> PyErr {
 
 /// The options from a language code (`pt-BR`, `fr`…), with the construction animation and the
 /// numbered steps and their place in the code or not.
-fn options(locale: &str, animate: bool, steps: bool, source: bool) -> PyResult<tikra::Options> {
+fn options(locale: &str, animate: bool, steps: bool, source: bool, parts: bool) -> PyResult<tikra::Options> {
     let o: tikra::Options = locale.parse().map(tikra::Options::locale).map_err(PyValueError::new_err)?;
     let o = if animate { o.animated() } else { o };
     let o = if steps { o.steps() } else { o };
-    Ok(if source { o.source() } else { o })
+    let o = if source { o.source() } else { o };
+    Ok(if parts { o.parts() } else { o })
 }
 
 /// Converts a TikZ figure to SVG, with the figure in words in `locale`.
 #[pyfunction]
-#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false))]
-fn tikz_to_svg(code: &str, locale: &str, animate: bool, steps: bool, source: bool) -> PyResult<String> {
-    tikra::convert_with(code, &options(locale, animate, steps, source)?).map(|r| r.svg).map_err(error)
+#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false, parts = false))]
+fn tikz_to_svg(code: &str, locale: &str, animate: bool, steps: bool, source: bool, parts: bool) -> PyResult<String> {
+    tikra::convert_with(code, &options(locale, animate, steps, source, parts)?).map(|r| r.svg).map_err(error)
 }
 
 /// The SVG, the figure in words (alt text and description) and the warnings (what was ignored or
 /// approximated); `tikra.render` turns them into a dict.
 #[pyfunction]
-#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false))]
-fn render(code: &str, locale: &str, animate: bool, steps: bool, source: bool) -> PyResult<(String, String, String, Vec<String>)> {
-    tikra::convert_with(code, &options(locale, animate, steps, source)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
+#[pyo3(signature = (code, *, locale = "en", animate = false, steps = false, source = false, parts = false))]
+fn render(code: &str, locale: &str, animate: bool, steps: bool, source: bool, parts: bool) -> PyResult<(String, String, String, Vec<String>)> {
+    tikra::convert_with(code, &options(locale, animate, steps, source, parts)?).map(|r| (r.svg, r.alt, r.description, r.warnings)).map_err(error)
 }
 
 /// Rasterizes an SVG written by tikra to PNG bytes.

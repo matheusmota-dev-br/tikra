@@ -20,6 +20,7 @@ OPTIONS
       --animate           the SVG draws itself in the browser, in the order TikZ drew it
       --steps             each element numbered by its step (data-step), with no animation
       --source            and with the place in the code that drew it (data-src)
+      --parts             each thing drawn a group a screen reader and the keyboard can reach
   -l, --locale <code>     the language of the figure in words: en (default), pt-BR, es, fr, de,
                           it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl (the drawing is the same)
   -V, --version
@@ -56,6 +57,7 @@ fn main() -> ExitCode {
             "--animate" => options = options.animated(),
             "--steps" => options = options.steps(),
             "--source" => options = options.source(),
+            "--parts" => options = options.parts(),
             "-l" | "--locale" => match it.next().unwrap_or_default().parse() {
                 Ok(l) => options.locale = l,
                 Err(e) => {

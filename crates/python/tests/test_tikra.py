@@ -79,3 +79,8 @@ def test_the_animation_as_gif_and_apng():
     figure = r"\tikz \draw (0,0) -- (1,1);"
     assert tikra.tikz_to_gif(figure, width=64, fps=5).startswith(b"GIF89a")
     assert tikra.tikz_to_apng(figure, width=64, fps=5).startswith(b"\x89PNG")
+
+
+def test_the_parts():
+    svg = tikra.tikz_to_svg(r"\tikz \draw (0,0) -- (1,1);", parts=True)
+    assert 'tabindex="0"' in svg and 'role="group"' in svg

@@ -121,7 +121,7 @@ fn paint_value(p: &Paint, defs: &mut Defs) -> String {
         Paint::Tile { items, origin, size, transform: t } => {
             // the tile's items drawn first (their own definitions come before the pattern)
             let (mut inner, mut glyphs) = (String::new(), Vec::new());
-            items_svg(&items.0, &mut inner, defs, &mut glyphs, &mut Steps::off(), &[]);
+            items_svg(&items.0, &mut inner, defs, &mut glyphs, &mut Steps::off(), &[], &[]);
             defs.glyphs.append(&mut glyphs);
             let id = defs.id("p");
             let (w, h) = (size.x * BP, size.y * BP);
@@ -410,12 +410,17 @@ struct Steps {
     count: usize,
     /// With the source map: where what is being drawn came from, as an attribute.
     source: String,
+    /// The statement being drawn, which is a part of the figure when it has words.
+    part: Option<usize>,
+    /// The parts already opened, and whether one is open in the SVG now.
+    told: HashSet<usize>,
+    open: bool,
 }
 
 impl Steps {
     /// For what is not drawn in place: a pattern's tile, a mask.
     fn off() -> Steps {
-        Steps { on: false, animate: false, count: 0, source: String::new() }
+        Steps { on: false, animate: false, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false }
     }
 
     /// The attributes of the next step: its number and, animated, a stroke drawn along its length
@@ -432,6 +437,27 @@ impl Steps {
             (false, _) => format!(r#" data-step="{i}"{source}"#),
             (true, true) => format!(r#" data-step="{i}"{source} class="tr-d" pathLength="1" style="--i:{i}""#),
             (true, false) => format!(r#" data-step="{i}"{source} class="tr-f" style="--i:{i}""#),
+        }
+    }
+
+    /// Before an element: the group of its part, one a reader can reach. The first group of a part
+    /// has its words; what the part draws after a clip or a group ends is in others, kept out of
+    /// the reader's way.
+    fn enter(&mut self, body: &mut String, parts: &[String]) {
+        let (false, Some(id)) = (self.open, self.part) else { return };
+        let Some(words) = parts.get(id).filter(|w| !w.is_empty()) else { return };
+        self.open = true;
+        if self.told.insert(id) {
+            let _ = write!(body, r#"<g role="group" tabindex="0" aria-label="{}" data-part="{id}">"#, escape(words));
+        } else {
+            let _ = write!(body, r#"<g aria-hidden="true" data-part="{id}">"#);
+        }
+    }
+
+    /// The group of a part ends where another part, a clip or a group starts or ends.
+    fn leave(&mut self, body: &mut String) {
+        if std::mem::take(&mut self.open) {
+            body.push_str("</g>");
         }
     }
 
@@ -586,9 +612,19 @@ fn seams(items: &[Item]) -> HashMap<usize, (Vec<(Point, Point)>, f64)> {
 const SEAM: f64 = 2.0 / BP;
 
 /// The items as SVG elements, into `body`; their definitions (gradients, clips, masks) into `defs`.
-fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<(MathFont, GlyphId)>, steps: &mut Steps, sources: &[SourceSpan]) {
+fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Vec<(MathFont, GlyphId)>, steps: &mut Steps, sources: &[SourceSpan], parts: &[String]) {
     let seams = seams(items);
     for (i, item) in items.iter().enumerate() {
+        let drawn = match item {
+            Item::Path { segments, fill, stroke } => !segments.is_empty() && (fill.is_some() || stroke.is_some()),
+            Item::Text { .. } | Item::Image { .. } => true,
+            _ => false,
+        };
+        if drawn {
+            steps.enter(body, parts);
+        } else if !matches!(item, Item::Path { .. }) {
+            steps.leave(body);
+        }
         match item {
             Item::Path { segments, fill, stroke } => {
                 if segments.is_empty() || (fill.is_none() && stroke.is_none()) {
@@ -689,7 +725,7 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
                 // the picture as a luminance mask: white opaque, black and nothing transparent
                 let mut inner = String::new();
                 // a mask is not drawn: it is not animated
-                items_svg(items, &mut inner, defs, glyphs, &mut Steps::off(), sources);
+                items_svg(items, &mut inner, defs, glyphs, &mut Steps::off(), sources, &[]);
                 let id = defs.id("m");
                 let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
                 let _ = write!(body, r#"<g mask="url(#{id})">"#);
@@ -713,10 +749,12 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
             }
             Item::End => body.push_str("</g>"),
             Item::Source(id) => {
+                steps.part = Some(*id);
                 steps.source = sources.get(*id).map_or(String::new(), |s| format!(r#" data-src="{}:{}-{}:{}""#, s.first.0, s.first.1, s.last.0, s.last.1));
             }
         }
     }
+    steps.leave(body);
 }
 
 /// Standard base64, with padding (an image's `data:` URI).
@@ -764,8 +802,8 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     }
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
-    let mut steps = Steps { on: steps || animate, animate, count: 0, source: String::new() };
-    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps, &canvas.sources);
+    let mut steps = Steps { on: steps || animate, animate, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false };
+    items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps, &canvas.sources, &canvas.parts);
     glyphs.append(&mut defs.glyphs);
     let mut seen = HashSet::new();
     for (font, g) in glyphs {
@@ -779,13 +817,15 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     let mut s = String::new();
     let _ = write!(
         s,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="img" aria-labelledby="tr-title-{id:08x}"{}{}>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:tikra="urn:tikra:1" viewBox="{} {} {} {}" width="{}pt" height="{}pt" role="{}" aria-labelledby="tr-title-{id:08x}"{}{}>"#,
         n(x0 * BP),
         n(-y1 * BP),
         n(width),
         n(height),
         n(width),
         n(height),
+        // the role `img` would hide the parts inside it
+        if canvas.parts.is_empty() { "img" } else { "group" },
         if words.by_author { String::new() } else { format!(r#" aria-describedby="tr-desc-{id:08x}""#) },
         steps.total()
     );
