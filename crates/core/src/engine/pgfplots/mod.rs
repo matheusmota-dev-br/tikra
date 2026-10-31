@@ -45,6 +45,8 @@ use super::{tikra_tokens, Engine};
 pub struct Axis {
     /// `axis`, `semilogxaxis`, `semilogyaxis`, `loglogaxis`.
     pub kind: String,
+    /// Where `\begin{axis}` is in the code: the axis is drawn at its end.
+    pub source: Option<usize>,
     /// Plots and TikZ statements, in order.
     pub entries: Vec<Entry>,
     /// `\addlegendentry` texts with their options.
@@ -64,8 +66,9 @@ pub struct Axis {
 #[derive(Debug, Clone)]
 pub enum Entry {
     Plot(Box<Plot>),
-    /// A TikZ statement (`\draw …;`, `\node …;`), run once the axis is set up.
-    Tikz(Vec<Token>),
+    /// A TikZ statement (`\draw …;`, `\node …;`), run once the axis is set up, and its place in
+    /// the code.
+    Tikz(Vec<Token>, Option<usize>),
 }
 
 #[derive(Debug, Clone)]
@@ -166,7 +169,7 @@ impl Engine {
         }
         self.begin_group();
         dateplot::reset(self);
-        let mut axis = Axis { kind: kind.to_string(), opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
+        let mut axis = Axis { kind: kind.to_string(), source: self.source, opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
             "polaraxis" => "enlarge x limits=false,every polar axis",
             "smithchart" => "every smithchart axis",
@@ -236,6 +239,7 @@ impl Engine {
         if let Some(code) = keys::value_tokens(self, "/pgfplots/execute at end axis") {
             self.run_tokens(code)?;
         }
+        self.mark_source(axis.source);
         let r = draw::draw_axis(self, &axis);
         // close the groups the body left open, then the axis' own
         while self.tex.group_depth() > axis.depth {
@@ -317,8 +321,9 @@ impl Engine {
             }
             C::Pgfplotsextra => {
                 let code = self.argument()?;
+                let source = self.source;
                 if let Some(a) = self.axis.as_mut() {
-                    a.entries.push(Entry::Tikz(code));
+                    a.entries.push(Entry::Tikz(code, source));
                 }
                 Ok(())
             }
@@ -399,8 +404,9 @@ impl Engine {
                 break;
             }
         }
+        let source = self.source;
         if let Some(a) = self.axis.as_mut() {
-            a.entries.push(Entry::Tikz(out));
+            a.entries.push(Entry::Tikz(out, source));
         }
         Ok(())
     }

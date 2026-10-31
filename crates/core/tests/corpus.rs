@@ -35,3 +35,23 @@ fn every_corpus_figure_converts_without_warnings() {
         tikra::png(&out.svg, 96.0, true).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
     }
 }
+
+/// The source map adds an attribute to each element and changes nothing else, whatever the figure
+/// does with what it drew: layers, spies, fadings, pictures in nodes, plots.
+#[test]
+fn the_source_map_only_adds_its_attribute() {
+    let files = figures(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus")));
+    for f in files {
+        let tex = std::fs::read_to_string(&f).unwrap();
+        let steps = tikra::convert_with(&tex, &tikra::Options::default().steps()).unwrap().svg;
+        let mapped = tikra::convert_with(&tex, &tikra::Options::default().source()).unwrap().svg;
+        let mut bare = mapped.clone();
+        while let Some(i) = bare.find(r#" data-src=""#) {
+            let end = i + 11 + bare[i + 11..].find('"').unwrap() + 1;
+            bare.replace_range(i..end, "");
+        }
+        assert!(bare == steps, "{}: differs beyond data-src", f.display());
+        // every step says where it came from
+        assert_eq!(mapped.matches(r#" data-step=""#).count(), mapped.matches(r#" data-src=""#).count(), "{}", f.display());
+    }
+}

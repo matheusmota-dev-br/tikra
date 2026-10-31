@@ -27,7 +27,7 @@ class Result(TypedDict):
     """What was ignored or approximated: unsupported commands, labels with broken LaTeX."""
 
 
-def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False) -> str:
+def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False) -> str:
     """Converts a TikZ figure to SVG, with the figure in words (its ``<title>`` and ``<desc>``) in
     ``locale``: one of mathra's languages, ``en``, ``pt-BR``, ``es``, ``fr``, ``de``, ``it``, ``ru``,
     ``zh``, ``ja``, ``ko``, ``hi``, ``ar``, ``id``, ``tr``, ``nl``, ``pl``. The drawing is the same in all.
@@ -40,14 +40,15 @@ def tikz_to_svg(code: str, *, locale: str = "en", animate: bool = False, steps: 
     ``animate=True`` adds the construction animation: in a browser, the figure draws itself path by
     path, in the order TikZ drew it. ``steps=True`` numbers each element by its step instead
     (``data-step``, and ``data-steps`` on the ``<svg>``), with no CSS, for a page that walks through
-    the figure itself.
+    the figure itself. ``source=True`` numbers them and adds the place in the code that drew each
+    one (``data-src="line:column-line:column"``, from 1).
     """
-    return _tikra.tikz_to_svg(code, locale=locale, animate=animate, steps=steps)
+    return _tikra.tikz_to_svg(code, locale=locale, animate=animate, steps=steps, source=source)
 
 
-def render(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False) -> Result:
+def render(code: str, *, locale: str = "en", animate: bool = False, steps: bool = False, source: bool = False) -> Result:
     """The SVG, the figure in words (in ``locale``) and the warnings at once."""
-    svg, alt, description, warnings = _tikra.render(code, locale=locale, animate=animate, steps=steps)
+    svg, alt, description, warnings = _tikra.render(code, locale=locale, animate=animate, steps=steps, source=source)
     return {"svg": svg, "alt": alt, "description": description, "warnings": warnings}
 
 

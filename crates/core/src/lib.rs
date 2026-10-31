@@ -73,11 +73,15 @@ pub struct Options {
     /// the order TikZ drew them) and the count on the `<svg>` (`data-steps`), with no CSS: for a page
     /// that walks through the figure itself. The animation numbers them too. Off by default.
     pub steps: bool,
+    /// Each element numbered by its step, and with the place in the code that drew it
+    /// (`data-src="line:column-line:column"`, from 1): what a macro or a `\\foreach` draws is at
+    /// the line that called it, an `\\addplot` at its own. Off by default.
+    pub source: bool,
 }
 
 impl Options {
     pub fn locale(locale: Locale) -> Options {
-        Options { locale, animate: false, steps: false }
+        Options { locale, animate: false, steps: false, source: false }
     }
 
     /// These options, with the construction animation.
@@ -88,6 +92,11 @@ impl Options {
     /// These options, with each element numbered by its step.
     pub fn steps(self) -> Options {
         Options { steps: true, ..self }
+    }
+
+    /// These options, with each element numbered by its step and tied to the code that drew it.
+    pub fn source(self) -> Options {
+        Options { source: true, ..self }
     }
 }
 
@@ -147,17 +156,24 @@ pub fn convert_with_libraries(code: &str, options: &Options, libraries: &[&'stat
         base = r;
     }
     let text = strip_comments(&base);
+    let mut wrapped = false;
     let input = if text.contains("\\begin{tikzpicture}") || text.contains("\\begin{pgfpicture}") || text.contains("\\pgfuseshading") || tikz_command(&text).is_some() {
         base
     } else if text.contains("\\begin{axis}") || ["\\draw", "\\fill", "\\node", "\\path", "\\filldraw", "\\coordinate"].iter().any(|c| text.contains(c)) {
         // an axis or loose statements, with no tikzpicture around them
+        wrapped = true;
         format!("\\begin{{tikzpicture}}\\relax\n{base}\n\\end{{tikzpicture}}")
     } else {
         return Err(Error::Figure("no tikzpicture, \\tikz or axis found".into()));
     };
-    let (canvas, warnings, facts) = engine::run_document_with(&input, libraries)?;
+    let wrapped = usize::from(wrapped);
+    let (mut canvas, warnings, facts) = engine::run_document_mapped(&input, libraries, options.source)?;
+    for s in &mut canvas.sources {
+        s.first.0 = s.first.0.saturating_sub(wrapped).max(1);
+        s.last.0 = s.last.0.saturating_sub(wrapped).max(1);
+    }
     let words = describe::describe(&facts, options.locale);
-    let svg = driver::svg_with(&canvas, code, &words, options.steps, options.animate);
+    let svg = driver::svg_with(&canvas, code, &words, options.steps || options.source, options.animate);
     let mut all = early;
     all.extend(warnings);
     let mut points: Vec<NamedPoint> = Vec::new();

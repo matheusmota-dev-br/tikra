@@ -54,6 +54,8 @@ impl Coord {
 
 #[derive(Debug, Clone, Default)]
 pub struct Plot {
+    /// Where the `\addplot` is in the code: it is drawn at the end of the axis.
+    pub source: Option<usize>,
     /// The full option list it is drawn with.
     pub style: Vec<Token>,
     pub coords: Vec<Coord>,
@@ -327,7 +329,7 @@ fn survey(e: &mut Engine, style: &[Token], three_d: bool) -> Result<Plot, Error>
     if let Some(code) = keys::value_tokens(e, "/pgfplots/execute at begin plot") {
         e.run_tokens(code)?;
     }
-    let mut plot = Plot { three_d, ..Default::default() };
+    let mut plot = Plot { three_d, source: e.source, ..Default::default() };
     LABELS.with(|l| l.borrow_mut().clear());
     let r = survey_input(e, &mut plot, three_d);
     plot.labels = LABELS.with(|l| std::mem::take(&mut *l.borrow_mut()));

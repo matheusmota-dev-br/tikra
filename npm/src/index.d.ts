@@ -19,6 +19,8 @@ export interface Options {
   animate?: boolean;
   /** Each element numbered by its step (`data-step`, and `data-steps` on the `<svg>`), with no CSS: for a page that walks through the figure itself. Default `false`. */
   steps?: boolean;
+  /** Each element numbered by its step and with the place in the code that drew it (`data-src="line:column-line:column"`, from 1): what a macro or a `\\foreach` draws is at the line that called it. Default `false`. */
+  source?: boolean;
 }
 
 export interface PngOptions {

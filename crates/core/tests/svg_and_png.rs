@@ -159,6 +159,58 @@ fn steps_without_the_animation() {
     assert_eq!(without_steps(&svg), still);
 }
 
+#[test]
+fn each_element_knows_the_code_that_drew_it() {
+    let code = "\\newcommand{\\both}{\\draw (0,0) -- (1,0); \\draw (0,1) -- (1,1);}\n\\begin{tikzpicture}\n  \\draw (0,0) -- (1,1); \\fill (2,0) circle (2pt);\n  \\both\n  \\foreach \\i in {1,2} {\n    \\draw (\\i,2) -- (\\i,3);\n  }\n  \\draw (0,0)\n    -- (2,2);\n\\end{tikzpicture}";
+    let plain = tikra::convert_with(code, &tikra::Options::default().steps()).unwrap().svg;
+    let svg = tikra::convert_with(code, &tikra::Options::default().source()).unwrap().svg;
+    assert_eq!(sources(&svg), ["3:3-3:23", "3:25-3:49", "4:3-4:7", "4:3-4:7", "5:3-7:3", "5:3-7:3", "8:3-9:13"], "{svg}");
+    assert_eq!(without_sources(&svg), plain);
+    // the animation carries them too
+    let animated = tikra::convert_with(code, &tikra::Options::default().source().animated()).unwrap().svg;
+    assert_eq!(sources(&animated), sources(&svg));
+}
+
+#[test]
+fn an_addplot_keeps_its_own_line_though_the_axis_draws_at_its_end() {
+    let code = "\\begin{tikzpicture}\n\\begin{axis}\n\\addplot coordinates {(0,0) (1,1)};\n\\draw (axis cs:0,0) -- (axis cs:1,0);\n\\addplot coordinates {(0,1) (1,0)};\n\\end{axis}\n\\end{tikzpicture}";
+    let svg = tikra::convert_with(code, &tikra::Options::default().source()).unwrap().svg;
+    let lines: Vec<_> = sources(&svg).into_iter().map(|s| s.split(':').next().unwrap().to_string()).collect();
+    for line in ["2", "3", "4", "5"] {
+        assert!(lines.iter().any(|l| l == line), "line {line} in {lines:?}");
+    }
+    assert!(!lines.iter().any(|l| l == "6"), "{lines:?}");
+}
+
+#[test]
+fn the_lines_are_the_ones_of_the_code_given() {
+    // loose statements: tikra puts a picture around them
+    let svg = tikra::convert_with("\\draw (0,0) -- (1,1);\n\\draw (1,0) -- (0,1);", &tikra::Options::default().source()).unwrap().svg;
+    assert_eq!(sources(&svg), ["1:1-1:21", "2:1-2:21"]);
+}
+
+#[test]
+fn layers_and_pictures_in_commands_keep_their_lines() {
+    let code = "\\pgfdeclarelayer{back}\\pgfsetlayers{back,main}\n\\begin{tikzpicture}\n\\draw (0,0) -- (1,0);\n\\begin{pgfonlayer}{back}\n\\fill[red] (0,0) rectangle (1,1);\n\\end{pgfonlayer}\n\\end{tikzpicture}\n\\tikz{\\draw (0,0) -- (1,1);}";
+    let svg = tikra::convert_with(code, &tikra::Options::default().source()).unwrap().svg;
+    assert_eq!(sources(&svg), ["5:1-5:33", "3:1-3:21", "8:1-8:28"], "{svg}");
+}
+
+/// The places of the elements of an SVG, in order.
+fn sources(svg: &str) -> Vec<String> {
+    svg.split(r#" data-src=""#).skip(1).map(|s| s.split('"').next().unwrap().to_string()).collect()
+}
+
+/// The SVG without the places of its elements.
+fn without_sources(svg: &str) -> String {
+    let mut s = svg.to_string();
+    while let Some(i) = s.find(r#" data-src=""#) {
+        let end = i + 11 + s[i + 11..].find('"').unwrap() + 1;
+        s.replace_range(i..end, "");
+    }
+    s
+}
+
 /// The SVG without the steps' attributes.
 fn without_steps(svg: &str) -> String {
     let mut s = svg.replace(r#" class="tr-d" pathLength="1""#, "").replace(r#" class="tr-f""#, "");
