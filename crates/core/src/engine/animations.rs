@@ -6,6 +6,8 @@
 //! unless it freezes, and the attribute is back to its base value), as an option. An
 //! animation that waits for an event (`begin on=click`) has not started in a snapshot.
 
+use crate::canvas::{Animation, Item, Moving};
+use crate::driver::BP;
 use crate::scene::{Point, Transform};
 use crate::tex::{self, Cat, Token};
 use crate::Error;
@@ -61,9 +63,14 @@ impl Engine {
     /// The option an animated attribute gives at the snapshot time (none without a snapshot).
     pub fn animation_option(&mut self, attribute: &str, spec: Vec<Token>) -> Result<Option<Vec<Token>>, Error> {
         // `whom:attribute`: the object is the one the options belong to here
+        let whom = attribute.split(':').next().filter(|_| attribute.contains(':')).map(str::trim).unwrap_or("");
+        let whom = whom.to_string();
         let attribute = attribute.rsplit(':').next().unwrap_or(attribute).trim().to_string();
         let Some(t) = self.st.snapshot else {
             self.animation_room(&attribute, &spec);
+            if self.play {
+                self.note_animation(&whom, &attribute, &spec);
+            }
             return Ok(None);
         };
         let mut times: Vec<(f64, String)> = Vec::new();
@@ -117,6 +124,110 @@ impl Engine {
             return Ok(Some(w));
         }
         Ok(Some(v))
+    }
+
+    /// Played, not a snapshot: the animation, kept for the object being drawn.
+    fn note_animation(&mut self, whom: &str, attribute: &str, spec: &[Token]) {
+        if !matches!(whom, "" | "myself") {
+            self.warn(format!("animation of {whom}: only an object's own animations are played"));
+            return;
+        }
+        let mut raw: Vec<(f64, String)> = Vec::new();
+        let (mut begin, mut on, mut repeats, mut freeze) = (0.0, None, None, false);
+        for item in crate::keys::split_list(spec) {
+            let value = item.value.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+            let value = value.trim().trim_matches('"').trim().to_string();
+            match item.key.as_str() {
+                "begin" => begin = seconds(&value).unwrap_or(0.0),
+                "begin on" => {
+                    let mut event = "click".to_string();
+                    for part in value.split(',').map(str::trim) {
+                        match part {
+                            "click" | "mouse over" | "mouse down" | "mouse up" | "mouse out" | "mouse move" => event = part.replace(' ', ""),
+                            p if p.starts_with("delay") => begin = p.split('=').nth(1).and_then(seconds).unwrap_or(0.0),
+                            _ => {}
+                        }
+                    }
+                    on = Some(event);
+                }
+                "repeats" if value.is_empty() || value == "forever" => repeats = Some("indefinite".to_string()),
+                "repeats" => repeats = Some(value.split_whitespace().next().unwrap_or("1").to_string()),
+                "forever" => repeats = Some("indefinite".to_string()),
+                "freeze" => freeze = true,
+                "begin snapshot" | "end" | "restart" | "remove" | "whom" | "entry control" | "exit control" | "stay" | "jump" => {}
+                key => {
+                    if let Some(s) = seconds(key) {
+                        raw.push((s, value));
+                    }
+                }
+            }
+        }
+        raw.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if raw.is_empty() {
+            return;
+        }
+        let times: Vec<f64> = raw.iter().map(|r| r.0).collect();
+        let one = |e: &mut Engine, moving: Moving, f: &dyn Fn(&mut Engine, &str) -> Option<String>| {
+            let values: Option<Vec<String>> = raw.iter().map(|r| f(e, &r.1)).collect();
+            match values {
+                Some(values) => e.animations.push(Animation { moving, times: times.clone(), values, begin, on: on.clone(), repeats: repeats.clone(), freeze }),
+                None => e.warn(format!("animation of {attribute}: a value is not understood; not played")),
+            }
+        };
+        let color = |e: &mut Engine, v: &str| e.color(v).map(|c| c.hex());
+        let number = |_: &mut Engine, v: &str| v.parse::<f64>().ok().map(|x| x.to_string());
+        let width = |e: &mut Engine, v: &str| e.length(v).ok().map(|x| (x * BP).to_string());
+        let shift = |e: &mut Engine, v: &str| -> Option<String> {
+            let origin = e.st.transform.apply(Point::default());
+            let d = e.coordinate(v.trim_start_matches('(').trim_end_matches(')')).ok()?.p.minus(origin);
+            Some(format!("{} {}", d.x * BP, -d.y * BP))
+        };
+        match attribute {
+            "fill" => one(self, Moving::Attribute("fill", false), &color),
+            "draw" => one(self, Moving::Attribute("stroke", false), &color),
+            "color" => {
+                one(self, Moving::Attribute("fill", false), &color);
+                one(self, Moving::Attribute("stroke", false), &color);
+            }
+            "text" => one(self, Moving::Attribute("fill", true), &color),
+            "opacity" => one(self, Moving::Attribute("opacity", false), &number),
+            "fill opacity" => one(self, Moving::Attribute("fill-opacity", false), &number),
+            "draw opacity" => one(self, Moving::Attribute("stroke-opacity", false), &number),
+            "line width" => one(self, Moving::Attribute("stroke-width", false), &width),
+            "shift" | "position" | "translate" => one(self, Moving::Shift, &shift),
+            "xshift" => one(self, Moving::Shift, &|e, v| e.length(v).ok().map(|x| format!("{} 0", x * BP))),
+            "yshift" => one(self, Moving::Shift, &|e, v| e.length(v).ok().map(|y| format!("0 {}", -y * BP))),
+            "rotate" => one(self, Moving::Rotation, &|_, v| v.parse::<f64>().ok().map(|a| (-a).to_string())),
+            "scale" => one(self, Moving::Scaling, &number),
+            "xscale" => one(self, Moving::Scaling, &|_, v| v.parse::<f64>().ok().map(|x| format!("{x} 1"))),
+            "yscale" => one(self, Moving::Scaling, &|_, v| v.parse::<f64>().ok().map(|y| format!("1 {y}"))),
+            other => self.warn(format!("animation of {other}: not played")),
+        }
+        self.animation_center.get_or_insert(self.st.transform.apply(Point::default()));
+    }
+
+    /// After a statement: what it drew, from `start`, moves as it asked. A scope's animations go
+    /// over what it will draw, up to its end.
+    pub fn place_animations(&mut self, start: usize, opens: bool) {
+        let animations = std::mem::take(&mut self.animations);
+        let center = self.animation_center.take().unwrap_or_default();
+        let item = Item::Animated { animations, center };
+        if opens {
+            self.canvas.push(item);
+            self.animated_scopes.push(self.tex.group_depth());
+        } else {
+            let start = start.min(self.canvas.items.len());
+            self.canvas.items.insert(start, item);
+            self.canvas.push(Item::End);
+        }
+    }
+
+    /// After `\\end{scope}`: the animations of the scopes that closed.
+    pub fn close_animated_scopes(&mut self) {
+        while self.animated_scopes.last().is_some_and(|&d| d > self.tex.group_depth()) {
+            self.animated_scopes.pop();
+            self.canvas.push(Item::End);
+        }
     }
 
     /// The shifts an `xshift`, `yshift` or `shift` animation goes through: as pgf does, the picture

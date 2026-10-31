@@ -426,6 +426,13 @@ pub struct Engine {
     pub slide: usize,
     pub slides: usize,
     pub pauses: usize,
+    /// The animations library is played, not shown still.
+    pub play: bool,
+    /// The animations read for the object being drawn, what they turn around, and the group depths
+    /// of the scopes with animations.
+    pub animations: Vec<crate::canvas::Animation>,
+    pub animation_center: Option<Point>,
+    pub animated_scopes: Vec<usize>,
     /// A `\\pause` or a bare `\\onslide` hides what follows on this slide.
     slide_hidden: bool,
     /// Inside what is being hidden.
@@ -642,6 +649,10 @@ impl Clone for Engine {
             slide: self.slide,
             slides: self.slides,
             pauses: self.pauses,
+            play: self.play,
+            animations: self.animations.clone(),
+            animation_center: self.animation_center,
+            animated_scopes: self.animated_scopes.clone(),
             slide_hidden: self.slide_hidden,
             hiding: self.hiding,
             st: self.st.clone(),
@@ -809,6 +820,10 @@ impl Engine {
             slide: 1,
             slides: 1,
             pauses: 1,
+            play: false,
+            animations: Vec::new(),
+            animation_center: None,
+            animated_scopes: Vec::new(),
             slide_hidden: false,
             hiding: 0,
             depth: 0,
@@ -1056,11 +1071,20 @@ impl Engine {
                         return Ok(());
                     }
                 }
+                let start = self.canvas.items.len();
                 let r = if self.slide_hidden && self.hiding == 0 && self.picture_depth > 0 && !overlays::stays_out(id) {
                     self.hiding_around(|e| e.command(id, &t))
                 } else {
                     self.command(id, &t)
                 };
+                if self.play {
+                    if !self.animations.is_empty() {
+                        self.place_animations(start, id == Cmd::Begin as u16);
+                    }
+                    if id == Cmd::End as u16 {
+                        self.close_animated_scopes();
+                    }
+                }
                 self.recover(r, &t)?;
             }
             Meaning::Char(c, _) if matches!(t, Token::Char(..)) => self.text(c),
@@ -3629,13 +3653,26 @@ pub fn run_document_noting(code: &str) -> Result<(Canvas, Vec<String>, crate::de
 
 /// [`run_document_noting`] with libraries from outside defined.
 pub fn run_document_with(code: &str, libraries: &[&'static crate::extension::Library]) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
-    run_document_mapped(code, libraries, false, 1)
+    run_document_mapped(code, libraries, Run::default())
 }
 
-/// [`run_document_with`], with each statement's place in the code on the canvas if `map`.
-pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::Library], map: bool, slide: usize) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
+/// How to run a document.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Run {
+    /// Each statement's place in the code on the canvas.
+    pub map: bool,
+    /// The slide, from 1, for overlays.
+    pub slide: usize,
+    /// The animations library played, not shown still.
+    pub play: bool,
+}
+
+/// [`run_document_with`], as `run` says.
+pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::Library], run: Run) -> Result<(Canvas, Vec<String>, crate::describe::Facts), Error> {
     let mut e = Engine::with_libraries(libraries);
-    e.slide = slide;
+    e.slide = run.slide.max(1);
+    e.play = run.play;
+    let map = run.map;
     crate::expr::reset_random();
     // tikra's margin around a figure, unless a standalone border says otherwise
     e.canvas.margin = 2.0 * crate::PT;

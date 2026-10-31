@@ -90,3 +90,9 @@ def test_slides():
     figure = r"\begin{tikzpicture}\draw (0,0) -- (1,0); \only<2>{\draw (0,1) -- (1,1);}\end{tikzpicture}"
     assert len(tikra.slides(figure)) == 2
     assert 'data-slides="2"' in tikra.click_through(figure)
+
+
+def test_animations_played():
+    figure = r"\usetikzlibrary{animations}\tikz \fill[red] :fill = {0s=\"red\", 1s=\"blue\"} (0,0) circle (1pt);".replace('\\"', '"')
+    assert "<animate" in tikra.tikz_to_svg(figure, play=True)
+    assert "<animate" not in tikra.tikz_to_svg(figure)

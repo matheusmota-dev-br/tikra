@@ -29,6 +29,7 @@ OPTIONS
       --source            and with the place in the code that drew it (data-src)
       --slides            Beamer's overlays: one file per slide, out-1.svg, out-2.svg…
       --click             Beamer's overlays: one SVG that advances on a click
+      --play              the animations library played in a browser, not a still picture
       --parts             each thing drawn a group a screen reader and the keyboard can reach
   -l, --locale <code>     the language of the figure in words: en (default), pt-BR, es, fr, de,
                           it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl (the drawing is the same)
@@ -69,6 +70,7 @@ fn main() -> ExitCode {
             "--steps" => options = options.steps(),
             "--source" => options = options.source(),
             "--parts" => options = options.parts(),
+            "--play" => options = options.play(),
             "--keep-order" => pen.keep_order = true,
             "--paper" => pen.paper = it.next().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
             "--pen-up" => pen.up = it.next().unwrap_or(pen.up),

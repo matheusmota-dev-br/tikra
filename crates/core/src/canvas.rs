@@ -135,9 +135,41 @@ pub enum Item {
         place: Transform,
     },
     End,
+    /// What follows, up to the matching `End`, moves: the animations library played. `center` is
+    /// what turns and scalings are around.
+    Animated {
+        animations: Vec<Animation>,
+        center: Point,
+    },
     /// Draws nothing: what follows, up to the next one, came from this span of
     /// [`Canvas::sources`]. Only there when the source map was asked for.
     Source(usize),
+}
+
+/// What an animation changes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Moving {
+    /// An attribute of each element, by its SVG name; `true` when only text has it.
+    Attribute(&'static str, bool),
+    Shift,
+    Rotation,
+    Scaling,
+}
+
+/// An animation of the library, in SVG's terms.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Animation {
+    pub moving: Moving,
+    /// Seconds from `begin`, in order, and the value at each, ready for SVG.
+    pub times: Vec<f64>,
+    pub values: Vec<String>,
+    /// Seconds after the start, or after the event in `on`.
+    pub begin: f64,
+    /// `click`, `mouseover`… on the object.
+    pub on: Option<String>,
+    /// How many times, or `indefinite`.
+    pub repeats: Option<String>,
+    pub freeze: bool,
 }
 
 /// A statement's place in the code: the line and column of its first and last characters, from 1.
@@ -250,6 +282,7 @@ impl Item {
             Item::Transform { transform } => *transform = t.compose(transform).compose(&Transform::translation(-d.x, -d.y)),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.translate(d)),
             Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End | Item::Source(_) => {}
+            Item::Animated { center, .. } => *center = center.plus(d),
         }
     }
 
@@ -278,6 +311,7 @@ impl Item {
             Item::Transform { transform } => *transform = t.compose(transform).compose(&t.inverse()),
             Item::FadePicture { items } => items.iter_mut().for_each(|i| i.transform(t)),
             Item::Group { .. } | Item::Blend { .. } | Item::Crisp | Item::End | Item::Source(_) => {}
+            Item::Animated { center, .. } => *center = t.apply(*center),
         }
     }
 }

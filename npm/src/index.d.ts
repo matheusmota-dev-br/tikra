@@ -25,6 +25,8 @@ export interface Options {
   source?: boolean;
   /** Each thing the code draws is a group with its words (`aria-label`) that a screen reader and the keyboard can reach. Default `false`. */
   parts?: boolean;
+  /** The animations library played in a browser, with SMIL, instead of a still picture. Default `false`. */
+  play?: boolean;
 }
 
 export interface PngOptions {

@@ -7,7 +7,7 @@ use std::fmt::Write;
 use mathra::font::{GlyphId, MathFont};
 use mathra::layout::Item as MathItem;
 
-use crate::canvas::{Canvas, Cap, Fill, Item, Join, Paint, Shading, SourceSpan, Stroke};
+use crate::canvas::{Animation, Canvas, Cap, Fill, Item, Join, Moving, Paint, Shading, SourceSpan, Stroke};
 use crate::scene::{Label, Point, Segment, Transform};
 
 /// Big points per centimeter.
@@ -415,12 +415,85 @@ struct Steps {
     /// The parts already opened, and whether one is open in the SVG now.
     told: HashSet<usize>,
     open: bool,
+    /// How deep in groups the drawing is, the animations it is under, and how many there have been.
+    depth: usize,
+    moving: Vec<Moves>,
+    animated: usize,
+}
+
+/// A group of `Item::Animated` being drawn: its depth, the `</g>`s beyond its own, and what each
+/// element in it animates.
+struct Moves {
+    depth: usize,
+    closes: usize,
+    id: String,
+    animations: Vec<Animation>,
+}
+
+/// An animation as an SVG element: on the object with the id `id` if it waits for an event.
+fn smil(a: &Animation, id: &str) -> String {
+    let (first, last) = (a.times[0], a.times[a.times.len() - 1]);
+    let start = a.begin + first;
+    let begin = match &a.on {
+        Some(event) => format!("{id}.{event}+{}s", n(start)),
+        None => format!("{}s", n(start)),
+    };
+    let dur = (last - first).max(0.001);
+    let key_times: Vec<String> = a.times.iter().map(|t| n((t - first) / dur)).collect();
+    let (values, key_times) = if a.times.len() < 2 { (format!("{0};{0}", a.values[0]), "0;1".to_string()) } else { (a.values.join(";"), key_times.join(";")) };
+    let head = match &a.moving {
+        Moving::Attribute(name, _) => format!(r#"<animate attributeName="{name}""#),
+        Moving::Shift => r#"<animateTransform attributeName="transform" type="translate""#.to_string(),
+        Moving::Rotation => r#"<animateTransform attributeName="transform" type="rotate""#.to_string(),
+        Moving::Scaling => r#"<animateTransform attributeName="transform" type="scale""#.to_string(),
+    };
+    let repeat = a.repeats.as_ref().map_or(String::new(), |r| format!(r#" repeatCount="{r}""#));
+    format!(r#"{head} values="{values}" keyTimes="{key_times}" dur="{}s" begin="{begin}"{repeat} fill="{}"/>"#, n(dur), if a.freeze { "freeze" } else { "remove" })
+}
+
+/// The animations of the attributes an element has, inside it: an attribute it does not draw
+/// (a fill on a line) is left alone.
+fn animate_element(body: &mut String, at: usize, moving: &[Moves]) {
+    let element = &body[at..];
+    let is_path = element.starts_with("<path") && element.ends_with("/>");
+    let is_text = element.starts_with("<g transform=");
+    if !is_path && !is_text {
+        return;
+    }
+    let drawn = |name: &str| -> bool {
+        match name {
+            "stroke" | "stroke-width" | "stroke-opacity" => element.contains(r#" stroke=""#),
+            "fill" | "fill-opacity" => !element.contains(r#" fill="none""#),
+            _ => true,
+        }
+    };
+    let mut inside = String::new();
+    for m in moving {
+        for a in &m.animations {
+            if let Moving::Attribute(name, only_text) = a.moving {
+                if drawn(name) && (is_text || !only_text) && !(is_text && name.starts_with("stroke")) {
+                    inside.push_str(&smil(a, &m.id));
+                }
+            }
+        }
+    }
+    if inside.is_empty() {
+        return;
+    }
+    if is_path {
+        body.truncate(body.len() - 2);
+        body.push('>');
+        body.push_str(&inside);
+        body.push_str("</path>");
+    } else if let Some(i) = body[at..].find('>') {
+        body.insert_str(at + i + 1, &inside);
+    }
 }
 
 impl Steps {
     /// For what is not drawn in place: a pattern's tile, a mask.
     fn off() -> Steps {
-        Steps { on: false, animate: false, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false }
+        Steps { on: false, animate: false, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false, depth: 0, moving: Vec::new(), animated: 0 }
     }
 
     /// The attributes of the next step: its number and, animated, a stroke drawn along its length
@@ -625,133 +698,175 @@ fn items_svg(items: &[Item], body: &mut String, defs: &mut Defs, glyphs: &mut Ve
         } else if !matches!(item, Item::Path { .. }) {
             steps.leave(body);
         }
-        match item {
-            Item::Path { segments, fill, stroke } => {
-                if segments.is_empty() || (fill.is_none() && stroke.is_none()) {
-                    continue;
-                }
-                let d = path_data(segments);
-                if let (Some((edges, width)), Some(f @ Fill { paint: Paint::Solid(c), .. })) = (seams.get(&i), fill) {
-                    let fa = fill_attributes(f, defs);
-                    let seam: Vec<Segment> = edges.iter().flat_map(|(a, b)| [Segment::MoveTo(*a), Segment::LineTo(*b)]).collect();
-                    let _ = write!(
-                        body,
-                        r#"<g{}><path d="{d}"{fa}/><path d="{}" fill="none" stroke="{}" stroke-width="{}"/></g>"#,
-                        steps.next(false),
-                        path_data(&seam),
-                        c.hex(),
-                        n(width.min(SEAM) * BP)
-                    );
-                    continue;
-                }
-                let mut a = String::new();
-                // filled and stroked at one opacity: PDF paints the two as one group, so the stroke
-                // does not darken the fill under it; SVG's `opacity` of the element does the same
-                let shared = match (fill, stroke) {
-                    (Some(f), Some(s)) if f.opacity < 1.0 && (f.opacity - s.opacity).abs() < 1e-9 => Some(f.opacity),
-                    _ => None,
-                };
-                // at different opacities, PDF's group is a knockout one: a stroke that lets through
-                // shows what is under the path, not the fill; the fill is masked out under the stroke
-                if let (Some(f), Some(s), None) = (fill, stroke, shared) {
-                    if s.opacity < 1.0 {
-                        let id = defs.id("m");
-                        let cut = stroke_attributes(&Stroke { color: crate::color::Color::BLACK, opacity: 1.0, ..s.clone() });
-                        let _ = write!(
-                            defs.text,
-                            r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="white"/><path d="{d}" fill="none"{cut}/></mask>"#
-                        );
+        if matches!(item, Item::Clip { .. } | Item::Group { .. } | Item::Crisp | Item::Blend { .. } | Item::Transform { .. } | Item::Fade { .. } | Item::FadePicture { .. }) {
+            steps.depth += 1;
+        }
+        let at = body.len();
+        'item: {
+            match item {
+                Item::Path { segments, fill, stroke } => {
+                    if segments.is_empty() || (fill.is_none() && stroke.is_none()) {
+                        break 'item;
+                    }
+                    let d = path_data(segments);
+                    if let (Some((edges, width)), Some(f @ Fill { paint: Paint::Solid(c), .. })) = (seams.get(&i), fill) {
                         let fa = fill_attributes(f, defs);
-                        let _ = write!(body, r#"<g{}><path d="{d}"{fa} mask="url(#{id})"/><path d="{d}" fill="none"{}/></g>"#, steps.next(false), stroke_attributes(s));
-                        continue;
+                        let seam: Vec<Segment> = edges.iter().flat_map(|(a, b)| [Segment::MoveTo(*a), Segment::LineTo(*b)]).collect();
+                        let _ = write!(
+                            body,
+                            r#"<g{}><path d="{d}"{fa}/><path d="{}" fill="none" stroke="{}" stroke-width="{}"/></g>"#,
+                            steps.next(false),
+                            path_data(&seam),
+                            c.hex(),
+                            n(width.min(SEAM) * BP)
+                        );
+                        break 'item;
+                    }
+                    let mut a = String::new();
+                    // filled and stroked at one opacity: PDF paints the two as one group, so the stroke
+                    // does not darken the fill under it; SVG's `opacity` of the element does the same
+                    let shared = match (fill, stroke) {
+                        (Some(f), Some(s)) if f.opacity < 1.0 && (f.opacity - s.opacity).abs() < 1e-9 => Some(f.opacity),
+                        _ => None,
+                    };
+                    // at different opacities, PDF's group is a knockout one: a stroke that lets through
+                    // shows what is under the path, not the fill; the fill is masked out under the stroke
+                    if let (Some(f), Some(s), None) = (fill, stroke, shared) {
+                        if s.opacity < 1.0 {
+                            let id = defs.id("m");
+                            let cut = stroke_attributes(&Stroke { color: crate::color::Color::BLACK, opacity: 1.0, ..s.clone() });
+                            let _ = write!(
+                                defs.text,
+                                r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="white"/><path d="{d}" fill="none"{cut}/></mask>"#
+                            );
+                            let fa = fill_attributes(f, defs);
+                            let _ = write!(body, r#"<g{}><path d="{d}"{fa} mask="url(#{id})"/><path d="{d}" fill="none"{}/></g>"#, steps.next(false), stroke_attributes(s));
+                            break 'item;
+                        }
+                    }
+                    let (fill, stroke) = match shared {
+                        Some(_) => (fill.clone().map(|f| Fill { opacity: 1.0, ..f }), stroke.clone().map(|s| Stroke { opacity: 1.0, ..s })),
+                        None => (fill.clone(), stroke.clone()),
+                    };
+                    match &fill {
+                        Some(f) => a.push_str(&fill_attributes(f, defs)),
+                        None => a.push_str(r#" fill="none""#),
+                    }
+                    if let Some(s) = &stroke {
+                        a.push_str(&stroke_attributes(s));
+                    }
+                    if let Some(o) = shared {
+                        let _ = write!(a, r#" opacity="{}""#, n(o.max(0.0)));
+                    }
+                    let dashed = a.contains("stroke-dasharray");
+                    a.push_str(&steps.next(stroke.is_some() && !dashed));
+                    let _ = write!(body, r#"<path d="{d}"{a}/>"#);
+                }
+                Item::Text { label: l, place, opacity } => {
+                    let op = if *opacity < 1.0 { format!(r#" opacity="{}""#, n(*opacity)) } else { String::new() };
+                    // `color` too: mathra's lines (bonds, cancels, fraction-free strokes) are drawn in currentColor
+                    let _ = write!(body, r#"<g transform="{}" fill="{c}" color="{c}"{op}{}>"#, label_matrix(place), steps.next(false), c = l.color.hex());
+                    body.push_str(&label(l, glyphs));
+                    body.push_str("</g>");
+                }
+                Item::Clip { segments, even_odd } => {
+                    let id = defs.id("c");
+                    let rule = if *even_odd { r#" clip-rule="evenodd""# } else { "" };
+                    let _ = write!(defs.text, r#"<clipPath id="{id}"><path d="{}"{rule}/></clipPath>"#, path_data(segments));
+                    let _ = write!(body, r#"<g clip-path="url(#{id})">"#);
+                }
+                Item::Group { opacity } => {
+                    if *opacity < 1.0 {
+                        let _ = write!(body, r#"<g opacity="{}">"#, n(opacity.max(0.0)));
+                    } else {
+                        body.push_str(r#"<g style="isolation:isolate">"#);
                     }
                 }
-                let (fill, stroke) = match shared {
-                    Some(_) => (fill.clone().map(|f| Fill { opacity: 1.0, ..f }), stroke.clone().map(|s| Stroke { opacity: 1.0, ..s })),
-                    None => (fill.clone(), stroke.clone()),
-                };
-                match &fill {
-                    Some(f) => a.push_str(&fill_attributes(f, defs)),
-                    None => a.push_str(r#" fill="none""#),
+                Item::Crisp => body.push_str(r#"<g shape-rendering="crispEdges">"#),
+                Item::Blend { mode } => {
+                    let _ = write!(body, r#"<g style="mix-blend-mode:{mode}">"#);
                 }
-                if let Some(s) = &stroke {
-                    a.push_str(&stroke_attributes(s));
+                Item::Transform { transform: t } => {
+                    // the canvas transformation in the SVG's coordinates: y down, in bp
+                    let _ = write!(body, r#"<g transform="matrix({} {} {} {} {} {})">"#, n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
                 }
-                if let Some(o) = shared {
-                    let _ = write!(a, r#" opacity="{}""#, n(o.max(0.0)));
+                Item::Fade { mask } => {
+                    let gradient = paint_value(&Paint::Shading(mask.clone()), defs);
+                    let id = defs.id("m");
+                    let _ = write!(
+                        defs.text,
+                        r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="{gradient}"/></mask>"#
+                    );
+                    let _ = write!(body, r#"<g mask="url(#{id})">"#);
                 }
-                let dashed = a.contains("stroke-dasharray");
-                a.push_str(&steps.next(stroke.is_some() && !dashed));
-                let _ = write!(body, r#"<path d="{d}"{a}/>"#);
-            }
-            Item::Text { label: l, place, opacity } => {
-                let op = if *opacity < 1.0 { format!(r#" opacity="{}""#, n(*opacity)) } else { String::new() };
-                // `color` too: mathra's lines (bonds, cancels, fraction-free strokes) are drawn in currentColor
-                let _ = write!(body, r#"<g transform="{}" fill="{c}" color="{c}"{op}{}>"#, label_matrix(place), steps.next(false), c = l.color.hex());
-                body.push_str(&label(l, glyphs));
-                body.push_str("</g>");
-            }
-            Item::Clip { segments, even_odd } => {
-                let id = defs.id("c");
-                let rule = if *even_odd { r#" clip-rule="evenodd""# } else { "" };
-                let _ = write!(defs.text, r#"<clipPath id="{id}"><path d="{}"{rule}/></clipPath>"#, path_data(segments));
-                let _ = write!(body, r#"<g clip-path="url(#{id})">"#);
-            }
-            Item::Group { opacity } => {
-                if *opacity < 1.0 {
-                    let _ = write!(body, r#"<g opacity="{}">"#, n(opacity.max(0.0)));
-                } else {
-                    body.push_str(r#"<g style="isolation:isolate">"#);
+                Item::FadePicture { items } => {
+                    // the picture as a luminance mask: white opaque, black and nothing transparent
+                    let mut inner = String::new();
+                    // a mask is not drawn: it is not animated
+                    items_svg(items, &mut inner, defs, glyphs, &mut Steps::off(), sources, &[]);
+                    let id = defs.id("m");
+                    let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
+                    let _ = write!(body, r#"<g mask="url(#{id})">"#);
+                }
+                Item::Image { png, place: t } => {
+                    // the unit square, y up, in the SVG's coordinates: y down, in bp; pdfTeX writes no
+                    // /Interpolate, and PDF rasterizers sample the image's pixels
+                    let m = [t.a * BP, -t.b * BP, -t.c * BP, t.d * BP, (t.c + t.e) * BP, -(t.d + t.f) * BP];
+                    let _ = write!(
+                        body,
+                        r#"<image width="1" height="1" preserveAspectRatio="none" image-rendering="optimizeSpeed" transform="matrix({} {} {} {} {} {})"{} href="data:image/png;base64,{}"/>"#,
+                        num(m[0], 4),
+                        num(m[1], 4),
+                        num(m[2], 4),
+                        num(m[3], 4),
+                        n(m[4]),
+                        n(m[5]),
+                        steps.next(false),
+                        base64(png)
+                    );
+                }
+                Item::End => {
+                    body.push_str("</g>");
+                    if steps.moving.last().is_some_and(|m| m.depth == steps.depth) {
+                        if let Some(m) = steps.moving.pop() {
+                            body.push_str(&"</g>".repeat(m.closes));
+                        }
+                    } else {
+                        steps.depth = steps.depth.saturating_sub(1);
+                    }
+                }
+                Item::Animated { animations, center } => {
+                    steps.animated += 1;
+                    // no `-` in the id: a `begin` would read it as a time offset
+                    let id = format!("trAnim{}", steps.animated);
+                    let _ = write!(body, r#"<g id="{id}">"#);
+                    let mut closes = 0;
+                    let (cx, cy) = (n(center.x * BP), n(-center.y * BP));
+                    for a in animations {
+                        match a.moving {
+                            Moving::Attribute(..) => {}
+                            Moving::Shift => {
+                                let _ = write!(body, "<g>{}", smil(a, &id));
+                                closes += 1;
+                            }
+                            // SVG scales around the origin: the object is taken there and back
+                            Moving::Rotation | Moving::Scaling => {
+                                let _ =
+                                    write!(body, r#"<g transform="translate({cx} {cy})"><g>{}<g transform="translate({} {})">"#, smil(a, &id), n(-center.x * BP), n(center.y * BP));
+                                closes += 3;
+                            }
+                        }
+                    }
+                    steps.moving.push(Moves { depth: steps.depth, closes, id, animations: animations.clone() });
+                }
+                Item::Source(id) => {
+                    steps.part = Some(*id);
+                    steps.source = sources.get(*id).map_or(String::new(), |s| format!(r#" data-src="{}:{}-{}:{}""#, s.first.0, s.first.1, s.last.0, s.last.1));
                 }
             }
-            Item::Crisp => body.push_str(r#"<g shape-rendering="crispEdges">"#),
-            Item::Blend { mode } => {
-                let _ = write!(body, r#"<g style="mix-blend-mode:{mode}">"#);
-            }
-            Item::Transform { transform: t } => {
-                // the canvas transformation in the SVG's coordinates: y down, in bp
-                let _ = write!(body, r#"<g transform="matrix({} {} {} {} {} {})">"#, n(t.a), n(-t.b), n(-t.c), n(t.d), n(t.e * BP), n(-t.f * BP));
-            }
-            Item::Fade { mask } => {
-                let gradient = paint_value(&Paint::Shading(mask.clone()), defs);
-                let id = defs.id("m");
-                let _ = write!(
-                    defs.text,
-                    r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="{gradient}"/></mask>"#
-                );
-                let _ = write!(body, r#"<g mask="url(#{id})">"#);
-            }
-            Item::FadePicture { items } => {
-                // the picture as a luminance mask: white opaque, black and nothing transparent
-                let mut inner = String::new();
-                // a mask is not drawn: it is not animated
-                items_svg(items, &mut inner, defs, glyphs, &mut Steps::off(), sources, &[]);
-                let id = defs.id("m");
-                let _ = write!(defs.text, r#"<mask id="{id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">{inner}</mask>"#);
-                let _ = write!(body, r#"<g mask="url(#{id})">"#);
-            }
-            Item::Image { png, place: t } => {
-                // the unit square, y up, in the SVG's coordinates: y down, in bp; pdfTeX writes no
-                // /Interpolate, and PDF rasterizers sample the image's pixels
-                let m = [t.a * BP, -t.b * BP, -t.c * BP, t.d * BP, (t.c + t.e) * BP, -(t.d + t.f) * BP];
-                let _ = write!(
-                    body,
-                    r#"<image width="1" height="1" preserveAspectRatio="none" image-rendering="optimizeSpeed" transform="matrix({} {} {} {} {} {})"{} href="data:image/png;base64,{}"/>"#,
-                    num(m[0], 4),
-                    num(m[1], 4),
-                    num(m[2], 4),
-                    num(m[3], 4),
-                    n(m[4]),
-                    n(m[5]),
-                    steps.next(false),
-                    base64(png)
-                );
-            }
-            Item::End => body.push_str("</g>"),
-            Item::Source(id) => {
-                steps.part = Some(*id);
-                steps.source = sources.get(*id).map_or(String::new(), |s| format!(r#" data-src="{}:{}-{}:{}""#, s.first.0, s.first.1, s.last.0, s.last.1));
-            }
+        }
+        if drawn && !steps.moving.is_empty() {
+            animate_element(body, at, &steps.moving);
         }
     }
     steps.leave(body);
@@ -802,7 +917,8 @@ pub fn svg_with(canvas: &Canvas, source: &str, words: &crate::describe::Descript
     }
     let mut defs = Defs { text: String::new(), count: 0, glyphs: Vec::new(), corner: (x0 * BP, -y0 * BP) };
     let mut glyphs = Vec::new();
-    let mut steps = Steps { on: steps || animate, animate, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false };
+    let mut steps =
+        Steps { on: steps || animate, animate, count: 0, source: String::new(), part: None, told: HashSet::new(), open: false, depth: 0, moving: Vec::new(), animated: 0 };
     items_svg(&canvas.items, &mut body, &mut defs, &mut glyphs, &mut steps, &canvas.sources, &canvas.parts);
     glyphs.append(&mut defs.glyphs);
     let mut seen = HashSet::new();

@@ -1,0 +1,13 @@
+% The animations library, played: open the SVG in a browser, and click the square.
+\documentclass{standalone}
+\usepackage{tikz}
+\usetikzlibrary{animations}
+\begin{document}
+\begin{tikzpicture}
+  \path (-1,-1) rectangle (6,3);
+  \draw[help lines] (0,0) grid (5,2);
+  \fill[red] :fill = {0s="red", 2s="blue", repeats} :xshift = {0s="0cm", 2s="4cm", repeats} (0.5,1.5) circle (3mm);
+  \draw[very thick] :rotate = {0s="0", 4s="-360", repeats} (1,0) -- (2,0);
+  \fill[orange] :fill = {0s="orange", 1s="green", begin on=click, freeze} (3.5,0.2) rectangle (4.5,1);
+\end{tikzpicture}
+\end{document}
