@@ -2,9 +2,9 @@
 
 # tikra
 
-tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. It reimplements TikZ, pgf and pgfplots in Rust, and labels are set by [mathra](https://github.com/matheusmota-dev-br/mathra) in Latin Modern, TeX's own Computer Modern. It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)** · **[See the gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html)** · **[Watch the 60-second demo](https://youtu.be/vTX69CwtjB4)** · **[See how it grew](https://matheusmota-dev-br.github.io/tikra/changelog.html)** ([CHANGELOG.md](https://github.com/matheusmota-dev-br/tikra/blob/main/CHANGELOG.md)).
+tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. It reimplements TikZ, pgf and pgfplots in Rust, and labels are set by [mathra](https://github.com/matheusmota-dev-br/mathra) in Latin Modern, TeX's own Computer Modern. It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)** · **[See the gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html)** · **[Watch the 60-second demo](https://youtu.be/_TRXke0q16s)** · **[See how it grew](https://matheusmota-dev-br.github.io/tikra/changelog.html)** ([CHANGELOG.md](https://github.com/matheusmota-dev-br/tikra/blob/main/CHANGELOG.md)).
 
-<p align="center"><a href="https://youtu.be/vTX69CwtjB4"><img src="https://img.youtube.com/vi/vTX69CwtjB4/maxresdefault.jpg" alt="tikra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
+<p align="center"><a href="https://youtu.be/_TRXke0q16s"><img src="https://img.youtube.com/vi/_TRXke0q16s/maxresdefault.jpg" alt="tikra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
 
 ## Install and use
 

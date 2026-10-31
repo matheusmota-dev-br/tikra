@@ -8,15 +8,14 @@ rm -rf site/pkg
 wasm-bindgen --target no-modules --no-typescript --out-dir site/pkg target/wasm32-unknown-unknown/release/tikra_wasm.wasm
 # file:// pages cannot fetch the .wasm, but they can run a classic script: the same bytes as base64
 printf 'var TIKRA_WASM_BASE64 = "%s";\n' "$(base64 < site/pkg/tikra_wasm_bg.wasm | tr -d '\n')" > site/pkg/tikra_wasm_bytes.js
-# the gallery, every figure of corpus/ (checked by crates/core/tests/corpus.rs), and the banner, as a script
+# the gallery, every figure of corpus/ (checked by crates/core/tests/corpus.rs), as a script
 node -e '
   const fs = require("fs");
   // corpus/<topic>/<name>.tex, by topic and then name
   const figures = fs.readdirSync("corpus", { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()
     .flatMap((topic) => fs.readdirSync("corpus/" + topic).filter((f) => f.endsWith(".tex")).sort()
       .map((f) => ({ name: f.slice(0, -4), topic, tex: fs.readFileSync(`corpus/${topic}/${f}`, "utf8") })));
-  fs.writeFileSync("site/pkg/corpus.js", "var TIKRA_CORPUS = " + JSON.stringify(figures) + ";\n" +
-    "var TIKRA_BANNER = " + JSON.stringify(fs.readFileSync("docs/banner.tex", "utf8")) + ";\n");
+  fs.writeFileSync("site/pkg/corpus.js", "var TIKRA_CORPUS = " + JSON.stringify(figures) + ";\n");
 '
 # the releases of CHANGELOG.md and the history of docs/progress.tsv, for the evolution page
 python3 -I scripts/changelog.py js > site/pkg/changelog.js

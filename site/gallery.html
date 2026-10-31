@@ -8,12 +8,13 @@
 <link rel="icon" href="pkg/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="pkg/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="pkg/apple-touch-icon.png">
-<meta name="theme-color" content="#fbf9f4">
+<meta name="theme-color" content="#F3EAD3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
+<script src="code.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -179,7 +180,7 @@
       const eq = card.querySelector(".eq"), pre = card.querySelector("pre"), open = card.querySelector('[data-act="open"]');
       const showCode = () => {
         const src = source(tex);
-        pre.textContent = src;
+        pre.innerHTML = colorCode(src, "tex");
         open.href = `index.html#${new URLSearchParams({ tikz: src })}`;
       };
       showCode();

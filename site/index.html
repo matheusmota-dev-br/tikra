@@ -8,12 +8,13 @@
 <link rel="icon" href="pkg/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="pkg/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="pkg/apple-touch-icon.png">
-<meta name="theme-color" content="#fbf9f4">
+<meta name="theme-color" content="#F3EAD3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
+<script src="code.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -31,9 +32,10 @@
   </div>
 
   <header class="hero">
-    <div class="logo" id="logo" role="img" aria-label="tikra: TikZ to SVG and PNG, no TeX install"></div>
+    <div class="hero-text">
+    <h1 class="wordmark">tikra</h1>
     <p class="tagline">TikZ and pgfplots to <em>SVG</em> and <em>PNG</em>.<br>No TeX install. JavaScript, Python, Rust or the terminal.</p>
-    <p class="sub">tikra reads the figure, draws paths, nodes and plots itself and typesets the math in labels with <a href="https://matheusmota-dev-br.github.io/mathra/">mathra</a>. The banner above was drawn just now, in your browser, from <a href="https://github.com/matheusmota-dev-br/tikra/blob/main/docs/banner.tex"><code>docs/banner.tex</code></a>.</p>
+    <p class="sub">tikra reads the figure, draws paths, nodes and plots itself and typesets the math in labels with <a href="https://matheusmota-dev-br.github.io/mathra/">mathra</a>. The figure here is the Lorenz attractor of 1963, the butterfly of chaos theory, drawn by tikra in your browser on every frame: two paths start a hair apart, stay together and then part. Drag it to turn it, and change <em>ρ</em> and the gap under it.</p>
     <div class="cta">
       <a class="button solid" href="#playground">Try it now</a>
       <a class="button" href="#demo">Watch the demo</a>
@@ -44,6 +46,8 @@
       <div class="installer-tabs" role="tablist" aria-label="Install for"></div>
       <div class="installer-line"><code id="install-cmd"></code><button type="button" class="installer-copy" id="install-copy" aria-label="Copy the command">Copy</button></div>
     </div>
+    </div>
+    <figure class="hero-figure" id="hero-figure" aria-label="The Lorenz attractor, drawn by tikra"></figure>
   </header>
 
   <div class="play" id="playground">
@@ -106,11 +110,11 @@
 
   <section id="demo">
     <h2>In 60 seconds</h2>
-    <p class="lead">What tikra does, from one command to pgfplots, diagrams and the figure in words. Every drawing and description in it is tikra's real output.</p>
+    <p class="lead">One page, one take: the Lorenz attractor, a figure typed live, another dragged by its point. Every drawing in it is tikra's real output.</p>
     <div class="video">
-      <iframe src="https://www.youtube-nocookie.com/embed/vTX69CwtjB4?rel=0" title="tikra in 60 seconds" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+      <iframe src="https://www.youtube-nocookie.com/embed/_TRXke0q16s?rel=0" title="tikra in 60 seconds" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
     </div>
-    <p class="video-link"><a href="https://youtu.be/vTX69CwtjB4">Watch on YouTube</a></p>
+    <p class="video-link"><a href="https://youtu.be/_TRXke0q16s">Watch on YouTube</a></p>
   </section>
 
   <section>
@@ -177,7 +181,7 @@
         <div class="platform-head"><h3>JavaScript and TypeScript</h3><a class="pill live" href="https://www.npmjs.com/package/@mathlabs/tikra">on npm</a></div>
         <p>Node, bundlers (Vite, webpack, esbuild) and browsers. Types included.</p>
         <code class="cmd">npm install @mathlabs/tikra</code>
-<pre>import { init, tikzToSvg, render, png } from "@mathlabs/tikra";
+<pre data-lang="js">import { init, tikzToSvg, render, png } from "@mathlabs/tikra";
 
 await init();  // browsers and bundlers; Node needs nothing
 const svg = tikzToSvg(String.raw`\tikz \draw (0,0) circle (1);`);
@@ -188,7 +192,7 @@ const bytes = png(svg, { dpi: 300 });</pre>
         <div class="platform-head"><h3>Python</h3><a class="pill live" href="https://pypi.org/project/tikra/">on PyPI</a></div>
         <p>Python 3.9 and later, wheels for Linux, macOS and Windows. Types included.</p>
         <code class="cmd">pip install tikra</code>
-<pre>import tikra
+<pre data-lang="py">import tikra
 
 svg = tikra.tikz_to_svg(r"\tikz \draw (0,0) circle (1);")
 open("figure.png", "wb").write(tikra.png(svg, dpi=300))
@@ -199,7 +203,7 @@ tikra.render(code)["description"]  # the figure in words</pre>
         <div class="platform-head"><h3>Terminal</h3><a class="pill live" href="https://crates.io/crates/tikra-cli">on crates.io</a></div>
         <p>One binary: a <code>.tex</code> file or stdin to SVG or PNG.</p>
         <code class="cmd">cargo install tikra-cli</code>
-<pre>tikra figure.tex -o figure.svg
+<pre data-lang="sh">tikra figure.tex -o figure.svg
 tikra figure.tex -o figure.png --dpi 300
 tikra figure.tex -o figure.png --transparent
 cat figure.tex | tikra --warnings
@@ -209,7 +213,7 @@ tikra figure.tex --describe</pre>
         <div class="platform-head"><h3>Rust</h3><a class="pill live" href="https://crates.io/crates/tikra">on crates.io</a></div>
         <p>The core itself, for servers and native apps. API docs on <a href="https://docs.rs/tikra">docs.rs</a>.</p>
         <code class="cmd">cargo add tikra</code>
-<pre>let out = tikra::convert(code)?;
+<pre data-lang="rust">let out = tikra::convert(code)?;
 std::fs::write("figure.svg", &amp;out.svg)?;
 std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       </div>
@@ -238,6 +242,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
 <script src="animate.js"></script>
 <script src="params.js"></script>
 <script src="interactive.js"></script>
+<script src="lorenz.js"></script>
 <script src="interactive-page.js"></script>
 <script src="pkg/conformance.js"></script>
 <script>
@@ -443,7 +448,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
       $("words-locale").onchange = (e) => { locale = e.target.value; update(); };
       return;
     }
-    panel.innerHTML = `<pre>${escape(last.svg)}</pre>`;
+    panel.innerHTML = `<pre>${colorCode(last.svg, "xml")}</pre>`;
   }
 
   // an example: when its points can be dragged, it shows itself being dragged until touched
@@ -468,8 +473,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
   }
 
   function drawStatic() {
-    $("logo").innerHTML = convert(TIKRA_BANNER, true).svg;
-    $("logo").querySelector("svg")?.setAttribute("aria-hidden", "true");
+    tikraLorenz.mount($("hero-figure"), (code) => convert(code));
     for (const el of document.querySelectorAll("[data-tikz]")) el.innerHTML = convert(el.dataset.tikz).svg;
     const tiles = $("tiles");
     let total = 0;
@@ -502,7 +506,7 @@ std::fs::write("figure.png", tikra::png(&amp;out.svg, 300.0, true)?)?;</pre>
     ["Rust", "cargo add tikra"],
   ];
   function showInstall(i) {
-    $("install-cmd").textContent = INSTALL[i][1];
+    $("install-cmd").innerHTML = colorCode(INSTALL[i][1], "sh");
     [...document.querySelectorAll(".installer-tabs button")].forEach((b, j) => b.setAttribute("aria-selected", String(i === j)));
   }
   INSTALL.forEach(([label], i) => {
