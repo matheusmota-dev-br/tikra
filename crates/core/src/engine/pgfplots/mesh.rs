@@ -486,6 +486,60 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
                 continue;
             }
         }
+        // another quadrilateral (`patch type=bilinear`, a patch of a scattered mesh): its metas
+        // bilinear across it, drawn as a grid of cells each split into two triangles shaded exactly
+        // as above, so its colors change smoothly and in no bands
+        if let Some(cm) = cmap.filter(|c| c.access == super::colormap::Access::Map && closes && shaded && vertex.is_none() && corners.len() == 4 && metas.len() == 4) {
+            let size = (0..4).map(|i| corners[i].minus(corners[(i + 1) % 4]).norm()).fold(0.0, f64::max);
+            let n = ((size / (6.0 * crate::PT)).ceil() as usize).clamp(1, 16);
+            let nf = n as f64;
+            let at = |u: f64, v: f64| {
+                let w = [(1.0 - u) * (1.0 - v), u * (1.0 - v), u * v, (1.0 - u) * v];
+                let pt = (0..4).fold(Point::default(), |acc, k| acc.plus(corners[k].scale(w[k])));
+                (pt, (0..4).map(|k| metas[k] * w[k]).sum::<f64>())
+            };
+            // under the cells, the patch in its mean color: where the cells' edges meet, drawn
+            // without antialiasing, a pixel no cell covers shows that and not what is behind
+            let mut under = vec![Segment::MoveTo(corners[0])];
+            under.extend(corners[1..].iter().map(|c| Segment::LineTo(*c)));
+            under.push(Segment::Close);
+            let mean_meta = metas.iter().sum::<f64>() / 4.0;
+            let mean_color = fill.at(cm.color_of(mean_meta.clamp(range[0].min(range[1]), range[0].max(range[1])), range[0], range[1]));
+            e.canvas.push(Item::Path { segments: under, fill: Some(Fill { paint: Paint::Solid(mean_color), opacity: opacity.1, even_odd: false }), stroke: None });
+            for i in 0..n {
+                for j in 0..n {
+                    let (u0, u1, v0, v1) = (i as f64 / nf, (i + 1) as f64 / nf, j as f64 / nf, (j + 1) as f64 / nf);
+                    let q = [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
+                    for t in [[0, 1, 2], [0, 2, 3]] {
+                        let tri = t.map(|k| q[k]);
+                        let paint = gouraud(&tri, cm, range, &fill);
+                        let segs = vec![Segment::MoveTo(tri[0].0), Segment::LineTo(tri[1].0), Segment::LineTo(tri[2].0), Segment::Close];
+                        if !e.canvas_frozen {
+                            e.canvas.include_path(&segs);
+                        }
+                        e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint, opacity: opacity.1, even_odd: false }), stroke: None });
+                    }
+                }
+            }
+            if shader == "faceted interp" {
+                let mut segs = vec![Segment::MoveTo(corners[0])];
+                segs.extend(corners[1..].iter().map(|c| Segment::LineTo(*c)));
+                segs.push(Segment::Close);
+                let stroke = Stroke {
+                    color: faceted.at(mapped),
+                    width,
+                    dash: st.dash.clone().filter(|d| !d.0.is_empty()),
+                    cap: st.cap,
+                    join: st.join,
+                    miter_limit: st.miter_limit,
+                    opacity: opacity.0,
+                };
+                e.canvas.push(Item::End);
+                e.canvas.push(Item::Path { segments: segs, fill: None, stroke: Some(stroke) });
+                e.canvas.push(Item::Crisp);
+            }
+            continue;
+        }
         if closes && shader == "interp" && interp_ok && (corners.len() == 4 || corners.len() == 3) {
             let size = (0..corners.len()).map(|i| corners[i].minus(corners[(i + 1) % corners.len()]).norm()).fold(0.0, f64::max);
             let n = if size > 12.0 * crate::PT { ((size / (3.0 * crate::PT)).ceil() as usize).clamp(1, 64) } else { 1 };
@@ -759,6 +813,17 @@ fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &st
         }
         segs
     };
+    // how finely a shaded patch is cut: the same for all of the plot's, so that two patches cut a
+    // side they share at the same points and leave no crack between them
+    let shade_cuts = list
+        .iter()
+        .map(|patch| {
+            let c: Vec<Point> = patch.pts.iter().map(|l| f.at(*l)).collect();
+            let (lo, hi) = c.iter().fold((c[0], c[0]), |(lo, hi), q| (Point::new(lo.x.min(q.x), lo.y.min(q.y)), Point::new(hi.x.max(q.x), hi.y.max(q.y))));
+            ((hi.x - lo.x).max(hi.y - lo.y) / (6.0 * crate::PT)).ceil() as usize
+        })
+        .max()
+        .unwrap_or(1);
     for patch in list {
         let m = patch.flat_meta(corner);
         // a patch whose color comes from a point meta of nan is not drawn
@@ -796,6 +861,35 @@ fn draw_patches(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, kind: &st
                     (hi.x - lo.x).max(hi.y - lo.y)
                 };
                 let curved = !matches!(part.kind, Kind::Triangle | Kind::Bilinear | Kind::Rectangle | Kind::Polygon(_));
+                // a continuous colormap: small triangles, each its exact linear gradient, over the
+                // patch in its mean color (a pixel no triangle covers, where their edges meet
+                // without antialiasing, shows that)
+                // (not a quadratic triangle: pgfplots draws it as a Coons patch, its inside not the
+                // isoparametric one `eval` gives, where a fold shows it)
+                if let Some(cm) = f.colormap.as_ref().filter(|c| c.access == super::colormap::Access::Map && !matches!(part.kind, Kind::Polygon(_) | Kind::QuadTriangle)) {
+                    let n = shade_cuts.clamp(if curved { 6 } else { 1 }, 24);
+                    let mut tris = part.shaded_triangles(n);
+                    if f.three_d {
+                        tris.sort_by(|a, b| depth(&a.iter().map(|t| t.0).collect::<Vec<_>>()).total_cmp(&depth(&b.iter().map(|t| t.0).collect::<Vec<_>>())));
+                    }
+                    let mean = part.metas.iter().sum::<f64>() / part.metas.len().max(1) as f64;
+                    let rim = part.shaded_outline(n);
+                    let mut under = vec![Segment::MoveTo(f.at(rim[0]))];
+                    under.extend(rim[1..].iter().map(|q| Segment::LineTo(f.at(*q))));
+                    under.push(Segment::Close);
+                    e.canvas.push(Item::Path {
+                        segments: under,
+                        fill: Some(Fill { paint: Paint::Solid(look.fill.at(map(f, mean))), opacity: st.fill_opacity, even_odd: false }),
+                        stroke: None,
+                    });
+                    for t in tris {
+                        let c = t.map(|(q, m)| (f.at(q), m));
+                        let paint = gouraud(&c, cm, f.meta, &look.fill);
+                        let segs = vec![Segment::MoveTo(c[0].0), Segment::LineTo(c[1].0), Segment::LineTo(c[2].0), Segment::Close];
+                        e.canvas.push(Item::Path { segments: segs, fill: Some(Fill { paint, opacity: st.fill_opacity, even_odd: false }), stroke: None });
+                    }
+                    continue;
+                }
                 let n = ((size / (3.0 * crate::PT)).ceil() as usize).clamp(if curved { 6 } else { 1 }, 48);
                 let mut pieces = part.pieces(n);
                 if f.three_d {

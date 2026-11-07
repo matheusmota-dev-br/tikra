@@ -380,6 +380,59 @@ impl Patch {
 
     /// The patch cut into `n` × `n` small pieces (n² triangles for a triangle), each its points
     /// and the shading's meta at its center: the parameters run along u, then v.
+    /// The patch as `n` by `n` cells (`n` to a side of a triangle), each as two triangles with the
+    /// point meta at their corners: shaded linearly across each, the patch's colors change
+    /// smoothly, in no bands.
+    pub fn shaded_triangles(&self, n: usize) -> Vec<[(P3, f64); 3]> {
+        let nf = n as f64;
+        let at = |u: f64, v: f64| (self.eval(u, v), self.color_meta(u, v));
+        let mut out = Vec::new();
+        match self.kind {
+            Kind::Triangle | Kind::QuadTriangle => {
+                let p = |i: usize, j: usize| at(i as f64 / nf, j as f64 / nf);
+                for j in 0..n {
+                    for i in 0..n - j {
+                        out.push([p(i, j), p(i + 1, j), p(i, j + 1)]);
+                        if i + j + 1 < n {
+                            out.push([p(i + 1, j), p(i + 1, j + 1), p(i, j + 1)]);
+                        }
+                    }
+                }
+            }
+            _ => {
+                for j in 0..n {
+                    for i in 0..n {
+                        let (u0, u1, v0, v1) = (i as f64 / nf, (i + 1) as f64 / nf, j as f64 / nf, (j + 1) as f64 / nf);
+                        let q = [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
+                        out.push([q[0], q[1], q[2]]);
+                        out.push([q[0], q[2], q[3]]);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The outline of [`Self::shaded_triangles`]`(n)`: the patch's sides cut as its triangles cut them.
+    pub fn shaded_outline(&self, n: usize) -> Vec<P3> {
+        let t = |k: usize| k as f64 / n as f64;
+        match self.kind {
+            Kind::Triangle | Kind::QuadTriangle => {
+                let mut v: Vec<P3> = (0..n).map(|k| self.eval(t(k), 0.0)).collect();
+                v.extend((0..n).map(|k| self.eval(1.0 - t(k), t(k))));
+                v.extend((0..n).map(|k| self.eval(0.0, 1.0 - t(k))));
+                v
+            }
+            _ => {
+                let mut v: Vec<P3> = (0..n).map(|k| self.eval(t(k), 0.0)).collect();
+                v.extend((0..n).map(|k| self.eval(1.0, t(k))));
+                v.extend((0..n).map(|k| self.eval(1.0 - t(k), 1.0)));
+                v.extend((0..n).map(|k| self.eval(0.0, 1.0 - t(k))));
+                v
+            }
+        }
+    }
+
     pub fn pieces(&self, n: usize) -> Vec<(Vec<P3>, f64)> {
         let nf = n as f64;
         let mut out = Vec::new();
