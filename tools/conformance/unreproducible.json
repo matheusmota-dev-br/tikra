@@ -33,7 +33,7 @@
     ]
   },
   "antialiasing": {
-    "about": "the same drawing, in the same places and colors: only how Ghostscript (which renders TeX's PDF) and tikra put a line, a fill or a letter on the pixels differs (thin help lines, which the comparison widens to a whole pixel, and lines Ghostscript inks wider than they are; soft edges and bands of fadings and shadings; small labels, which Ghostscript inks heavier; pattern tiles, which Ghostscript draws without antialiasing; a border's edge half a pixel apart)",
+    "about": "the same drawing, in the same places and colors: only how Ghostscript (which renders TeX's PDF) and tikra put a line, a fill or a letter on the pixels differs (thin help lines, which the comparison widens to a whole pixel, and lines Ghostscript inks wider than they are; soft edges and bands of fadings and shadings; small labels, which Ghostscript inks heavier; pattern tiles, which Ghostscript draws without antialiasing; a border's edge half a pixel apart; the steps Ghostscript leaves in a fading's soft edge; the edge between two flat patches of nearly one color)",
     "ids": [
       "tikz/pgfmanual-en-base-actions:63",
       "tikz/pgfmanual-en-base-actions:77",
@@ -157,7 +157,11 @@
       "tikz/pgfmanual-en-tikz-actions:1345",
       "tikz/pgfmanual-en-tikz-transparency:717",
       "tikz/pgfmanual-en-library-shapes:1825",
-      "tikz/pgfmanual-en-tikz-transparency:456"
+      "tikz/pgfmanual-en-tikz-transparency:456",
+      "tikz/pgfmanual-en-tikz-transparency:518",
+      "tikz/pgfmanual-en-tikz-transparency:590",
+      "pgfplots/pgfplots.reference.3dplots:1068",
+      "pgfplots/pgfplots.reference.3dconfiguration:151"
     ]
   }
 }

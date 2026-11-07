@@ -45,8 +45,9 @@ white, and records warnings, errors, panics and figures that take longer than 10
 compares each pair by:
 
 - **shape**: after aligning the two images (the best shift of up to 6 px from each corner and from the
-  center), their edges (where the color changes, so a fill counts by its outline and a label on a fill
-  still shows) are compared: the share of tikra's edges with a TeX edge within 2 px (0.5 mm), and the
+  center), their edges (where the color changes by 25 or more of 255, which a 0.8 gray fill against white and
+  a seam between two fills both pass: a fill counts by its outline, and a label on a fill, a pale line or a
+  seam still shows) are compared: the share of tikra's edges with a TeX edge within 2 px (0.5 mm), and the
   other way round; their harmonic mean is the F1 score.
 - **pieces**: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
