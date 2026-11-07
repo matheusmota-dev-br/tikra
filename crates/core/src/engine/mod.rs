@@ -157,6 +157,12 @@ pub enum Cmd {
     Scalebox,
     Resizebox,
     Hskip,
+    /// `\vskip 1em plus 2pt`: its glue read, and dropped (the pictures are not set in lines by height)
+    Vskip,
+    /// `\newframe[rate]` (animate package): the frames after the first are not drawn
+    NewFrame,
+    /// `\setbeamertemplate{element}[option]…{code}`: read, and dropped
+    SetBeamerTemplate,
     FontSize,
     FontSeries,
     Unsupported,
@@ -322,6 +328,19 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("scalebox", Cmd::Scalebox),
     ("resizebox", Cmd::Resizebox),
     ("hskip", Cmd::Hskip),
+    ("vskip", Cmd::Vskip),
+    ("newframe", Cmd::NewFrame),
+    // beamer's themes and its frame's title: the page around the pictures, not drawn
+    ("usetheme", Cmd::Ignore1),
+    ("usecolortheme", Cmd::Ignore1),
+    ("usefonttheme", Cmd::Ignore1),
+    ("useinnertheme", Cmd::Ignore1),
+    ("useoutertheme", Cmd::Ignore1),
+    ("frametitle", Cmd::Ignore1),
+    ("framesubtitle", Cmd::Ignore1),
+    ("setbeamercolor", Cmd::Ignore2),
+    ("setbeamerfont", Cmd::Ignore2),
+    ("setbeamertemplate", Cmd::SetBeamerTemplate),
     ("vspace", Cmd::Ignore1),
     ("pgfdeclarelayer", Cmd::Ignore1),
     ("pgfsetlayers", Cmd::SetLayers),
@@ -499,6 +518,11 @@ pub struct Engine {
     pub local_boxes: Vec<(String, usize)>,
     /// The picture's size when each `pgfinterruptboundingbox` opened, restored when it closes.
     interrupted_boxes: Vec<(Option<Point>, Option<Point>)>,
+    /// The path being built when each `\pgfinterruptpath` opened, given back when it closes.
+    pub interrupted_paths: Vec<basic::PgfPath>,
+    /// The open `animateinline`s (animate package): whether a `\newframe` has passed in each, so that
+    /// only the first frame, its poster, is drawn.
+    animate_frames: Vec<AnimateFrames>,
     /// For each path statement being read, its `scope fading`s.
     pub path_fadings: Vec<Vec<fadings::PathFading>>,
     /// The `scope fading`s of a path that drew nothing: the next path is faded, the fading fitted
@@ -624,6 +648,14 @@ enum Layout {
     Vbox,
 }
 
+/// An open `animateinline`: whether its first frame is over (a `\newframe` has passed), and the
+/// code its `end` option closes each frame with.
+#[derive(Clone, Debug, Default)]
+struct AnimateFrames {
+    past_first: bool,
+    end: Vec<Token>,
+}
+
 /// Cap on nested runs (a style calling itself).
 pub const MAX_NESTING: usize = 150;
 /// Cap on keys per figure (styles that multiply: `s/.style={t,t,t,t}`…). The figures of the manuals
@@ -694,6 +726,8 @@ impl Clone for Engine {
             after_node_path: Vec::new(),
             local_boxes: Vec::new(),
             interrupted_boxes: Vec::new(),
+            interrupted_paths: Vec::new(),
+            animate_frames: Vec::new(),
             path_fadings: Vec::new(),
             carried_fadings: Vec::new(),
             canvas_transforms: 0,
@@ -855,6 +889,8 @@ impl Engine {
             after_node_path: Vec::new(),
             local_boxes: Vec::new(),
             interrupted_boxes: Vec::new(),
+            interrupted_paths: Vec::new(),
+            animate_frames: Vec::new(),
             path_fadings: Vec::new(),
             carried_fadings: Vec::new(),
             canvas_transforms: 0,
@@ -1526,6 +1562,14 @@ impl Engine {
             // inside an axis, TikZ statements wait until the axis is set up
             return self.defer_statement(t);
         }
+        // in a frame of an animation after its first, a statement outside a picture is not drawn
+        if self.picture_depth == 0
+            && self.animate_frames.last().is_some_and(|a| a.past_first)
+            && (path_command(cmd).is_some() || matches!(cmd, Cmd::Node | Cmd::Coordinate | Cmd::Matrix | Cmd::Pic | Cmd::Graph))
+        {
+            let _ = self.next_statement()?;
+            return Ok(());
+        }
         if let Some(defaults) = path_command(cmd) {
             let r = path::statement(self, defaults);
             return self.recover(r, t);
@@ -2090,6 +2134,28 @@ impl Engine {
                 let _ = self.argument()?;
                 Ok(())
             }
+            Cmd::SetBeamerTemplate => {
+                let _ = self.argument()?;
+                while self.optional()?.is_some() {}
+                if let Some(t) = self.tex.next_nonspace() {
+                    let group = matches!(t, Token::Char(_, tex::Cat::Begin));
+                    self.tex.back(t);
+                    if group {
+                        let _ = self.argument()?;
+                    }
+                }
+                Ok(())
+            }
+            Cmd::NewFrame => {
+                // `\newframe*` pauses there, `\newframe[5]` changes the frame rate
+                if let Some(t) = self.tex.next_nonspace() {
+                    if !t.is_char('*') {
+                        self.tex.back(t);
+                    }
+                }
+                let _ = self.optional()?;
+                self.end_first_frame()
+            }
             // `\hspace{1cm}` (or `\hspace*`) between pictures: the space TeX leaves there
             // `\fbox{…}`: a frame of `\fboxrule` around the pictures, `\fboxsep` away
             Cmd::Fbox => {
@@ -2195,7 +2261,7 @@ impl Engine {
                 Ok(())
             }
             // `\hskip 1cm plus 1fil`: glue of its natural width between pictures
-            Cmd::Hskip => {
+            Cmd::Hskip | Cmd::Vskip => {
                 let w = self.tex.scan_dimen()?;
                 for k in ["plus", "minus"] {
                     if self.tex.scan_keyword(k)? {
@@ -2203,7 +2269,7 @@ impl Engine {
                         let _ = self.tex.scan_keyword("fill")? || self.tex.scan_keyword("fil")?;
                     }
                 }
-                if self.picture_depth == 0 {
+                if self.picture_depth == 0 && matches!(cmd, Cmd::Hskip) {
                     self.layout.push(Layout::Skip(w as f64 / 65536.0 * crate::PT));
                 }
                 Ok(())
@@ -2488,6 +2554,62 @@ impl Engine {
         self.run_tokens(begin)
     }
 
+    /// The first frame of the open animation ends (at its first `\newframe`, or at its end): its
+    /// `end` code runs, and the frames after it are not drawn.
+    fn end_first_frame(&mut self) -> Result<(), Error> {
+        let Some(a) = self.animate_frames.last_mut().filter(|a| !a.past_first) else { return Ok(()) };
+        a.past_first = true;
+        let end = std::mem::take(&mut a.end);
+        self.run_tokens(end)
+    }
+
+    /// The rest of an environment `name` read and dropped, up to its `\end` (those nested in it
+    /// skipped with it).
+    fn skip_environment(&mut self, name: &str) -> Result<(), Error> {
+        let mut depth = 0usize;
+        while let Some(t) = self.tex.get_token() {
+            let (open, close) = (t.is_cs("begin"), t.is_cs("end"));
+            if !open && !close {
+                continue;
+            }
+            let Some(g) = self.tex.next_nonspace() else { break };
+            if !matches!(g, Token::Char(_, Cat::Begin)) {
+                self.tex.back(g);
+                continue;
+            }
+            let body = self.tex.read_group_body()?;
+            if tex::tokens_to_string(&body).trim() != name {
+                continue;
+            }
+            if open {
+                depth += 1;
+            } else if depth == 0 {
+                return Ok(());
+            } else {
+                depth -= 1;
+            }
+        }
+        self.warn(format!("\\begin{{{name}}} without \\end: skipped to the end"));
+        Ok(())
+    }
+
+    /// `\pgfinterruptpath`: a group with no path being built, as if none had begun.
+    pub fn interrupt_path(&mut self) {
+        self.begin_group();
+        let path = std::mem::take(&mut self.pgf_path);
+        self.interrupted_paths.push(path);
+    }
+
+    /// `\endpgfinterruptpath`: the path that was being built comes back, whatever was built inside.
+    pub fn end_interrupt_path(&mut self) {
+        if let Some(path) = self.interrupted_paths.pop() {
+            self.pgf_path = path;
+            self.end_group();
+        } else {
+            self.warn("\\endpgfinterruptpath without \\pgfinterruptpath: ignored");
+        }
+    }
+
     fn close_tikz_scope(&mut self) -> Result<(), Error> {
         let end = self.scope_ends.pop().unwrap_or_default();
         let r = self.run_tokens(end);
@@ -2731,9 +2853,33 @@ impl Engine {
         let name = self.argument_string()?;
         self.tex.env_stack.push(name.clone());
         match name.as_str() {
+            // a frame of an animation after its first: not drawn, and its code not run
+            "tikzpicture" if self.animate_frames.last().is_some_and(|a| a.past_first) => {
+                self.tex.env_stack.pop();
+                self.skip_environment("tikzpicture")
+            }
             "tikzpicture" => {
                 let o = self.optional()?;
                 self.begin_picture(o)
+            }
+            // animate's `animateinline[options]{frame rate}`: its first frame is the picture, as in a
+            // PDF before it plays (TeX's `poster`, which is the first frame unless said otherwise)
+            // (its `begin` and `end` options open and close each frame: a picture, often)
+            "animateinline" => {
+                let o = self.optional()?.unwrap_or_default();
+                let _ = self.argument()?;
+                let (mut begin, mut end) = (Vec::new(), Vec::new());
+                for item in crate::keys::split_list(&o) {
+                    match item.key.as_str() {
+                        "begin" => begin = tex::strip_outer_braces(item.value.unwrap_or_default()),
+                        "end" => end = tex::strip_outer_braces(item.value.unwrap_or_default()),
+                        _ => {}
+                    }
+                }
+                self.animate_frames.push(AnimateFrames { past_first: false, end });
+                self.begin_group();
+                self.tex.push_tokens(begin);
+                Ok(())
             }
             "pgfpicture" => self.begin_picture(None),
             "pgfscope" => {
@@ -2757,6 +2903,11 @@ impl Engine {
                 Ok(())
             }
             "pgfviewboxscope" => self.begin_view_box_scope(),
+            // a path of its own, the one being built kept for after it
+            "pgfinterruptpath" => {
+                self.interrupt_path();
+                Ok(())
+            }
             // what is drawn inside does not make the picture larger
             "pgfinterruptboundingbox" => {
                 self.interrupted_boxes.push((self.canvas.min, self.canvas.max));
@@ -2791,7 +2942,30 @@ impl Engine {
                 self.begin_group();
                 Ok(())
             }
-            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" => {
+            // beamer's `frame<overlay>[options]{title}{subtitle}`: the title is the theme's to draw
+            "frame" => {
+                if let Some(t) = self.tex.next_nonspace() {
+                    if t.is_char('<') {
+                        let _ = self.tex.read_until_char('>', false)?;
+                    } else {
+                        self.tex.back(t);
+                    }
+                }
+                while self.optional()?.is_some() {}
+                for _ in 0..2 {
+                    let Some(t) = self.tex.next_nonspace() else { break };
+                    let group = matches!(t, Token::Char(_, tex::Cat::Begin));
+                    self.tex.back(t);
+                    if !group {
+                        break;
+                    }
+                    let _ = self.argument()?;
+                }
+                self.begin_group();
+                Ok(())
+            }
+            // `preview` (the preview package) only marks what goes on the page
+            "document" | "center" | "figure" | "flushleft" | "flushright" | "minipage" | "preview" => {
                 if name == "center" && self.picture_depth == 0 {
                     self.layout.extend([Layout::Par, Layout::Center(true)]);
                 }
@@ -2827,6 +3001,10 @@ impl Engine {
 
     fn end_environment(&mut self) -> Result<(), Error> {
         let name = self.argument_string()?;
+        // the last frame of an animation ends as each does, before the animation
+        if name == "animateinline" {
+            self.end_first_frame()?;
+        }
         let Some(pos) = self.tex.env_stack.iter().rposition(|n| *n == name) else {
             self.warn(format!("\\end{{{name}}} without a matching \\begin: ignored"));
             return Ok(());
@@ -2851,6 +3029,11 @@ impl Engine {
                 self.end_group();
             }
             "pgfonlayer" => self.end_on_layer(),
+            "pgfinterruptpath" => self.end_interrupt_path(),
+            "animateinline" => {
+                self.animate_frames.pop();
+                self.end_group();
+            }
             "pgfinterruptboundingbox" => {
                 self.end_group();
                 if let Some((min, max)) = self.interrupted_boxes.pop() {

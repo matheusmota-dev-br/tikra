@@ -544,6 +544,44 @@ fn scan(c: &[char]) -> (Vec<bool>, bool) {
     (top, math.is_some())
 }
 
+/// The displayed formulas of a paragraph (`\[…\]`, `$$…$$` at its top level), each a line of its
+/// own, centered in the paragraph's width (`width`, pt) as TeX centers a display, with
+/// \abovedisplayskip and \belowdisplayskip (10pt at 10pt) around it.
+fn displays(text: &str, width: f64, size: f64, stretch: f64) -> String {
+    let c: Vec<char> = text.chars().collect();
+    let top = top_level(&c);
+    let mut out = String::new();
+    let mut i = 0;
+    let skip = 10.0 * size;
+    while i < c.len() {
+        let open = match (c[i], c.get(i + 1)) {
+            ('\\', Some('[')) | ('$', Some('$')) if top[i] => 2,
+            _ => 0,
+        };
+        if open == 0 {
+            // a control symbol (`\\` of `\\[2pt]`) whole, so its second character opens nothing
+            let n = if c[i] == '\\' && c.get(i + 1).is_some_and(|x| !x.is_ascii_alphabetic()) { 2 } else { 1 };
+            out.extend(&c[i..(i + n).min(c.len())]);
+            i += n;
+            continue;
+        }
+        // the display runs to where the text is at its top level again, less its closing `\]` or `$$`
+        let end = (i + open..c.len()).find(|&k| top[k]).unwrap_or(c.len());
+        let inner: String = c[i + open..end.saturating_sub(2).max(i + open)].iter().collect();
+        if !out.trim().is_empty() {
+            out.push_str(&format!(" \\\\[{skip:.2}pt] "));
+        }
+        let half = width / (10.0 * size * stretch) / 2.0;
+        out.push_str(&format!("$\\hspace{{{half:.4}em}}\\mathclap{{\\displaystyle {}}}\\hspace{{{half:.4}em}}$", inner.trim()));
+        let rest: String = c[end..].iter().collect();
+        if !rest.trim().is_empty() {
+            out.push_str(&format!(" \\\\[{skip:.2}pt] "));
+        }
+        i = end;
+    }
+    out
+}
+
 /// Splits into lines at top-level `\\`, `\par` and, in a `paragraph` (a `text width`), `\newline`,
 /// each with the space (pt) added after it: `\\[2pt]`, or the `\vskip 1em` after a `\par`.
 fn manual_lines(text: &str, size: f64, paragraph: bool) -> Vec<(String, f64)> {
@@ -1361,6 +1399,10 @@ pub fn compose_label(text: &str, font: &str, text_width: Option<f64>, align: cha
     }
     // the space after each line besides the baselines' (cm)
     let mut skips: Vec<f64> = Vec::new();
+    let text = match text_width {
+        Some(w) => displays(&text, w / 2.54 * 72.27, size, stretch),
+        None => text,
+    };
     let manual = manual_lines(&text, size, text_width.is_some());
     // lines aligned without a text width are the cells of an `\halign`, each a group: a size
     // command in one is that line's alone, and the baselines are the node font's apart
@@ -1645,5 +1687,15 @@ mod tests {
             assert!(r.lines.len() >= 3, "{font}: {}", r.lines.len());
         }
         assert!(w.is_empty(), "{w:?}");
+    }
+
+    #[test]
+    fn displays_are_lines_of_their_own() {
+        let d = displays(r"is \[ x = 1 \] so", 100.0, 1.0, 1.0);
+        assert_eq!(d, r"is  \\[10.00pt] $\hspace{5.0000em}\mathclap{\displaystyle x = 1}\hspace{5.0000em}$ \\[10.00pt]  so");
+        // at the start or the end, no empty line; `$$` too; a `\\[2pt]` is no display
+        assert_eq!(displays(r"$$y$$", 100.0, 1.0, 1.0), r"$\hspace{5.0000em}\mathclap{\displaystyle y}\hspace{5.0000em}$");
+        assert_eq!(displays(r"a \\[2pt] b $x$", 100.0, 1.0, 1.0), r"a \\[2pt] b $x$");
+        assert_eq!(manual_lines(&d, 1.0, true).len(), 3);
     }
 }

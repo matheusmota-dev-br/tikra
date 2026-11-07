@@ -12,8 +12,8 @@ Modern Math (the same letters, without TeX's optical sizes), antialiasing differ
 shape, its color and its size:
 
 - shape: after aligning the two images (the best shift of up to 6 px from each corner and from the
-  center), their edges (where the color changes, so a fill counts by its outline and a label on a fill
-  still shows) are compared: the share of tikra's edges with a TeX edge within 2 px (0.5 mm), and the
+  center), their edges (where the color changes, even faintly: a fill counts by its outline, and a label on a
+  fill, a pale line or a seam still shows) are compared: the share of tikra's edges with a TeX edge within 2 px (0.5 mm), and the
   other way round; their harmonic mean is the F1 score.
 - pieces: each separate piece of TeX's drawing (a line, a word, a node) must be there in tikra's, and
   the other way round; one missing or extra piece is enough to not match.
@@ -36,6 +36,7 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import re
 from collections import Counter, defaultdict
 from datetime import date
@@ -53,7 +54,12 @@ BLUR = 0.7  # px: the blur both drawings get before their colors are compared
 FAINT = 8  # how far from white a pixel must be to count as a mark, for the ink of the other drawing
 MATCH, CLOSE, COLOR_OK, INK_OK = 0.90, 0.75, 0.90, 0.95
 MIN_PIECE = 20  # pixels of outline for a piece to count
-EDGE = 60  # color difference between neighbor pixels that makes an edge
+# color difference between neighbor pixels that makes an edge. Ghostscript renders the references with
+# GraphicsAlphaBits=4, so an edge pixel against white is only ever about 16, 32, 48… from it (1/16 of
+# coverage per step): 25 sits between one step and two, where both renderers agree on a soft edge. A
+# higher value lands on a light fill's outline (a 0.8 gray is 51 from white) or a pale line, which then
+# counts on one side and not the other; a lower one sits on a single step and on 1-level noise.
+EDGE = 25
 
 
 def digest(tex):
@@ -197,7 +203,8 @@ def warning_key(w):
 
 
 def pct(n, d):
-    return f"{100 * n / d:.1f}%" if d else "—"
+    # rounded down, so that a share short of all never reads 100.0%
+    return f"{math.floor(1000 * n / d) / 10:.1f}%" if d else "—"
 
 
 def main():

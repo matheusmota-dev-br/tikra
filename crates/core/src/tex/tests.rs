@@ -125,6 +125,12 @@ fn latex_commands() {
 fn loops_end() {
     assert_eq!(run(r"\newcount\i \i=0 \loop\ifnum\i<3 \advance\i 1 \the\i\repeat"), "123");
     assert_eq!(run(r"\newcounter{k}\whiledo{\value{k}<3}{\stepcounter{k}\arabic{k}}"), "123");
+    // a conditional opened while the test of another is read: the outer's false branch skips its
+    // \else, as TeX does
+    assert_eq!(run(r"\def\t#1{\ifdim#1pt>-1pt\ifdim#1pt<1pt A\else B\fi\fi C}\t{-2}\t{0}\t{2}"), "CACBC");
+    // ifthen compares as \ifnum does, so \numexpr is evaluated
+    assert_eq!(run(r"\newcounter{n}\def\m{3}\whiledo{\numexpr\arabic{n}-1 < \m}{\stepcounter{n}\arabic{n}}"), "1234");
+    assert_eq!(run(r"\ifthenelse{\numexpr 2*3\relax = 6}{y}{n}"), "y");
     // endless expansion stops with an error instead of hanging
     assert!(run(r"\def\a{\a}\a").starts_with("error"));
     assert!(run(r"\def\a{x\a}\a").starts_with("error"));
@@ -232,5 +238,6 @@ fn xstring_substitutions_and_tests() {
     assert_eq!(x(r"\StrDel{a,b,c}{,}[\r]\r/\StrDel[1]{a,b,c}{,}/\StrCount{a,b,c}{,}/\StrCount{aaa}{aa}"), "abc/ab,c/2/1");
     assert_eq!(x(r"\IfSubStr{abc}{b}{T}{F}\IfSubStr{abc}{x}{T}{F}\IfSubStr[2]{\s}{,}{T}{F}\IfSubStr[3]{a,b,c}{,}{T}{F}"), "TFTF");
     assert_eq!(x(r"\def\w{xyz}\IfStrEq{\w}{xyz}{T}{F}\IfStrEq{a}{b}{T}{F}\IfStrEq{1}{01}{T}{F}"), "TFF");
+    assert_eq!(x(r"\IfEq{1}{01}{T}{F}\IfEq{2.0}{2}{T}{F}\IfEq{a}{a}{T}{F}\IfEq{a}{b}{T}{F}\IfEq{1}{2}{T}{F}"), "TTTFF");
     assert_eq!(x(r"\IfBeginWith{abc}{ab}{T}{F}\IfBeginWith{abc}{b}{T}{F}\IfEndWith{abc}{bc}{T}{F}\IfEndWith{abc}{b}{T}{F}"), "TFTF");
 }

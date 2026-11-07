@@ -1398,6 +1398,46 @@ fn direction_anchor(angle: f64) -> &'static str {
     }
 }
 
+/// `\color{color}` in a text as `\textcolor{color}{…}` around what follows it in its group (as the
+/// switch colors up to the group's end), the spaces after it dropped (xcolor's `\color` ends with
+/// `\ignorespaces`): `The {\color{red} angle} is` is `The \textcolor{red}{angle} is`.
+fn color_switches(text: &str) -> String {
+    let mut s = text.to_string();
+    let mut from = 0;
+    while let Some(k) = s[from..].find("\\color{") {
+        let i = from + k;
+        let Some(close) = s[i + 7..].find('}') else { break };
+        let spec_end = i + 7 + close;
+        // the group the switch is in ends at the first `}` not closing a group opened after it; in
+        // math, the formula's end ends it too
+        let math = label::in_math(&s[..i]);
+        let mut depth = 0usize;
+        let mut end = s.len();
+        let after = &s[spec_end + 1..];
+        for (j, ch) in after.char_indices() {
+            let closes_math = math && depth == 0 && (ch == '$' || after[j..].starts_with("\\]") || after[j..].starts_with("\\)"));
+            match ch {
+                _ if closes_math => {
+                    end = spec_end + 1 + j;
+                    break;
+                }
+                '{' => depth += 1,
+                '}' if depth == 0 => {
+                    end = spec_end + 1 + j;
+                    break;
+                }
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        let body = s[spec_end + 1..end].trim_start().to_string();
+        let spec = s[i + 7..spec_end].to_string();
+        s = format!("{}\\textcolor{{{spec}}}{{{body}}}{}", &s[..i], &s[end..]);
+        from = i + 1;
+    }
+    s
+}
+
 /// `\textcolor{color}{text}` as the whole text, or `\color{color}` before it: (color, text).
 fn whole_textcolor(t: &str) -> Option<(String, String)> {
     let group = |s: &str| -> Option<(String, usize)> {
@@ -1561,8 +1601,9 @@ impl Engine {
     }
 
     fn inline_colors(&mut self, text: &str) -> String {
+        let text = color_switches(text);
         let mut out = String::new();
-        let mut rest = text;
+        let mut rest = text.as_str();
         while let Some(i) = rest.find("\\textcolor{") {
             out.push_str(&rest[..i]);
             let after = &rest[i + "\\textcolor{".len()..];
@@ -1602,7 +1643,10 @@ impl Engine {
                     if label::in_math(&out) {
                         out.push_str(&format!("\\textcolor[HTML]{{{hex}}}{{{inner}}}"));
                     } else if inner.contains('$') {
-                        out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{{}}}$", inner.replace('$', "")));
+                        // the words around the math stay text
+                        let parts: String =
+                            inner.split('$').enumerate().filter(|(_, p)| !p.is_empty()).map(|(k, p)| if k % 2 == 1 { p.to_string() } else { format!("\\text{{{p}}}") }).collect();
+                        out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{{parts}}}$"));
                     } else {
                         out.push_str(&format!("$\\textcolor[HTML]{{{hex}}}{{\\text{{{inner}}}}}$"));
                     }
@@ -1613,5 +1657,21 @@ impl Engine {
         }
         out.push_str(rest);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::color_switches;
+
+    #[test]
+    fn a_color_switch_colors_the_rest_of_its_group() {
+        assert_eq!(color_switches(r"The {\color{red} angle $\alpha$} is"), r"The {\textcolor{red}{angle $\alpha$}} is");
+        assert_eq!(color_switches(r"a \color{blue}b"), r"a \textcolor{blue}{b}");
+        // in math, up to the formula's end
+        assert_eq!(color_switches(r"$a \color{black}= b$ c"), r"$a \textcolor{black}{= b}$ c");
+        assert_eq!(color_switches(r"{\color{red}x}{\color{blue}y}"), r"{\textcolor{red}{x}}{\textcolor{blue}{y}}");
+        // `\colorbox` and `\textcolor` stay
+        assert_eq!(color_switches(r"\colorbox{red}{x} \textcolor{red}{y}"), r"\colorbox{red}{x} \textcolor{red}{y}");
     }
 }
