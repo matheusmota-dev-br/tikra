@@ -134,6 +134,8 @@ enum B {
     UsePlotHandler,
     SysAnimate,
     GetLastXY,
+    InterruptPath,
+    EndInterruptPath,
 }
 
 const COMMANDS: &[(&str, B)] = &[
@@ -157,6 +159,8 @@ const COMMANDS: &[(&str, B)] = &[
     ("pgfpathsine", B::Sine),
     ("pgfpathcosine", B::Cosine),
     ("pgfusepath", B::UsePath),
+    ("pgfinterruptpath", B::InterruptPath),
+    ("endpgfinterruptpath", B::EndInterruptPath),
     ("pgfusepathqstroke", B::UsePathQStroke),
     ("pgfusepathqfill", B::UsePathQFill),
     ("pgfusepathqfillstroke", B::UsePathQFillStroke),
@@ -940,6 +944,8 @@ impl Engine {
                 };
                 self.pgf_add(Segment::CurveTo(t.apply(a.plus(c1)), t.apply(a.plus(c2)), t.apply(a.plus(d))));
             }
+            B::InterruptPath => self.interrupt_path(),
+            B::EndInterruptPath => self.end_interrupt_path(),
             B::UsePath => {
                 let a = self.argument_string()?;
                 self.pgf_use(&a)?;

@@ -1659,8 +1659,9 @@ impl Tex {
                 if !q.is_conditional() || q == Ifcase {
                     return Err(Error::Figure("\\unless must be followed by a conditional".into()));
                 }
+                let open = self.conds;
                 let b = self.evaluate_condition(q)?;
-                self.conditional(!b)?;
+                self.conditional(!b, self.conds.saturating_sub(open))?;
             }
             Ifcase => {
                 let n = self.scan_int()?;
@@ -1679,8 +1680,9 @@ impl Tex {
                 }
             }
             q if q.is_conditional() => {
+                let open = self.conds;
                 let b = self.evaluate_condition(q)?;
-                self.conditional(b)?;
+                self.conditional(b, self.conds.saturating_sub(open))?;
             }
             Ifnextchar => {
                 // \@ifnextchar c{yes}{no}: looks past spaces
@@ -1885,21 +1887,31 @@ impl Tex {
         }
     }
 
-    /// Takes the true branch (reading on), or skips to `\else`/`\fi`.
-    fn conditional(&mut self, b: bool) -> Result<(), Error> {
+    /// Takes the true branch (reading on), or skips to `\else`/`\fi`. `inner` conditionals were
+    /// opened while the test was read (`\ifdim#1pt>0pt\ifdim…`, the second expanded in looking for
+    /// a space after the first's `pt`) and are still open: as TeX does, a false branch is skipped
+    /// past their `\else`, and each `\fi` ends one of them before one ends this conditional.
+    fn conditional(&mut self, b: bool, mut inner: usize) -> Result<(), Error> {
         self.conds += 1;
         if b {
             return Ok(());
         }
-        match self.skip_branch()? {
-            BranchEnd::Else => Ok(()),
-            BranchEnd::Fi => {
-                self.close_cond();
-                Ok(())
-            }
-            BranchEnd::Or => {
-                self.close_cond();
-                Err(Error::Figure("\\or outside \\ifcase".into()))
+        loop {
+            match self.skip_branch()? {
+                BranchEnd::Else | BranchEnd::Or if inner > 0 => {}
+                BranchEnd::Fi if inner > 0 => {
+                    inner -= 1;
+                    self.close_cond();
+                }
+                BranchEnd::Else => return Ok(()),
+                BranchEnd::Fi => {
+                    self.close_cond();
+                    return Ok(());
+                }
+                BranchEnd::Or => {
+                    self.close_cond();
+                    return Err(Error::Figure("\\or outside \\ifcase".into()));
+                }
             }
         }
     }
@@ -2521,18 +2533,21 @@ impl Tex {
                 self.set_count(r, v, false);
                 Ok(true)
             }
-            (_, Meaning::Dimen(r)) => {
-                let r = *r;
+            (_, Meaning::Dimen(r) | Meaning::Skip(r)) => {
+                let (r, glue) = (*r, matches!(m, Meaning::Skip(_)));
                 self.scan_optional_equals()?;
-                let v = self.scan_dimen()?;
-                self.set_dimen(r, v, false);
-                Ok(true)
-            }
-            (_, Meaning::Skip(r)) => {
-                let r = *r;
-                self.scan_optional_equals()?;
-                let v = self.scan_dimen()?;
-                self.skip_glue_parts()?;
+                // a length named where a value is (`.6\linewidth]` in the options of an environment tikra
+                // does not know) reads as an assignment with nothing to assign: what follows is kept
+                let v = match self.scan_dimen() {
+                    Err(Error::Figure(e)) if e == "missing dimension" => {
+                        self.warn(format!("{}: no length to assign: ignored", show_token(&t)));
+                        return Ok(true);
+                    }
+                    v => v?,
+                };
+                if glue {
+                    self.skip_glue_parts()?;
+                }
                 self.set_dimen(r, v, false);
                 Ok(true)
             }
@@ -3440,8 +3455,8 @@ fn ifthen_eval(tex: &mut Tex, t: &[Token]) -> Result<bool, Error> {
             });
         }
     }
-    // a numeric comparison: a < b, a = b, a > b
-    let s = tokens_to_string(&t);
+    // a numeric comparison: a < b, a = b, a > b, read as \ifnum reads it (`\numexpr 3-1\relax` included)
+    let s = tokens_to_string(&t).replace("\\numexpr", " ").replace("\\relax", " ");
     let Some(i) = s.find(['<', '=', '>']) else { return Ok(false) };
     let rel = s[i..].chars().next().unwrap_or('=');
     let a: f64 = crate::expr::eval(s[..i].trim(), &crate::expr::Variables::new()).unwrap_or(0.0);

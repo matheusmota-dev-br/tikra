@@ -24,6 +24,7 @@ pub const COMMANDS: &[&str] = &[
     "StrCount",
     "IfSubStr",
     "IfStrEq",
+    "IfEq",
     "IfBeginWith",
     "IfEndWith",
 ];
@@ -188,12 +189,20 @@ impl Tex {
                 let p = self.xstring_text()?;
                 string_tokens(&occurrences(&s, &units(&p)).len().to_string())
             }
-            "IfSubStr" | "IfStrEq" | "IfBeginWith" | "IfEndWith" => {
+            "IfSubStr" | "IfStrEq" | "IfEq" | "IfBeginWith" | "IfEndWith" => {
                 let p = self.xstring_text()?;
                 let p = units(&p);
                 let test = match name {
                     "IfSubStr" => occurrences(&s, &p).len() as i64 >= n.unwrap_or(1),
                     "IfStrEq" => s == p,
+                    // the same text, or the same number (`1` and `01.0`)
+                    "IfEq" => {
+                        let num = |v: &[&[Token]]| super::tokens_to_string(&join(v)).trim().parse::<f64>().ok();
+                        match (num(&s), num(&p)) {
+                            (Some(a), Some(b)) => a == b,
+                            _ => s == p,
+                        }
+                    }
                     "IfBeginWith" => s.starts_with(&p),
                     _ => s.ends_with(&p),
                 };

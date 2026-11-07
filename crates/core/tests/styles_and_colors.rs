@@ -245,7 +245,10 @@ fn color_definitions() {
     assert!(color::define("HTML", "12").is_none());
     assert!(color::define("HTML", "ZZZZZZ").is_none());
     assert!(color::define("rgb", "1,2").is_none());
-    assert!(color::define("hsb", "1,2,3").is_none());
+    assert_eq!(color::define("hsb", "0.5,1,1").unwrap().hex(), "#00ffff");
+    // values apart by spaces, as xcolor reads them too
+    assert_eq!(color::define("rgb", "0.79 0.0 0.1").unwrap().hex(), color::define("rgb", "0.79,0,0.1").unwrap().hex());
+    assert!(color::define("wave", "500").is_none());
 }
 
 #[test]
@@ -260,7 +263,7 @@ fn definecolor_and_colorlet() {
           \draw[c] (0,0) -- (1,0);",
     );
     assert_eq!(stroke(&paths(&c)[0]).color.hex(), "#091199");
-    let (_, w) = canvas_and_warnings(r"\definecolor{x}{hsb}{1,1,1}");
+    let (_, w) = canvas_and_warnings(r"\definecolor{x}{wave}{500}");
     assert!(w.iter().any(|a| a.contains("model not supported")), "{w:?}");
 }
 

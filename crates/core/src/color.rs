@@ -268,17 +268,36 @@ fn parse_unsigned(e: &str, defined: &HashMap<String, Color>) -> Option<Color> {
 
 /// `\definecolor{name}{model}{values}`.
 pub fn define(model: &str, values: &str) -> Option<Color> {
-    let nums: Vec<f64> = values.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+    if model.trim() == "HTML" {
+        let h = values.trim().trim_start_matches('#');
+        let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|x| f64::from(x) / 255.0);
+        return Some(Color::rgb(v(0)?, v(2)?, v(4)?));
+    }
+    // xcolor separates the values by commas or by spaces (`{0.79 0.0 0.1}`)
+    let nums: Vec<f64> = values.split(|c: char| c == ',' || c.is_whitespace()).filter(|v| !v.is_empty()).map(|v| v.parse().ok()).collect::<Option<_>>()?;
     match model.trim() {
         "rgb" if nums.len() == 3 => Some(Color::rgb(nums[0], nums[1], nums[2])),
+        "cmy" if nums.len() == 3 => Some(Color::rgb(1.0 - nums[0], 1.0 - nums[1], 1.0 - nums[2])),
+        // a gray of 16 levels, 0 black to 15 white
+        "Gray" if nums.len() == 1 => Some(Color::gray(nums[0] / 15.0)),
+        "hsb" if nums.len() == 3 => {
+            // hue, saturation and brightness, each from 0 to 1; the hue goes round red, yellow, green, cyan, blue, magenta
+            let (h, s, b) = (nums[0].rem_euclid(1.0) * 6.0, nums[1].clamp(0.0, 1.0), nums[2].clamp(0.0, 1.0));
+            let f = h - h.floor();
+            let (p, q, t) = (b * (1.0 - s), b * (1.0 - s * f), b * (1.0 - s * (1.0 - f)));
+            let (r, g, bl) = match h.floor() as u8 {
+                0 => (b, t, p),
+                1 => (q, b, p),
+                2 => (p, b, t),
+                3 => (p, q, b),
+                4 => (t, p, b),
+                _ => (b, p, q),
+            };
+            Some(Color::rgb(r, g, bl))
+        }
         "RGB" if nums.len() == 3 => Some(Color::rgb(nums[0] / 255.0, nums[1] / 255.0, nums[2] / 255.0)),
         "gray" if nums.len() == 1 => Some(Color::gray(nums[0])),
         "cmyk" if nums.len() == 4 => Some(Color::cmyk(nums[0], nums[1], nums[2], nums[3])),
-        "HTML" => {
-            let h = values.trim().trim_start_matches('#');
-            let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|x| f64::from(x) / 255.0);
-            Some(Color::rgb(v(0)?, v(2)?, v(4)?))
-        }
         _ => None,
     }
 }
@@ -299,6 +318,13 @@ mod tests {
         assert_eq!(parse("red!", &d), parse("red", &d));
         assert_eq!(parse("red!30!blue!50!", &d).unwrap().hex(), parse("red!30!blue!50!white", &d).unwrap().hex());
         assert_eq!(define("HTML", "FF8800").unwrap().hex(), "#ff8800");
+        assert_eq!(define("rgb", "1 0.5 0").unwrap().hex(), "#ff8000");
+        assert_eq!(define("rgb", " 1, 0.5,0 ").unwrap().hex(), "#ff8000");
+        assert_eq!(define("hsb", "0.5,1,1").unwrap().hex(), "#00ffff");
+        assert_eq!(define("hsb", "0,0,0.5").unwrap().hex(), "#808080");
+        assert_eq!(define("cmy", "0,1,1").unwrap().hex(), "#ff0000");
+        assert_eq!(define("Gray", "15").unwrap().hex(), "#ffffff");
+        assert_eq!(define("rgb", "1,x,0"), None);
     }
 
     #[test]
