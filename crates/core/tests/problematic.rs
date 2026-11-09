@@ -5,7 +5,8 @@ mod common;
 use std::sync::mpsc;
 use std::time::Duration;
 
-/// Runs `tikz` on a thread with a 5 s deadline: an infinite loop fails the test instead of hanging the suite.
+/// Runs `tikz` on a thread with a 5 s deadline (30 s under `cargo llvm-cov`, whose counters slow it down): an
+/// infinite loop fails the test instead of hanging the suite.
 fn convert_with_deadline(tikz: &str) -> Result<tikra::Output, tikra::Error> {
     let (tx, rx) = mpsc::channel();
     let t = tikz.to_string();
@@ -15,9 +16,9 @@ fn convert_with_deadline(tikz: &str) -> Result<tikra::Output, tikra::Error> {
             let _ = tx.send(tikra::convert(&t));
         })
         .unwrap();
-    match rx.recv_timeout(Duration::from_secs(5)) {
+    match rx.recv_timeout(Duration::from_secs(if cfg!(coverage) { 30 } else { 5 })) {
         Ok(r) => r,
-        Err(mpsc::RecvTimeoutError::Timeout) => panic!("hung (more than 5 s): {}", &tikz[..tikz.len().min(200)]),
+        Err(mpsc::RecvTimeoutError::Timeout) => panic!("hung (past the deadline): {}", &tikz[..tikz.len().min(200)]),
         Err(mpsc::RecvTimeoutError::Disconnected) => panic!("panic: {}", &tikz[..tikz.len().min(200)]),
     }
 }

@@ -22,3 +22,7 @@ png = { version = "0.17", optional = true }
 [features]
 # the construction animation as GIF and APNG, outside the browser
 motion = ["dep:png"]
+
+[lints.rust]
+# cargo llvm-cov builds with --cfg coverage
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
