@@ -69,10 +69,8 @@ fn ray_arc(o: Point, d: Point, m: Point, a0: f64, a1: f64, rx: f64, ry: f64) -> 
     let a = ax * ax + ay * ay;
     let b = 2.0 * (ax * wx + ay * wy);
     let c = wx * wx + wy * wy - 1.0;
+    // (a negative discriminant has no root: the ray misses, and the answer is `o`)
     let disc = b * b - 4.0 * a * c;
-    if a < 1e-30 || disc < 0.0 {
-        return o;
-    }
     let (lo, hi) = (a0.min(a1), a0.max(a1));
     let within = |p: Point| {
         let q = p.minus(m);

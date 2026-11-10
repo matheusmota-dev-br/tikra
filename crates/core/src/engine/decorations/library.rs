@@ -82,7 +82,7 @@ pub fn intern(s: &str) -> &'static str {
 }
 
 /// The body of a macro, if defined.
-fn macro_body(e: &Engine, name: &str) -> Option<Vec<Token>> {
+pub(super) fn macro_body(e: &Engine, name: &str) -> Option<Vec<Token>> {
     match e.tex.meaning_of(name) {
         crate::tex::Meaning::Macro(m) => Some(crate::tex::substitute(&m.body, &[])),
         _ => None,
@@ -149,7 +149,10 @@ pub fn lookup_meta(name: &str) -> Option<Meta> {
 
 fn initial(d: Dec) -> &'static str {
     match d {
-        Dec::LineTo | Dec::MoveTo | Dec::CurveTo | Dec::Saw | Dec::Snake | Dec::Bumps | Dec::ExpandingWaves | Dec::TextAlongPath | Dec::CircleConnectionBar => "initial",
+        // (a declared decoration names its own: `run` reads it)
+        Dec::LineTo | Dec::MoveTo | Dec::CurveTo | Dec::Saw | Dec::Snake | Dec::Bumps | Dec::ExpandingWaves | Dec::TextAlongPath | Dec::CircleConnectionBar | Dec::User(_) => {
+            "initial"
+        }
         Dec::Zigzag => "up from center",
         Dec::RandomSteps => "start",
         Dec::Bent => "bent",
@@ -163,7 +166,6 @@ fn initial(d: Dec) -> &'static str {
         Dec::ShapeBackgrounds => "initialise",
         Dec::TextEffects => "setup",
         Dec::Footprints => "left",
-        Dec::User(_) => "initial",
     }
 }
 
@@ -696,8 +698,8 @@ impl<'a> Run<'a> {
                 (Meta::StraightZigzag, "initial") => (self.s.meta_segment_length, "zigzag", Dec::CurveTo),
                 (Meta::StraightZigzag, _) => (self.s.meta_segment_length, "initial", Dec::Zigzag),
                 (Meta::Internal, "initial") => (self.key_pt("pre length", 0.0), "main", named(self.e, &pre)),
-                (Meta::Internal, _) => (self.w.rem_total - self.key_pt("post length", 0.0), "final", main_name),
-                (Meta::User(_), _) => unreachable!("run above"),
+                // (a declared meta-decoration is run above)
+                (Meta::Internal | Meta::User(_), _) => (self.w.rem_total - self.key_pt("post length", 0.0), "final", main_name),
             };
             if self.w.rem_total < width - EPS {
                 break;
@@ -713,11 +715,10 @@ impl<'a> Run<'a> {
         }
         let dec = match meta {
             Meta::StraightZigzag => Dec::CurveTo,
-            Meta::Internal => {
+            Meta::Internal | Meta::User(_) => {
                 self.extra = self.s.extra_transform();
                 named(self.e, &post)
             }
-            Meta::User(_) => unreachable!("run above"),
         };
         let rem = self.w.rem_total;
         self.invoke(dec, rem)
@@ -967,7 +968,8 @@ impl<'a> Run<'a> {
             (Dec::TextEffects, _) => self.te_scan(),
             (Dec::TextAlongPath, "initial") => self.text_initial()?,
             (Dec::TextAlongPath, "scan") => self.text_scan()?,
-            (Dec::TextAlongPath, _) => {
+            // text along path (the only other decoration with a precomputation)
+            _ => {
                 let tx = &mut self.text;
                 tx.shift = if tx.fit {
                     if tx.stretch {
@@ -983,7 +985,6 @@ impl<'a> Run<'a> {
                     0.0
                 };
             }
-            _ => {}
         }
         Ok(())
     }
@@ -1212,12 +1213,12 @@ impl<'a> Run<'a> {
     // ------------------------------------------------------------ show path construction
 
     fn segment_code_current(&mut self) -> Result<(), Error> {
+        // (the walker moves past a moveto at once: it is never the current segment)
         let k = match self.w.seg.kind {
-            Kind::MoveTo => 0,
             Kind::LineTo => 1,
             Kind::CurveTo => 2,
             Kind::ClosePath => 3,
-            Kind::Last => return Ok(()),
+            Kind::MoveTo | Kind::Last => return Ok(()),
         };
         self.segment_code(k)
     }
