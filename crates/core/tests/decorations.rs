@@ -240,6 +240,26 @@ fn text_along_path_colored_by_model_and_values() {
     }
 }
 
+/// In the text's format, `\color`'s argument may be a macro, braced or not, and a `\colorlet`
+/// defines a color for the `\color` after it (and is not a `\color` itself).
+#[test]
+fn text_along_path_color_from_a_macro_or_a_colorlet() {
+    let colors = |format: &str| {
+        let (items, w) = picture(&format!(r"\def\mycol{{red}}\path[decorate, decoration={{text along path, text={{|{format}|ab}}}}] (0,0) -- (3,0);"));
+        assert!(w.is_empty(), "{format}: {w:?}");
+        let glyphs = |l: &tikra::scene::Label| l.lines.iter().map(|b| b.items.len()).sum::<usize>();
+        let texts: Vec<_> = items.iter().filter_map(|i| if let Item::Text { label, .. } = i { Some(label) } else { None }).collect();
+        // one glyph a character: nothing of the format is set as text
+        assert!(texts.iter().all(|l| glyphs(l) == 1), "{format}");
+        texts.iter().map(|l| l.color.hex()).collect::<Vec<_>>()
+    };
+    for format in [r"\color\mycol", r"\color{\mycol}", r"\color \mycol"] {
+        assert_eq!(colors(format), ["#ff0000", "#ff0000"], "{format}");
+    }
+    assert_eq!(colors(r"\colorlet{foo}{blue}\color{foo}"), ["#0000ff", "#0000ff"]);
+    assert_eq!(colors(r"\colorlet{foo}{blue}"), ["#000000", "#000000"]);
+}
+
 #[test]
 fn footprints_and_shapes() {
     let (items, w) = picture(r"\fill[decorate, decoration={footprints, foot length=20pt}] (0,0) -- (3,0);");

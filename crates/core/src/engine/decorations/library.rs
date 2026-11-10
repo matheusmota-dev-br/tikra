@@ -1699,11 +1699,23 @@ impl<'a> Run<'a> {
 
     /// The label of one character, with the format's color (`\color{…}`) taken out.
     fn char_label(&mut self, text: &str, format: &str, math: bool) -> crate::scene::Label {
-        let (font, color) = split_color(format);
+        let (font, (lets, color)) = split_color(format);
+        // the format's `\colorlet`s hold for its `\color`, and only there
+        let saved = (!lets.is_empty()).then(|| self.e.colors.clone());
+        for (name, spec) in lets {
+            let spec = self.expand_spec(spec);
+            if let Some(c) = self.e.color(&spec) {
+                self.e.colors.insert(name, c);
+            }
+        }
+        let color = color.map(|(model, spec)| (model, self.expand_spec(spec)));
         let color = color
             .and_then(|(model, spec)| model.map_or_else(|| self.e.color(&spec), |m| crate::color::define(&m, &spec)))
             .or_else(|| self.e.color(&self.s.text_color.clone()))
             .unwrap_or(Color::BLACK);
+        if let Some(colors) = saved {
+            self.e.colors = colors;
+        }
         let body = if math { format!("${text}$") } else { text.to_string() };
         let mut warnings = Vec::new();
         let label = crate::label::compose_label(&body, &font, None, 'l', color, &mut warnings);
@@ -1711,6 +1723,17 @@ impl<'a> Run<'a> {
             self.e.warn(w);
         }
         label
+    }
+
+    /// A color spec with its macros expanded, as xcolor reads it (`\color\mycolor`).
+    fn expand_spec(&mut self, spec: String) -> String {
+        if !spec.contains('\\') {
+            return spec;
+        }
+        match self.e.tex.expand_fully(crate::engine::tikra_tokens(&spec)) {
+            Ok(t) => crate::tex::tokens_to_string(&t).trim().to_string(),
+            Err(_) => spec,
+        }
     }
 
     fn char_width(&mut self, text: &str, format: &str, math: bool) -> f64 {
@@ -1742,28 +1765,66 @@ fn split_keyword(s: &str) -> (String, String) {
     }
 }
 
-/// A text format without its `\color[model]{…}`, and the color: its model (if given) and spec.
-fn split_color(format: &str) -> (String, Option<(Option<String>, String)>) {
+/// The colors a text format sets.
+type FormatColors = (Vec<(String, String)>, Option<(Option<String>, String)>);
+
+/// A text format without its `\colorlet{name}{…}` and `\color[model]{…}`, then the colors the
+/// `\colorlet`s define (name and spec, in order), and the color: its model (if given) and spec.
+fn split_color(format: &str) -> (String, FormatColors) {
     let mut font = String::new();
+    let mut lets = Vec::new();
     let mut color = None;
     let mut rest = format;
     while let Some(i) = rest.find("\\color") {
         font.push_str(&rest[..i]);
-        let mut after = rest[i + 6..].trim_start();
+        rest = &rest[i..];
+        let after = &rest[6..];
+        let letters = after.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(after.len());
+        let word = &after[..letters];
+        if !matches!(word, "" | "let") {
+            // `\colorbox`, `\colorlets`…: another command
+            font.push_str(&rest[..6 + letters]);
+            rest = &after[letters..];
+            continue;
+        }
+        let mut after = after[letters..].trim_start();
         let mut model = None;
         if let Some((m, b)) = after.strip_prefix('[').and_then(|a| a.split_once(']')) {
             model = Some(m.trim().to_string());
-            after = b.trim_start();
+            after = b;
         }
-        if let Some(b) = after.strip_prefix('{') {
-            if let Some(j) = b.find('}') {
-                color = Some((model, b[..j].to_string()));
-                rest = &b[j + 1..];
-                continue;
-            }
+        if word == "let" {
+            let Some((name, b)) = format_argument(after) else { break };
+            let Some((spec, b)) = format_argument(b) else { break };
+            lets.push((name.trim().to_string(), spec.to_string()));
+            rest = b;
+            continue;
         }
-        rest = after;
+        let Some((spec, b)) = format_argument(after) else { break };
+        color = Some((model, spec.to_string()));
+        rest = b;
     }
-    font.push_str(rest);
-    (font, color)
+    // what is left after a `\color` missing its argument is dropped with it
+    if !rest.starts_with("\\color") {
+        font.push_str(rest);
+    }
+    (font, (lets, color))
+}
+
+/// A command's argument in a text format and what follows it: a braced group, or else one token
+/// (`\color\mycolor`, a control word or a character).
+fn format_argument(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if let Some(b) = s.strip_prefix('{') {
+        let j = b.find('}')?;
+        return Some((&b[..j], &b[j + 1..]));
+    }
+    let first = s.chars().next()?;
+    let n = if first == '\\' {
+        let letters = s[1..].find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len() - 1);
+        1 + if letters > 0 { letters } else { s[1..].chars().next().map_or(0, char::len_utf8) }
+    } else {
+        first.len_utf8()
+    };
+    Some((&s[..n], &s[n..]))
 }
