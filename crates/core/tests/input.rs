@@ -29,6 +29,25 @@ fn standalone_without_border_uses_default_margin() {
     no_warnings(r"\documentclass[border=3pt \begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}");
 }
 
+/// `varwidth=3cm` of `standalone` breaks a line wider than 3 cm, and the page is as wide as its widest line.
+#[test]
+fn standalone_varwidth_breaks_the_line() {
+    let size = |svg: &str| -> (f64, f64) {
+        let num = |k: &str| svg.split(&format!("{k}=\"")).nth(1).unwrap().split("pt").next().unwrap().parse().unwrap();
+        (num("width"), num("height"))
+    };
+    let square = r"\tikz \fill (0,0) rectangle (1,1);";
+    let (w1, h1) = size(&no_warnings(&format!(r"\documentclass{{standalone}}\begin{{document}}{square}\end{{document}}")).svg);
+    let (w2, _) = size(&no_warnings(&format!(r"\documentclass{{standalone}}\begin{{document}}{square} {square}\end{{document}}")).svg);
+    // three squares do not fit in 3 cm: two on the first line, one on the second
+    let (w, h) = size(&no_warnings(&format!(r"\documentclass[varwidth=3cm]{{standalone}}\begin{{document}}{square} {square} {square}\end{{document}}")).svg);
+    assert!((w - w2).abs() < 0.01, "{w} {w2}");
+    assert!(h > 1.9 * h1, "{h} {h1}");
+    // a line that fits is not widened to 3 cm
+    let (w, _) = size(&no_warnings(&format!(r"\documentclass[varwidth=3cm]{{standalone}}\begin{{document}}{square}\end{{document}}")).svg);
+    assert!((w - w1).abs() < 0.01, "{w} {w1}");
+}
+
 #[test]
 fn preview_package_setup_is_neither_text_nor_a_warning() {
     // the preamble of many TeXample figures: nothing of it is drawn

@@ -94,7 +94,7 @@ impl Engine {
     /// set aside meanwhile.
     pub fn draw_apart(&mut self, code: Vec<Token>) -> Result<Canvas, Error> {
         let (boxes, layout, words) = self.run_apart(code)?;
-        Ok(super::typeset(&boxes, &layout, &words, 0.0))
+        Ok(super::typeset(&boxes, &layout, &words, 0.0, None))
     }
 
     /// The pictures and words `code` makes and how they are laid out, the drawing around it set
