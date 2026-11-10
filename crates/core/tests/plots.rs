@@ -536,3 +536,12 @@ fn a_table_named_by_a_macro() {
     assert!(w.is_empty(), "{w:?}");
     assert!(!filled(&c).is_empty(), "the marks");
 }
+
+/// `point meta=symbolic={\thisrow{c}}` takes the cell as written: `0,0,1` is blue.
+#[test]
+fn a_symbolic_meta_from_a_cell_is_its_text() {
+    let (c, w) = axis("", "\\addplot[patch, shader=flat, mesh/color input=explicit, point meta={symbolic={\\thisrow{c}}}] table {\nx y c\n0 0 0,0,1\n1 0 0,0,1\n0 1 0,0,1\n};");
+    assert!(w.is_empty(), "{w:?}");
+    let blue = c.items.iter().any(|i| matches!(i, Item::Path { fill: Some(f), .. } if matches!(f.paint, Paint::Solid(k) if k.hex() == "#0000ff")));
+    assert!(blue, "a blue triangle");
+}
