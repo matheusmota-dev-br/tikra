@@ -55,7 +55,7 @@ fn parse(spec: &str) -> (String, Option<Direction>) {
         return (name, Some(Direction::Going(d)));
     }
     if let Some((name, d)) = split("placed ") {
-        let d = d.trim_start_matches('{').trim_end_matches('}').to_string();
+        let d = crate::keys::strip_braces(&d).to_string();
         return (name, Some(Direction::Placed(d)));
     }
     (s.to_string(), None)
