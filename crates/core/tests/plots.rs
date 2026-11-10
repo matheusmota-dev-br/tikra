@@ -556,3 +556,13 @@ fn a_bad_addplot_is_skipped_within_its_code() {
     let (_, w) = axis("", r"\addplot pizza; \addplot coordinates {(0,0) (1,1)};");
     assert!(w.iter().any(|w| w.contains("'pizza'")), "{w:?}");
 }
+
+/// `\pgfmathprintnumber` prints in math even in a node's text: a `frac` is a fraction, not "12".
+#[test]
+fn a_number_printed_in_text_is_in_math() {
+    let r = no_warnings(r"\begin{tikzpicture}\node {\pgfmathprintnumber[frac]{0.5}};\end{tikzpicture}");
+    assert!(r.alt.contains("1 over 2"), "{}", r.alt);
+    // already in math: as it was
+    let r = no_warnings(r"\begin{tikzpicture}\node {$x=\pgfmathprintnumber[frac]{0.5}$};\end{tikzpicture}");
+    assert!(r.alt.contains("1 over 2"), "{}", r.alt);
+}
