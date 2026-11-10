@@ -584,3 +584,13 @@ fn text_marks_show_the_text_mark() {
     let pgfplots = no_warnings(r"\begin{tikzpicture}\begin{axis}\addplot[mark=text, text mark=Q] coordinates {(0,0) (1,1)};\end{axis}\end{tikzpicture}").svg;
     assert!(pgfplots.contains(&q), "{pgfplots}");
 }
+
+/// A tieline in 2d needs only `tie end x` and `tie end y`: its ties are drawn, without a warning.
+#[test]
+fn a_tieline_in_2d_needs_no_z_end() {
+    let (_, w) = axis("", "\\addplot[tieline] table[tie end x=c, tie end y=d] {\na b c d\n0 0 1 2\n1 0 2 2\n};");
+    assert!(w.is_empty(), "{w:?}");
+    // a missing end is still told
+    let (_, w) = axis("", "\\addplot[tieline] table[tie end x=c] {\na b c\n0 0 1\n1 0 2\n};");
+    assert!(w.iter().any(|w| w.contains("tie ends")), "{w:?}");
+}
