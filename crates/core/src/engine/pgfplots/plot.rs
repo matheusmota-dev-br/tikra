@@ -1022,6 +1022,11 @@ fn load_table(e: &mut Engine, opts: Option<Vec<Token>>, mut text: String, what: 
         text = t;
         all_opts.extend(o);
         all_opts.extend(super::toks(","));
+    } else if let Some(name) = text.trim().strip_prefix('\\').map(str::trim).filter(|n| !n.is_empty() && !n.contains(char::is_whitespace)) {
+        // any other macro holds the file's name (or the data): its text
+        if e.tex.is_defined(name) {
+            text = e.tex.expand_to_string(vec![Token::cs(name)])?;
+        }
     }
     all_opts.extend(opts.unwrap_or_default());
     if !all_opts.is_empty() {
