@@ -473,14 +473,19 @@ fn operations_in(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = coordinate(e)?;
                 b.relative_base = None;
-                b.to_start = None;
+                // a `to` right after a node starts at that node's border
+                if pending_op.as_deref() != Some("to") {
+                    b.to_start = None;
+                }
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('+', _) => {
                 e.turn_from = b.tangent();
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = relative(e, b, depth)?;
-                b.to_start = None;
+                if pending_op.as_deref() != Some("to") {
+                    b.to_start = None;
+                }
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('-', _) => match e.tex.get_token() {

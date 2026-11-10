@@ -199,6 +199,16 @@ fn to_with_angles_bends_and_looseness() {
     assert!(points(&paths(&c)[1].segments)[1].0 < 3.0);
 }
 
+/// A `to` right after a node starts at that node's border, not at its center.
+#[test]
+fn to_right_after_a_node_starts_at_its_border() {
+    let c = canvas(r"\draw (0,0) node[draw, minimum size=1cm] (a) {} to (3,0);");
+    let line = paths(&c).into_iter().find(|d| points(&d.segments).iter().any(|p| close(p.0, 3.0))).expect("the line");
+    let p = points(&line.segments);
+    let start = p[p.len() - 2];
+    assert!(start.0 > 0.5 && start.0 < 0.6, "from the east border, not the center: {start:?}");
+}
+
 #[test]
 fn rectangle_circle_ellipse() {
     let t = first_path(r"\draw (0,0) rectangle (2,1);");
