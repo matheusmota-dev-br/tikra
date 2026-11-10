@@ -177,6 +177,13 @@ fn tikzmath_index_with_an_equals_sign() {
     assert!(close_to(start(r"\tikzmath{let \b{x=y} = 3;} \draw (\b{x=y},0) -- (1,1);"), (3.0, 0.0)));
 }
 
+/// `let` in `\tikzmath` keeps the expanded tokens as they are: a control sequence stays one.
+#[test]
+fn tikzmath_let_keeps_tokens() {
+    let body = r"\tikzmath{let \t = ab\relax c;}\def\u{ab\relax c}\ifx\t\u\def\x{1}\else\def\x{2}\fi \draw (\x,0) -- (3,3);";
+    assert!(close_to(start(body), (1.0, 0.0)));
+}
+
 #[test]
 fn pgfmath_inner_commands_and_random_numbers() {
     // `\pgfmathadd@` and the other inner forms
