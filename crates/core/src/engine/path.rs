@@ -2372,14 +2372,15 @@ fn let_operation(e: &mut Engine, depth: Option<usize>) -> Result<(), Error> {
             Token::Char(',', _) => continue,
             other => return Err(Error::Figure(format!("let: '{}' unexpected", tex::show_token(other)))),
         };
-        // the number after \p, \n: \p1, \p{name} (expanded, as a \csname makes it)
+        // the name after \p, \n: an argument, \p1, \p{name} or \p\i (expanded, as a \csname makes it)
         let index = match e.tex.get_token() {
             Some(Token::Char(_, Cat::Begin)) => {
                 let name = e.tex.read_group_body()?;
                 e.tex.expand_to_string(name)?
             }
             Some(Token::Char(c, _)) => c.to_string(),
-            _ => String::new(),
+            Some(t) => e.tex.expand_to_string(vec![t])?,
+            None => String::new(),
         };
         match next(e, depth)? {
             Some(t) if t.is_char('=') => {}
