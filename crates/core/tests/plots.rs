@@ -616,3 +616,13 @@ fn explicit_color_patches_are_outlined_by_their_corners() {
     assert_eq!(f.len(), 1);
     assert_eq!(f[0].iter().filter(|s| matches!(s, Segment::LineTo(_))).count(), 4, "{:?}", f[0]);
 }
+
+/// `execute at end axis` runs inside the axis: its `\addplot` is a plot of the axis.
+#[test]
+fn execute_at_end_axis_is_inside_the_axis() {
+    let (with, w) = axis(r"execute at end axis={\addplot[only marks, mark=square*] coordinates {(0,0) (1,1)};}", "");
+    assert!(w.is_empty(), "{w:?}");
+    let (direct, _) = axis("", r"\addplot[only marks, mark=square*] coordinates {(0,0) (1,1)};");
+    assert_eq!(filled(&with).len(), filled(&direct).len());
+    assert!(!filled(&with).is_empty());
+}

@@ -235,10 +235,14 @@ impl Engine {
 
     /// `\end{axis}`: everything is drawn.
     pub fn end_axis(&mut self) -> Result<(), Error> {
-        let Some(axis) = self.axis.take() else { return Ok(()) };
+        if self.axis.is_none() {
+            return Ok(());
+        }
+        // still in the axis: its code can add plots and use `axis cs`
         if let Some(code) = keys::value_tokens(self, "/pgfplots/execute at end axis") {
             self.run_tokens(code)?;
         }
+        let Some(axis) = self.axis.take() else { return Ok(()) };
         self.mark_source(axis.source);
         let r = draw::draw_axis(self, &axis);
         // close the groups the body left open, then the axis' own
