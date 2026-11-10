@@ -185,6 +185,23 @@ fn basic_layer_decoration_environment() {
     assert!(p.iter().any(|q| q.y > 2.0 * PT), "{p:?}");
 }
 
+/// A stretch whose automaton stops short still ends at its length: zigzag on 23pt stops at 20pt,
+/// draws on to 23pt, and the next stretch starts there.
+#[test]
+fn a_stretch_ends_at_its_length_on_a_straight_path() {
+    let (items, w) = picture(
+        r"\begin{pgfdecoration}{{zigzag}{23pt},{zigzag}{25pt}}
+          \pgfpathmoveto{\pgfpointorigin}\pgfpathlineto{\pgfpoint{100pt}{0pt}}
+          \end{pgfdecoration}\pgfusepath{stroke}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let p = ends(&paths(&items)[0]);
+    let x = |q: Point| q.x / PT;
+    assert!(p.iter().any(|q| (x(*q) - 23.0).abs() < 1e-3 && q.y.abs() < 1e-4), "the first stretch ends at 23pt: {p:?}");
+    let last = *p.last().unwrap();
+    assert!((x(last) - 48.0).abs() < 1e-3 && last.y.abs() < 1e-4, "the second ends at 48pt: {p:?}");
+}
+
 #[test]
 fn text_along_path() {
     let (items, w) = picture(r"\path[decorate, decoration={text along path, text={abc}}] (0,0) -- (3,0);");
