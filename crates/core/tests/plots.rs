@@ -371,6 +371,22 @@ fn a_scaled_picture_scales_its_axis_text_and_all() {
     assert!((scale(&c) - scale(&axis("title=T", r"\addplot coordinates {(0,0) (1,1)};").0) / 2.0).abs() < 1e-9);
 }
 
+/// `anchor=near xticklabel` on a scaled node is the anchor that faces the axis, as on an unscaled
+/// one: below a plain x axis, `north`.
+#[test]
+fn near_ticklabel_anchor_on_a_scaled_node() {
+    let place = |opts: &str| {
+        let (c, w) = axis("xmin=0, xmax=1, ymin=0, ymax=1", &format!(r"\node[{opts}] at (xticklabel cs:0.5) {{Q}};"));
+        assert!(w.is_empty(), "{w:?}");
+        c.items.iter().rev().find_map(|i| if let Item::Text { place, .. } = i { Some(*place) } else { None }).unwrap()
+    };
+    for scale in ["1", "10", "0.1"] {
+        let near = place(&format!("scale={scale}, anchor=near xticklabel"));
+        let north = place(&format!("scale={scale}, anchor=north"));
+        assert!((near.e - north.e).abs() < 1e-6 && (near.f - north.f).abs() < 1e-6, "scale={scale}: {near:?} vs {north:?}");
+    }
+}
+
 /// A PNG of `w` × `h` pixels (72 dpi: as many pt) in one color, in a folder of its own that tikra
 /// reads files from.
 fn png_file(name: &str, w: u32, h: u32, color: &str) -> std::path::PathBuf {

@@ -229,9 +229,10 @@ impl Frame {
             _ => return None,
         };
         let lin = Transform { e: 0.0, f: 0.0, ..*rotation }.inverse();
-        // towards the axis (away from it for `opposite`)
-        let n = lin.apply(self.normal(a).scale(if opposite { 1.0 } else { -1.0 }));
-        let d = lin.apply(self.direction(a));
+        // towards the axis (away from it for `opposite`), as unit vectors: a scaled node turns them
+        // only
+        let n = unit(lin.apply(self.normal(a).scale(if opposite { 1.0 } else { -1.0 })));
+        let d = unit(lin.apply(self.direction(a)));
         let snap = |v: Point| -> &'static str {
             const T: f64 = 0.17;
             match (v.y > T, v.y < -T, v.x > T, v.x < -T) {
