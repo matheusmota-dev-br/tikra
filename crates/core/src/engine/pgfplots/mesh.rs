@@ -127,9 +127,8 @@ pub fn image_limits(pts: &[[f64; 3]], rows: usize, cols: usize, a: usize) -> Vec
 /// the corner before`), the very last one the last center's. An unbounded meta counts as the
 /// lowest (`\pgfplots@metamin`).
 pub fn image_interp_metas(metas: &[f64], rows: usize, cols: usize, min: f64) -> Vec<[f64; 4]> {
-    if rows < 2 || cols < 2 || metas.len() < rows * cols {
-        return metas.iter().map(|&m| [m; 4]).collect();
-    }
+    // (a plot is a lattice of at least 2 × 2 points, one meta each)
+    debug_assert!(rows >= 2 && cols >= 2 && metas.len() >= rows * cols, "an image of {rows} × {cols} cells");
     let raw = |r: usize, c: usize| metas[r * cols + c];
     let m = |r: usize, c: usize| Some(raw(r, c)).filter(|v| v.is_finite()).unwrap_or(min);
     let or = |r: usize, c: usize, v: f64| Some(raw(r, c)).filter(|v| v.is_finite()).unwrap_or(v);
@@ -406,13 +405,10 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         }
         // `colormap access=piecewise constant`: the shading's colors are bands, cut exactly
         if let Some(cm) = cmap.filter(|c| c.access == super::colormap::Access::Const && closes && shader == "interp" && vertex.is_none() && metas.len() == corners.len()) {
-            let tris: Vec<[usize; 3]> = if corners.len() == 4 {
-                match reversed {
-                    (false, false) | (true, true) => vec![[0, 1, 3], [1, 2, 3]],
-                    _ => vec![[0, 1, 2], [0, 2, 3]],
-                }
-            } else {
-                vec![[0, 1, 2]]
+            // (a cell of a matrix: only patches of explicit colors have three corners here)
+            let tris: Vec<[usize; 3]> = match reversed {
+                (false, false) | (true, true) => vec![[0, 1, 3], [1, 2, 3]],
+                _ => vec![[0, 1, 2], [0, 2, 3]],
             };
             let n = cm.stops.len();
             let width = (range[1] - range[0]) / n as f64;
@@ -444,8 +440,8 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
         let lattice_cell = corners.len() == 4 && p.lattice.is_some() && !p.image && kind != "bilinear";
         let shaded = shader == "interp" || shader == "faceted interp";
         if let Some(cm) = cmap.filter(|c| c.access == super::colormap::Access::Map && closes && shaded && vertex.is_none() && metas.len() == corners.len()) {
+            // (four corners: only patches of explicit colors have three here)
             let tris: Vec<[usize; 3]> = match (corners.len(), reversed) {
-                (3, _) => vec![[0, 1, 2]],
                 (4, (false, false)) if lattice_cell => vec![[0, 1, 3], [1, 2, 3]],
                 (4, (false, true)) if lattice_cell => vec![[3, 2, 0], [2, 1, 0]],
                 (4, (true, false)) if lattice_cell => vec![[1, 0, 2], [0, 3, 2]],

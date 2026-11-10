@@ -116,12 +116,10 @@ fn value_text(v: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// The values of the `i`th point, as given when the plot still has them all.
-fn values_of(p: &Plot, pts: &[[f64; 3]], i: usize) -> (String, String) {
-    match (p.coords.len() == pts.len()).then(|| &p.coords[i]) {
-        Some(c) => (value_text(c.x), value_text(c.y)),
-        None => (value_text(pts[i][0]), value_text(pts[i][1])),
-    }
+/// The values of the `i`th point, as given (a plot's points are its coordinates, one by one).
+fn values_of(p: &Plot, i: usize) -> (String, String) {
+    let c = &p.coords[i];
+    (value_text(c.x), value_text(c.y))
 }
 
 /// Where a point lands, as a key: marks are drawn later, and find their values by it.
@@ -133,7 +131,7 @@ fn point_key(p: Point) -> (i64, i64) {
 fn note_values(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) {
     for (i, at) in canvas_points(f, pts).into_iter().enumerate() {
         if let Some(at) = at {
-            e.point_values.insert(point_key(at), values_of(p, pts, i));
+            e.point_values.insert(point_key(at), values_of(p, i));
         }
     }
 }
@@ -329,7 +327,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
                 let c1 = to.plus(ua.scale(bar_shift + bar_width / 2.0));
                 rect(&mut segs, c0, c1);
                 if e.points {
-                    let (x, y) = values_of(p, pts, i);
+                    let (x, y) = values_of(p, i);
                     bars.push(DataPoint { x, y, at: to.plus(ua.scale(bar_shift)) });
                 }
             }
@@ -659,15 +657,8 @@ fn with_options(item: &[Token], prefix: &[Token]) -> Vec<Token> {
             _ => return item.to_vec(),
         }
     };
-    let Some(open) = item.iter().position(|t| t.is_char('[')) else {
-        let mut out = item.to_vec();
-        let at = out.iter().position(|t| matches!(t, Token::Char(c, _) if !c.is_alphabetic() && !c.is_whitespace())).unwrap_or(out.len());
-        let mut group = vec![Token::other('[')];
-        group.extend(opts);
-        group.push(Token::other(']'));
-        out.splice(at..at, group);
-        return out;
-    };
+    // (only a node with options has a `pos`)
+    let open = item.iter().position(|t| t.is_char('[')).expect("a node placed by its pos has options");
     let mut out = item[..=open].to_vec();
     out.extend(opts);
     out.push(Token::other(','));
@@ -782,10 +773,8 @@ const ANCHORS: &[&str] =
 /// compat 1.9) put them in the middle of their bar.
 #[allow(clippy::too_many_arguments)]
 fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Frame, handler: &str, bar_shift: f64) -> Result<(Vec<Token>, Vec<NearNode>), Error> {
+    // (an empty text is none)
     let Some(text) = keys::value_tokens(e, "/pgfplots/@nodes near coords") else { return Ok((Vec::new(), Vec::new())) };
-    if crate::keys::trim(&text).is_empty() {
-        return Ok((Vec::new(), Vec::new()));
-    }
     let source = keys::value(e, "/pgfplots/point meta");
     let symbolic = source == "explicit symbolic";
     let align = keys::value(e, "/pgfplots/nodes near coords align");
