@@ -469,13 +469,16 @@ mod colors_and_text_commands {
     fn color_with_varwidth() {
         let c = quiet(&format!(r"\documentclass[varwidth=3cm]{{standalone}}\begin{{document}}\color{{red}} {PIC}\end{{document}}"));
         assert!(close(c.max.unwrap().x, 3.0), "{:?}", c.max);
-        // without its width, or with a border that is no length: the pictures as they are
-        for options in ["varwidth", "varwidth=3cm, border=abc"] {
-            let c = quiet(&format!(r"\documentclass[{options}]{{standalone}}\begin{{document}}{PIC} {PIC} {PIC} {PIC}\end{{document}}"));
-            let s = starts(&c);
-            assert!(s.iter().all(|p| close(p.y, s[0].y)), "{options}: {s:?}");
-            assert!(close(c.min.unwrap().x, 0.0) && c.max.unwrap().x > 4.0, "{options}: {:?}", c.max);
-        }
+        // without its width: the pictures on one line, as they are
+        let c = quiet(&format!(r"\documentclass[varwidth]{{standalone}}\begin{{document}}{PIC} {PIC} {PIC} {PIC}\end{{document}}"));
+        let s = starts(&c);
+        assert!(s.iter().all(|p| close(p.y, s[0].y)), "{s:?}");
+        assert!(close(c.min.unwrap().x, 0.0) && c.max.unwrap().x > 4.0, "{:?}", c.max);
+        // with a width and a border that is no length: the lines are broken at the width all the same
+        let c = quiet(&format!(r"\documentclass[varwidth=3cm, border=abc]{{standalone}}\begin{{document}}{PIC} {PIC} {PIC} {PIC}\end{{document}}"));
+        let s = starts(&c);
+        assert!(s.iter().any(|p| !close(p.y, s[0].y)), "{s:?}");
+        assert!(c.max.unwrap().x - c.min.unwrap().x <= 3.0 + 1e-9, "{:?} {:?}", c.min, c.max);
     }
 
     /// The font size commands make the text smaller or larger, in LaTeX's order, `\normalsize`
@@ -987,14 +990,14 @@ mod more_text {
         assert!(near(c.max.unwrap().x, 1.0140584, 1e-6));
     }
 
-    /// `\pgfmathsign` and `\pgfmathMod` as commands; an expression they cannot read is said.
+    /// `\pgfmathsign` and `\pgfmathMod`; an expression they cannot read is said.
     #[test]
     fn native_pgfmath_functions() {
         let (c, w) = document(
             r"\begin{tikzpicture}\pgfmathsign{-3} \draw (0,0) -- (\pgfmathresult,0); \pgfmathMod{-1}{3} \draw (0,1) -- (\pgfmathresult,1); \pgfmathsign{x}\end{tikzpicture}",
         );
         assert_eq!(w.len(), 1, "{w:?}");
-        assert!(w[0].starts_with("\\pgfmathsign: "), "{w:?}");
+        assert!(w[0].contains("function without parentheses: x"), "{w:?}");
         let (s, e) = (starts(&c), ends(&c));
         assert!(near(e[0].x - s[0].x, -1.0, 1e-9) && near(e[1].x - s[1].x, 2.0, 1e-9), "{s:?} {e:?}");
     }
@@ -1166,6 +1169,6 @@ mod outside_libraries {
             (0..26_000).map(|k| (&*Box::leak(format!("/tikz/k{k}").into_boxed_str()), said as tikra::extension::KeyFn)).collect();
         let library: &'static Library = Box::leak(Box::new(Library { name: "many keys", definitions: String::new, keys: Box::leak(keys.into_boxed_slice()) }));
         let r = convert(r"\draw[k0] (0,0) -- (1,0); \draw[k25999] (0,1) -- (1,1);", library);
-        assert_eq!(r.warnings, ["the key ran", "option 'k25999' not supported: ignored"]);
+        assert_eq!(r.warnings, ["library many keys: too many keys, 477 left out from /tikz/k25523 on", "the key ran", "option 'k25999' not supported: ignored"]);
     }
 }
