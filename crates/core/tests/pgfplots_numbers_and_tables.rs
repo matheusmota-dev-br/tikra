@@ -125,6 +125,9 @@ fn the_fpu_at_its_edges() {
     assert_eq!(fpu::ln(0.0), f64::NEG_INFINITY);
     assert!(fpu::ln(-1.0).is_nan());
     assert!((fpu::ln(1e5) - 11.51291).abs() < 1e-9);
+    // exp of a negative number is the reciprocal of exp of its opposite; at minus 127530sp
+    // (about -ln 7) that is 7pt exactly, whose reciprocal TeX divides out: 1pt / 7 = 9362sp
+    assert_eq!(fpu::exp(-127530.0 / 65536.0), 0.14285);
 }
 
 // ---------------------------------------------------------------------------------------------

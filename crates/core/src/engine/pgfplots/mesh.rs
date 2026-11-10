@@ -666,17 +666,14 @@ pub fn global_path(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Opt
     for chunk in pts.chunks(kind.size()).filter(|c| c.len() == kind.size()) {
         let patch = Patch { kind, pts: chunk.to_vec(), metas: vec![f64::NAN; kind.size()] };
         for edge in patch.outline() {
-            let (a, seg) = match edge {
-                Edge::Line(a, b) => (f.at(a), Segment::LineTo(f.at(b))),
-                Edge::Curve(a, c1, c2, b) => (f.at(a), Segment::CurveTo(f.at(c1), f.at(c2), f.at(b))),
+            let (a, b, seg) = match edge {
+                Edge::Line(a, b) => (f.at(a), f.at(b), Segment::LineTo(f.at(b))),
+                Edge::Curve(a, c1, c2, b) => (f.at(a), f.at(b), Segment::CurveTo(f.at(c1), f.at(c2), f.at(b))),
             };
             if last.is_none_or(|q| q.minus(a).norm() > 1e-9) {
                 segs.push(Segment::MoveTo(a));
             }
-            last = Some(match seg {
-                Segment::LineTo(b) | Segment::CurveTo(_, _, b) => b,
-                _ => a,
-            });
+            last = Some(b);
             segs.push(seg);
         }
     }

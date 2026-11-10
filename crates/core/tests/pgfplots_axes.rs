@@ -576,6 +576,144 @@ fn axis_commands() {
     .unwrap()
     .0;
     assert!(c.items.iter().any(|i| matches!(i, Item::Path { fill: Some(Fill { paint: Paint::Solid(col), .. }), .. } if col.hex() == "#ff0000")));
+    // a legend entry whose options have a group: they are the entry's
+    let c = drawn("xtick=\\empty, ytick=\\empty", r"\addplot coordinates {(0,0) (1,1)}; \legend{[text={red}]a}");
+    let colors: Vec<String> = c.items.iter().filter_map(|i| if let Item::Text { label, .. } = i { Some(label.color.hex()) } else { None }).collect();
+    assert_eq!(colors, ["#ff0000"]);
+    // a statement whose group closes before its `;`: drawn, and reported
+    let w = warnings("", &format!(r"{LINE} {{\draw (axis cs:0,0) -- (axis cs:1,1)}}"));
+    assert_eq!(w, ["path without ';' at the end"]);
+    // a coordinate system no axis has
+    let w = warnings("", &format!(r"{LINE} \coordinate (p) at (cartesian cs:x=1,y=2);"));
+    assert!(has(&w, "coordinate system 'cartesian' not supported"), "{w:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// anchors and nodes that face an axis
+
+/// `near xticklabel` is the compass anchor that faces the x axis (`north` below it), `near
+/// xticklabel opposite` the one that faces away; where the axis' normal is almost along the axis (a
+/// y unit nearly horizontal), the compass anchor the normal points to. A `near` name of no axis is
+/// no anchor.
+#[test]
+fn anchors_near_tick_labels() {
+    let at = |options: &str, anchors: &[&str]| {
+        let mut body = format!(r"{LINE} \coordinate (p) at (axis cs:5,0);");
+        for (k, a) in anchors.iter().enumerate() {
+            body.push_str(&format!(r"\node[anchor={a}] (n{k}) at (p) {{A}};"));
+        }
+        let p = named(&picture(options, &body));
+        (0..anchors.len()).map(|k| p[&format!("n{k}")]).collect::<Vec<_>>()
+    };
+    let n = at("", &["near xticklabel", "north", "near xticklabel opposite", "south"]);
+    assert!(same(n[0], n[1]) && same(n[2], n[3]) && !same(n[0], n[2]), "{n:?}");
+    let n = at("x={(1cm,0cm)}, y={(1cm,0.1cm)}", &["near xticklabel", "east"]);
+    assert!(same(n[0], n[1]), "{n:?}");
+    let w = warnings("", &format!(r"{LINE} \node[anchor=near nothing] at (axis cs:5,0) {{A}};"));
+    assert_eq!(w, ["unknown anchor 'near nothing': center used"]);
+}
+
+/// Seen along y (`view={0}{0}`), the y axis has no direction on paper: a node sloped like it is
+/// not turned (pgfplots takes the angle of a zero vector as 0).
+#[test]
+fn sloped_like_an_axis_seen_end_on() {
+    let c = drawn("view={0}{0}", r"\addplot3 coordinates {(0,0,0) (1,1,1)}; \node[sloped like y axis] at (axis cs:0,0,0) {a};");
+    let last = c.items.iter().rev().find_map(|i| if let Item::Text { place, .. } = i { Some(*place) } else { None }).unwrap();
+    assert!(last.b == 0.0 && last.c == 0.0 && last.a > 0.0, "{last:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// corners of the axis
+
+/// An axis that counts for nothing (`overlay`) in a scaled picture leaves the picture's size to
+/// what else is drawn.
+#[test]
+fn an_overlay_axis_in_a_scaled_picture() {
+    let picture = |axis: &str| {
+        let (c, w) = tikra::engine::run_document(&format!(r"\begin{{tikzpicture}}[scale=0.5]{axis}\draw (0,0) -- (1,1);\end{{tikzpicture}}")).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        size(&c)
+    };
+    let alone = picture("");
+    let with = picture(r"\begin{axis}[overlay]\addplot coordinates {(0,0) (1,1)};\end{axis}");
+    assert!(close(with.0, alone.0, 1e-9) && close(with.1, alone.1, 1e-9), "{alone:?} {with:?}");
+}
+
+/// A 3d axis is stretched to fill its box (240pt × 207pt less 45pt for the labels), also with
+/// logarithmic axes or with the data scaling turned off (up to the rounding of its unit vectors).
+#[test]
+fn three_d_boxes_of_log_axes() {
+    let corners: String = (0..8).map(|k| format!(r"\coordinate (c{k}) at (rel axis cs:{},{},{});", k & 1, (k >> 1) & 1, (k >> 2) & 1)).collect();
+    let box_of = |opt: &str| {
+        let p = named(&picture(opt, &format!(r"\addplot3 coordinates {{(1,1,1) (10,100,1000)}}; {corners}")));
+        let (xs, ys): (Vec<f64>, Vec<f64>) = (0..8).map(|k| p[&format!("c{k}")]).unzip();
+        let span = |v: &[f64]| v.iter().copied().fold(f64::MIN, f64::max) - v.iter().copied().fold(f64::MAX, f64::min);
+        (span(&xs), span(&ys))
+    };
+    for opt in ["", "zmode=log", "xmode=log, ymode=log", "disabledatascaling"] {
+        let (w, h) = box_of(opt);
+        assert!(close(w / PT, 195.0, 1.0) && close(h / PT, 162.0, 1.0), "{opt}: {} {}", w / PT, h / PT);
+    }
+}
+
+/// `enlarge x limits={abs=…}` of more room than the axis has: no length is left for the data, the
+/// limits are kept.
+#[test]
+fn enlarged_by_more_than_the_axis() {
+    let r = rel("enlarge x limits={abs=20cm}", LINE, &["axis cs:0,0", "axis cs:10,1"]);
+    assert!(close(r[0].0, 0.0, 1e-9) && close(r[1].0, 1.0, 1e-9), "{r:?}");
+}
+
+/// Axis lines: `axis x line*=none` draws no x line (nor ticks), the y line stays.
+#[test]
+fn an_axis_line_of_none() {
+    let paths = |opt: &str| drawn(opt, LINE).items.iter().filter(|i| matches!(i, Item::Path { stroke: Some(_), .. })).count();
+    let none = paths("axis x line*=none, axis y line*=left, xtick=\\empty, ytick=\\empty");
+    let bottom = paths("axis x line*=bottom, axis y line*=left, xtick=\\empty, ytick=\\empty");
+    assert_eq!(none + 1, bottom);
+}
+
+// ---------------------------------------------------------------------------------------------
+// tick labels
+
+/// `xtick=data` without a plot: no ticks.
+#[test]
+fn ticks_at_the_data_of_no_plot() {
+    let body = r"\draw (axis cs:0,0) -- (axis cs:1,1);";
+    assert_eq!(labels("xmin=0, xmax=1, ymin=0, ymax=1, xtick=data, ytick=\\empty", body), 0);
+    assert_eq!(labels("xmin=0, xmax=1, ymin=0, ymax=1, ytick=\\empty", body), 6);
+}
+
+/// Labels of a log axis: `log ticks with fixed point` prints the numbers themselves (as a linear
+/// axis' labels: `1,000`); `log identify minor tick positions` prints a tick at 5 as `5·10^0`
+/// rather than `10^0.7` (and 10 as `10^1`); a scale of `real:0` divides by nothing.
+#[test]
+fn log_and_scaled_tick_labels() {
+    let data = r"\addplot coordinates {(0,1) (1,1000)};";
+    let fixed = widths("ymode=log, xtick=\\empty, log ticks with fixed point", data);
+    assert_eq!(fixed, widths("ymin=1, ymax=1000, xtick=\\empty, ytick={1,10,100,1000}", data));
+    let five = |opt: &str| widths(&format!("ymode=log, xtick=\\empty, ytick={{5}}, {opt}"), data);
+    assert_eq!(five("log identify minor tick positions"), five(r"yticklabel={$5 \cdot 10^{0}$}"));
+    assert_eq!(five(""), five(r"yticklabel={$10^{0.7}$}"));
+    // a power of ten is no minor position: printed as one
+    let ten = |opt: &str| widths(&format!("ymode=log, xtick=\\empty, ytick={{10}}, {opt}"), data);
+    assert_eq!(ten("log identify minor tick positions"), ten(""));
+    // `real:` of zero, or of what is no number: nothing to divide by
+    let linear = r"\addplot coordinates {(0,0) (1,1000)};";
+    for real in ["real:0", "real:none"] {
+        assert_eq!(widths(&format!("xtick=\\empty, scaled y ticks={real}"), linear), widths("xtick=\\empty, scaled y ticks=false", linear), "{real}");
+    }
+}
+
+/// `\pgfplotspointgetcoordinates` with nothing after it reads no point: the title is the rest.
+#[test]
+fn a_point_to_read_that_is_missing() {
+    let (d, w) = {
+        let r = common::figure(&picture(r"title={a\pgfplotspointgetcoordinates}", LINE));
+        (r.description, r.warnings)
+    };
+    assert!(w.is_empty(), "{w:?}");
+    assert!(d.starts_with("Line chart titled “a”."), "{d}");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -689,6 +827,37 @@ fn points_of_an_image() {
     assert!(w.is_empty(), "{w:?}");
 }
 
+#[test]
+fn snapping_and_overlaid_images() {
+    // a `snap z` that is no number straightens nothing, as one of 0
+    let place = |snap: &str| {
+        let (c, w) = with_image(
+            "hide axis",
+            &format!(r"\addplot3 graphics[snap z={snap}, points={{(0,0,0) => (0,0) (1,0,0) => (40,5) (0,1,0) => (-5,15) (0,0,1) => (0.2,20)}}] {{img.png}};"),
+        );
+        assert!(w.is_empty(), "{w:?}");
+        image_place(&c).unwrap()
+    };
+    let (none, zero, default) = (place("none"), place("0"), place("0.02"));
+    assert_eq!(format!("{none:?}"), format!("{zero:?}"));
+    // (the z of this image is nearly vertical: the default straightens it)
+    assert_ne!(format!("{zero:?}"), format!("{default:?}"));
+    // an image larger than its unclipped axis: it makes the picture larger, unless the picture
+    // clips it (drawn all the same)
+    image_dir();
+    let width = |clip: &str| {
+        let (c, w) = tikra::engine::run_document(&format!(
+            r"\begin{{tikzpicture}}{clip}\begin{{axis}}[hide axis, clip=false, xmin=0, xmax=1, ymin=0, ymax=1]\addplot graphics[xmin=-5, xmax=5, ymin=-5, ymax=5] {{img.png}};\end{{axis}}\end{{tikzpicture}}"
+        ))
+        .unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert!(image_place(&c).is_some());
+        size(&c).0
+    };
+    let (open, clipped) = (width(""), width(r"\clip (0,0) rectangle (1,1);"));
+    assert!(clipped < open / 2.0, "{clipped} {open}");
+}
+
 // ---------------------------------------------------------------------------------------------
 // more of the axis' corners
 
@@ -799,6 +968,15 @@ mod uniformly {
             let (_, min, max) = scale(e, (10.0, 5.0), strategy, "", "", KeepSize::True, [true, true]);
             assert_eq!((min, max), ([0.0; 3], [1.0; 3]), "{e:?} {strategy:?}");
         }
+    }
+
+    #[test]
+    fn boxes_that_cannot_be_scaled() {
+        // no width: neither strategy fits without shrinking a limit, so `auto` scales the units
+        // only (to nothing), the limits as they are
+        let (ev, min, max) = scale(FLAT, (0.0, 5.0), Strategy::Auto, "", "", KeepSize::True, [true, true]);
+        assert!(ev.iter().all(|v| v.norm() == 0.0), "{ev:?}");
+        assert_eq!((min, max), ([0.0; 3], [1.0; 3]));
     }
 
     #[test]
