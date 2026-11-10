@@ -517,19 +517,17 @@ fn smil(a: &Animation, id: &str) -> String {
 /// (a fill on a line) is left alone.
 fn animate_element(body: &mut String, at: usize, moving: &[Moves]) {
     // a fill and a stroke at opacities of their own: a group of two paths, each animated as itself
-    if body[at..].starts_with("<g") && !body[at..].starts_with("<g transform=") && body.ends_with("/></g>") {
-        let open = at + body[at..].find('>').map_or(0, |i| i + 1);
-        let paths = body[open..body.len() - 4].to_string();
-        if paths.starts_with("<path") && paths.split_inclusive("/>").all(|p| p.starts_with("<path")) {
-            body.truncate(open);
-            for p in paths.split_inclusive("/>") {
-                let start = body.len();
-                body.push_str(p);
-                animate_element(body, start, moving);
-            }
-            body.push_str("</g>");
-            return;
+    let group = body[at..].starts_with("<g") && !body[at..].starts_with("<g transform=") && body.ends_with("/></g>");
+    let open = at + body[at..].find('>').map_or(0, |i| i + 1);
+    if let Some(paths) = group.then(|| body[open..body.len() - 4].to_string()).filter(|p| p.split_inclusive("/>").all(|p| p.starts_with("<path"))) {
+        body.truncate(open);
+        for p in paths.split_inclusive("/>") {
+            let start = body.len();
+            body.push_str(p);
+            animate_element(body, start, moving);
         }
+        body.push_str("</g>");
+        return;
     }
     let element = &body[at..];
     let is_path = element.starts_with("<path") && element.ends_with("/>");

@@ -126,6 +126,20 @@ fn pos_segment_measures_one_piece_of_the_plot() {
     same_places("", "(0,0) (2,0)\n\n(4,0) (4,4)", r"[pos segment=1] node[pos=0.5] {A}", r"\node at (axis cs:4,2) {A};");
 }
 
+/// A `pos segment` past the plot's last piece still places its node, inside the axis (where on
+/// the plot pgfplots puts it is open: #304).
+#[test]
+fn pos_segment_past_the_last_piece() {
+    let plot = "(0,0) (2,0)\n\n(4,0) (4,4)";
+    let ticks = tick_labels("", plot);
+    let (c, w) = axis("", &format!(r"\addplot coordinates {{{plot}}} [pos segment=5] node[pos=0.5] {{A}};"));
+    assert!(w.is_empty(), "{w:?}");
+    let t = node_texts(&c, ticks);
+    assert_eq!(t.len(), 1, "{t:?}");
+    let (min, max) = (c.min.unwrap(), c.max.unwrap());
+    assert!(t[0].1.x >= min.x && t[0].1.x <= max.x && t[0].1.y >= min.y && t[0].1.y <= max.y, "{t:?}");
+}
+
 #[test]
 fn nodes_of_a_scatter_plot_go_to_the_nearest_point() {
     let plot = "(0,0) (1,0) (2,0)";
@@ -263,6 +277,11 @@ fn ties_join_each_point_to_its_other_end() {
     let ties = &blue[1].segments;
     assert_eq!(ties.len(), 6);
     assert!(matches!(ties[0], Segment::MoveTo(p) if same(p, reference[5])) && matches!(ties[1], Segment::LineTo(p) if same(p, reference[0])), "{ties:?}");
+    // a plot handler in the ties' style: the curve is drawn all the same (whether its ties are is
+    // open: #303)
+    let (c, w) = axis("", &format!("\\addplot[blue, tieline={{tieline style={{sharp plot}}}}] table[tie end z index=5] {{{table}}};"));
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(pts(&in_color(&c, BLUE)[0]).len(), 6);
     // every second tie only
     let (c, _) = axis("", &format!("\\addplot[blue, tieline={{each nth tie=2}}] table[tie end z index=5] {{{table}}};"));
     assert_eq!(in_color(&c, BLUE)[1].segments.len(), 2);

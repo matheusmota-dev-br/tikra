@@ -306,3 +306,22 @@ fn a_connection_path_that_is_no_macro_draws_nothing() {
     assert_eq!(paths(&with).len(), paths(&without).len());
     assert_eq!(clips(&without), 1);
 }
+
+/// Played, an image has no attribute of its own to animate: it moves with its node, as it is.
+#[test]
+fn a_played_image_is_left_as_it_is() {
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="4pt" height="3pt" viewBox="0 0 4 3"><rect width="4" height="3" fill="blue"/></svg>"#;
+    let dir = std::env::temp_dir().join(format!("tikra-played-images-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("dot.png"), tikra::png(svg, 72.0, false).unwrap()).unwrap();
+    std::env::set_var("TIKRA_INPUT_DIR", dir.display().to_string());
+    for body in [
+        r#"\node[:fill = {0s="red", 2s="blue"}] {\includegraphics{dot.png}};"#,
+        r#"\begin{scope}[:fill = {0s="red", 2s="blue"}] \clip (0,0) rectangle (1,1); \node {\includegraphics{dot.png}}; \end{scope}"#,
+        r#"\begin{scope}[:fill = {0s="red", 2s="blue"}] \begin{axis}[hide axis] \addplot graphics[xmin=0,xmax=1,ymin=0,ymax=1] {dot.png}; \end{axis} \end{scope}"#,
+    ] {
+        let r = tikra::convert_with(&format!(r"\begin{{tikzpicture}}{body}\end{{tikzpicture}}"), &tikra::Options::default().play()).unwrap();
+        assert!(r.svg.contains(r#"<g id="trAnim1">"#) && r.svg.contains("<image "), "{body}: {}", r.svg);
+        assert!(!r.svg.contains("<animate"), "{body}: {}", r.svg);
+    }
+}

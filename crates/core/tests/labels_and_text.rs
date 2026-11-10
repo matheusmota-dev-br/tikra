@@ -42,6 +42,8 @@ fn font_sizes_by_command() {
     // \fontsize's arguments are not text; Computer Modern at 20pt is a narrower design
     let (a, b) = (width(r"\fontsize{20}{24}\selectfont A"), width("A"));
     assert!(a > 1.7 * b && a < 2.0 * b, "{a} {b}");
+    // at the end of the text, short of its arguments: nothing of it is set
+    same_width(r"A\fontsize", "A");
 }
 
 #[test]

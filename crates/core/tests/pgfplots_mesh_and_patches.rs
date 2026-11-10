@@ -636,3 +636,13 @@ fn large_cells_of_a_direct_colormap_are_shaded_in_pieces() {
     assert!(colors.iter().all(|c| c.b == 0.0 && close(c.r + c.g, 1.0)), "{colors:?}");
     assert!(colors.iter().any(|c| c.hex() == "#ff0000"));
 }
+
+/// With `point meta=none` and no color, every shader still fills each patch with one solid color
+/// (which color, when none is given, is open: #320).
+#[test]
+fn a_surface_without_point_meta_is_still_filled() {
+    for shader in ["flat corner", "flat mean"] {
+        let d = drawn("", &format!("\\addplot3[surf, shader={shader}, point meta=none] coordinates {{(0,0,0) (1,0,0)\n\n(0,1,1) (1,1,1)}};"));
+        assert!(!d.is_empty() && d.iter().all(|p| solid(p).is_some()), "{shader}: {:?}", d.iter().map(|p| p.fill.is_some()).collect::<Vec<_>>());
+    }
+}

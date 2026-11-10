@@ -2202,6 +2202,9 @@ mod tests {
         assert!(o.contains(&Opt::Swap) && o.contains(&Opt::Angle(60.0, Dep(2.0, 0.0, 0.0))) && o.contains(&Opt::N(3)));
         parse_opts(&mut Plain, "no such key=1", &mut w);
         assert_eq!(w.len(), 1);
+        // without an engine, an expression is not a value: it counts as 0
+        let o = parse_opts(&mut Plain, "length=2*3pt, n=1+2", &mut w);
+        assert_eq!(o, [Opt::Length(Dep(0.0, 0.0, 0.0)), Opt::N(0)]);
     }
 
     #[test]
