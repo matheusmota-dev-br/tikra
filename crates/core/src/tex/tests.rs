@@ -62,6 +62,8 @@ fn edef_let_and_expansion_control() {
     assert_eq!(run(r"\def\a{A}\edef\b{\a\a}\def\a{Z}\b"), "AA");
     assert_eq!(run(r"\def\a{A}\edef\b{\noexpand\a}\def\a{Z}\b"), "Z");
     assert_eq!(run(r"\def\a{A}\edef\b{\unexpanded{\a}}\def\a{Z}\b"), "Z");
+    // a number at the end of an \edef's body ends there: the 2 after the definition is not part of it
+    assert_eq!(run(r"\count1=5 \edef\e{\the\count1}2\e"), "25");
     assert_eq!(run(r"\def\a{A}\let\b\a\def\a{Z}\b\a"), "AZ");
     assert_eq!(run(r"\def\a#1{[#1]}\def\b{x}\expandafter\a\b"), "[x]");
     assert_eq!(run(r"\expandafter\def\csname my macro\endcsname{M}\csname my macro\endcsname"), "M");

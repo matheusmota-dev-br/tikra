@@ -437,6 +437,15 @@ fn relative(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<Coo
 
 /// Runs path operations until `;` (or the end of the frame above `depth`).
 fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
+    let Some(d) = depth else { return operations_in(e, b, None) };
+    // a word or a number at the end of the frame reads no further
+    let floor = e.tex.seal(d);
+    let r = operations_in(e, b, depth);
+    e.tex.unseal(floor);
+    r
+}
+
+fn operations_in(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
     // the operation waiting for its target: "--", "-|", "|-", or "to" with its options
     let mut pending_op: Option<String> = None;
     let mut to_options: Vec<Token> = Vec::new();

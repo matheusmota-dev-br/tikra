@@ -443,6 +443,9 @@ pub type Map<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[derive(Clone)]
 pub struct Tex {
     input: Vec<Frame>,
+    /// The frames below this many are out of reach: code run on its own (a key's code, an
+    /// `\edef`'s body) ends where its tokens end, and reads nothing that comes after it.
+    floor: usize,
     /// How far the main text has been read, for the source map. `None` when nobody asked.
     reading: Option<Reading>,
     meanings: Map<Rc<str>, Meaning>,
@@ -573,6 +576,7 @@ impl Tex {
     pub fn new() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
+            floor: 0,
             reading: None,
             meanings: Map::default(),
             active: Map::default(),
@@ -871,6 +875,7 @@ impl Tex {
     pub fn new_lexer() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
+            floor: 0,
             reading: None,
             meanings: Map::default(),
             active: Map::default(),
@@ -1082,7 +1087,19 @@ impl Tex {
 
     /// The next token, unexpanded, or None at the end of the input.
     pub fn get_token(&mut self) -> Option<Token> {
-        self.get_token_until(0)
+        self.get_token_until(self.floor)
+    }
+
+    /// Reads nothing below `depth` from now on (until [`Tex::unseal`] with what this returns):
+    /// the frames above it are code that ends where its tokens end.
+    pub fn seal(&mut self, depth: usize) -> usize {
+        let floor = depth.max(self.floor);
+        std::mem::replace(&mut self.floor, floor)
+    }
+
+    /// Ends what [`Tex::seal`] began.
+    pub fn unseal(&mut self, floor: usize) {
+        self.floor = floor;
     }
 
     /// A token from frames above `depth` only.
@@ -2116,6 +2133,13 @@ impl Tex {
     }
 
     fn expand_frame_until(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
+        let floor = self.seal(depth);
+        let r = self.expand_sealed(depth, stops);
+        self.unseal(floor);
+        r
+    }
+
+    fn expand_sealed(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
         let mut out = Vec::new();
         while self.input.len() > depth {
             let Some(t) = self.get_token_until(depth) else { break };

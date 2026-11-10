@@ -163,6 +163,23 @@ fn declared_decorations_run_as_tex() {
     assert!(near(*p.last().unwrap(), 3.0, 0.0), "{p:?}");
 }
 
+/// The code of a declared state that ends in a number ends there: it reads nothing of the
+/// decoration's own code after it.
+#[test]
+fn declared_state_code_ending_in_a_number() {
+    let (items, w) = picture(
+        r"\newcount\k
+          \pgfdeclaredecoration{steps}{initial}{
+            \state{initial}[width=10pt]{\pgfpathlineto{\pgfpoint{5pt}{5pt}}\pgfpathlineto{\pgfpoint{10pt}{0pt}}\k=5}
+            \state{final}{\pgfpathlineto{\pgfpointdecoratedpathlast}}}
+          \draw[decorate, decoration=steps] (0,0) -- (3,0);",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let p = ends(&paths(&items)[0]);
+    assert!(near(p[1], 5.0 * PT, 5.0 * PT), "{p:?}");
+    assert!(near(*p.last().unwrap(), 3.0, 0.0), "{p:?}");
+}
+
 #[test]
 fn basic_layer_decoration_environment() {
     let (items, w) = picture(
