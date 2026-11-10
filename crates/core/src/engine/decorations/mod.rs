@@ -763,6 +763,15 @@ impl Engine {
         let s = self.st.decoration.clone();
         if s.reverse {
             parsed.objs = walker::reverse(&parsed.objs);
+            // the reversed path starts where the path ended and ends where it started
+            if let Some(&walker::Obj::MoveTo(p)) = parsed.objs.first() {
+                parsed.first = p;
+            }
+            if let Some(&walker::Obj::Line { b, .. } | &walker::Obj::Curve { b, .. } | &walker::Obj::Close { b, .. }) =
+                parsed.objs.iter().rev().find(|o| !matches!(o, walker::Obj::End | walker::Obj::MoveTo(_)))
+            {
+                parsed.last_nonmove = b;
+            }
         }
         let w = Walker::new(parsed, existing);
         let mut run = Run::new(self, w, s);

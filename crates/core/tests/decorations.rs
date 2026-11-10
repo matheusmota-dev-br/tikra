@@ -84,6 +84,15 @@ fn curves_are_followed() {
     }
 }
 
+/// `reverse path` walks the path from its end back to its start, and ends at the start.
+#[test]
+fn reverse_path_ends_where_the_path_started() {
+    let (items, w) = picture(r"\draw[decorate, decoration={lineto, reverse path}] (0,0) -- (1,0) -- (1,1);");
+    assert!(w.is_empty(), "{w:?}");
+    let p = ends(&paths(&items)[0]);
+    assert!(p.len() == 3 && near(p[0], 1.0, 1.0) && near(p[1], 1.0, 0.0) && near(p[2], 0.0, 0.0), "{p:?}");
+}
+
 #[test]
 fn decorate_operation_and_nesting() {
     let (items, w) = picture(r"\draw (0,0) -- (1,0) decorate[decoration=zigzag] { -- (3,0) } -- (3,1);");
