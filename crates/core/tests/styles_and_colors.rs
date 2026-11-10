@@ -405,6 +405,17 @@ fn pgfmath_mod_as_a_command() {
     assert_eq!(path(at(r"\pgfmathMod{-7}{3}")), path(at(r"\pgfmathparse{2}")));
 }
 
+/// A pgfmath function under another name (`\let`, or an active character) is still that function.
+#[test]
+fn pgfmath_function_under_another_name() {
+    let at = |x: &str| no_warnings(&format!(r"\begin{{tikzpicture}}{x}\draw (0,0) -- (\pgfmathresult,0);\end{{tikzpicture}}")).svg;
+    let path = |svg: String| svg[svg.find("<path").unwrap()..].to_string();
+    let three = path(at(r"\pgfmathparse{3}"));
+    assert_eq!(path(at(r"\makeatletter\let\myadd\pgfmathadd@\makeatother\myadd{1}{2}")), three);
+    assert_eq!(path(at(r"\let\plus\pgfmathadd \plus{1}{2}")), three);
+    assert_eq!(path(at(r"\catcode`\~=13 \let~\pgfmathadd ~{1}{2}")), three);
+}
+
 #[test]
 fn a_shift_reads_length_registers() {
     // as a coordinate on the path does: `\newdimen\R` in `shift={(0,\R)}`
