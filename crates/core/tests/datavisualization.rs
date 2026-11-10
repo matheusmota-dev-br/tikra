@@ -121,3 +121,27 @@ fn about_divides_as_the_fpu_does() {
     let n = texts(r"\datavisualization [scientific axes=clean, visualize as smooth line] data [format=function] { var x : interval[0:3*pi]; func y = cos(\value x r); };");
     assert_eq!(n, 10);
 }
+
+/// The texts in a picture, as its description lists them.
+fn words(body: &str) -> String {
+    tikra::convert(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).unwrap().description
+}
+
+/// Ticks printed as fractions keep their denominator, whole part and sign.
+#[test]
+fn frac_ticks_follow_their_denominator_whole_part_and_sign() {
+    let ticks = |options: &str| {
+        words(&format!(
+            r"\datavisualization [scientific axes, x axis={{ticks={{major={{at={{0.33,1.5}}}}, node style={{/pgf/number format/frac,/pgf/number format/{options}}}}}}}, visualize as line] data point [x=0, y=0] data point [x=2, y=1];"
+        ))
+    };
+    // a denominator of 3: 0.33 is a third
+    let t = ticks("frac denom=3");
+    assert!(t.contains("1 over 3;"), "{t}");
+    // without a whole part: 1.5 is three halves
+    let t = ticks("frac whole=false");
+    assert!(t.contains("3 over 2;"), "{t}");
+    // with its sign
+    let t = ticks("showpos");
+    assert!(t.contains("plus 1 1 over 2;"), "{t}");
+}
