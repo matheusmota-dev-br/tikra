@@ -2037,8 +2037,17 @@ impl Tex {
 
     /// `\the`: the value of a register or internal quantity, as tokens.
     fn the(&mut self) -> Result<Vec<Token>, Error> {
-        let t = self.get_x_token()?.ok_or_else(|| Error::Figure("\\the at the end".into()))?;
-        let m = self.meaning(&t);
+        // expanded up to the first unexpandable token, or LaTeX's \value{c}, which is a counter's
+        // register there (expanding it would give its digits)
+        let (t, m) = loop {
+            let t = self.get_token().ok_or_else(|| Error::Figure("\\the at the end".into()))?;
+            let m = self.meaning(&t);
+            if m.is_expandable() && m != Meaning::Prim(Prim::Value) {
+                self.expand(&t, &m)?;
+                continue;
+            }
+            break (t, m);
+        };
         Ok(match m {
             Meaning::Count(r) => string_tokens(&self.counts.get(&r).copied().unwrap_or(0).to_string()),
             Meaning::Dimen(r) | Meaning::Skip(r) => string_tokens(&dimen::show(self.dimens.get(&r).copied().unwrap_or(0))),
@@ -2055,6 +2064,10 @@ impl Tex {
             Meaning::Prim(Prim::Toks) => {
                 let r = self.scan_register_number()?;
                 self.toks.get(&r).map(|v| (**v).clone()).unwrap_or_default()
+            }
+            Meaning::Prim(Prim::Value) => {
+                let name = tokens_to_string(&self.read_undelimited()?);
+                string_tokens(&self.counter(&name).to_string())
             }
             Meaning::Prim(Prim::Numexpr) => string_tokens(&self.scan_numexpr()?.to_string()),
             Meaning::Prim(Prim::Dimexpr | Prim::Glueexpr) => string_tokens(&dimen::show(self.scan_dimexpr()?)),

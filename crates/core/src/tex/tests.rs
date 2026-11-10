@@ -232,6 +232,14 @@ fn counters_print_as_the_counter() {
     assert_eq!(run(r"\newcounter{Sum}\setcounter{Sum}{5}\addtocounter{Sum}{2}\theSum"), "7");
 }
 
+/// `\the\value{c}` is the counter's value, as `\the` of its register.
+#[test]
+fn the_value_of_a_counter() {
+    assert_eq!(run(r"\newcounter{c}\setcounter{c}{13}\the\value{c}"), "13");
+    assert_eq!(run(r"\newcounter{c}\setcounter{c}{2}\the\value{c}x"), "2x");
+    assert_eq!(run(r"\newcounter{c}\setcounter{c}{4}\edef\v{\the\value{c}}\v"), "4");
+}
+
 #[test]
 fn latex_page_lengths() {
     // article at 10pt on letter paper; glue keeps its natural size
