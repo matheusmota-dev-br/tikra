@@ -70,6 +70,19 @@ fn scientific_axes_fit_the_data_in_their_width() {
     assert!(p.iter().any(fits), "{p:?}");
 }
 
+/// A scaling that cannot be done as asked says so: a logarithm of zero or less, a function
+/// tikra does not know, a length that is not one.
+#[test]
+fn scalings_that_cannot_be_done_warn() {
+    let warns = |body: &str, fragment: &str| {
+        let (_, warnings) = tikra::engine::run_document(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).unwrap();
+        assert!(warnings.iter().any(|w| w.contains(fragment)), "{body}: {warnings:?}");
+    };
+    warns(r"\datavisualization [xy Cartesian, x axis={logarithmic}, visualize as line] data point [x=0, y=0] data point [x=10, y=1];", "logarithm");
+    warns(r"\datavisualization [xy Cartesian, x axis={function=\pgfmathparse{2*\pgfvalue}}, visualize as line] data point [x=1, y=0] data point [x=2, y=1];", "function");
+    warns(r"\datavisualization [xy Cartesian, x axis={scaling=0 at 0cm and 1 at \nolength}, visualize as line] data point [x=0, y=0] data point [x=1, y=1];", "scaling");
+}
+
 #[test]
 fn ticks_have_texts() {
     let n = texts(r"\datavisualization [scientific axes, x axis={ticks={step=5}}, visualize as line] data point [x=0, y=0] data point [x=20, y=1];");
