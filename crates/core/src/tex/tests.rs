@@ -180,6 +180,16 @@ fn etoolbox_tests() {
     assert_eq!(run(r"\def\e{}\def\s{ }\def\p#1{}\ifdefempty{\e}{T}{F}\ifdefempty\s{T}{F}\ifdefempty{\p}{T}{F}\ifdefempty{\relax}{T}{F}"), "TFFF");
 }
 
+/// Commands whose kind is in their name keep it under another name given by `\let`.
+#[test]
+fn commands_of_a_kind_under_let() {
+    assert_eq!(run(r"\let\x\ifstrempty \x{}{T}{F}\let\y\ifblank \y{ }{T}{F}"), "TT");
+    assert_eq!(run(r"\let\x\IfStrEq \x{a}{a}{T}{F}\let\y\StrLen \y{abc}"), "T3");
+    assert_eq!(run(r"\def\m{a}\let\x\preto \x\m{b}\m"), "ba");
+    assert_eq!(run(r"\let\x\NewDocumentCommand \x\d{o}{\IfNoValueTF{#1}{-}{#1}}\d\d[z]"), "-z");
+    assert_eq!(run(r"\let\x\IfBooleanTF \x{\BooleanTrue}{T}{F}"), "T");
+}
+
 #[test]
 fn etoolbox_toggles() {
     // false when made; set locally, or globally with \global; \providetoggle keeps one that exists
