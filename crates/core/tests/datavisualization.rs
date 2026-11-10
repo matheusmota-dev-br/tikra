@@ -114,6 +114,21 @@ fn a_new_axis_system_from_its_parts() {
     assert!(p.iter().any(horizontal), "{p:?}");
 }
 
+/// On polar axes a rectangle is a sector of a ring: two straight sides and two arcs.
+#[test]
+fn rectangles_on_polar_axes_have_arcs() {
+    let p = paths(
+        "\\datavisualization [scientific polar axes, visualize as rectangles=r, r={attribute 1=angle, attribute 2=radius}]
+          data [headline={angle/min, angle/max, radius/min, radius/max}] {\n 0, 90, 1, 2\n};",
+    );
+    // the rectangle is the one closed path
+    let rectangle = p.iter().find(|l| l.last() == Some(&Segment::Close)).expect("a rectangle");
+    let arcs = rectangle.iter().filter(|s| matches!(s, Segment::CurveTo(..))).count();
+    let lines = rectangle.iter().filter(|s| matches!(s, Segment::LineTo(..))).count();
+    // a quarter circle each arc; the closing side drawn by the cycle or a line
+    assert!(arcs >= 2 && lines >= 1, "{rectangle:?}");
+}
+
 #[test]
 fn about_divides_as_the_fpu_does() {
     // a sine sampled to TeX's precision spans 1.99998: about 5 ticks is a step of 0.5 (pgf's FPU
