@@ -150,6 +150,13 @@ impl Engine {
         r
     }
 
+    /// `mark=text` at a point: the `text mark`, set as a node in the `text mark style`.
+    pub fn text_mark(&mut self, p: Point) -> Result<Vec<Item>, Error> {
+        let text = crate::keys::value(&self.tex, "/pgf/text mark").unwrap_or_else(|| tikra_tokens("p"));
+        let options = crate::keys::value(&self.tex, "/pgf/text mark style").unwrap_or_default();
+        self.node(NodeSpec { options, name: None, at: Some(p), text, place: OnPath::Point(p), point: p, coordinate: false, default_pos: None })
+    }
+
     fn plot_marks_in_group(&mut self, name: &str, points: &[Point]) -> Result<Vec<Item>, Error> {
         self.st.pending = Transform::default();
         self.process_keys(tikra_tokens("every mark/.try"), Some("/tikz"))?;
@@ -171,10 +178,7 @@ impl Engine {
                     }
                     items.push(Item::Path { segments: segs, fill: Some(Fill { paint, opacity: self.st.fill_opacity, even_odd: false }), stroke: None });
                 } else {
-                    // `text mark`, set as a node
-                    let text = crate::keys::value(&self.tex, "/pgf/text mark").unwrap_or_else(|| tikra_tokens("p"));
-                    let options = crate::keys::value(&self.tex, "/pgf/text mark style").unwrap_or_default();
-                    items.extend(self.node(NodeSpec { options, name: None, at: Some(*p), text, place: OnPath::Point(*p), point: *p, coordinate: false, default_pos: None })?);
+                    items.extend(self.text_mark(*p)?);
                 }
             }
             return Ok(items);

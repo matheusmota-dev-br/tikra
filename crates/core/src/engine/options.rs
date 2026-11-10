@@ -2449,6 +2449,8 @@ const DEFINITIONS: &str = r"
   every picture/.style={}, every scope/.style={}, every path/.style={}, every node/.style={},
   every label/.style={draw=none,fill=none}, every pin/.style={draw=none,fill=none}, every pin edge/.style={help lines}, pin edge/.code={\gdef\tikra@pinedge{#1}},
   every edge/.style={draw}, every to/.style={}, centered/.style={anchor=center}, id/.initial=, prefix/.initial=, parametric/.code={}, raw gnuplot/.code={}, every plot/.style={}, double equal sign distance/.style={double distance between line centers=0.45ex}, /pgf/bar width/.initial=10pt, /handlers/first char syntax/.initial=false, /pgf/bar shift/.initial=0pt, every mark/.style={}, mark options/.style={every mark/.style={#1}},
+  /pgf/text mark/.initial=p, /pgf/text mark style/.initial=, /pgf/text mark as node/.initial=false,
+  text mark/.forward to=/pgf/text mark, text mark style/.forward to=/pgf/text mark style, text mark as node/.forward to=/pgf/text mark as node,
   no marks/.style={mark=none}, no markers/.style={mark=none}, every curve to/.style={},
   every loop/.style={->,shorten >=1pt}, loop right/.style={right,out=15,in=-15,loop},
   loop above/.style={above,out=105,in=75,loop}, loop left/.style={left,out=195,in=165,loop},

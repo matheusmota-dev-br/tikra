@@ -566,3 +566,21 @@ fn a_number_printed_in_text_is_in_math() {
     let r = no_warnings(r"\begin{tikzpicture}\node {$x=\pgfmathprintnumber[frac]{0.5}$};\end{tikzpicture}");
     assert!(r.alt.contains("1 over 2"), "{}", r.alt);
 }
+
+/// `mark=text` sets the `text mark` at each point, in TikZ's plots and in pgfplots.
+#[test]
+fn text_marks_show_the_text_mark() {
+    // the outline of a Q, as a node draws it
+    let q = no_warnings(r"\begin{tikzpicture}\node {Q};\end{tikzpicture}").svg;
+    let glyph = |svg: &str| svg.split(" d=\"").nth(1).map(|d| d.split('"').next().unwrap_or("").to_string()).unwrap_or_default();
+    let q = glyph(&q);
+    assert!(!q.is_empty());
+    let tikz = no_warnings(r"\begin{tikzpicture}\path plot[mark=text, text mark=Q] coordinates {(0,0)};\end{tikzpicture}").svg;
+    assert!(tikz.contains(&q), "{tikz}");
+    let (c, w) = axis("", r"\addplot[mark=text, text mark=Q] coordinates {(0,0) (1,1)};");
+    assert!(w.is_empty(), "{w:?}");
+    let (bare, _) = axis("", r"\addplot[mark=none] coordinates {(0,0) (1,1)};");
+    assert_eq!(texts(&c), texts(&bare) + 2);
+    let pgfplots = no_warnings(r"\begin{tikzpicture}\begin{axis}\addplot[mark=text, text mark=Q] coordinates {(0,0) (1,1)};\end{axis}\end{tikzpicture}").svg;
+    assert!(pgfplots.contains(&q), "{pgfplots}");
+}
