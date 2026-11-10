@@ -213,6 +213,10 @@ pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
 pub(super) struct EngineKeys<'a>(pub(super) &'a mut Engine);
 
 impl shapes::Keys for EngineKeys<'_> {
+    fn tip_shapes(&mut self, spec: &str, line_width: f64) -> Option<(f64, Vec<super::arrows::TipPath>)> {
+        super::arrows::tip_shapes(self.0, spec, line_width)
+    }
+
     fn length(&mut self, key: &str, default: f64) -> f64 {
         self.0.key_length(key, default)
     }
