@@ -296,8 +296,11 @@ impl Engine {
         let (axiom, order) = (self.ls_macro_string("tikra@ls@axiom"), self.ls_macro_string("tikra@ls@order"));
         let anchor = self.ls_macro_string("tikra@ls@anchor");
         if anchor.is_empty() {
+            // the turtle starts at the current point, with the picture's transformation
+            let o = self.st.transform.apply(Point::new(0.0, 0.0));
+            let t = Transform::translation(at.x - o.x, at.y - o.y).compose(&self.st.transform);
             let mut v = vec![Segment::MoveTo(at)];
-            v.extend(self.lsystem_segments(&name, &axiom, &order, self.st.transform)?);
+            v.extend(self.lsystem_segments(&name, &axiom, &order, t)?);
             return Ok(v);
         }
         // drawn on its own, then placed by the anchor of its box at the current point

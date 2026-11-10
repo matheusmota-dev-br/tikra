@@ -639,3 +639,11 @@ fn calc_distance_toward_the_point_itself_goes_up() {
     assert!(close_to(pt(point(body, "$(a)!0.5cm!(a)$")), (1.0, 1.5)));
     assert!(close_to(pt(point(body, "$(a)!0.5cm!90:(a)$")), (1.0, 1.5)));
 }
+
+/// A Lindenmayer system is drawn from the current point: the turtle starts where the path is.
+#[test]
+fn a_lindenmayer_system_starts_at_the_current_point() {
+    let t = first_path(r"\pgfdeclarelindenmayersystem{L}{\rule{F -> FF}} \draw[l-system={L, step=1cm, axiom=F, order=1}] (1,1) lindenmayer system;");
+    let p = points(&t.segments);
+    assert!(close_to(p[p.len() - 2], (2.0, 1.0)) && close_to(p[p.len() - 1], (3.0, 1.0)), "{p:?}");
+}
