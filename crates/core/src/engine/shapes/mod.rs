@@ -49,6 +49,11 @@ pub trait Keys {
     fn code_paths(&mut self, _key: &str, _t: Transform) -> Vec<Vec<Segment>> {
         Vec::new()
     }
+    /// The arrow tip `spec` as drawn with lines `line_width` wide (cm), its options evaluated
+    /// (`length=2*3pt`): see [`crate::engine::arrows::tip_shapes`].
+    fn tip_shapes(&mut self, spec: &str, line_width: f64) -> Option<(f64, Vec<crate::engine::arrows::TipPath>)> {
+        crate::engine::arrows::tip_shapes(&mut crate::engine::arrows::Plain, spec, line_width)
+    }
 }
 
 /// What a shape is computed from.

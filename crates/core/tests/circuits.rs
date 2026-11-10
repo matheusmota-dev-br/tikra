@@ -117,3 +117,13 @@ fn logic_circuits_size_their_gates() {
     paths("circuit logic IEC", r"\node [nor gate, inputs=nni] (a) {}; \draw (a.input 3) -- (a.output);");
     paths("circuit logic CDH, tiny circuit symbols", r"\node [nand gate] (a) {};");
 }
+
+/// The options of `direction ee arrow` are evaluated: `length=2*3pt` draws the tip `length=6pt`
+/// does.
+#[test]
+fn direction_ee_arrow_options_may_be_expressions() {
+    let tip = |length: &str| paths("", &format!(r"\node[shape=direction ee, /pgf/direction ee arrow={{Stealth[length={length}]}}] {{}};"));
+    let (literal, expression) = (tip("6pt"), tip("2*3pt"));
+    assert!(literal.iter().flatten().any(|s| matches!(s, Segment::LineTo(p) if p.x.abs() > 2.0 * PT)), "{literal:?}");
+    assert_eq!(expression, literal);
+}
