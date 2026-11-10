@@ -49,20 +49,17 @@ fn group(v: &[Token]) -> Option<(Vec<Token>, &[Token])> {
     if !matches!(v.first(), Some(Token::Char(_, Cat::Begin))) {
         return None;
     }
+    // (the statements come from TeX's tokens, whose braces pair up: the group is closed)
     let mut depth = 0usize;
-    for (i, t) in v.iter().enumerate() {
+    let end = v.iter().position(|t| {
         match t {
             Token::Char(_, Cat::Begin) => depth += 1,
-            Token::Char(_, Cat::End) => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((v[1..i].to_vec(), &v[i + 1..]));
-                }
-            }
+            Token::Char(_, Cat::End) => depth -= 1,
             _ => {}
         }
-    }
-    None
+        depth == 0
+    })?;
+    Some((v[1..end].to_vec(), &v[end + 1..]))
 }
 
 /// Where the first `=` outside braces is in `v` (`\a{x=y} = 1`: the one after the index).

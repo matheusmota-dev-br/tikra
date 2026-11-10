@@ -261,6 +261,13 @@ fn an_axis_base_has_a_range() {
     assert_eq!(w, ["2-5"]);
 }
 
+/// An axis base made outside a data visualization has its keys there: its attribute is its name.
+#[test]
+fn an_axis_base_made_outside() {
+    let w = words(r"\tikzdatavisualizationset{new axis base=z}\node {\pgfkeysvalueof{/tikz/data visualization/z/attribute}};");
+    assert_eq!(w, ["z"]);
+}
+
 /// A polar transformer tells its attributes.
 #[test]
 fn a_polar_transformers_attributes() {
@@ -450,6 +457,15 @@ fn color_series_in_rgb_and_gray() {
         assert!(close_color(a, first.0, first.1, first.2), "{model}: {a:?}");
         assert!(close_color(b, second.0, second.1, second.2), "{model}: {b:?}");
     }
+}
+
+/// A color series in a color model tikra has no series for: black, and a warning.
+#[test]
+fn a_color_series_in_another_model() {
+    let body = r"\tikzdvdeclarestylesheetcolorseries{mine}{HTML}{000000}{110000}\datavisualization [xy Cartesian, visualize as line=a, style sheet=mine] data point [x=0, y=0, set=a] data point [x=1, y=1, set=a];";
+    warns(body, "color series in the color model 'HTML' not supported: black");
+    let (c, _) = drawn_and_warnings(body);
+    assert!(close_color(stroke_color(&data_paths(&c)[0]), 0.0, 0.0, 0.0));
 }
 
 // ---------------------------------------------------------------- labels and pins in data

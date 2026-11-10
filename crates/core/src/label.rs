@@ -779,17 +779,16 @@ fn in_alphabet(first: char, c: char) -> Option<char> {
     let offset = match c {
         'A'..='Z' => c as u32 - 'A' as u32,
         'a'..='z' => c as u32 - 'a' as u32 + 26,
-        '0'..='9' => {
-            // the digits of each alphabet, where Unicode has them
+        // a digit (the tables list letters and digits only, the digits of the alphabets that
+        // have them in Unicode: typewriter, bold, sans serif)
+        _ => {
             let zero = match first {
                 '\u{1D670}' => 0x1D7F6,
                 '\u{1D400}' => 0x1D7CE,
-                '\u{1D5A0}' => 0x1D7E2,
-                _ => return None,
+                _ => 0x1D7E2,
             };
             return char::from_u32(zero + (c as u32 - '0' as u32));
         }
-        _ => return None,
     };
     // the italic h is Planck's constant, out of the block
     if first == '\u{1D434}' && c == 'h' {
@@ -1170,10 +1169,8 @@ fn paragraph_lines(line: &str, width: f32, align: char, after_glue: bool, typese
     items.push(Item::Penalty { width: 0.0, penalty: 10000.0, flagged: false, hyphen: false });
     items.push(Item::Glue { width: 0.0, stretch: 0.0, fil: if short_last { 1.0 } else { 0.0 }, shrink: 0.0 });
     items.push(Item::Penalty { width: 0.0, penalty: -10000.0, flagged: false, hyphen: false });
-    let mut lines = paragraph::break_lines(&items, width, left, right, 3.0 * em);
-    if lines.is_empty() {
-        lines.push(paragraph::Line { start: 0, end: items.len() - 1, ratio: 0.0, hyphen: false });
-    }
+    // (the last pass of the line breaking always breaks: it takes overfull lines when it must)
+    let lines = paragraph::break_lines(&items, width, left, right, 3.0 * em);
     let mut out = Vec::new();
     for l in lines {
         let mut b = MathBox::empty();

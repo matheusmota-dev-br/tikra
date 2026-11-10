@@ -256,6 +256,9 @@ fn meaning_shows_what_a_command_is() {
         (r"\skipdef\c=5 \meaning\c", "\\skip5"),
         (r"\toksdef\c=5 \meaning\c", "\\toks5"),
         (r"\chardef\c=255 \meaning\c", "\\char\"FF"),
+        // the LaTeX and package commands tikra runs itself are shown by their names
+        (r"\meaning\NewDocumentCommand", "\\NewDocumentCommand"),
+        (r"\meaning\StrLen", "\\StrLen"),
     ] {
         assert_eq!(run(text), shown, "{text}");
     }
@@ -590,6 +593,13 @@ fn execute_basic_expands_what_expands_and_leaves_the_rest() {
     // an undefined command is not TeX's: it is left to the drawing layer
     assert!(!t.execute_basic(Token::cs("draw")).unwrap());
     assert_eq!(run(r"\nothing x"), r"\nothingx");
+}
+
+/// `\the` expands what follows it until it finds the register: a macro that names one is fine.
+#[test]
+fn the_expands_to_its_register() {
+    assert_eq!(run(r"\count1=5 \def\r{\count1}\the\r"), "5");
+    assert_eq!(run(r"\dimen2=1.5pt \def\r{\dimen}\the\r2"), "1.5pt");
 }
 
 #[test]

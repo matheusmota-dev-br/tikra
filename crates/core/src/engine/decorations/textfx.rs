@@ -359,10 +359,7 @@ impl Run<'_> {
                     }
                 }
             }
-            let width = match (lo, hi) {
-                (Some(a), Some(b)) => b.x - a.x,
-                _ => 0.0,
-            };
+            let width = lo.zip(hi).map_or(0.0, |(a, b)| b.x - a.x);
             return Ok(width / PT);
         }
         let name = "tikra@te@character".to_string();

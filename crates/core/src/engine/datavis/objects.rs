@@ -479,10 +479,8 @@ impl Engine {
     // ---------------------------------------------------------------- scaling mappers
 
     fn mapper(&mut self, id: usize) -> Option<Mapper> {
-        match self.object(id)? {
-            Object::ScalingMapper(m) => Some((**m).clone()),
-            _ => None,
-        }
+        let Some(Object::ScalingMapper(m)) = self.object(id) else { return None };
+        Some((**m).clone())
     }
 
     /// The range an axis' survey found.
@@ -658,10 +656,7 @@ impl Engine {
         let Some(Object::PolarTransformer { angle, radius, u0, u90, prev_angle, prev_radius }) = self.object(id).cloned() else { return Ok(None) };
         let a = attribute(self, &angle).and_then(|s| parse_value(self, &s));
         let r = attribute(self, &radius).and_then(|s| parse_value(self, &s));
-        let same = |x: Option<f64>, y: Option<f64>| match (x, y) {
-            (Some(x), Some(y)) => (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0),
-            _ => false,
-        };
+        let same = |x: Option<f64>, y: Option<f64>| x.zip(y).is_some_and(|(x, y)| (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0));
         let mut step = None;
         match token {
             PathToken::MoveTo | PathToken::LineTo => {
@@ -762,12 +757,7 @@ impl Engine {
                 if !a.is_empty() && self.filter_passes(&filter)? {
                     let x = attribute(self, "canvas x").map(|s| self.length(&s).unwrap_or(0.0) / PT).unwrap_or(0.0);
                     let y = attribute(self, "canvas y").map(|s| self.length(&s).unwrap_or(0.0) / PT).unwrap_or(0.0);
-                    let mut stop = false;
-                    if let Some(t) = threshold {
-                        if let Some(v) = attribute(self, &a).and_then(|s| parse_value(self, &s)) {
-                            stop = v >= t;
-                        }
-                    }
+                    let stop = threshold.is_some_and(|t| attribute(self, &a).and_then(|s| parse_value(self, &s)).is_some_and(|v| v >= t));
                     let Some(Object::LabelVisualizer { before, at: here, attribute, .. }) = self.object(id) else { unreachable!("object {id} is the label visualizer") };
                     *before = at;
                     *here = Some(Point::new(x, y));
@@ -818,12 +808,14 @@ impl Engine {
                     *sum = s;
                 }
             }
-            (Object::Accumulator { attribute: a, .. }, Slot::Phase) => {
+            // the last: an accumulator's phase (the transformers' slots are called directly, not
+            // by a signal, and no other object connects to a slot it does not have)
+            (o, _) => {
+                let Object::Accumulator { attribute: a, .. } = o else { unreachable!("object {id} has no slot {slot:?}") };
                 if matches!(phase, Some(Phase::BeginSurvey | Phase::BeginVisualization)) {
                     self.reset_accumulator(id, &a);
                 }
             }
-            _ => {}
         }
         Ok(())
     }

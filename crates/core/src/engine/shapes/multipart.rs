@@ -350,10 +350,9 @@ pub fn rectangle_split(input: &mut Input) -> Geometry {
     }
     for (alias, of) in [("text", "one"), ("second", "two"), ("third", "three"), ("fourth", "four")] {
         for suffix in ["", " east", " west", " north", " south", " split", " split east", " split west", " split north", " split south"] {
-            if let Some(q) = g.anchor(&format!("{of}{suffix}")) {
-                if alias != "text" || !suffix.is_empty() {
-                    g.anchor_at(&format!("{alias}{suffix}"), q);
-                }
+            if alias != "text" || !suffix.is_empty() {
+                let q = g.anchor(&format!("{of}{suffix}")).expect("the anchors of the first twenty parts are all set above");
+                g.anchor_at(&format!("{alias}{suffix}"), q);
             }
         }
     }

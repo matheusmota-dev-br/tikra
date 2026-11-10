@@ -1203,19 +1203,16 @@ impl Engine {
         let mut v = keys::trim(&spec).to_vec();
         let mut opts = Vec::new();
         if v.first().is_some_and(|t| t.is_char('[')) {
+            // the `]` that closes the first `[`
             let mut depth = 0usize;
-            let mut end = None;
-            for (i, t) in v.iter().enumerate() {
+            let end = v.iter().position(|t| {
                 if t.is_char('[') {
                     depth += 1;
                 } else if t.is_char(']') {
                     depth -= 1;
-                    if depth == 0 {
-                        end = Some(i);
-                        break;
-                    }
                 }
-            }
+                depth == 0
+            });
             let Some(end) = end else {
                 self.warn(format!("label '{}': options without ']': label ignored", tex::tokens_to_string(&v)));
                 return Ok(Vec::new());
@@ -1467,23 +1464,20 @@ fn whole_textcolor(t: &str) -> Option<(String, String)> {
         let mut depth = 1;
         // (`\{` and `\}` are characters, not braces)
         let mut escaped = false;
-        for (i, ch) in s2.char_indices() {
+        // (the text is made of TeX's tokens, whose braces pair up)
+        let (i, _) = s2.char_indices().find(|&(_, ch)| {
             if std::mem::take(&mut escaped) {
-                continue;
+                return false;
             }
             match ch {
                 '\\' => escaped = true,
                 '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some((s2[..i].to_string(), i + 2));
-                    }
-                }
+                '}' => depth -= 1,
                 _ => {}
             }
-        }
-        None
+            depth == 0
+        })?;
+        Some((s2[..i].to_string(), i + 2))
     };
     // `\color{…}` first: the rest of the text in that color
     if let Some(rest) = t.trim().strip_prefix("\\color").map(str::trim_start) {
