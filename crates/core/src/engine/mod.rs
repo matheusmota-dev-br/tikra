@@ -135,7 +135,6 @@ pub enum Cmd {
     Pgfqbox,
     Pgfmathsetmacro,
     Pgfmathparse,
-    PgfmathFunction,
     Pgfmathtruncatemacro,
     Pgfmathsetlengthmacro,
     Pgfmathsetcount,
@@ -275,32 +274,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfqbox", Cmd::Pgfqbox),
     ("pgfmathsetmacro", Cmd::Pgfmathsetmacro),
     ("pgfmathparse", Cmd::Pgfmathparse),
-    ("pgfmathadd", Cmd::PgfmathFunction),
-    ("pgfmathsubtract", Cmd::PgfmathFunction),
-    ("pgfmathmultiply", Cmd::PgfmathFunction),
-    ("pgfmathdivide", Cmd::PgfmathFunction),
-    ("pgfmathmax", Cmd::PgfmathFunction),
-    ("pgfmathmin", Cmd::PgfmathFunction),
-    ("pgfmathmod", Cmd::PgfmathFunction),
-    ("pgfmathMod", Cmd::PgfmathFunction),
-    ("pgfmathpow", Cmd::PgfmathFunction),
-    ("pgfmathveclen", Cmd::PgfmathFunction),
-    ("pgfmathatan2", Cmd::PgfmathFunction),
-    ("pgfmathabs", Cmd::PgfmathFunction),
-    ("pgfmathneg", Cmd::PgfmathFunction),
-    ("pgfmathsqrt", Cmd::PgfmathFunction),
-    ("pgfmathsin", Cmd::PgfmathFunction),
-    ("pgfmathcos", Cmd::PgfmathFunction),
-    ("pgfmathtan", Cmd::PgfmathFunction),
-    ("pgfmathexp", Cmd::PgfmathFunction),
-    ("pgfmathln", Cmd::PgfmathFunction),
-    ("pgfmathround", Cmd::PgfmathFunction),
-    ("pgfmathfloor", Cmd::PgfmathFunction),
-    ("pgfmathceil", Cmd::PgfmathFunction),
-    ("pgfmathint", Cmd::PgfmathFunction),
-    ("pgfmathdeg", Cmd::PgfmathFunction),
-    ("pgfmathrad", Cmd::PgfmathFunction),
-    ("pgfmathsign", Cmd::PgfmathFunction),
     ("pgfmathtruncatemacro", Cmd::Pgfmathtruncatemacro),
     ("pgfmathsetlengthmacro", Cmd::Pgfmathsetlengthmacro),
     ("pgfmathsetcount", Cmd::Pgfmathsetcount),
@@ -396,6 +369,16 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("spy", Cmd::Spy),
     ("tikra@spybegin", Cmd::SpyBegin),
     ("tikra@spyend", Cmd::SpyEnd),
+];
+
+/// pgfmath's functions as commands (`\pgfmathadd{a}{b}`…), numbered from
+/// `PGFMATH_FUNCTION_BASE` in this order: the number, not the name a command is called by, says which
+/// function it is (`\let\plus\pgfmathadd`).
+const PGFMATH_FUNCTION_BASE: u16 = 400;
+const _: () = assert!((Cmd::CheckUnit as u16) < PGFMATH_FUNCTION_BASE && PGFMATH_FUNCTION_BASE as usize + PGFMATH_FUNCTIONS.len() <= basic::BASE as usize);
+const PGFMATH_FUNCTIONS: &[&str] = &[
+    "add", "subtract", "multiply", "divide", "max", "min", "mod", "Mod", "pow", "veclen", "atan2", "abs", "neg", "sqrt", "sin", "cos", "tan", "exp", "ln", "round", "floor",
+    "ceil", "int", "deg", "rad", "sign",
 ];
 
 /// Commands that the drawing layer turns into a path statement, with their default options.
@@ -945,10 +928,12 @@ impl Engine {
         };
         for (name, cmd) in COMMANDS {
             e.tex.define(name, Meaning::Native(*cmd as u16));
+        }
+        for (k, name) in PGFMATH_FUNCTIONS.iter().enumerate() {
+            let id = PGFMATH_FUNCTION_BASE + k as u16;
+            e.tex.define(&format!("pgfmath{name}"), Meaning::Native(id));
             // pgfmath's inner forms (`\pgfmathadd@`), used by documents with @ a letter
-            if *cmd == Cmd::PgfmathFunction {
-                e.tex.define(&format!("{name}@"), Meaning::Native(*cmd as u16));
-            }
+            e.tex.define(&format!("pgfmath{name}@"), Meaning::Native(id));
         }
         // in a fading, transparent is black (`\colorlet{pgftransparent}{black}`)
         e.colors.insert("transparent".into(), Color::BLACK);
@@ -1536,7 +1521,35 @@ impl Engine {
     /// Whether the command `id` only computes with pgfmath (`\pgfmathparse`, `\pgfmathadd`…): code
     /// that may come before a point, as in `{\pgfmathrand\pgfpoint{…}{\pgfmathresult pt}}`.
     fn is_pgfmath(id: u16) -> bool {
-        [Cmd::Pgfmathparse, Cmd::Pgfmathsetmacro, Cmd::Pgfmathtruncatemacro, Cmd::Pgfmathsetlengthmacro, Cmd::PgfmathFunction].iter().any(|c| *c as u16 == id)
+        Self::pgfmath_function(id).is_some() || [Cmd::Pgfmathparse, Cmd::Pgfmathsetmacro, Cmd::Pgfmathtruncatemacro, Cmd::Pgfmathsetlengthmacro].iter().any(|c| *c as u16 == id)
+    }
+
+    /// The pgfmath function the command `id` computes, if it is one.
+    fn pgfmath_function(id: u16) -> Option<&'static str> {
+        PGFMATH_FUNCTIONS.get(usize::from(id.checked_sub(PGFMATH_FUNCTION_BASE)?)).copied()
+    }
+
+    /// `\pgfmathadd{a}{b}` and the other functions as commands: `\pgfmathresult` is their value.
+    fn pgfmath_function_command(&mut self, name: &str) -> Result<(), Error> {
+        let n = if matches!(name, "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "Mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
+        let mut args = Vec::new();
+        for _ in 0..n {
+            let a = self.argument()?;
+            args.push(format!("({})", self.math_string(a)?));
+        }
+        let text = match name {
+            "add" => format!("{}+{}", args[0], args[1]),
+            "subtract" => format!("{}-{}", args[0], args[1]),
+            "multiply" => format!("{}*{}", args[0], args[1]),
+            "divide" => format!("{}/{}", args[0], args[1]),
+            "neg" => format!("-{}", args[0]),
+            other => format!("{other}({})", args.join(",")),
+        };
+        match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
+            Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
+            Err(e) => self.warn(format!("\\pgfmath{name}: {e}")),
+        }
+        Ok(())
     }
 
     fn command(&mut self, id: u16, t: &Token) -> Result<(), Error> {
@@ -1560,6 +1573,9 @@ impl Engine {
         }
         if pgfplots::is_command(id) {
             return self.pgfplots_command(id);
+        }
+        if let Some(name) = Self::pgfmath_function(id) {
+            return self.pgfmath_function_command(name);
         }
         let Some(&(name, cmd)) = COMMANDS.iter().find(|(_, c)| *c as u16 == id) else { return Ok(()) };
         if self.axis.is_some() && pgfplots::is_deferred(name) {
@@ -1947,32 +1963,6 @@ impl Engine {
                 match value {
                     Ok(v) => self.tex.define_string("pgfmathresult", &v, false),
                     Err(e) => self.warn(format!("\\pgfmathparse: {e}")),
-                }
-                Ok(())
-            }
-            // `\pgfmathadd{a}{b}` and the other functions as commands: `\pgfmathresult` is their value
-            Cmd::PgfmathFunction => {
-                let name = match t {
-                    Token::Cs(n) => n.trim_start_matches("pgfmath").trim_end_matches('@').to_string(),
-                    _ => return Ok(()),
-                };
-                let n = if matches!(name.as_str(), "add" | "subtract" | "multiply" | "divide" | "max" | "min" | "mod" | "Mod" | "pow" | "veclen" | "atan2") { 2 } else { 1 };
-                let mut args = Vec::new();
-                for _ in 0..n {
-                    let a = self.argument()?;
-                    args.push(format!("({})", self.math_string(a)?));
-                }
-                let text = match name.as_str() {
-                    "add" => format!("{}+{}", args[0], args[1]),
-                    "subtract" => format!("{}-{}", args[0], args[1]),
-                    "multiply" => format!("{}*{}", args[0], args[1]),
-                    "divide" => format!("{}/{}", args[0], args[1]),
-                    "neg" => format!("-{}", args[0]),
-                    other => format!("{other}({})", args.join(",")),
-                };
-                match crate::expr::eval_length(&text, &self.vars()).map(|(v, u)| if u { v / crate::PT } else { v }) {
-                    Ok(v) => self.tex.define_string("pgfmathresult", &pgf_number(v), false),
-                    Err(e) => self.warn(format!("\\pgfmath{name}: {e}")),
                 }
                 Ok(())
             }

@@ -450,6 +450,17 @@ mod played {
         assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
     }
 
+    /// A path filled and stroked with opacities of their own is drawn as two elements: each
+    /// still plays the animations of what it draws.
+    #[test]
+    fn a_path_with_fill_and_stroke_opacities_is_played() {
+        let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\filldraw[fill=red, draw=blue, fill opacity=0.5, draw opacity=0.8] :fill = {0s=\"red\", 2s=\"green\"} :draw = {0s=\"blue\", 2s=\"black\"} (0,0) rectangle (1,1);\\end{tikzpicture}";
+        let svg = convert_with(code, &Options::default().play()).unwrap().svg;
+        assert_eq!(svg.matches(r#"<animate attributeName="fill""#).count(), 1, "{svg}");
+        assert_eq!(svg.matches(r#"<animate attributeName="stroke""#).count(), 1, "{svg}");
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
     #[test]
     fn a_scope_moves_all_it_draws() {
         let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\begin{scope}[animate={myself:opacity={0s=\"1\",1s=\"0\"}}]\\draw (0,0) -- (1,0);\\draw (0,1) -- (1,1);\\end{scope}\\draw (0,2) -- (1,2);\\end{tikzpicture}";

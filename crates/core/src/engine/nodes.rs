@@ -1644,7 +1644,8 @@ impl Engine {
                     None => arg.chars().next().map_or(0, char::len_utf8),
                 };
                 if n == 0 {
-                    out.push_str(&rest[i..i + "\\textcolor{".len() + end + 1]);
+                    // no text left to color: TeX stops on the missing argument
+                    self.warn(format!("\\textcolor{{{spec}}} without a text to color: dropped"));
                     rest = body_start;
                     continue;
                 }

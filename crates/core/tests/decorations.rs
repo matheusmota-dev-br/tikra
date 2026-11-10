@@ -121,6 +121,26 @@ fn markings_with_arrows_and_nodes() {
     assert!((text.e - 1.0).abs() < 0.1, "{text:?}");
 }
 
+/// How far left to right the tip `\arrow{tip}` reaches at the end of a mark, after `setup`.
+fn mark_tip_width(setup: &str, tip: &str) -> f64 {
+    let (items, w) = picture(&format!(r"{setup}\path[decoration={{markings, mark=at position 1 with {{\arrow{{{tip}}}}}}}, decorate] (0,0) -- (2,0);"));
+    assert!(w.is_empty(), "{w:?}");
+    let xs: Vec<f64> = paths(&items).iter().flat_map(|s| ends(s)).map(|q| q.x).collect();
+    xs.iter().fold(f64::MIN, |a, &b| a.max(b)) - xs.iter().fold(f64::MAX, |a, &b| a.min(b))
+}
+
+/// A tip in a mark is read as on a path: its options are evaluated (`length=2*3pt` is
+/// `length=6pt`), and a tip declared in the document with `.tip` is known.
+#[test]
+fn arrow_in_a_mark_is_read_as_on_a_path() {
+    let plain = mark_tip_width("", "Latex[length=6pt]");
+    assert!(plain > 4.0 * PT, "{plain}");
+    let computed = mark_tip_width("", "Latex[length=2*3pt]");
+    assert!((computed - plain).abs() < 1e-6, "{computed} vs {plain}");
+    let declared = mark_tip_width(r"\tikzset{my tip/.tip={Latex[length=6pt]}}", "my tip");
+    assert!((declared - plain).abs() < 1e-6, "{declared} vs {plain}");
+}
+
 #[test]
 fn mark_distance_is_written_as_tex_writes_a_dimension() {
     // `120.0pt`, as `\the` writes it: a mark is drawn only if the text is that
@@ -238,6 +258,26 @@ fn text_along_path_colored_by_model_and_values() {
         let colors: Vec<String> = items.iter().filter_map(|i| if let Item::Text { label, .. } = i { Some(label.color.hex()) } else { None }).collect();
         assert_eq!(colors, ["#ff0000", "#ff0000"], "{format}");
     }
+}
+
+/// In the text's format, `\color`'s argument may be a macro, braced or not, and a `\colorlet`
+/// defines a color for the `\color` after it (and is not a `\color` itself).
+#[test]
+fn text_along_path_color_from_a_macro_or_a_colorlet() {
+    let colors = |format: &str| {
+        let (items, w) = picture(&format!(r"\def\mycol{{red}}\path[decorate, decoration={{text along path, text={{|{format}|ab}}}}] (0,0) -- (3,0);"));
+        assert!(w.is_empty(), "{format}: {w:?}");
+        let glyphs = |l: &tikra::scene::Label| l.lines.iter().map(|b| b.items.len()).sum::<usize>();
+        let texts: Vec<_> = items.iter().filter_map(|i| if let Item::Text { label, .. } = i { Some(label) } else { None }).collect();
+        // one glyph a character: nothing of the format is set as text
+        assert!(texts.iter().all(|l| glyphs(l) == 1), "{format}");
+        texts.iter().map(|l| l.color.hex()).collect::<Vec<_>>()
+    };
+    for format in [r"\color\mycol", r"\color{\mycol}", r"\color \mycol"] {
+        assert_eq!(colors(format), ["#ff0000", "#ff0000"], "{format}");
+    }
+    assert_eq!(colors(r"\colorlet{foo}{blue}\color{foo}"), ["#0000ff", "#0000ff"]);
+    assert_eq!(colors(r"\colorlet{foo}{blue}"), ["#000000", "#000000"]);
 }
 
 #[test]

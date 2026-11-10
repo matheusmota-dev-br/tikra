@@ -316,22 +316,7 @@ impl Engine {
                         }
                     }
                 }
-                // single # were doubled above; undo for plain tokens
-                let mut out = Vec::with_capacity(v.len());
-                let mut i = 0;
-                while i < v.len() {
-                    if matches!(v[i], Token::Char(_, Cat::Param))
-                        && matches!(v.get(i + 1), Some(Token::Char(_, Cat::Param)))
-                        && !matches!(v.get(i + 2), Some(Token::Char(c, _)) if c.is_ascii_digit())
-                    {
-                        out.push(v[i].clone());
-                        i += 2;
-                        continue;
-                    }
-                    out.push(v[i].clone());
-                    i += 1;
-                }
-                Some((n, out))
+                Some((n, v))
             }
             _ => None,
         }

@@ -120,8 +120,15 @@ fn clean(text: &str) -> String {
             if name == "fontsize" {
                 i += 9;
                 for _ in 0..2 {
-                    if c.get(i) == Some(&'{') {
-                        i += c[i..].iter().position(|&x| x == '}').map_or(c.len() - i, |p| p + 1);
+                    while c.get(i) == Some(&' ') {
+                        i += 1;
+                    }
+                    match c.get(i) {
+                        Some('{') => i += c[i..].iter().position(|&x| x == '}').map_or(c.len() - i, |p| p + 1),
+                        // unbraced, an argument is one token: a control word or a character (`\fontsize{12}9`)
+                        Some('\\') => i += 1 + c[i + 1..].iter().take_while(|x| x.is_ascii_alphabetic()).count().max(1),
+                        Some(_) => i += 1,
+                        None => {}
                     }
                 }
                 continue;

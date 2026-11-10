@@ -381,6 +381,15 @@ fn textcolor_takes_an_unbraced_argument() {
     }
 }
 
+/// A `\textcolor` at the very end of the text has nothing to color: it is reported and dropped, the rest is set.
+#[test]
+fn textcolor_with_no_text_after_it_is_dropped() {
+    for text in [r"x\textcolor{red}", r"x \textcolor{red} "] {
+        let r = with_warning(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"), "without a text to color");
+        assert!(!r.svg.contains("#ff0000"), "{text}");
+    }
+}
+
 /// `\{` and `\}` in the text of a `\textcolor` are characters: they neither open nor close its group.
 #[test]
 fn escaped_braces_in_a_textcolor() {
@@ -562,6 +571,19 @@ fn text_in_times_is_as_wide_as_tex_sets_it() {
     // drawn in Termes: its glyphs are defined apart from the label font's
     let svg = no_warnings(r"\tikz \node[font=\fontfamily{ptm}] {Times};").svg;
     assert!(svg.contains(r#"id="tr-gt"#) && !svg.contains(r#"id="tr-g1"#), "{svg}");
+}
+
+/// `\fontsize`'s arguments may come without braces, one token each: `\fontsize{12}9` sets nothing of the `9`.
+#[test]
+fn fontsize_takes_unbraced_arguments() {
+    let width = |text: &str| {
+        let body = format!(r"\node[inner sep=0, outer sep=0] (n) {{{text}}};");
+        point(&body, "n.east").x - point(&body, "n.west").x
+    };
+    let braced = width(r"\fontsize{12}{9}\selectfont x");
+    assert!(close(width(r"\fontsize{12}9\selectfont x"), braced));
+    assert!(close(width(r"\fontsize{12} 9 \selectfont x"), braced));
+    assert!(close(width(r"\fontsize{12}\baselineskip\selectfont x"), braced));
 }
 
 #[test]
