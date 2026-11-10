@@ -1019,7 +1019,7 @@ impl Engine {
         }
         self.nesting += 1;
         let depth = self.tex.depth();
-        let floor = std::mem::replace(&mut self.floor, depth);
+        let outer_floor = std::mem::replace(&mut self.floor, depth);
         self.tex.push_frame(tokens);
         // the code ends where its tokens end: a number or a word at its end reads no further
         let floor = self.tex.seal(depth);
@@ -1033,7 +1033,7 @@ impl Engine {
         if r.is_err() {
             self.tex.drain_to(depth);
         }
-        self.floor = floor;
+        self.floor = outer_floor;
         self.nesting -= 1;
         r
     }
