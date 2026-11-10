@@ -279,6 +279,17 @@ fn node_rotation_and_scale() {
     assert!(r.svg.contains("matrix(0.70711 -0.70711 0.70711 0.70711"), "{}", r.svg);
 }
 
+/// An `overlay` node takes no room in the picture, not even at the places a shift animation takes it.
+#[test]
+fn an_overlay_node_makes_no_room_for_its_shift_animation() {
+    let base = r"\usetikzlibrary{animations} \draw (0,0) -- (1,0);";
+    let (w, h) = size(base);
+    let shifted = |options: &str| format!(r#"{base} \node[{options}animate={{myself:xshift={{0s="0cm", 2s="5cm"}}}}] {{A}};"#);
+    assert!(size(&shifted("")).0 > w + 4.0, "a node that counts makes room at 5cm");
+    let (w2, h2) = size(&shifted("overlay, "));
+    assert!(close(w2, w) && close(h2, h), "{w2} {h2} against {w} {h}");
+}
+
 #[test]
 fn node_syntax_errors() {
     for bad in [r"\node[draw {x};", r"\node (a {x};", r"\node at {x};", r"\node {x;"] {
