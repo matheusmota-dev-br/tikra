@@ -24,18 +24,12 @@ fn polylines(segs: &[Segment]) -> Vec<Vec<Point>> {
                 current = p;
             }
             Segment::LineTo(p) => {
-                if out.is_empty() {
-                    out.push(vec![current]);
-                }
-                out.last_mut().expect("a polyline").push(p);
+                out.last_mut().expect("a path starts with a move").push(p);
                 current = p;
             }
             Segment::CurveTo(c1, c2, p) => {
-                if out.is_empty() {
-                    out.push(vec![current]);
-                }
                 let a = current;
-                let line = out.last_mut().expect("a polyline");
+                let line = out.last_mut().expect("a path starts with a move");
                 for k in 1..=CURVE_PIECES {
                     let t = k as f64 / CURVE_PIECES as f64;
                     let u = 1.0 - t;

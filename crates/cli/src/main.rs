@@ -158,16 +158,10 @@ fn main() -> ExitCode {
         }
         Some(s) if s.ends_with(".gcode") || s.ends_with(".hpgl") || s.ends_with(".plt") => {
             let text = if s.ends_with(".gcode") { pen::gcode(&r.svg, &pen) } else { pen::hpgl(&r.svg, &pen) };
-            match text.map(|t| fs::write(&s, t)) {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    eprintln!("tikra: could not write {s}: {e}");
-                    return ExitCode::from(1);
-                }
-                Err(e) => {
-                    eprintln!("tikra: {e}");
-                    return ExitCode::from(1);
-                }
+            // (the strokes are read from the SVG tikra just wrote, which parses)
+            if let Err(e) = fs::write(&s, text.expect("tikra's SVG parses")) {
+                eprintln!("tikra: could not write {s}: {e}");
+                return ExitCode::from(1);
             }
         }
         Some(s) if animation => {
@@ -220,11 +214,8 @@ fn write_slides(code: &str, options: &tikra::Options, output: Option<&str>, clic
     let mut files: Vec<(String, String)> = Vec::new();
     let out = output.unwrap_or("slides.svg");
     if click {
-        let Some(svg) = tikra::click_through(&slides) else {
-            eprintln!("tikra: could not join the slides");
-            return ExitCode::from(1);
-        };
-        files.push((out.to_string(), svg));
+        // (the slides are tikra's own SVGs, each with its box and its body)
+        files.push((out.to_string(), tikra::click_through(&slides).expect("tikra's slides join")));
     } else {
         let stem = out.strip_suffix(".svg").unwrap_or(out);
         files.extend(slides.iter().enumerate().map(|(k, s)| (format!("{stem}-{}.svg", k + 1), s.svg.clone())));

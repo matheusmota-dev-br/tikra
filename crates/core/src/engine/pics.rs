@@ -135,13 +135,11 @@ impl Engine {
         }
         let eccentricity: f64 = keys::value(&self.tex, "/tikz/angle eccentricity").map(|v| tex::tokens_to_string(&v)).and_then(|s| s.trim().parse().ok()).unwrap_or(0.6);
         let start = (a.y - b.y).atan2(a.x - b.x).to_degrees();
-        let mut end = (c.y - b.y).atan2(c.x - b.x).to_degrees();
+        let end = (c.y - b.y).atan2(c.x - b.x).to_degrees();
+        // (both in (-180, 180]: the end is after the start once the start is a turn before)
         let mut start = start;
         if end < start {
             start -= 360.0;
-        }
-        if end < start {
-            end += 360.0;
         }
         // the pic's coordinates are the canvas ones: nodes were placed in them
         self.st.transform = Transform::default();

@@ -2589,9 +2589,7 @@ pub fn define_keys(e: &mut Engine) {
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
     }
-    if let Err(err) = e.run_tokens(tokens) {
-        e.warn(format!("internal: TikZ definitions failed: {err}"));
-    }
+    e.run_tokens(tokens).expect("TikZ's own definitions run without errors");
     e.tex.warnings.clear();
     e.st.key_path = "/".into();
 }
