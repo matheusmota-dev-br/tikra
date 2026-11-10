@@ -211,6 +211,12 @@ fn commands_of_a_kind_under_let() {
     assert_eq!(run(r"\let\x\IfBooleanTF \x{\BooleanTrue}{T}{F}"), "T");
 }
 
+/// etoolbox's `\ifstrequal` compares its two texts as written: a macro is not its expansion.
+#[test]
+fn ifstrequal_expands_nothing() {
+    assert_eq!(run(r"\def\a{A}\ifstrequal{\a}{A}{T}{F}\ifstrequal{\a}{\a}{T}{F}\ifstrequal{ab}{ab}{T}{F}\ifstrequal{a}{b}{T}{F}"), "FTTF");
+}
+
 #[test]
 fn etoolbox_toggles() {
     // false when made; set locally, or globally with \global; \providetoggle keeps one that exists
