@@ -29,6 +29,36 @@ fn standalone_without_border_uses_default_margin() {
     no_warnings(r"\documentclass[border=3pt \begin{tikzpicture}\draw (0,0)--(1,0);\end{tikzpicture}");
 }
 
+/// `varwidth=3cm` of `standalone` breaks a line wider than 3 cm, and the page is as wide as its widest line.
+#[test]
+fn standalone_varwidth_breaks_the_line() {
+    let size = |svg: &str| -> (f64, f64) {
+        let num = |k: &str| svg.split(&format!("{k}=\"")).nth(1).unwrap().split("pt").next().unwrap().parse().unwrap();
+        (num("width"), num("height"))
+    };
+    let square = r"\tikz \fill (0,0) rectangle (1,1);";
+    let (w1, h1) = size(&no_warnings(&format!(r"\documentclass{{standalone}}\begin{{document}}{square}\end{{document}}")).svg);
+    let (w2, _) = size(&no_warnings(&format!(r"\documentclass{{standalone}}\begin{{document}}{square} {square}\end{{document}}")).svg);
+    // three squares do not fit in 3 cm: two on the first line, one on the second
+    let (w, h) = size(&no_warnings(&format!(r"\documentclass[varwidth=3cm]{{standalone}}\begin{{document}}{square} {square} {square}\end{{document}}")).svg);
+    assert!((w - w2).abs() < 0.01, "{w} {w2}");
+    assert!(h > 1.9 * h1, "{h} {h1}");
+    // a line that fits is not widened to 3 cm
+    let (w, _) = size(&no_warnings(&format!(r"\documentclass[varwidth=3cm]{{standalone}}\begin{{document}}{square}\end{{document}}")).svg);
+    assert!((w - w1).abs() < 0.01, "{w} {w1}");
+}
+
+/// Glue where a line is broken is dropped: the picture after the break starts its line, as the first one does.
+#[test]
+fn glue_at_a_line_break_is_dropped() {
+    let r = no_warnings(
+        r"\documentclass[varwidth=3cm]{standalone}\usepackage{tikz}\begin{document}\color{black}%
+          \tikz \fill (0,0) rectangle (2,1); \hskip 1cm\tikz \fill (0,0) rectangle (2,1);\end{document}",
+    );
+    let starts: Vec<&str> = r.svg.split(r#"<path d="M"#).skip(1).map(|p| p.split(' ').next().unwrap()).collect();
+    assert_eq!(starts, ["0", "0"], "{}", r.svg);
+}
+
 #[test]
 fn preview_package_setup_is_neither_text_nor_a_warning() {
     // the preamble of many TeXample figures: nothing of it is drawn
@@ -64,6 +94,15 @@ fn more_than_one_tikzpicture() {
     assert!((width(&two.svg) - width(&one.svg) - (2.0 * 28.3465 + (3.333 + 0.4) * 72.0 / 72.27)).abs() < 0.1, "{}", width(&two.svg));
     let lines = no_warnings("\\tikz \\draw (0,0)--(1,0);\n\n\\tikz \\draw (0,0)--(1,0);");
     assert!(width(&lines.svg) < width(&one.svg) + 0.1);
+}
+
+/// `\vskip` in a paragraph ends it, as a blank line does: the pictures around it are one above the other.
+#[test]
+fn vskip_between_pictures_ends_the_paragraph() {
+    let width = |svg: &str| -> f64 { svg.split("width=\"").nth(1).unwrap().split("pt").next().unwrap().parse().unwrap() };
+    let blank = no_warnings("\\tikz \\fill (0,0) rectangle (1,1);\n\n\\tikz \\fill (0,0) rectangle (1,1);");
+    let vskip = no_warnings("\\tikz \\fill (0,0) rectangle (1,1);\n\\vskip 0pt\n\\tikz \\fill (0,0) rectangle (1,1);");
+    assert_eq!(width(&vskip.svg), width(&blank.svg), "{}", vskip.svg);
 }
 
 #[test]
@@ -382,4 +421,19 @@ fn nothing_after_end_document_and_no_title_without_maketitle() {
           Notes after the end. \begin{tikzpicture}\draw (0,0) circle (1);\end{tikzpicture}",
     );
     assert_eq!(drawing(&r.svg), drawing(&plain.svg));
+}
+
+/// An animation shows its first frame: a `\tikz` in a later frame is not drawn, as a tikzpicture is not.
+#[test]
+fn an_animation_draws_only_its_first_frame_also_with_tikz() {
+    let r = no_warnings(
+        r"\documentclass{article}\usepackage{tikz,animate}\begin{document}
+          \begin{animateinline}{2}
+          \tikz \fill[red] (0,0) circle (1);
+          \newframe \tikz[scale=2] \fill[blue] (0,0) circle (1);
+          \newframe \tikz {\fill[green] (0,0) circle (1);}
+          \end{animateinline}\end{document}",
+    );
+    assert!(r.svg.contains(r##"fill="#ff0000""##), "{}", r.svg);
+    assert!(!r.svg.contains(r##"fill="#0000ff""##) && !r.svg.contains(r##"fill="#00ff00""##), "{}", r.svg);
 }

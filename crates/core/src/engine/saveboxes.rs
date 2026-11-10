@@ -139,7 +139,7 @@ impl Engine {
             }
             last => {
                 boxes.extend(last);
-                PictureBox { canvas: super::typeset(&boxes, &layout, &words, 0.0), baseline: 0.0 }
+                PictureBox { canvas: super::typeset(&boxes, &layout, &words, 0.0, None), baseline: 0.0 }
             }
         };
         self.saved_boxes.insert(n, b);

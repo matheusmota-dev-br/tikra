@@ -2077,10 +2077,11 @@ pub type TipPath = (Vec<Segment>, bool, Option<(Cap, Join)>);
 
 /// The tip `spec` as `\pgfarrowdraw` draws it with lines `line_width` wide (cm), its end at the
 /// origin pointing right: its total length (cm) and its paths, each with whether it is filled and
-/// its stroke's caps and joins if it is stroked. None for an unknown tip.
-pub fn tip_shapes(spec: &str, line_width: f64) -> Option<(f64, Vec<TipPath>)> {
+/// its stroke's caps and joins if it is stroked; its options are evaluated by `ev`. None for an
+/// unknown tip.
+pub fn tip_shapes(ev: &mut dyn Eval, spec: &str, line_width: f64) -> Option<(f64, Vec<TipPath>)> {
     let mut warn = Vec::new();
-    let e = EndTips::new(&mut Plain, spec, false, &UserTips::default(), Widths { line: line_width / PT, inner: 0.0 }, 0.0, &mut warn);
+    let e = EndTips::new(ev, spec, false, &UserTips::default(), Widths { line: line_width / PT, inner: 0.0 }, 0.0, &mut warn);
     if !warn.is_empty() || e.is_empty() {
         return None;
     }

@@ -149,6 +149,8 @@ pub struct Dv {
     pub axes: Vec<String>,
     /// how many visualizers there are (their numbers for style sheets)
     pub visualizers: usize,
+    /// the legends made so far (`new legend`), by name
+    pub legends: Vec<String>,
     /// what is drawn after the data
     pub actions: Actions,
     /// `major=`, `minor=`… are ignored while tick positions are computed
@@ -182,6 +184,7 @@ impl Dv {
             polar_to: (None, None),
             axes: Vec::new(),
             visualizers: 0,
+            legends: Vec::new(),
             actions: Actions::default(),
             setters_off: false,
         }

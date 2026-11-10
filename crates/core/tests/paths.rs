@@ -18,6 +18,17 @@ fn line_elbows_and_closing() {
     assert!(!t.segments.contains(&Segment::Close));
 }
 
+/// A word at the end of a path `foreach` body (`circle`) ends with the body: the next statement
+/// is still drawn.
+#[test]
+fn foreach_body_ending_in_a_word() {
+    let c = canvas(r"\draw[radius=1] foreach \p in {(0,0),(3,0)} {\p circle}; \draw (5,0) -- (6,0);");
+    let t = paths(&c);
+    assert_eq!(t.len(), 2);
+    let p = points(&t[1].segments);
+    assert!(close_to(p[0], (5.0, 0.0)) && close_to(p[1], (6.0, 0.0)), "{p:?}");
+}
+
 #[test]
 fn relative_coordinates() {
     // ++ accumulates, + does not move the base
@@ -186,6 +197,16 @@ fn to_with_angles_bends_and_looseness() {
     // to a node stops at its border (curve)
     let c = canvas(r"\node[draw, circle, minimum size=1cm] (b) at (3,0) {}; \draw (0,0) to[bend left] (b);");
     assert!(points(&paths(&c)[1].segments)[1].0 < 3.0);
+}
+
+/// A `to` right after a node starts at that node's border, not at its center.
+#[test]
+fn to_right_after_a_node_starts_at_its_border() {
+    let c = canvas(r"\draw (0,0) node[draw, minimum size=1cm] (a) {} to (3,0);");
+    let line = paths(&c).into_iter().find(|d| points(&d.segments).iter().any(|p| close(p.0, 3.0))).expect("the line");
+    let p = points(&line.segments);
+    let start = p[p.len() - 2];
+    assert!(start.0 > 0.5 && start.0 < 0.6, "from the east border, not the center: {start:?}");
 }
 
 #[test]
@@ -638,4 +659,12 @@ fn calc_distance_toward_the_point_itself_goes_up() {
     let body = r"\coordinate (a) at (1,1);";
     assert!(close_to(pt(point(body, "$(a)!0.5cm!(a)$")), (1.0, 1.5)));
     assert!(close_to(pt(point(body, "$(a)!0.5cm!90:(a)$")), (1.0, 1.5)));
+}
+
+/// A Lindenmayer system is drawn from the current point: the turtle starts where the path is.
+#[test]
+fn a_lindenmayer_system_starts_at_the_current_point() {
+    let t = first_path(r"\pgfdeclarelindenmayersystem{L}{\rule{F -> FF}} \draw[l-system={L, step=1cm, axiom=F, order=1}] (1,1) lindenmayer system;");
+    let p = points(&t.segments);
+    assert!(close_to(p[p.len() - 2], (2.0, 1.0)) && close_to(p[p.len() - 1], (3.0, 1.0)), "{p:?}");
 }

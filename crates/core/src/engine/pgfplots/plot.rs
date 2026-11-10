@@ -160,7 +160,8 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
                 behavior = o;
             }
         } else {
-            e.tex.push_tokens(tex::string_tokens(&w));
+            // the word given back as letters: `\addplot pizza` is the input 'pizza'
+            e.tex.push_tokens(w.chars().map(|c| Token::Char(c, Cat::Letter)));
         }
     }
     let (index, cycle) = {
@@ -1018,6 +1019,11 @@ fn load_table(e: &mut Engine, opts: Option<Vec<Token>>, mut text: String, what: 
         text = t;
         all_opts.extend(o);
         all_opts.extend(super::toks(","));
+    } else if let Some(name) = text.trim().strip_prefix('\\').map(str::trim).filter(|n| !n.is_empty() && !n.contains(char::is_whitespace)) {
+        // any other macro holds the file's name (or the data): its text
+        if e.tex.is_defined(name) {
+            text = e.tex.expand_to_string(vec![Token::cs(name)])?;
+        }
     }
     all_opts.extend(opts.unwrap_or_default());
     if !all_opts.is_empty() {
@@ -1191,7 +1197,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         }
         ends
     });
-    if tie.as_ref().is_some_and(|t| t.iter().any(|s| matches!(s, Src::None | Src::Col(None)))) {
+    // (in 2d, the ends need no z)
+    if tie.as_ref().is_some_and(|t| t.iter().take(if three_d { 3 } else { 2 }).any(|s| matches!(s, Src::None | Src::Col(None)))) {
         e.warn("tieline: the tie ends' columns are not found (give 'tie end x' and its friends): ties not drawn");
     }
     let sey = pick(e, "y error", None);
@@ -1258,7 +1265,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             }
         }
         if let Some((tokens, mathparse)) = &symbolic {
-            let replaced = replace_thisrow(tokens, t, r);
+            // a symbolic meta is text: the cells as written (`0,0,1` is a color, not a number)
+            let replaced = replace_thisrow_as(tokens, t, r, true);
             let text = e.tex.expand_to_string(replaced).unwrap_or_default();
             let l = symbolic_label(e, &text, *mathparse, [x, y, z]);
             c.label = add_label(tex::string_tokens(&l));

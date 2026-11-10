@@ -59,6 +59,11 @@ thread_local! {
     static CURRENT: std::cell::Cell<Option<Geometry>> = const { std::cell::Cell::new(None) };
 }
 
+/// A new axis: no box plot drawn yet (none of an earlier axis or figure).
+pub fn reset() {
+    CURRENT.with(|c| c.set(None));
+}
+
 /// `boxplot cs:v,b`, `boxplot box cs:v,b`, `boxplot whisker cs:v,b`: logical (x, y) of the box
 /// plot being drawn.
 pub fn cs(system: &str, value: f64, b: f64) -> Option<[f64; 2]> {

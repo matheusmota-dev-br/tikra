@@ -177,7 +177,7 @@ impl Engine {
         let width = |e: &mut Engine, v: &str| e.length(v).ok().map(|x| (x * BP).to_string());
         let shift = |e: &mut Engine, v: &str| -> Option<String> {
             let origin = e.st.transform.apply(Point::default());
-            let d = e.coordinate(v.trim_start_matches('(').trim_end_matches(')')).ok()?.p.minus(origin);
+            let d = e.coordinate(point_text(v)).ok()?.p.minus(origin);
             Some(format!("{} {}", d.x * BP, -d.y * BP))
         };
         match attribute {
@@ -204,10 +204,10 @@ impl Engine {
         self.animation_center.get_or_insert(self.st.transform.apply(Point::default()));
     }
 
-    /// After a statement: what it drew, from `start`, moves as it asked. A scope's animations go
-    /// over what it will draw, up to its end.
-    pub fn place_animations(&mut self, start: usize, opens: bool) {
-        let animations = std::mem::take(&mut self.animations);
+    /// After a statement: what it drew, from `start`, moves as it asked (the animations it noted,
+    /// from `from`). A scope's animations go over what it will draw, up to its end.
+    pub fn place_animations(&mut self, start: usize, opens: bool, from: usize) {
+        let animations = self.animations.split_off(from);
         let center = self.animation_center.take().unwrap_or_default();
         let item = Item::Animated { animations, center };
         if opens {
@@ -246,7 +246,7 @@ impl Engine {
                 "yshift" => self.length(&value).map(|y| Point::new(0.0, y)),
                 _ => {
                     let origin = self.st.transform.apply(Point::default());
-                    self.coordinate(value.trim_start_matches('(').trim_end_matches(')')).map(|c| c.p.minus(origin))
+                    self.coordinate(point_text(&value)).map(|c| c.p.minus(origin))
                 }
             };
             if let Ok(d) = d {
@@ -327,4 +327,9 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+/// The coordinate of a shift's value, `(x,y)` or braced `{(x,y)}`: what is inside the parentheses.
+fn point_text(v: &str) -> &str {
+    crate::keys::strip_braces(v).trim_start_matches('(').trim_end_matches(')')
 }

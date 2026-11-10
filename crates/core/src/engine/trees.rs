@@ -94,15 +94,24 @@ impl Engine {
                 }
             }
             if word == "foreach" {
-                let var = self.tex.next_nonspace().ok_or_else(|| Error::Figure("child foreach without a variable".into()))?;
-                // up to `in`
+                // `\x/\y [count=\i] in {list}`, as a `\foreach`
+                let mut vars: Vec<Token> = Vec::new();
+                let mut opts: Vec<Token> = Vec::new();
                 loop {
                     match self.tex.next_nonspace() {
-                        // an `i` not followed by `n` is skipped with what follows it
-                        Some(t) if t.is_char('i') && self.tex.get_token().is_some_and(|n| n.is_char('n')) => break,
+                        Some(t) if t.is_char('[') => opts.extend(self.tex.read_until_char(']', false)?),
+                        Some(t) if t.is_char('i') => match self.tex.get_token() {
+                            Some(n) if n.is_char('n') => break,
+                            Some(n) => self.tex.back(n),
+                            None => {}
+                        },
+                        Some(t @ Token::Cs(_)) => vars.push(t),
                         Some(_) => {}
                         None => return Err(Error::Figure("child foreach without 'in'".into())),
                     }
+                }
+                if vars.is_empty() {
+                    return Err(Error::Figure("child foreach without a variable".into()));
                 }
                 let list = self.tex.read_undelimited()?;
                 let list = self.tex.expand_fully(list)?;
@@ -114,11 +123,33 @@ impl Engine {
                     }
                     None => Vec::new(),
                 };
-                for item in super::foreach_items(&list) {
-                    // the variable is defined (a \def) before the child's options are read
-                    let mut b = vec![Token::cs("def"), var.clone(), Token::Char('{', Cat::Begin)];
-                    b.extend(item);
-                    b.push(Token::Char('}', Cat::End));
+                let o = super::foreach_options(&opts);
+                let mut memory = o.initial_memory();
+                // what each iteration defines: the variables and what the options set
+                let mut names = vars.clone();
+                names.extend(o.count.iter().map(|c| c.0.clone()));
+                names.extend(o.remember.iter().map(|r| r.1.clone()));
+                names.extend(o.evaluate.iter().map(|v| v.1.clone().unwrap_or_else(|| v.0.clone())));
+                for (k, item) in super::foreach_items(&list).into_iter().enumerate() {
+                    self.begin_group();
+                    let parts: Vec<Vec<Token>> = item.split(|t| t.is_char('/')).map(|p| crate::keys::trim(p).to_vec()).collect();
+                    for (i, n) in vars.iter().enumerate() {
+                        let v = parts.get(i).or(parts.last()).cloned().unwrap_or_default();
+                        self.tex.set_meaning(n, super::macro_tokens(v), false);
+                    }
+                    let r = self.foreach_iteration(&o, k, &memory);
+                    // they are defined (a \def each) before the child's options are read
+                    let mut b = Vec::new();
+                    for n in &names {
+                        if let tex::Meaning::Macro(m) = self.tex.meaning(n) {
+                            b.extend([Token::cs("def"), n.clone(), Token::Char('{', Cat::Begin)]);
+                            b.extend(tex::substitute(&m.body, &[]));
+                            b.push(Token::Char('}', Cat::End));
+                        }
+                    }
+                    self.foreach_remember(&o, &mut memory);
+                    self.end_group();
+                    r?;
                     out.push(Child { options: options.clone(), body: body.clone(), define: b });
                 }
                 continue;

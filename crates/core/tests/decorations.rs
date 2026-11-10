@@ -84,6 +84,15 @@ fn curves_are_followed() {
     }
 }
 
+/// `reverse path` walks the path from its end back to its start, and ends at the start.
+#[test]
+fn reverse_path_ends_where_the_path_started() {
+    let (items, w) = picture(r"\draw[decorate, decoration={lineto, reverse path}] (0,0) -- (1,0) -- (1,1);");
+    assert!(w.is_empty(), "{w:?}");
+    let p = ends(&paths(&items)[0]);
+    assert!(p.len() == 3 && near(p[0], 1.0, 1.0) && near(p[1], 1.0, 0.0) && near(p[2], 0.0, 0.0), "{p:?}");
+}
+
 #[test]
 fn decorate_operation_and_nesting() {
     let (items, w) = picture(r"\draw (0,0) -- (1,0) decorate[decoration=zigzag] { -- (3,0) } -- (3,1);");
@@ -163,6 +172,23 @@ fn declared_decorations_run_as_tex() {
     assert!(near(*p.last().unwrap(), 3.0, 0.0), "{p:?}");
 }
 
+/// The code of a declared state that ends in a number ends there: it reads nothing of the
+/// decoration's own code after it.
+#[test]
+fn declared_state_code_ending_in_a_number() {
+    let (items, w) = picture(
+        r"\newcount\k
+          \pgfdeclaredecoration{steps}{initial}{
+            \state{initial}[width=10pt]{\pgfpathlineto{\pgfpoint{5pt}{5pt}}\pgfpathlineto{\pgfpoint{10pt}{0pt}}\k=5}
+            \state{final}{\pgfpathlineto{\pgfpointdecoratedpathlast}}}
+          \draw[decorate, decoration=steps] (0,0) -- (3,0);",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let p = ends(&paths(&items)[0]);
+    assert!(near(p[1], 5.0 * PT, 5.0 * PT), "{p:?}");
+    assert!(near(*p.last().unwrap(), 3.0, 0.0), "{p:?}");
+}
+
 #[test]
 fn basic_layer_decoration_environment() {
     let (items, w) = picture(
@@ -176,6 +202,23 @@ fn basic_layer_decoration_environment() {
     assert!(p.iter().any(|q| q.y > 2.0 * PT), "{p:?}");
 }
 
+/// A stretch whose automaton stops short still ends at its length: zigzag on 23pt stops at 20pt,
+/// draws on to 23pt, and the next stretch starts there.
+#[test]
+fn a_stretch_ends_at_its_length_on_a_straight_path() {
+    let (items, w) = picture(
+        r"\begin{pgfdecoration}{{zigzag}{23pt},{zigzag}{25pt}}
+          \pgfpathmoveto{\pgfpointorigin}\pgfpathlineto{\pgfpoint{100pt}{0pt}}
+          \end{pgfdecoration}\pgfusepath{stroke}",
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let p = ends(&paths(&items)[0]);
+    let x = |q: Point| q.x / PT;
+    assert!(p.iter().any(|q| (x(*q) - 23.0).abs() < 1e-3 && q.y.abs() < 1e-4), "the first stretch ends at 23pt: {p:?}");
+    let last = *p.last().unwrap();
+    assert!((x(last) - 48.0).abs() < 1e-3 && last.y.abs() < 1e-4, "the second ends at 48pt: {p:?}");
+}
+
 #[test]
 fn text_along_path() {
     let (items, w) = picture(r"\path[decorate, decoration={text along path, text={abc}}] (0,0) -- (3,0);");
@@ -183,6 +226,18 @@ fn text_along_path() {
     let places: Vec<f64> = items.iter().filter_map(|i| if let Item::Text { place, .. } = i { Some(place.e) } else { None }).collect();
     assert_eq!(places.len(), 3);
     assert!(places[0] < 0.05 && places[0] < places[1] && places[1] < places[2], "{places:?}");
+}
+
+/// A color given by its model and values in the text's format (`|\color[rgb]{…}|`) colors the
+/// characters after it, as a named one does.
+#[test]
+fn text_along_path_colored_by_model_and_values() {
+    for format in [r"\color[rgb]{1,0,0}", r"\color{red}"] {
+        let (items, w) = picture(&format!(r"\path[decorate, decoration={{text along path, text={{|{format}|ab}}}}] (0,0) -- (3,0);"));
+        assert!(w.is_empty(), "{format}: {w:?}");
+        let colors: Vec<String> = items.iter().filter_map(|i| if let Item::Text { label, .. } = i { Some(label.color.hex()) } else { None }).collect();
+        assert_eq!(colors, ["#ff0000", "#ff0000"], "{format}");
+    }
 }
 
 #[test]
@@ -239,6 +294,24 @@ fn replaced_characters_and_relative_controls() {
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(items.iter().filter(|i| matches!(i, Item::Text { .. })).count(), 2);
     assert_eq!(paths(&items).len(), 1);
+}
+
+/// A replaced character takes the room of what it draws even when the picture's size is fixed by
+/// `use as bounding box`, or inside a clip.
+#[test]
+fn replaced_characters_take_room_after_use_as_bounding_box() {
+    let path = r"\path[decoration={text effects along path, text={a0a}, text effects/.cd, replace characters=0 with {\fill circle [radius=2pt];}}, decorate] (0,0) -- (3,0);";
+    let xs = |before: &str| -> Vec<f64> {
+        let (c, _) = run_document(&format!("\\begin{{tikzpicture}}{before}{path}\\end{{tikzpicture}}")).unwrap_or_else(|e| panic!("{e}"));
+        c.items.iter().filter_map(|i| if let Item::Text { place, .. } = i { Some(place.e) } else { None }).collect()
+    };
+    let free = xs("");
+    assert_eq!(free.len(), 2);
+    assert!(free[1] - free[0] > 4.0 * PT, "the circle takes 4pt: {free:?}");
+    for before in [r"\useasboundingbox (0,-1) rectangle (4,1);", r"\clip (0,-1) rectangle (4,1);"] {
+        let fixed = xs(before);
+        assert!((fixed[1] - fixed[0] - (free[1] - free[0])).abs() < 1e-6, "{before}: {fixed:?} vs {free:?}");
+    }
 }
 
 #[test]

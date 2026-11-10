@@ -269,6 +269,16 @@ fn a_functional_shading_is_sampled_under_its_path_only() {
     }
 }
 
+/// A chain `placed` by options with braces inside them keeps those braces: each node goes where they say.
+#[test]
+fn a_chain_placed_with_nested_braces() {
+    let p = paths(r"\begin{scope}[start chain=placed {at={(\tikzchaincount,0)}}] \node[on chain, draw] {}; \node[on chain, draw] {}; \end{scope}");
+    assert_eq!(p.len(), 2, "{p:?}");
+    // the center of a node's border: the mean of its first four corners
+    let x = |s: &[Segment]| s[..4].iter().map(|s| point(s).x).sum::<f64>() / 4.0;
+    assert!(near(Point::new(x(&p[1]) - x(&p[0]), 0.0), 72.27 / 2.54 * PT, 0.0), "one cm apart: {p:?}");
+}
+
 #[test]
 fn chainin_continues_with_after_node_path() {
     // a join of one's own, as `after node path`: the edge from the previous node on the chain;

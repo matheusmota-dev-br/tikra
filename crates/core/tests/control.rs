@@ -43,6 +43,27 @@ fn nested_foreach() {
     assert_eq!(paths(&c).len(), 6);
 }
 
+/// `evaluate … using` a `?:` that picks a text: the text of the branch taken, nested ones too.
+#[test]
+fn foreach_evaluate_with_a_conditional_text() {
+    let r = no_warnings(
+        r#"\begin{tikzpicture}\foreach \x [evaluate=\x as \c using {\x>1 ? (\x>2 ? "green" : "red") : "blue"}] in {1,2,3}
+           \fill[\c] (\x,0) circle (0.3);\end{tikzpicture}"#,
+    );
+    let fills: Vec<&str> = r.svg.split(r##"fill="#"##).skip(1).map(|f| &f[..6]).collect();
+    assert_eq!(fills, ["0000ff", "ff0000", "00ff00"], "{}", r.svg);
+}
+
+/// `\tikz \foreach` with its options after the list: the statement ends with the body, and the next
+/// `\tikz` is a picture of its own, as with the options before the list.
+#[test]
+fn tikz_foreach_with_options_after_the_list() {
+    let after = no_warnings(r"\tikz \foreach \x in {1,2} [count=\i] {\fill (\i,0) circle (0.2);} \tikz \draw (0,0) -- (1,0);");
+    let before = no_warnings(r"\tikz \foreach \x [count=\i] in {1,2} {\fill (\i,0) circle (0.2);} \tikz \draw (0,0) -- (1,0);");
+    let drawing = |svg: &str| svg[svg.find("</metadata>").unwrap()..].to_string();
+    assert_eq!(drawing(&after.svg), drawing(&before.svg));
+}
+
 #[test]
 fn nested_foreach_with_a_braced_inner_body() {
     let c = canvas(r"\foreach \x in {0,1,2} \foreach \y in {0,1} { \fill (\x,\y) circle (1pt); }");
@@ -66,6 +87,25 @@ fn scopes_and_transforms() {
     assert!(close_to(points(&t[1].segments)[0], (1.0, 1.0)) && close_to(points(&t[1].segments)[1], (3.0, 1.0)));
     assert!(close_to(points(&t[2].segments)[1], (1.0, 3.0)));
     assert!(close_to(points(&t[3].segments)[1], (2.0, 3.0)));
+}
+
+/// A nonlinear transformation whose code ends in a length moves the points, and reads nothing of
+/// the path after its code.
+#[test]
+fn nonlinear_code_ending_in_a_length() {
+    let c = canvas(r"\makeatletter\pgftransformnonlinear{\advance\pgf@x by 1cm}\draw (0,0) -- (1,0);");
+    let t = paths(&c);
+    assert_eq!(t.len(), 1);
+    let p = points(&t[0].segments);
+    assert!(close_to(p[0], (1.0, 0.0)) && close_to(*p.last().unwrap(), (2.0, 0.0)), "{p:?}");
+}
+
+/// `\pgf@sys@tonumber` expands to the register's value in pt, so an `\edef` keeps the value it had.
+#[test]
+fn pgf_sys_tonumber_expands() {
+    let c = canvas(r"\makeatletter\pgf@x=2cm \edef\v{\pgf@sys@tonumber\pgf@x}\pgf@x=1cm \draw (\v pt,0) -- (0,0);");
+    let p = points(&paths(&c)[0].segments);
+    assert!(close_to(p[0], (2.0, 0.0)), "{p:?}");
 }
 
 #[test]
@@ -121,6 +161,27 @@ fn pgfmath_as_tex_reads_it() {
         assert!(w.is_empty(), "{w:?}");
         assert!(matches!(&paths(&c)[0].fill.as_ref().unwrap().paint, Paint::Solid(k) if k.hex() == "#0000ff"));
     }
+}
+
+/// `\pgfmathsign` and `\pgfmathMod` work under another name given by `\let`, an active character's too.
+#[test]
+fn pgfmath_sign_and_mod_under_let() {
+    assert!(close_to(start(r"\let\s\pgfmathsign \s{-3}\let\x\pgfmathresult \draw (\x,0) -- (1,1);"), (-1.0, 0.0)));
+    assert!(close_to(start(r"\catcode`\~=13 \let~\pgfmathMod ~{-7}{3}\let\x\pgfmathresult \draw (\x,0) -- (1,1);"), (2.0, 0.0)));
+}
+
+/// A `\tikzmath` assignment is split at its first `=` outside braces, so an index may hold one.
+#[test]
+fn tikzmath_index_with_an_equals_sign() {
+    assert!(close_to(start(r"\tikzmath{\a{x=y} = 2;} \draw (\a{x=y},0) -- (1,1);"), (2.0, 0.0)));
+    assert!(close_to(start(r"\tikzmath{let \b{x=y} = 3;} \draw (\b{x=y},0) -- (1,1);"), (3.0, 0.0)));
+}
+
+/// `let` in `\tikzmath` keeps the expanded tokens as they are: a control sequence stays one.
+#[test]
+fn tikzmath_let_keeps_tokens() {
+    let body = r"\tikzmath{let \t = ab\relax c;}\def\u{ab\relax c}\ifx\t\u\def\x{1}\else\def\x{2}\fi \draw (\x,0) -- (3,3);";
+    assert!(close_to(start(body), (1.0, 0.0)));
 }
 
 #[test]

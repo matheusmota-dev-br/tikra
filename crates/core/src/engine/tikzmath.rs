@@ -8,7 +8,7 @@
 use crate::tex::{self, Cat, Token};
 use crate::Error;
 
-use super::{macro_from, tikra_tokens, Engine};
+use super::{macro_tokens, tikra_tokens, Engine};
 
 /// What a declaration made a variable.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,6 +63,19 @@ fn group(v: &[Token]) -> Option<(Vec<Token>, &[Token])> {
         }
     }
     None
+}
+
+/// Where the first `=` outside braces is in `v` (`\a{x=y} = 1`: the one after the index).
+fn equals(v: &[Token]) -> Option<usize> {
+    let mut depth = 0usize;
+    v.iter().position(|t| {
+        match t {
+            Token::Char(_, Cat::Begin) => depth += 1,
+            Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
+            _ => return depth == 0 && t.is_char('='),
+        }
+        false
+    })
 }
 
 /// Where the word `word` is at the top level of `v`.
@@ -124,9 +137,10 @@ impl Engine {
                 Ok(())
             }
             "let" => {
-                let Some(eq) = rest.iter().position(|t| t.is_char('=')) else { return Err(Error::Figure("\\tikzmath: let without '='".into())) };
+                let Some(eq) = equals(rest) else { return Err(Error::Figure("\\tikzmath: let without '='".into())) };
+                // the expanded tokens themselves: `ab\relax c` stays three letters around a \relax
                 let value = self.tex.expand_fully(crate::keys::trim(&rest[eq + 1..]).to_vec())?;
-                self.math_set(&rest[..eq], tex::tokens_to_string(&value).trim(), None)
+                self.math_set(&rest[..eq], crate::keys::trim(&value).to_vec(), None)
             }
             "for" => {
                 let Some(i) = find_word(rest, "in") else { return Err(Error::Figure("\\tikzmath: for without 'in'".into())) };
@@ -162,7 +176,7 @@ impl Engine {
                 Ok(())
             }
             _ => {
-                let Some(eq) = s.iter().position(|t| t.is_char('=')) else { return Err(Error::Figure(format!("\\tikzmath: '{}' is not a statement", tex::tokens_to_string(s)))) };
+                let Some(eq) = equals(s) else { return Err(Error::Figure(format!("\\tikzmath: '{}' is not a statement", tex::tokens_to_string(s)))) };
                 self.math_assign(&s[..eq], &s[eq + 1..])
             }
         }
@@ -181,29 +195,29 @@ impl Engine {
                 self.coordinate(&format!("${t}$"))?.p
             };
             let (x, y) = (p.x / crate::PT, p.y / crate::PT);
-            self.math_set(target, &format!("tikra cs:{x}pt,{y}pt"), Some((x, y)))
+            self.math_set(target, tex::string_tokens(&format!("tikra cs:{x}pt,{y}pt")), Some((x, y)))
         } else {
             let (v, unit) = crate::expr::eval_length(&text, &self.vars())?;
             let v = if unit { v / crate::PT } else { v };
             let v = if kind == Kind::Integer { v.trunc() } else { v };
-            self.math_set(target, &super::pgf_number(v), None)
+            self.math_set(target, tex::string_tokens(&super::pgf_number(v)), None)
         }
     }
 
     /// The variable of `target` (with its index, if any) set to `value`; a coordinate's x and y too.
-    fn math_set(&mut self, target: &[Token], value: &str, xy: Option<(f64, f64)>) -> Result<(), Error> {
+    fn math_set(&mut self, target: &[Token], value: Vec<Token>, xy: Option<(f64, f64)>) -> Result<(), Error> {
         let target = crate::keys::trim(target);
         let Some(Token::Cs(name)) = target.first() else { return Err(Error::Figure("\\tikzmath: an assignment needs a variable".into())) };
         let name = name.to_string();
         let index = &target[1..];
-        let mut values = vec![(name.clone(), value.to_string())];
+        let mut values = vec![(name.clone(), value)];
         if let Some((x, y)) = xy {
-            values.push((format!("{name}x"), format!("{x}pt")));
-            values.push((format!("{name}y"), format!("{y}pt")));
+            values.push((format!("{name}x"), tex::string_tokens(&format!("{x}pt"))));
+            values.push((format!("{name}y"), tex::string_tokens(&format!("{y}pt"))));
         }
         if index.is_empty() {
             for (n, v) in values {
-                self.tex.set_meaning(&Token::cs(&n), macro_from(&v), false);
+                self.tex.set_meaning(&Token::cs(&n), macro_tokens(v), false);
             }
             return Ok(());
         }
@@ -214,7 +228,7 @@ impl Engine {
         };
         let key = self.tex.expand_to_string(index)?.replace(' ', "");
         for (n, v) in values {
-            self.tex.set_meaning(&Token::cs(&format!("tikra@math@{n}@{key}")), macro_from(&v), false);
+            self.tex.set_meaning(&Token::cs(&format!("tikra@math@{n}@{key}")), macro_tokens(v), false);
             self.run_tokens(tikra_tokens(&format!("\\def\\{n}#1{{\\csname tikra@math@{n}@#1\\endcsname}}")))?;
         }
         Ok(())

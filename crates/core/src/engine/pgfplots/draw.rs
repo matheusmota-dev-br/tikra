@@ -2208,7 +2208,12 @@ fn discontinuous(p0: Point, p1: Point, kind: &str) -> Vec<Segment> {
 pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Error> {
     let mut out = Vec::new();
     let mut i = 0;
+    // inside `$…$`: a number printed outside is put in math, as `\pgfmathprintnumber` does
+    let mut math = false;
     while i < tokens.len() {
+        if matches!(tokens[i], Token::Char(_, tex::Cat::Math)) {
+            math = !math;
+        }
         if tokens[i].is_cs("pgfplotspointplotattime") {
             i = super::attime::run(e, tokens, i)?;
             continue;
@@ -2264,7 +2269,11 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
             let v = e.number_of(arg).unwrap_or(f64::NAN);
             let s = e.st.number_format.print(v);
             e.st.number_format = saved;
-            out.extend(tex::string_tokens(&s));
+            if math {
+                out.extend(tex::string_tokens(&s));
+            } else {
+                out.extend(toks(&format!("${s}$")));
+            }
             i = end;
             continue;
         }

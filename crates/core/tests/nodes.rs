@@ -206,6 +206,21 @@ fn position_along_the_path() {
     assert!(close(q.x, 3.0), "{q:?}");
 }
 
+/// Options between a point and a node move the node as they would move the point: a shift given
+/// there shifts the nodes that follow, at the point or along the segment before it.
+#[test]
+fn options_before_a_node_move_it() {
+    let q = point(r"\path (0,0) [yshift=1cm] node (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (0.0, 1.0)), "{q:?}");
+    let q = point(r"\draw (0,0) -- (2,0) [xshift=1cm, yshift=1cm] node[midway] (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (2.0, 1.0)), "{q:?}");
+    // a point given after the options is already in the new coordinates: no second shift
+    let q = point(r"\path [yshift=1cm] (0,0) node (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (0.0, 1.0)), "{q:?}");
+    let q = point(r"\path (5,5) [yshift=1cm] (0,0) node (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (0.0, 1.0)), "{q:?}");
+}
+
 #[test]
 fn extra_labels_by_side_and_by_angle() {
     for l in [
@@ -279,9 +294,41 @@ fn node_rotation_and_scale() {
     assert!(r.svg.contains("matrix(0.70711 -0.70711 0.70711 0.70711"), "{}", r.svg);
 }
 
+/// An `overlay` node takes no room in the picture, not even at the places a shift animation takes it.
+#[test]
+fn an_overlay_node_makes_no_room_for_its_shift_animation() {
+    let base = r"\usetikzlibrary{animations} \draw (0,0) -- (1,0);";
+    let (w, h) = size(base);
+    let shifted = |options: &str| format!(r#"{base} \node[{options}animate={{myself:xshift={{0s="0cm", 2s="5cm"}}}}] {{A}};"#);
+    assert!(size(&shifted("")).0 > w + 4.0, "a node that counts makes room at 5cm");
+    let (w2, h2) = size(&shifted("overlay, "));
+    assert!(close(w2, w) && close(h2, h), "{w2} {h2} against {w} {h}");
+}
+
+/// A shift animation's points are braced inside their quotes (`"{(5,0)}"`, the comma would end the
+/// value otherwise): the picture makes room for the node at each, as for an `xshift` of 5cm.
+#[test]
+fn a_shift_animation_takes_braced_points() {
+    let body = |a: &str| format!(r#"\usetikzlibrary{{animations}} \draw (0,0) -- (1,0); \node[animate={{myself:{a}}}] {{A}};"#);
+    let xshift = size(&body(r#"xshift={0s="0cm", 2s="5cm"}"#));
+    assert!(xshift.0 > 5.0, "{xshift:?}");
+    let (c, w) = drawn_and_warnings(&body(r#"shift={0s="{(0,0)}", 2s="{(5,0)}"}"#));
+    assert!(w.is_empty(), "{w:?}");
+    assert!(close(c.max.unwrap().x - c.min.unwrap().x, xshift.0), "{c:?}");
+}
+
+/// Under a nonlinear transformation, `\pgftext` goes where its point goes, once.
+#[test]
+fn pgftext_under_a_nonlinear_transformation_moves_once() {
+    let (_, moved) = label(r"\makeatletter \pgftransformnonlinear{\advance\pgf@x by 1cm\relax} \pgftext[at={\pgfpoint{0cm}{0cm}}]{A}");
+    let (_, there) = label(r"\pgftext[at={\pgfpoint{1cm}{0cm}}]{A}");
+    assert!((moved.e - there.e).abs() < 1e-4 && (moved.f - there.f).abs() < 1e-4, "{moved:?} against {there:?}");
+}
+
 #[test]
 fn node_syntax_errors() {
-    for bad in [r"\node[draw {x};", r"\node (a {x};", r"\node at {x};", r"\node {x;"] {
+    // (a label's options without their `]` too, in a node and in a graph)
+    for bad in [r"\node[draw {x};", r"\node (a {x};", r"\node at {x};", r"\node {x;", r"\node[label={[red}] {a};", r"\graph { a [label=[red]above:x] };"] {
         // an error or a warning, never a silent drawing
         if let Ok((_, w)) = tikra::engine::run_document(&format!("\\begin{{tikzpicture}}{bad}\\end{{tikzpicture}}")) {
             assert!(!w.is_empty(), "{bad}");
@@ -323,6 +370,24 @@ fn rows_of_math_in_text_are_not_lines_of_the_node() {
     }
     // a color inside math is a color of math, not a formula of its own
     no_warnings(r"\begin{tikzpicture} \node {$\begin{matrix} a \\ \textcolor{red}{b} \end{matrix}$}; \end{tikzpicture}");
+}
+
+/// `\textcolor` without braces around its text colors the one character or command after it.
+#[test]
+fn textcolor_takes_an_unbraced_argument() {
+    for text in [r"\textcolor{red}x y", r"a \textcolor{red} x y", r"a \textcolor{red}\& y"] {
+        let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"));
+        assert_eq!(r.svg.matches("#ff0000").count(), 1, "{text}: {}", r.svg);
+    }
+}
+
+/// `\{` and `\}` in the text of a `\textcolor` are characters: they neither open nor close its group.
+#[test]
+fn escaped_braces_in_a_textcolor() {
+    for text in [r"\textcolor{red}{a \{ b}", r"x \textcolor{red}{a \} b} y"] {
+        let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"));
+        assert!(r.svg.contains("#ff0000"), "{text}");
+    }
 }
 
 #[test]
@@ -641,6 +706,17 @@ fn quoted_labels_with_a_direction_or_options() {
     assert!(((b.e - x.e) / tikra::PT + 12.09).abs() < 0.2 && ((b.f - x.f) / tikra::PT + 13.96).abs() < 0.2, "{x:?} {b:?}");
     assert!(((c.f - x.f) / tikra::PT - 11.33).abs() < 0.2, "{x:?} {c:?}");
     assert_eq!(t[2].0.color.hex(), "#ff0000");
+}
+
+/// `child foreach` takes `\foreach`'s variables (`\x/\c`) and options (`count`), as `\foreach` does.
+#[test]
+fn child_foreach_with_several_variables_and_a_count() {
+    let tree = r"\node {r} child foreach \x/\c [count=\i] in {a/red, b/blue} {node[text=\c] (n\i) {\x}};";
+    let t = texts(&canvas(tree));
+    assert_eq!(t.len(), 3, "{t:?}");
+    assert_eq!((t[1].0.color.hex(), t[2].0.color.hex()), ("#ff0000".to_string(), "#0000ff".to_string()));
+    // the children are named by the count, left and right of the root
+    assert!(point(tree, "n1").x < 0.0 && point(tree, "n2").x > 0.0);
 }
 
 #[test]

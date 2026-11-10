@@ -5,7 +5,7 @@
 
 use crate::canvas::Item;
 use crate::keys;
-use crate::scene::{Point, Segment};
+use crate::scene::{Point, Segment, Transform};
 use crate::tex::{self, Cat, Meaning, Token};
 use crate::Error;
 
@@ -62,6 +62,9 @@ struct Builder {
     close_after: bool,
     /// the node just made: a `to` or `edge` right after it starts there (`\tikz@to@use@last@fig@name`)
     to_start: Option<Coord>,
+    /// options given after the last point changed the transformation: a node placed there moves as
+    /// the point would under the new one (`(0,0) [yshift=8pt] node {…}`), from the old to the new
+    node_move: Option<Transform>,
     /// the current point where each `{` of the path opened, for `current point is local`
     groups: Vec<Option<Coord>>,
     /// the lines from node to node, for the figure's description; the node the path last was at,
@@ -225,6 +228,7 @@ fn statement_in_group(e: &mut Engine, defaults: &str, outer: &super::GState) -> 
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        node_move: None,
         groups: Vec::new(),
         links: Vec::new(),
         from_node: None,
@@ -429,6 +433,15 @@ fn relative(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<Coo
 
 /// Runs path operations until `;` (or the end of the frame above `depth`).
 fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
+    let Some(d) = depth else { return operations_in(e, b, None) };
+    // a word or a number at the end of the frame reads no further
+    let floor = e.tex.seal(d);
+    let r = operations_in(e, b, depth);
+    e.tex.unseal(floor);
+    r
+}
+
+fn operations_in(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(), Error> {
     // the operation waiting for its target: "--", "-|", "|-", or "to" with its options
     let mut pending_op: Option<String> = None;
     let mut to_options: Vec<Token> = Vec::new();
@@ -456,14 +469,21 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = coordinate(e)?;
                 b.relative_base = None;
-                b.to_start = None;
+                // a `to` right after a node starts at that node's border
+                if pending_op.as_deref() != Some("to") {
+                    b.to_start = None;
+                }
+                b.node_move = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('+', _) => {
                 e.turn_from = b.tangent();
                 e.subpath_start = b.subpath_start.unwrap_or_else(|| b.point());
                 let r = relative(e, b, depth)?;
-                b.to_start = None;
+                if pending_op.as_deref() != Some("to") {
+                    b.to_start = None;
+                }
+                b.node_move = None;
                 apply_operation(e, b, pending_op.take(), std::mem::take(&mut to_options), r)?;
             }
             Token::Char('-', _) => match e.tex.get_token() {
@@ -556,6 +576,7 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
             Token::Char('[', _) => {
                 let o = e.tex.read_until_char(']', false)?;
                 let before = (e.st.color, e.st.draw_color, e.st.fill_color, e.st.text_paint_color());
+                let transform = e.st.transform;
                 e.process_keys(o, Some("/tikz"))?;
                 // in a `{…}` group of the path, a color is only the text's: the path, and the nodes'
                 // lines and fills, keep the path's (`{[red] to[V=1] (0,2)}` has its label red)
@@ -567,6 +588,10 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                     }
                 }
                 e.st.apply_pending();
+                if e.st.transform != transform {
+                    let m = e.st.transform.compose(&transform.inverse());
+                    b.node_move = Some(m.compose(&b.node_move.unwrap_or_default()));
+                }
                 insert_path(e);
             }
             Token::Char(':', _) => {
@@ -656,8 +681,12 @@ fn operations(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Result<(
                         let coordinate = w == "coordinate";
                         let (options, name, at, text) = read_node(e, depth, coordinate, relative_base(b))?;
                         if at.is_some() || pending_op.is_none() {
-                            let point = b.point();
-                            let place = b.last.unwrap_or(OnPath::Point(point));
+                            let mut point = b.point();
+                            let mut place = b.last.unwrap_or(OnPath::Point(point));
+                            if let Some(m) = b.node_move {
+                                point = m.apply(point);
+                                place = place.transformed(&m);
+                            }
                             let items = e.node(NodeSpec { options, name, at, text, place, point, coordinate, default_pos: None })?;
                             b.node_items.extend(items);
                             if e.last_node_name.is_none() {
@@ -1278,6 +1307,7 @@ fn edge(e: &mut Engine, b: &mut Builder, opts: Vec<Token>, r: Coord, mids: Vec<M
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        node_move: None,
         groups: Vec::new(),
         links: Vec::new(),
         from_node: None,
@@ -1778,6 +1808,7 @@ pub fn svg_path(e: &Engine, text: &str, from: Option<Point>) -> Vec<Segment> {
         origin: e.st.transform.apply(Point::default()),
         close_after: false,
         to_start: None,
+        node_move: None,
         groups: Vec::new(),
         links: Vec::new(),
         from_node: None,

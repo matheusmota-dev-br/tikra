@@ -76,7 +76,7 @@ impl Kind {
     }
 
     /// The points whose colors a shading interpolates.
-    fn corners(self) -> &'static [usize] {
+    pub fn corners(self) -> &'static [usize] {
         match self {
             Kind::Line | Kind::QuadSpline | Kind::CubicSpline | Kind::BezierSpline => &[0, 1],
             Kind::Triangle | Kind::QuadTriangle => &[0, 1, 2],

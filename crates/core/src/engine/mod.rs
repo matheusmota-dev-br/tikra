@@ -104,7 +104,6 @@ pub enum Cmd {
     SetCurvilinear,
     PointCurvilinear,
     PointCurvilinearPolar,
-    ToNumber,
     MathSinCos,
     SetFadingForPath,
     SetFadingForPathStroked,
@@ -243,7 +242,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfsetcurvilinearbeziercurve", Cmd::SetCurvilinear),
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
     ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
-    ("pgf@sys@tonumber", Cmd::ToNumber),
     ("tikz@checkunit", Cmd::CheckUnit),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
@@ -486,6 +484,9 @@ pub struct Engine {
     pub canvas_frozen: bool,
     /// nested runs of token lists (styles, loop bodies)
     nesting: usize,
+    /// the input depth below which the token list being run (`run_tokens`) ends: a statement
+    /// skipped in it stops there
+    floor: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
     /// the points of `\pgfplotstreampoint` since `\pgfplotstreamstart`, on the canvas
@@ -710,6 +711,7 @@ impl Clone for Engine {
             extension_fns: self.extension_fns.clone(),
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
+            floor: 0,
             keys_run: self.keys_run,
             first_char_syntax: self.first_char_syntax,
             datavis: self.datavis.clone(),
@@ -804,7 +806,7 @@ impl Engine {
         for library in libraries {
             e.register(library);
         }
-        e.tex.warnings.clear();
+        // (what the definitions warned stays with the engine: each figure that uses them says so)
         WITH_LIBRARIES.with(|w| w.borrow_mut().push((names, e.clone())));
         e
     }
@@ -873,6 +875,7 @@ impl Engine {
             extension_fns: Vec::new(),
             canvas_frozen: false,
             nesting: 0,
+            floor: 0,
             keys_run: 0,
             first_char_syntax: false,
             datavis: Vec::new(),
@@ -1015,16 +1018,21 @@ impl Engine {
         }
         self.nesting += 1;
         let depth = self.tex.depth();
+        let outer_floor = std::mem::replace(&mut self.floor, depth);
         self.tex.push_frame(tokens);
+        // the code ends where its tokens end: a number or a word at its end reads no further
+        let floor = self.tex.seal(depth);
         let r = (|| {
             while let Some(t) = self.tex.get_x_token_until(depth)? {
                 self.execute(t)?;
             }
             Ok(())
         })();
+        self.tex.unseal(floor);
         if r.is_err() {
             self.tex.drain_to(depth);
         }
+        self.floor = outer_floor;
         self.nesting -= 1;
         r
     }
@@ -1115,14 +1123,16 @@ impl Engine {
                     }
                 }
                 let start = self.canvas.items.len();
+                // (a statement run inside this one, as a node's text is, places only its own)
+                let animations_before = self.animations.len();
                 let r = if self.slide_hidden && self.hiding == 0 && self.picture_depth > 0 && !overlays::stays_out(id) {
                     self.hiding_around(|e| e.command(id, &t))
                 } else {
                     self.command(id, &t)
                 };
                 if self.play {
-                    if !self.animations.is_empty() {
-                        self.place_animations(start, id == Cmd::Begin as u16);
+                    if self.animations.len() > animations_before {
+                        self.place_animations(start, id == Cmd::Begin as u16, animations_before);
                     }
                     if id == Cmd::End as u16 {
                         self.close_animated_scopes();
@@ -1244,7 +1254,8 @@ impl Engine {
     pub fn skip_statement(&mut self) -> Result<String, Error> {
         let mut out = Vec::new();
         let mut depth = 0usize;
-        while let Some(t) = self.tex.get_token() {
+        // not past the end of the token list being run
+        while let Some(t) = self.tex.get_token_until(self.floor) {
             match t {
                 Token::Char(_, Cat::Begin) => depth += 1,
                 Token::Char(_, Cat::End) => {
@@ -1396,19 +1407,8 @@ impl Engine {
             t.extend(rest);
         }
         let mut s = String::new();
-        // `\pgf@sys@tonumber\reg`: the register without its unit
-        let mut bare = false;
         for (i, x) in t.iter().enumerate() {
-            if x.is_cs("pgf@sys@tonumber") {
-                bare = true;
-                continue;
-            }
             match self.tex.meaning(x) {
-                Meaning::Dimen(r) if bare && matches!(x, Token::Cs(_)) => {
-                    bare = false;
-                    let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
-                    s.push_str(&pgf_number(sp as f64 / 65536.0));
-                }
                 Meaning::Count(r) if matches!(x, Token::Cs(_)) => s.push_str(&self.tex.counts.get(&r).copied().unwrap_or(0).to_string()),
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
@@ -1562,10 +1562,14 @@ impl Engine {
             return self.defer_statement(t);
         }
         // in a frame of an animation after its first, a statement outside a picture is not drawn
+        // (nor a `\tikz` picture: its options, then its statement)
         if self.picture_depth == 0
             && self.animate_frames.last().is_some_and(|a| a.past_first)
-            && (path_command(cmd).is_some() || matches!(cmd, Cmd::Node | Cmd::Coordinate | Cmd::Matrix | Cmd::Pic | Cmd::Graph))
+            && (path_command(cmd).is_some() || matches!(cmd, Cmd::Node | Cmd::Coordinate | Cmd::Matrix | Cmd::Pic | Cmd::Graph | Cmd::Tikz))
         {
+            if cmd == Cmd::Tikz {
+                let _ = self.optional()?;
+            }
             let _ = self.next_statement()?;
             return Ok(());
         }
@@ -1642,7 +1646,6 @@ impl Engine {
             Cmd::SetCurvilinear => self.set_curvilinear(),
             Cmd::PointCurvilinear => self.point_curvilinear(),
             Cmd::PointCurvilinearPolar => self.point_curvilinear_polar(),
-            Cmd::ToNumber => self.to_number(),
             Cmd::MathSinCos => self.math_sincos(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
             Cmd::SetFadingForPathStroked => self.set_fading_for_path(true),
@@ -2265,6 +2268,10 @@ impl Engine {
                 if self.picture_depth == 0 && matches!(cmd, Cmd::Hskip) {
                     self.layout.push(Layout::Skip(w as f64 / 65536.0 * crate::PT));
                 }
+                // vertical glue in a paragraph ends it first, as `\par` does
+                if self.picture_depth == 0 && matches!(cmd, Cmd::Vskip) && !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
+                    self.layout.push(Layout::Par);
+                }
                 Ok(())
             }
             // the picture's size forgotten: what follows makes it anew
@@ -2418,6 +2425,16 @@ impl Engine {
                             out.push(b);
                             out.extend(self.tex.read_group_body()?);
                             out.push(Token::Char('}', Cat::End));
+                            // options after the list (`{1,2} [count=\i]`)
+                            match self.tex.next_nonspace() {
+                                Some(x) if x.is_char('[') => {
+                                    out.push(x);
+                                    out.extend(self.tex.read_until_char(']', false)?);
+                                    out.push(Token::other(']'));
+                                }
+                                Some(x) => self.tex.back(x),
+                                None => {}
+                            }
                         }
                         Some(x) if x.is_char('[') => {
                             out.push(x);
@@ -3064,12 +3081,50 @@ impl Engine {
     /// `?:`) choosing between two. `None` for a number.
     fn math_text_value(&mut self, text: &str) -> Result<Option<String>, Error> {
         let t = text.trim();
-        let t = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')).unwrap_or(t).trim();
+        let mut t = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')).unwrap_or(t).trim();
         if !t.contains('"') {
             return Ok(None);
         }
+        // `("a")`: the parentheses around the whole
+        while let Some(inner) = t.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+            let mut depth = 0i32;
+            if inner.chars().any(|c| {
+                depth += i32::from(c == '(') - i32::from(c == ')');
+                depth < 0
+            }) {
+                break;
+            }
+            t = inner.trim();
+        }
         if let Some(q) = t.strip_prefix('"').and_then(|x| x.strip_suffix('"')).filter(|q| !q.contains('"')) {
             return Ok(Some(q.to_string()));
+        }
+        // `condition ? a : b`: the first `?` outside quotes and parentheses, and its `:` (a `?:` in
+        // the second part nests)
+        let (mut depth, mut quoted, mut question, mut nested) = (0, false, None, 0);
+        for (i, c) in t.char_indices() {
+            match c {
+                '"' => quoted = !quoted,
+                '(' if !quoted => depth += 1,
+                ')' if !quoted => depth -= 1,
+                '?' if !quoted && depth == 0 => {
+                    if question.is_none() {
+                        question = Some(i);
+                    } else {
+                        nested += 1;
+                    }
+                }
+                ':' if !quoted && depth == 0 && question.is_some() => {
+                    if nested > 0 {
+                        nested -= 1;
+                        continue;
+                    }
+                    let q = question.unwrap_or_default();
+                    let pick = if self.number(&t[..q])? != 0.0 { &t[q + 1..i] } else { &t[i + 1..] };
+                    return Ok(Some(self.math_text_value(pick)?.unwrap_or_else(|| pick.trim().to_string())));
+                }
+                _ => {}
+            }
         }
         // `ifthenelse(condition, a, b)`: its arguments at the commas outside quotes and parentheses
         // (the closing parenthesis may be missing at the end, as pgfmath lets it)
@@ -3460,7 +3515,9 @@ const PARTOPSEP: f64 = 2.0 * crate::PT;
 
 /// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
-fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64) -> Canvas {
+/// `varwidth` (cm, of the `standalone` class): lines are broken at that width, and the page is as
+/// wide as its widest line.
+fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64, varwidth: Option<f64>) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
     // the words as TeX sets them, in the text font
     let mut warnings = Vec::new();
@@ -3534,9 +3591,14 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         after_break = matches!(l, Layout::Break) || (after_break && matches!(l, Layout::Center(_)));
     }
     // a line longer than the line's width (when known) is broken at its spaces
-    if let Some(w) = hsize {
+    if let Some(w) = hsize.or(varwidth) {
         let mut broken = Vec::new();
         for l in lines {
+            // (`varwidth` alone: a line that fits is left as it is)
+            if hsize.is_none() && l.items.iter().map(&width_of).sum::<f64>() <= w + 1e-9 {
+                broken.push(l);
+                continue;
+            }
             let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept, skip: l.skip };
             let (mut x, mut pending) = (0.0, 0.0);
             let mut started = false;
@@ -3552,6 +3614,11 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                     broken.push(std::mem::replace(cur, next));
                     *x = 0.0;
                     *pending = 0.0;
+                    // glue after a break is discarded (TeX keeps it only at a paragraph's start)
+                    while let Some(&Layout::Skip(g)) = chunk.first() {
+                        chunk.remove(0);
+                        *chunk_w -= g;
+                    }
                 } else if *started {
                     cur.items.push(Layout::Space);
                     *x += *pending;
@@ -3878,7 +3945,7 @@ pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::L
         e.end_scope();
     }
     let margin = e.canvas.margin;
-    e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
+    e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin, e.varwidth);
     e.canvas.page_color = e.page_color;
     e.canvas.slides = e.slides;
     e.canvas.sources = source_spans(code, e.spans.as_deref().unwrap_or_default());

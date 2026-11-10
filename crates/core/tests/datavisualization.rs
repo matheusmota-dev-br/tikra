@@ -52,6 +52,16 @@ fn tables_and_functions_give_data_points() {
     assert!(near(end(&p[0][4]).unwrap().minus(end(&p[0][0]).unwrap()), 2.0, 4.0), "{:?}", p[0]);
 }
 
+/// `visualize as rectangles` draws its rectangles with no options of its own, as with them.
+#[test]
+fn rectangles_need_no_options() {
+    let data = "data [headline={x/min, x/max, y/min, y/max}] {\n 0, 1, 0, 2\n 2, 3, 0, 1\n};";
+    let closed = |options: &str| paths(&format!("\\datavisualization [xy Cartesian, {options}] {data}")).iter().filter(|l| l.last() == Some(&Segment::Close)).count();
+    assert_eq!(closed("visualize as rectangles=bars, bars={style={red}}"), 2);
+    assert_eq!(closed("visualize as rectangles=bars"), 2);
+    assert_eq!(closed("visualize as rectangles"), 2);
+}
+
 #[test]
 fn scientific_axes_fit_the_data_in_their_width() {
     let p = paths(r"\datavisualization [scientific axes, visualize as line] data point [x=10, y=1] data point [x=20, y=3];");
@@ -60,11 +70,39 @@ fn scientific_axes_fit_the_data_in_their_width() {
     assert!(p.iter().any(fits), "{p:?}");
 }
 
+/// A scaling that cannot be done as asked says so: a logarithm of zero or less, a function
+/// tikra does not know, a length that is not one.
+#[test]
+fn scalings_that_cannot_be_done_warn() {
+    let warns = |body: &str, fragment: &str| {
+        let (_, warnings) = tikra::engine::run_document(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).unwrap();
+        assert!(warnings.iter().any(|w| w.contains(fragment)), "{body}: {warnings:?}");
+    };
+    warns(r"\datavisualization [xy Cartesian, x axis={logarithmic}, visualize as line] data point [x=0, y=0] data point [x=10, y=1];", "logarithm");
+    warns(r"\datavisualization [xy Cartesian, x axis={function=\pgfmathparse{2*\pgfvalue}}, visualize as line] data point [x=1, y=0] data point [x=2, y=1];", "function");
+    warns(r"\datavisualization [xy Cartesian, x axis={scaling=0 at 0cm and 1 at \nolength}, visualize as line] data point [x=0, y=0] data point [x=1, y=1];", "scaling");
+}
+
 #[test]
 fn ticks_have_texts() {
     let n = texts(r"\datavisualization [scientific axes, x axis={ticks={step=5}}, visualize as line] data point [x=0, y=0] data point [x=20, y=1];");
     // 0, 5, 10, 15, 20 on x, and the y axis' own
     assert!(n >= 5, "{n} texts");
+}
+
+/// A style sheet of a color series in cmyk or cmy colors its lines in that series.
+#[test]
+fn color_series_in_cmyk_and_cmy() {
+    let stroke = |model: &str, start: &str, step: &str| {
+        let body = format!(
+            r"\tikzdvdeclarestylesheetcolorseries{{mine}}{{{model}}}{{{start}}}{{{step}}}
+              \datavisualization [xy Cartesian, visualize as line=a, style sheet=mine] data point [x=0, y=0, set=a] data point [x=1, y=1, set=a];"
+        );
+        items(&body).into_iter().find_map(|i| if let Item::Path { stroke: Some(s), .. } = i { Some(s.color) } else { None }).unwrap()
+    };
+    // the first style: start + step
+    assert_eq!(stroke("cmyk", "0,0,0,0", "1,0,0,0").hex(), tikra::color::Color::cmyk(1.0, 0.0, 0.0, 0.0).hex());
+    assert_eq!(stroke("cmy", "0,0,0", "0,1,1").hex(), "#ff0000");
 }
 
 #[test]
@@ -92,6 +130,16 @@ fn style_sheets_legends_and_polar_axes_run_without_warnings() {
     items(r"\datavisualization [scientific polar axes, visualize as smooth line] data [format=function] { var angle : interval [0:90]; func radius = \value{angle}; };");
 }
 
+/// A legend's options set before the data visualization still give it its legend, there.
+#[test]
+fn a_legend_set_outside_is_drawn() {
+    let picture = r"\datavisualization [scientific axes, visualize as line/.list={a,b}, a={label in legend={text=first}}, b={label in legend={text=second}}]
+          data point [x=0, y=0, set=a] data point [x=1, y=1, set=a] data point [x=0, y=1, set=b] data point [x=1, y=0, set=b];";
+    let inside = items(&picture.replace("scientific axes,", "scientific axes, legend={below},"));
+    let outside = items(&format!(r"\tikzdatavisualizationset{{legend={{below}}}}{picture}"));
+    assert_eq!(format!("{outside:?}"), format!("{inside:?}"));
+}
+
 #[test]
 fn a_tick_placement_strategy_of_ones_own() {
     let n = texts(
@@ -101,6 +149,20 @@ fn a_tick_placement_strategy_of_ones_own() {
     );
     // 2, 3, 5, 7 on x, and the y axis' own
     assert!(n >= 4 + 3, "{n} texts");
+}
+
+/// A legend of three rows and two columns filled down then left has all its six entries.
+#[test]
+fn a_legend_filled_down_then_left_has_every_entry() {
+    let picture = |legend: &str| {
+        texts(&format!(
+            r"\datavisualization [scientific axes, visualize as line/.list={{a,b,c,d,e,f}}, legend={{ideal number of columns=2{legend}}},
+              a={{label in legend={{text=a}}}}, b={{label in legend={{text=b}}}}, c={{label in legend={{text=c}}}},
+              d={{label in legend={{text=d}}}}, e={{label in legend={{text=e}}}}, f={{label in legend={{text=f}}}}]
+              data point [x=0, y=0, set=a] data point [x=1, y=1, set=a];"
+        ))
+    };
+    assert_eq!(picture(", down then left"), picture(""));
 }
 
 #[test]
@@ -114,10 +176,49 @@ fn a_new_axis_system_from_its_parts() {
     assert!(p.iter().any(horizontal), "{p:?}");
 }
 
+/// On polar axes a rectangle is a sector of a ring: two straight sides and two arcs.
+#[test]
+fn rectangles_on_polar_axes_have_arcs() {
+    let p = paths(
+        "\\datavisualization [scientific polar axes, visualize as rectangles=r, r={attribute 1=angle, attribute 2=radius}]
+          data [headline={angle/min, angle/max, radius/min, radius/max}] {\n 0, 90, 1, 2\n};",
+    );
+    // the rectangle is the one closed path
+    let rectangle = p.iter().find(|l| l.last() == Some(&Segment::Close)).expect("a rectangle");
+    let arcs = rectangle.iter().filter(|s| matches!(s, Segment::CurveTo(..))).count();
+    let lines = rectangle.iter().filter(|s| matches!(s, Segment::LineTo(..))).count();
+    // a quarter circle each arc; the closing side drawn by the cycle or a line
+    assert!(arcs >= 2 && lines >= 1, "{rectangle:?}");
+}
+
 #[test]
 fn about_divides_as_the_fpu_does() {
     // a sine sampled to TeX's precision spans 1.99998: about 5 ticks is a step of 0.5 (pgf's FPU
     // rounds 1.99998/5 to 0.4), not 0.25; so -1 to 1 by 0.5 and 0 to 8 by 2
     let n = texts(r"\datavisualization [scientific axes=clean, visualize as smooth line] data [format=function] { var x : interval[0:3*pi]; func y = cos(\value x r); };");
     assert_eq!(n, 10);
+}
+
+/// The texts in a picture, as its description lists them.
+fn words(body: &str) -> String {
+    tikra::convert(&format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")).unwrap().description
+}
+
+/// Ticks printed as fractions keep their denominator, whole part and sign.
+#[test]
+fn frac_ticks_follow_their_denominator_whole_part_and_sign() {
+    let ticks = |options: &str| {
+        words(&format!(
+            r"\datavisualization [scientific axes, x axis={{ticks={{major={{at={{0.33,1.5}}}}, node style={{/pgf/number format/frac,/pgf/number format/{options}}}}}}}, visualize as line] data point [x=0, y=0] data point [x=2, y=1];"
+        ))
+    };
+    // a denominator of 3: 0.33 is a third
+    let t = ticks("frac denom=3");
+    assert!(t.contains("1 over 3;"), "{t}");
+    // without a whole part: 1.5 is three halves
+    let t = ticks("frac whole=false");
+    assert!(t.contains("3 over 2;"), "{t}");
+    // with its sign
+    let t = ticks("showpos");
+    assert!(t.contains("plus 1 1 over 2;"), "{t}");
 }

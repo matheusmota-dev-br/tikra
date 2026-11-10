@@ -48,6 +48,16 @@ fn spaces_lines_and_comments() {
     assert_eq!(run("a\n\nb"), "ab");
 }
 
+/// `^^` followed by two lowercase hexadecimal digits is the character of that code; followed by
+/// anything else, the character 64 away.
+#[test]
+fn caret_notation() {
+    assert_eq!(run("^^41^^62c"), "Abc");
+    assert_eq!(run("^^41x"), "Ax");
+    assert_eq!(run("^^5a^^4G"), "ZtG");
+    assert_eq!(run(r"\def\a{^^7a}\a"), "z");
+}
+
 #[test]
 fn groups_and_global() {
     assert_eq!(run(r"\def\a{1}{\def\a{2}\a}\a"), "21");
@@ -57,11 +67,21 @@ fn groups_and_global() {
     assert_eq!(run(r"\def\x{X}{\aftergroup\x}y"), "Xy");
 }
 
+/// `\global` before `\catcode` makes that one assignment global, and no other after it.
+#[test]
+fn global_catcode_is_one_assignment() {
+    assert_eq!(run(r"{\global\catcode`\Q=11 \count1=7 }\the\count1"), "0");
+    assert_eq!(run(r"\def\a{1}{\global\catcode`\Q=11 \def\a{2}}\a"), "1");
+    assert_eq!(run(r"{\global\catcode`\Q=12 }\the\catcode`\Q"), "12");
+}
+
 #[test]
 fn edef_let_and_expansion_control() {
     assert_eq!(run(r"\def\a{A}\edef\b{\a\a}\def\a{Z}\b"), "AA");
     assert_eq!(run(r"\def\a{A}\edef\b{\noexpand\a}\def\a{Z}\b"), "Z");
     assert_eq!(run(r"\def\a{A}\edef\b{\unexpanded{\a}}\def\a{Z}\b"), "Z");
+    // a number at the end of an \edef's body ends there: the 2 after the definition is not part of it
+    assert_eq!(run(r"\count1=5 \edef\e{\the\count1}2\e"), "25");
     assert_eq!(run(r"\def\a{A}\let\b\a\def\a{Z}\b\a"), "AZ");
     assert_eq!(run(r"\def\a#1{[#1]}\def\b{x}\expandafter\a\b"), "[x]");
     assert_eq!(run(r"\expandafter\def\csname my macro\endcsname{M}\csname my macro\endcsname"), "M");
@@ -82,6 +102,15 @@ fn registers_and_arithmetic() {
     assert_eq!(run(r"\number`a"), "97");
     assert_eq!(run(r"\romannumeral 14"), "xiv");
     assert_eq!(run(r"\newcounter{c}\setcounter{c}{3}\stepcounter{c}\arabic{c}"), "4");
+}
+
+/// The stretch and shrink of glue are read whole when a space comes before their number.
+#[test]
+fn glue_with_a_space_before_its_stretch() {
+    assert_eq!(run(r"\skip3=2pt plus 1pt x"), "x");
+    assert_eq!(run(r"\skip3=2pt plus 1pt minus 2pt x"), "x");
+    assert_eq!(run(r"\skip3=2pt plus 1 fil x"), "x");
+    assert_eq!(run(r"\skip3=2pt minus -1pt x\the\skip3"), "x2.0pt");
 }
 
 #[test]
@@ -180,6 +209,22 @@ fn etoolbox_tests() {
     assert_eq!(run(r"\def\e{}\def\s{ }\def\p#1{}\ifdefempty{\e}{T}{F}\ifdefempty\s{T}{F}\ifdefempty{\p}{T}{F}\ifdefempty{\relax}{T}{F}"), "TFFF");
 }
 
+/// Commands whose kind is in their name keep it under another name given by `\let`.
+#[test]
+fn commands_of_a_kind_under_let() {
+    assert_eq!(run(r"\let\x\ifstrempty \x{}{T}{F}\let\y\ifblank \y{ }{T}{F}"), "TT");
+    assert_eq!(run(r"\let\x\IfStrEq \x{a}{a}{T}{F}\let\y\StrLen \y{abc}"), "T3");
+    assert_eq!(run(r"\def\m{a}\let\x\preto \x\m{b}\m"), "ba");
+    assert_eq!(run(r"\let\x\NewDocumentCommand \x\d{o}{\IfNoValueTF{#1}{-}{#1}}\d\d[z]"), "-z");
+    assert_eq!(run(r"\let\x\IfBooleanTF \x{\BooleanTrue}{T}{F}"), "T");
+}
+
+/// etoolbox's `\ifstrequal` compares its two texts as written: a macro is not its expansion.
+#[test]
+fn ifstrequal_expands_nothing() {
+    assert_eq!(run(r"\def\a{A}\ifstrequal{\a}{A}{T}{F}\ifstrequal{\a}{\a}{T}{F}\ifstrequal{ab}{ab}{T}{F}\ifstrequal{a}{b}{T}{F}"), "FTTF");
+}
+
 #[test]
 fn etoolbox_toggles() {
     // false when made; set locally, or globally with \global; \providetoggle keeps one that exists
@@ -193,6 +238,14 @@ fn etoolbox_toggles() {
 #[test]
 fn counters_print_as_the_counter() {
     assert_eq!(run(r"\newcounter{Sum}\setcounter{Sum}{5}\addtocounter{Sum}{2}\theSum"), "7");
+}
+
+/// `\the\value{c}` is the counter's value, as `\the` of its register.
+#[test]
+fn the_value_of_a_counter() {
+    assert_eq!(run(r"\newcounter{c}\setcounter{c}{13}\the\value{c}"), "13");
+    assert_eq!(run(r"\newcounter{c}\setcounter{c}{2}\the\value{c}x"), "2x");
+    assert_eq!(run(r"\newcounter{c}\setcounter{c}{4}\edef\v{\the\value{c}}\v"), "4");
 }
 
 #[test]

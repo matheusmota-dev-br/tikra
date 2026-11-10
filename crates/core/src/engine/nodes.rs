@@ -213,6 +213,10 @@ pub fn split_parts(tokens: &[Token]) -> Vec<(String, Vec<Token>)> {
 pub(super) struct EngineKeys<'a>(pub(super) &'a mut Engine);
 
 impl shapes::Keys for EngineKeys<'_> {
+    fn tip_shapes(&mut self, spec: &str, line_width: f64) -> Option<(f64, Vec<super::arrows::TipPath>)> {
+        super::arrows::tip_shapes(self.0, spec, line_width)
+    }
+
     fn length(&mut self, key: &str, default: f64) -> f64 {
         self.0.key_length(key, default)
     }
@@ -345,6 +349,18 @@ impl OnPath {
             }
         }
     }
+
+    /// The same place moved by `m` (the axes of an arc by its linear part only).
+    pub fn transformed(&self, m: &Transform) -> OnPath {
+        let o = m.apply(Point::default());
+        let v = |p: Point| m.apply(p).minus(o);
+        match *self {
+            OnPath::Point(p) => OnPath::Point(m.apply(p)),
+            OnPath::Segment(a, c, b) => OnPath::Segment(m.apply(a), c.map(|(c1, c2)| (m.apply(c1), m.apply(c2))), m.apply(b)),
+            OnPath::Corner(a, c, b) => OnPath::Corner(m.apply(a), m.apply(c), m.apply(b)),
+            OnPath::Arc { center, x, y, from, to } => OnPath::Arc { center: m.apply(center), x: v(x), y: v(y), from, to },
+        }
+    }
 }
 
 pub struct NodeSpec {
@@ -425,11 +441,13 @@ impl Engine {
         let r = self.node_in_group(spec, &outer);
         // `behind path`: drawn before the path the node is on
         let behind = matches!(self.tex.meaning_of("tikra@behindpath"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
+        // (`overlay` among the node's own options ends with its group)
+        let overlay = self.canvas.overlay;
         self.end_group();
         let (mut items, labels) = r?;
-        // animated shifts of the node: the picture makes room for it at each
+        // animated shifts of the node: the picture makes room for it at each, unless it is an overlay
         let shifts: Vec<Point> = self.anim_shifts.drain(shifts_before..).collect();
-        if let (false, Some(info)) = (shifts.is_empty(), self.last_node.clone()) {
+        if let (false, false, Some(info)) = (shifts.is_empty(), overlay, self.last_node.clone()) {
             let ends: Vec<Point> = ["north", "south", "east", "west"].iter().filter_map(|a| info.anchor(a)).collect();
             if self.counts_for_size() {
                 for d in shifts {
@@ -1186,18 +1204,22 @@ impl Engine {
         let mut opts = Vec::new();
         if v.first().is_some_and(|t| t.is_char('[')) {
             let mut depth = 0usize;
-            let mut end = 0;
+            let mut end = None;
             for (i, t) in v.iter().enumerate() {
                 if t.is_char('[') {
                     depth += 1;
                 } else if t.is_char(']') {
                     depth -= 1;
                     if depth == 0 {
-                        end = i;
+                        end = Some(i);
                         break;
                     }
                 }
             }
+            let Some(end) = end else {
+                self.warn(format!("label '{}': options without ']': label ignored", tex::tokens_to_string(&v)));
+                return Ok(Vec::new());
+            };
             opts = v[1..end].to_vec();
             v = v[end + 1..].to_vec();
         }
@@ -1443,8 +1465,14 @@ fn whole_textcolor(t: &str) -> Option<(String, String)> {
     let group = |s: &str| -> Option<(String, usize)> {
         let s2 = s.strip_prefix('{')?;
         let mut depth = 1;
+        // (`\{` and `\}` are characters, not braces)
+        let mut escaped = false;
         for (i, ch) in s2.char_indices() {
+            if std::mem::take(&mut escaped) {
+                continue;
+            }
             match ch {
+                '\\' => escaped = true,
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
@@ -1611,16 +1639,34 @@ impl Engine {
             let end = after.find('}').expect("the color of a \\textcolor is closed");
             let spec = &after[..end];
             let body_start = &after[end + 1..];
-            // the braced text after the color
+            // the braced text after the color; unbraced, its one character or command (`\textcolor{red}x`)
             let Some(body) = body_start.strip_prefix('{') else {
-                out.push_str(&rest[i..i + "\\textcolor{".len() + end + 1]);
-                rest = body_start;
-                continue;
+                let arg = body_start.trim_start();
+                let n = match arg.strip_prefix('\\') {
+                    Some(cs) => {
+                        let letters = cs.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(cs.len());
+                        1 + if letters > 0 { letters } else { cs.chars().next().map_or(0, char::len_utf8) }
+                    }
+                    None => arg.chars().next().map_or(0, char::len_utf8),
+                };
+                if n == 0 {
+                    out.push_str(&rest[i..i + "\\textcolor{".len() + end + 1]);
+                    rest = body_start;
+                    continue;
+                }
+                let braced = format!("\\textcolor{{{spec}}}{{{}}}{}", &arg[..n], &arg[n..]);
+                out.push_str(&self.inline_colors(&braced));
+                return out;
             };
             let mut depth = 1;
             let mut close = body.len();
+            let mut escaped = false;
             for (k, c) in body.char_indices() {
+                if std::mem::take(&mut escaped) {
+                    continue;
+                }
                 match c {
+                    '\\' => escaped = true,
                     '{' => depth += 1,
                     '}' => {
                         depth -= 1;

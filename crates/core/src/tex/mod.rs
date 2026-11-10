@@ -212,12 +212,12 @@ pub enum Prim {
     Renewcommand,
     Providecommand,
     Declarerobustcommand,
-    /// `\NewDocumentCommand` and its kin (the kind by the name used)
-    Newdocumentcommand,
+    /// `\NewDocumentCommand` and its kin (the kind by its name, which `\let` keeps)
+    Newdocumentcommand(&'static str),
     /// what a document command expands to first: reads its arguments by its specification
     Documentarguments,
-    /// `\IfNoValueTF`, `\IfBooleanTF` and their kin (the kind by the name used)
-    Documentif,
+    /// `\IfNoValueTF`, `\IfBooleanTF` and their kin (the kind by its name)
+    Documentif(&'static str),
     Newenvironment,
     Renewenvironment,
     Makeatletter,
@@ -231,14 +231,14 @@ pub enum Prim {
     Ifthenelse,
     Whiledo,
     Ifstrequal,
-    /// etoolbox's `\ifstrempty`, `\ifblank`, `\ifdefempty` (the kind by the name used)
-    Ifstrempty,
+    /// etoolbox's `\ifstrempty`, `\ifblank`, `\ifdefempty` (the kind by its name)
+    Ifstrempty(&'static str),
     Ifboolean,
     Newboolean,
-    /// `\g@addto@macro`, etoolbox's `\appto` and its kin, babel's `\addto` (the kind by the name used)
-    Addtomacro,
-    /// the xstring package's commands (by the name used)
-    Xstring,
+    /// `\g@addto@macro`, etoolbox's `\appto` and its kin, babel's `\addto` (the kind by its name)
+    Addtomacro(&'static str),
+    /// the xstring package's commands (by its name)
+    Xstring(&'static str),
     Setboolean,
     Wd,
     Ht,
@@ -326,10 +326,10 @@ impl Prim {
                 | Ifthenelse
                 | Whiledo
                 | Ifstrequal
-                | Ifstrempty
+                | Ifstrempty(_)
                 | Ifboolean
                 | Documentarguments
-                | Documentif
+                | Documentif(_)
         )
     }
 
@@ -443,6 +443,9 @@ pub type Map<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[derive(Clone)]
 pub struct Tex {
     input: Vec<Frame>,
+    /// The frames below this many are out of reach: code run on its own (a key's code, an
+    /// `\edef`'s body) ends where its tokens end, and reads nothing that comes after it.
+    floor: usize,
     /// How far the main text has been read, for the source map. `None` when nobody asked.
     reading: Option<Reading>,
     meanings: Map<Rc<str>, Meaning>,
@@ -573,6 +576,7 @@ impl Tex {
     pub fn new() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
+            floor: 0,
             reading: None,
             meanings: Map::default(),
             active: Map::default(),
@@ -696,24 +700,24 @@ impl Tex {
             ("renewcommand", Renewcommand),
             ("providecommand", Providecommand),
             ("DeclareRobustCommand", Declarerobustcommand),
-            ("NewDocumentCommand", Newdocumentcommand),
-            ("RenewDocumentCommand", Newdocumentcommand),
-            ("ProvideDocumentCommand", Newdocumentcommand),
-            ("DeclareDocumentCommand", Newdocumentcommand),
-            ("NewExpandableDocumentCommand", Newdocumentcommand),
-            ("RenewExpandableDocumentCommand", Newdocumentcommand),
-            ("ProvideExpandableDocumentCommand", Newdocumentcommand),
-            ("DeclareExpandableDocumentCommand", Newdocumentcommand),
+            ("NewDocumentCommand", Newdocumentcommand("NewDocumentCommand")),
+            ("RenewDocumentCommand", Newdocumentcommand("RenewDocumentCommand")),
+            ("ProvideDocumentCommand", Newdocumentcommand("ProvideDocumentCommand")),
+            ("DeclareDocumentCommand", Newdocumentcommand("DeclareDocumentCommand")),
+            ("NewExpandableDocumentCommand", Newdocumentcommand("NewExpandableDocumentCommand")),
+            ("RenewExpandableDocumentCommand", Newdocumentcommand("RenewExpandableDocumentCommand")),
+            ("ProvideExpandableDocumentCommand", Newdocumentcommand("ProvideExpandableDocumentCommand")),
+            ("DeclareExpandableDocumentCommand", Newdocumentcommand("DeclareExpandableDocumentCommand")),
             ("tikra@documentarguments", Documentarguments),
-            ("IfNoValueTF", Documentif),
-            ("IfNoValueT", Documentif),
-            ("IfNoValueF", Documentif),
-            ("IfValueTF", Documentif),
-            ("IfValueT", Documentif),
-            ("IfValueF", Documentif),
-            ("IfBooleanTF", Documentif),
-            ("IfBooleanT", Documentif),
-            ("IfBooleanF", Documentif),
+            ("IfNoValueTF", Documentif("IfNoValueTF")),
+            ("IfNoValueT", Documentif("IfNoValueT")),
+            ("IfNoValueF", Documentif("IfNoValueF")),
+            ("IfValueTF", Documentif("IfValueTF")),
+            ("IfValueT", Documentif("IfValueT")),
+            ("IfValueF", Documentif("IfValueF")),
+            ("IfBooleanTF", Documentif("IfBooleanTF")),
+            ("IfBooleanT", Documentif("IfBooleanT")),
+            ("IfBooleanF", Documentif("IfBooleanF")),
             ("newenvironment", Newenvironment),
             ("renewenvironment", Renewenvironment),
             ("makeatletter", Makeatletter),
@@ -732,19 +736,19 @@ impl Tex {
             ("ifthenelse", Ifthenelse),
             ("whiledo", Whiledo),
             ("ifstrequal", Ifstrequal),
-            ("ifstrempty", Ifstrempty),
-            ("ifblank", Ifstrempty),
-            ("ifdefempty", Ifstrempty),
-            ("g@addto@macro", Addtomacro),
-            ("addto", Addtomacro),
-            ("appto", Addtomacro),
-            ("gappto", Addtomacro),
-            ("eappto", Addtomacro),
-            ("xappto", Addtomacro),
-            ("preto", Addtomacro),
-            ("gpreto", Addtomacro),
-            ("epreto", Addtomacro),
-            ("xpreto", Addtomacro),
+            ("ifstrempty", Ifstrempty("ifstrempty")),
+            ("ifblank", Ifstrempty("ifblank")),
+            ("ifdefempty", Ifstrempty("ifdefempty")),
+            ("g@addto@macro", Addtomacro("g@addto@macro")),
+            ("addto", Addtomacro("addto")),
+            ("appto", Addtomacro("appto")),
+            ("gappto", Addtomacro("gappto")),
+            ("eappto", Addtomacro("eappto")),
+            ("xappto", Addtomacro("xappto")),
+            ("preto", Addtomacro("preto")),
+            ("gpreto", Addtomacro("gpreto")),
+            ("epreto", Addtomacro("epreto")),
+            ("xpreto", Addtomacro("xpreto")),
             ("boolean", Ifboolean),
             ("newboolean", Newboolean),
             ("setboolean", Setboolean),
@@ -762,7 +766,7 @@ impl Tex {
             self.meanings.insert(Rc::from(*name), Meaning::Prim(*p));
         }
         for name in xstring::COMMANDS {
-            self.meanings.insert(Rc::from(*name), Meaning::Prim(Xstring));
+            self.meanings.insert(Rc::from(*name), Meaning::Prim(Xstring(name)));
         }
         // the mark \noexpand and \unexpanded put before a token; on its own it does nothing
         self.meanings.insert(Rc::from("tikra@noexpand"), Meaning::Prim(Relax));
@@ -871,6 +875,7 @@ impl Tex {
     pub fn new_lexer() -> Tex {
         let mut t = Tex {
             input: Vec::new(),
+            floor: 0,
             reading: None,
             meanings: Map::default(),
             active: Map::default(),
@@ -944,7 +949,8 @@ impl Tex {
 
     pub fn set_catcode(&mut self, c: char, cat: Cat) {
         let old = self.catcodes.get(&c).copied();
-        if !self.global {
+        // a \global prefix is for this assignment only
+        if !std::mem::take(&mut self.global) {
             if let Some(level) = self.save.last_mut() {
                 level.push(Saved::Catcode(c, old));
             }
@@ -1082,7 +1088,19 @@ impl Tex {
 
     /// The next token, unexpanded, or None at the end of the input.
     pub fn get_token(&mut self) -> Option<Token> {
-        self.get_token_until(0)
+        self.get_token_until(self.floor)
+    }
+
+    /// Reads nothing below `depth` from now on (until [`Tex::unseal`] with what this returns):
+    /// the frames above it are code that ends where its tokens end.
+    pub fn seal(&mut self, depth: usize) -> usize {
+        let floor = depth.max(self.floor);
+        std::mem::replace(&mut self.floor, floor)
+    }
+
+    /// Ends what [`Tex::seal`] began.
+    pub fn unseal(&mut self, floor: usize) {
+        self.floor = floor;
     }
 
     /// A token from frames above `depth` only.
@@ -1189,11 +1207,21 @@ impl Tex {
                     continue;
                 }
                 Cat::Sup if next == Some(c) && pos + 2 < chars.len() => {
-                    // ^^M, ^^?: the character 64 away
                     let x = chars[pos + 2];
-                    pos += 3;
-                    let code = x as u32;
-                    let ch = char::from_u32(if code < 64 { code + 64 } else { code - 64 }).unwrap_or(x);
+                    let hex = |c: char| matches!(c, '0'..='9' | 'a'..='f');
+                    let ch = match chars.get(pos + 3) {
+                        // ^^41: the character of that code, in two lowercase hexadecimal digits
+                        Some(&y) if hex(x) && hex(y) => {
+                            pos += 4;
+                            char::from_u32(u32::from_str_radix(&format!("{x}{y}"), 16).unwrap_or(0)).unwrap_or(x)
+                        }
+                        // ^^M, ^^?: the character 64 away
+                        _ => {
+                            pos += 3;
+                            let code = x as u32;
+                            char::from_u32(if code < 64 { code + 64 } else { code - 64 }).unwrap_or(x)
+                        }
+                    };
                     skip = false;
                     let cat = self.catcode(ch);
                     break Some(Token::Char(ch, cat));
@@ -1749,17 +1777,16 @@ impl Tex {
                 }
             }
             Ifstrequal => {
-                let a = tokens_to_string(&self.read_expanded_general_undelimited()?);
-                let b = tokens_to_string(&self.read_expanded_general_undelimited()?);
+                // etoolbox: the two texts compared as written, nothing expanded
+                let a = tokens_to_string(&self.read_undelimited()?);
+                let b = tokens_to_string(&self.read_undelimited()?);
                 let yes = self.read_undelimited()?;
                 let no = self.read_undelimited()?;
                 self.push_tokens(if a == b { yes } else { no });
             }
-            Ifstrempty => {
+            Ifstrempty(name) => {
                 // etoolbox, nothing expanded: \ifstrempty{text} (no tokens at all), \ifblank{text}
                 // (spaces only), \ifdefempty{\m} (a macro without parameters and with an empty body)
-                let name = show_token(t);
-                let name = name.trim_start_matches('\\');
                 let arg = self.read_undelimited()?;
                 let test = match name {
                     "ifstrempty" => arg.is_empty(),
@@ -1775,11 +1802,7 @@ impl Tex {
                 self.push_tokens([Token::Cs(Rc::from(format!("if{}", name.trim()).as_str()))]);
             }
             Documentarguments => self.document_arguments()?,
-            Documentif => {
-                let name = match t {
-                    Token::Cs(n) => n.to_string(),
-                    _ => String::new(),
-                };
+            Documentif(name) => {
                 let arg: Vec<Token> = self.read_undelimited()?.into_iter().filter(|x| !x.is_space()).collect();
                 let test = if name.starts_with("IfBoolean") {
                     arg.len() == 1 && arg[0].is_cs("BooleanTrue")
@@ -2012,8 +2035,17 @@ impl Tex {
 
     /// `\the`: the value of a register or internal quantity, as tokens.
     fn the(&mut self) -> Result<Vec<Token>, Error> {
-        let t = self.get_x_token()?.ok_or_else(|| Error::Figure("\\the at the end".into()))?;
-        let m = self.meaning(&t);
+        // expanded up to the first unexpandable token, or LaTeX's \value{c}, which is a counter's
+        // register there (expanding it would give its digits)
+        let (t, m) = loop {
+            let t = self.get_token().ok_or_else(|| Error::Figure("\\the at the end".into()))?;
+            let m = self.meaning(&t);
+            if m.is_expandable() && m != Meaning::Prim(Prim::Value) {
+                self.expand(&t, &m)?;
+                continue;
+            }
+            break (t, m);
+        };
         Ok(match m {
             Meaning::Count(r) => string_tokens(&self.counts.get(&r).copied().unwrap_or(0).to_string()),
             Meaning::Dimen(r) | Meaning::Skip(r) => string_tokens(&dimen::show(self.dimens.get(&r).copied().unwrap_or(0))),
@@ -2030,6 +2062,10 @@ impl Tex {
             Meaning::Prim(Prim::Toks) => {
                 let r = self.scan_register_number()?;
                 self.toks.get(&r).map(|v| (**v).clone()).unwrap_or_default()
+            }
+            Meaning::Prim(Prim::Value) => {
+                let name = tokens_to_string(&self.read_undelimited()?);
+                string_tokens(&self.counter(&name).to_string())
             }
             Meaning::Prim(Prim::Numexpr) => string_tokens(&self.scan_numexpr()?.to_string()),
             Meaning::Prim(Prim::Dimexpr | Prim::Glueexpr) => string_tokens(&dimen::show(self.scan_dimexpr()?)),
@@ -2066,11 +2102,6 @@ impl Tex {
 
     fn read_expanded_general_text(&mut self) -> Result<Vec<Token>, Error> {
         let body = self.read_general_text()?;
-        self.expand_fully(body)
-    }
-
-    fn read_expanded_general_undelimited(&mut self) -> Result<Vec<Token>, Error> {
-        let body = self.read_undelimited()?;
         self.expand_fully(body)
     }
 
@@ -2113,6 +2144,13 @@ impl Tex {
     }
 
     fn expand_frame_until(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
+        let floor = self.seal(depth);
+        let r = self.expand_sealed(depth, stops);
+        self.unseal(floor);
+        r
+    }
+
+    fn expand_sealed(&mut self, depth: usize, stops: &[&str]) -> Result<(Vec<Token>, Option<Token>), Error> {
         let mut out = Vec::new();
         while self.input.len() > depth {
             let Some(t) = self.get_token_until(depth) else { break };
@@ -2397,7 +2435,8 @@ impl Tex {
         let mut sign_and_number = Vec::new();
         loop {
             match self.get_x_token()? {
-                Some(Token::Char(d, _)) if d.is_ascii_digit() || matches!(d, '.' | ',' | '-' | '+' | ' ') => sign_and_number.push(Token::other(d)),
+                // spaces stay spaces, which the number skips
+                Some(t @ Token::Char(d, _)) if d.is_ascii_digit() || matches!(d, '.' | ',' | '-' | '+' | ' ') => sign_and_number.push(t),
                 Some(other) => {
                     self.back(other);
                     break;
@@ -2721,14 +2760,12 @@ impl Tex {
                 let v = tokens_to_string(&self.read_undelimited()?);
                 self.push_tokens([Token::Cs(Rc::from(format!("{}{}", n.trim(), v.trim().to_lowercase()).as_str()))]);
             }
-            Xstring => self.xstring(show_token(t).trim_start_matches('\\'))?,
-            Addtomacro => {
+            Xstring(name) => self.xstring(name)?,
+            Addtomacro(name) => {
                 // \g@addto@macro\m{tokens}: the tokens put at the end of \m's body, unexpanded, for
                 // the whole document; etoolbox's \appto (\preto at the start), with \g… global and
                 // \e…, \x… (global) the tokens expanded; babel's \addto is global. An undefined \m
                 // is defined.
-                let name = show_token(t);
-                let name = name.trim_start_matches('\\');
                 let target = self.read_undelimited()?;
                 let tokens = self.read_undelimited()?;
                 let Some(m) = target.into_iter().find(|x| !x.is_space()) else { return Ok(true) };
@@ -2833,7 +2870,7 @@ impl Tex {
                 let _ = if p == Numexpr { self.scan_numexpr()? } else { self.scan_dimexpr()? };
             }
             Newcommand | Renewcommand | Providecommand | Declarerobustcommand => self.newcommand(p)?,
-            Newdocumentcommand => self.new_document_command(t)?,
+            Newdocumentcommand(kind) => self.new_document_command(t, kind)?,
             Newenvironment | Renewenvironment => self.newenvironment()?,
             Uppercase | Lowercase => {
                 let body = self.read_general_text()?;
@@ -2993,11 +3030,7 @@ impl Tex {
     /// `\NewDocumentCommand\name{spec}{body}` (xparse, in the LaTeX kernel): `\name` reads its
     /// arguments by `spec`, then runs `body` with them as `#1`, `#2`…. The command is
     /// `\tikra@documentarguments{spec}` and a macro of undelimited parameters for the body.
-    fn new_document_command(&mut self, t: &Token) -> Result<(), Error> {
-        let kind = match t {
-            Token::Cs(n) => n.to_string(),
-            _ => String::new(),
-        };
+    fn new_document_command(&mut self, t: &Token, kind: &str) -> Result<(), Error> {
         let first = self.next_nonspace().ok_or_else(|| Error::Figure(format!("{} at the end", show_token(t))))?;
         let name = if matches!(first, Token::Char(_, Cat::Begin)) {
             let body = self.read_group_body()?;
@@ -3358,6 +3391,7 @@ fn describe(m: &Meaning) -> String {
         }
         Meaning::Char(c, _) => format!("the character {c}"),
         Meaning::Undefined => "undefined".into(),
+        Meaning::Prim(Prim::Newdocumentcommand(n) | Prim::Documentif(n) | Prim::Ifstrempty(n) | Prim::Addtomacro(n) | Prim::Xstring(n)) => format!("\\{n}"),
         Meaning::Prim(p) => format!("\\{}", format!("{p:?}").to_lowercase()),
         Meaning::Count(r) => format!("\\count{r}"),
         Meaning::Dimen(r) => format!("\\dimen{r}"),

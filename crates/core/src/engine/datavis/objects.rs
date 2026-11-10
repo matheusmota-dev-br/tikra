@@ -33,6 +33,20 @@ impl Function {
         }
     }
 
+    /// Whether `text` is a function this knows (an empty one is the identity).
+    fn known(text: &str) -> bool {
+        text.trim().is_empty() || text.contains("pgfdvmathln") || text.contains("pgfdvmathunaryop")
+    }
+
+    /// The warning when the function has no value at `v`.
+    fn undefined(&self, input: &str, v: f64) -> String {
+        match self {
+            Function::Ln => format!("data visualization: logarithmic scaling of '{input}': {} has no logarithm: left out", num(v)),
+            Function::Op(name) => format!("data visualization: scaling of '{input}': {name} has no value at {}: left out", num(v)),
+            Function::Identity => format!("data visualization: scaling of '{input}': {} is not a finite number: left out", num(v)),
+        }
+    }
+
     fn apply(&self, e: &mut Engine, v: f64) -> Option<f64> {
         let r = match self {
             Function::Identity => v,
@@ -228,7 +242,13 @@ impl Engine {
                     input: text(self, 0),
                     output: text(self, 1),
                     spec: text(self, 2),
-                    function: Function::of(&text(self, 3)),
+                    function: {
+                        let f = text(self, 3);
+                        if !Function::known(&f) {
+                            self.warn(format!("data visualization: scaling function '{f}' not supported: the identity instead"));
+                        }
+                        Function::of(&f)
+                    },
                     range,
                     scale: Scale::Unset,
                     trans_in_min: 0.0,
@@ -522,12 +542,23 @@ impl Engine {
         let (first, second) = spec.split_once(" and ").unwrap_or((&spec, ""));
         let (a, c) = first.split_once(" at").unwrap_or((first, "0"));
         let (b, d) = second.split_once(" at").unwrap_or((second, "1"));
-        let value = |e: &mut Engine, s: &str| parse_value(e, s).unwrap_or(0.0);
+        let value = |e: &mut Engine, s: &str| {
+            parse_value(e, s).unwrap_or_else(|| {
+                e.warn(format!("data visualization: '{}' in the scaling '{spec}' is not a number or a length: 0 instead", s.trim()));
+                0.0
+            })
+        };
         let (maps_min, a) = if a.trim() == "min" { (true, lo) } else { (false, value(self, a)) };
         let (maps_max, b) = if b.trim() == "max" { (true, hi) } else { (false, value(self, b)) };
         let (c, d) = (value(self, c), value(self, d));
         let f = m.function.clone();
         let (fa, fb) = (f.apply(self, a), f.apply(self, b));
+        for (v, fv) in [(a, fa), (b, fb)] {
+            if fv.is_none() {
+                let w = f.undefined(&m.input, v);
+                self.warn(w);
+            }
+        }
         let (scale, trans) = match (a < b, fa, fb) {
             (true, Some(fa), Some(fb)) if fb != fa => (Scale::By((d - c) / (fb - fa)), fa),
             (true, _, _) => (Scale::Unset, 0.0),
@@ -562,7 +593,12 @@ impl Engine {
                 Some(v) => {
                     let Scale::By(scale) = m.scale else { return };
                     let x = parse_value(self, &v);
-                    x.and_then(|x| m.function.apply(self, x)).map(|fx| (fx - m.trans_in_min) * scale + m.out_min + offset)
+                    let fx = x.and_then(|x| m.function.apply(self, x));
+                    if let (Some(x), None) = (x, fx) {
+                        let w = m.function.undefined(&m.input, x);
+                        self.warn(w);
+                    }
+                    fx.map(|fx| (fx - m.trans_in_min) * scale + m.out_min + offset)
                 }
                 None => match attribute(self, &format!("{}/out pos", m.input)) {
                     Some(p) => {

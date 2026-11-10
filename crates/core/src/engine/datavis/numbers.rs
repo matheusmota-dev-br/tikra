@@ -8,11 +8,10 @@ use crate::Error;
 use super::{key_text, macro_text, Engine};
 use crate::engine::{macro_from, tikra_tokens};
 
-/// The `frac` number format (pgfmathfloat.code.tex), which the engine's number format leaves out:
-/// `frac` is kept in `\tikra@nf@frac` until another style is chosen.
+/// The `frac` number format's options (pgfmathfloat.code.tex), which the engine's number format
+/// leaves out; `frac` itself is a style of the engine's number format.
 pub const NUMBER_FORMAT: &str = r"
 \pgfkeys{/pgf/number format/.cd,
-  frac/.code=\def\tikra@nf@frac{true},
   frac TeX/.initial=\frac,
   frac denom/.initial=,
   frac whole/.code=\def\tikra@nf@fracwhole{#1},
@@ -22,7 +21,7 @@ pub const NUMBER_FORMAT: &str = r"
   assume math mode/.code=\def\tikra@nf@math{#1},
   assume math mode/.default=true,
 }
-\def\tikra@nf@frac{false}\def\tikra@nf@fracwhole{true}\def\tikra@nf@math{false}
+\def\tikra@nf@fracwhole{true}\def\tikra@nf@math{false}
 ";
 
 impl Engine {
@@ -44,7 +43,7 @@ impl Engine {
             }
             let s = self.tex.expand_to_string(a)?;
             let v = super::parse_value(self, &s).unwrap_or(0.0);
-            let text = if macro_text(self, "tikra@nf@frac") == "true" {
+            let text = if matches!(self.st.number_format.style, crate::engine::pgfplots::number::Style::Frac) {
                 let tex = crate::keys::value(&self.tex, "/pgf/number format/frac TeX").map(|v| tex::tokens_to_string(&v)).unwrap_or_else(|| "\\frac".into());
                 let denom = key_text(self, "/pgf/number format/frac denom").and_then(|s| s.parse().ok());
                 let whole = macro_text(self, "tikra@nf@fracwhole") != "false";

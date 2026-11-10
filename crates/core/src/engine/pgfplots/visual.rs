@@ -1239,10 +1239,15 @@ pub fn draw_mark_set(e: &mut Engine, name: &str, size: f64, local: &Transform, p
         let _ = local;
         return Ok(());
     }
-    let Some((shape, usage)) = marks::mark(name, size) else {
-        if name == "text" {
-            return Ok(());
+    // `text mark`: a node at each point
+    if name == "text" {
+        for p in points {
+            let items = e.text_mark(p)?;
+            e.canvas.items.extend(items);
         }
+        return Ok(());
+    }
+    let Some((shape, usage)) = marks::mark(name, size) else {
         e.warn(format!("mark '{name}' not supported: drawn as *"));
         return draw_mark_set(e, "*", size, local, points);
     };

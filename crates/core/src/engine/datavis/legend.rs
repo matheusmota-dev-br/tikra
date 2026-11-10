@@ -9,7 +9,7 @@ use crate::tex::{self, Meaning, Token};
 use crate::{Error, PT};
 
 use super::axes::pt;
-use super::objects::{Object, Step};
+use super::objects::Object;
 use super::{attribute, group, key_text, macro_text, set_attribute, Engine, PathToken, Signal};
 use crate::engine::tikra_tokens;
 
@@ -228,13 +228,10 @@ impl Engine {
                     set_attribute(e, &k1, x);
                     set_attribute(e, &k2, y);
                     let token = if i == 0 { PathToken::MoveTo } else { PathToken::LineTo };
-                    steps.push(match e.dv_generic(Signal::Path, token)? {
-                        Step::Point(p) => p,
-                        _ => continue,
-                    });
+                    // on polar axes, the sides along an angle are arcs
+                    steps.push((token, e.dv_generic(Signal::Path, token)?));
                 }
-                let path: Vec<String> = steps.iter().map(|p| pt(*p)).collect();
-                e.run_tokens(tikra_tokens(&format!("\\path {} -- cycle;", path.join(" -- "))))?;
+                e.run_tokens(tikra_tokens(&format!("\\path{} -- cycle;", Engine::path_text(&steps))))?;
                 e.end_visualizer(name)
             })();
             e.end_group();
@@ -322,7 +319,7 @@ impl Engine {
                 }
                 "down then left" => {
                     r += 1;
-                    if r > cols as i64 {
+                    if r > rows as i64 {
                         r = 1;
                         c -= 1;
                     }
@@ -485,7 +482,12 @@ impl Engine {
             "hsb" => hsb(part(0), part(1), part(2)),
             "rgb" => Color::rgb(part(0), part(1), part(2)),
             "gray" => Color::rgb(part(0), part(0), part(0)),
-            _ => Color::BLACK,
+            "cmy" => Color::rgb(1.0 - part(0), 1.0 - part(1), 1.0 - part(2)),
+            "cmyk" => Color::cmyk(part(0), part(1), part(2), part(3)),
+            _ => {
+                self.warn(format!("color series in the color model '{model}' not supported: black"));
+                Color::BLACK
+            }
         };
         self.colors.insert("tikra@dv@seriescolor".into(), c);
         Ok(())

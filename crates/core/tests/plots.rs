@@ -513,3 +513,125 @@ fn a_declared_function_is_plotted_and_a_failed_plot_says_why() {
     let (_, w) = axis("", r"\addplot[domain=0:2] {nosuchfunction(x)};");
     assert!(w.iter().any(|w| w.contains("no point of the plot")), "{w:?}");
 }
+
+/// A named path with no points has no pieces: `A*` adds nothing and `B*` starts the path.
+#[test]
+fn intersection_segments_of_an_empty_path() {
+    let (c, _) = canvas(
+        r"\path[name path=A]; \path[name path=B] (0,1) -- (2,1);
+        \fill[intersection segments={of=A and B, sequence={A* -- B*}}];",
+    );
+    let f = filled(&c);
+    assert_eq!(f.len(), 1);
+    assert!(matches!(f[0][0], Segment::MoveTo(_)), "{:?}", f[0]);
+}
+
+/// `table {\macro}`: a macro holding the file's name is read for the name, one holding the data
+/// for the data.
+#[test]
+fn a_table_named_by_a_macro() {
+    let (_, w) = canvas(r"\def\fname{no-such-file.dat}\begin{axis}\addplot table {\fname};\end{axis}");
+    assert!(w.iter().any(|x| x.contains("'no-such-file.dat' not found")), "{w:?}");
+    let (c, w) = canvas(r"\def\data{x y\\ 0 0\\ 1 1\\ 2 0\\}\begin{axis}\addplot table[row sep=\\] {\data};\end{axis}");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!filled(&c).is_empty(), "the marks");
+}
+
+/// `point meta=symbolic={\thisrow{c}}` takes the cell as written: `0,0,1` is blue.
+#[test]
+fn a_symbolic_meta_from_a_cell_is_its_text() {
+    let (c, w) = axis("", "\\addplot[patch, shader=flat, mesh/color input=explicit, point meta={symbolic={\\thisrow{c}}}] table {\nx y c\n0 0 0,0,1\n1 0 0,0,1\n0 1 0,0,1\n};");
+    assert!(w.is_empty(), "{w:?}");
+    let blue = c.items.iter().any(|i| matches!(i, Item::Path { fill: Some(f), .. } if matches!(f.paint, Paint::Solid(k) if k.hex() == "#0000ff")));
+    assert!(blue, "a blue triangle");
+}
+
+/// A bad `\addplot` is skipped up to the end of the code it is in, not into the rest of the
+/// picture, and its input is named whole.
+#[test]
+fn a_bad_addplot_is_skipped_within_its_code() {
+    let (c, _) = canvas(r"\begin{axis}\pgfplotsextra{\addplot}\end{axis}\draw[red] (0,0) -- (5,5);");
+    let red = c.items.iter().any(|i| matches!(i, Item::Path { stroke: Some(s), .. } if s.color.hex() == "#ff0000"));
+    assert!(red, "the line after the axis");
+    let (_, w) = axis("", r"\addplot pizza; \addplot coordinates {(0,0) (1,1)};");
+    assert!(w.iter().any(|w| w.contains("'pizza'")), "{w:?}");
+}
+
+/// `\pgfmathprintnumber` prints in math even in a node's text: a `frac` is a fraction, not "12".
+#[test]
+fn a_number_printed_in_text_is_in_math() {
+    let r = no_warnings(r"\begin{tikzpicture}\node {\pgfmathprintnumber[frac]{0.5}};\end{tikzpicture}");
+    assert!(r.alt.contains("1 over 2"), "{}", r.alt);
+    // already in math: as it was
+    let r = no_warnings(r"\begin{tikzpicture}\node {$x=\pgfmathprintnumber[frac]{0.5}$};\end{tikzpicture}");
+    assert!(r.alt.contains("1 over 2"), "{}", r.alt);
+}
+
+/// `mark=text` sets the `text mark` at each point, in TikZ's plots and in pgfplots.
+#[test]
+fn text_marks_show_the_text_mark() {
+    // the outline of a Q, as a node draws it
+    let q = no_warnings(r"\begin{tikzpicture}\node {Q};\end{tikzpicture}").svg;
+    let glyph = |svg: &str| svg.split(" d=\"").nth(1).map(|d| d.split('"').next().unwrap_or("").to_string()).unwrap_or_default();
+    let q = glyph(&q);
+    assert!(!q.is_empty());
+    let tikz = no_warnings(r"\begin{tikzpicture}\path plot[mark=text, text mark=Q] coordinates {(0,0)};\end{tikzpicture}").svg;
+    assert!(tikz.contains(&q), "{tikz}");
+    let (c, w) = axis("", r"\addplot[mark=text, text mark=Q] coordinates {(0,0) (1,1)};");
+    assert!(w.is_empty(), "{w:?}");
+    let (bare, _) = axis("", r"\addplot[mark=none] coordinates {(0,0) (1,1)};");
+    assert_eq!(texts(&c), texts(&bare) + 2);
+    let pgfplots = no_warnings(r"\begin{tikzpicture}\begin{axis}\addplot[mark=text, text mark=Q] coordinates {(0,0) (1,1)};\end{axis}\end{tikzpicture}").svg;
+    assert!(pgfplots.contains(&q), "{pgfplots}");
+}
+
+/// A tieline in 2d needs only `tie end x` and `tie end y`: its ties are drawn, without a warning.
+#[test]
+fn a_tieline_in_2d_needs_no_z_end() {
+    let (_, w) = axis("", "\\addplot[tieline] table[tie end x=c, tie end y=d] {\na b c d\n0 0 1 2\n1 0 2 2\n};");
+    assert!(w.is_empty(), "{w:?}");
+    // a missing end is still told
+    let (_, w) = axis("", "\\addplot[tieline] table[tie end x=c] {\na b c\n0 0 1\n1 0 2\n};");
+    assert!(w.iter().any(|w| w.contains("tie ends")), "{w:?}");
+}
+
+/// Patches with a color per point: a bicubic patch is outlined by its corners (points 0, 3, 15
+/// and 12, not the first row), a polygon by its `vertex count` points.
+#[test]
+fn explicit_color_patches_are_outlined_by_their_corners() {
+    let grid: String = (0..16).map(|k| format!("({},{}) [1,0,0] ", k % 4, k / 4)).collect();
+    let (c, w) = axis("", &format!("\\addplot[patch, patch type=bicubic, shader=flat, mesh/color input=explicit, point meta=explicit symbolic] coordinates {{{grid}}};"));
+    assert!(w.is_empty(), "{w:?}");
+    let f = filled(&c);
+    assert_eq!(f.len(), 1);
+    let (lo, hi) = bounds(f[0]);
+    assert!(hi.x - lo.x > 10.0 * PT && hi.y - lo.y > 10.0 * PT, "a flat patch: {:?}", f[0]);
+    let pentagon = "(0,0) [1,0,0] (2,0) [1,0,0] (3,1) [1,0,0] (1,2) [1,0,0] (-1,1) [1,0,0]";
+    let (c, w) = axis(
+        "",
+        &format!("\\addplot[patch, patch type=polygon, vertex count=5, shader=flat, mesh/color input=explicit, point meta=explicit symbolic] coordinates {{{pentagon}}};"),
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let f = filled(&c);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].iter().filter(|s| matches!(s, Segment::LineTo(_))).count(), 4, "{:?}", f[0]);
+}
+
+/// `execute at end axis` runs inside the axis: its `\addplot` is a plot of the axis.
+#[test]
+fn execute_at_end_axis_is_inside_the_axis() {
+    let (with, w) = axis(r"execute at end axis={\addplot[only marks, mark=square*] coordinates {(0,0) (1,1)};}", "");
+    assert!(w.is_empty(), "{w:?}");
+    let (direct, _) = axis("", r"\addplot[only marks, mark=square*] coordinates {(0,0) (1,1)};");
+    assert_eq!(filled(&with).len(), filled(&direct).len());
+    assert!(!filled(&with).is_empty());
+}
+
+/// `boxplot cs` belongs to the box plot being drawn: a later figure (on the same thread) has none.
+#[test]
+fn boxplot_cs_does_not_outlive_its_figure() {
+    let (_, w) = axis("", r"\addplot+[boxplot] table[row sep=\\, y index=0] {1\\ 2\\ 3\\ 4\\ 5\\};");
+    assert!(w.is_empty(), "{w:?}");
+    let (_, w) = axis("xmin=0, xmax=2, ymin=0, ymax=6", r"\draw (boxplot cs:3,1) circle[radius=2pt];");
+    assert!(w.iter().any(|w| w.contains("outside a box plot")), "{w:?}");
+}

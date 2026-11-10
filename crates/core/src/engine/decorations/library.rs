@@ -410,8 +410,9 @@ impl<'a> Run<'a> {
         w.path_last = if w.rem_total < 1.0 { w.total_last } else { w.point_ahead(w.remaining) };
         let t = self.t();
         self.final_code(dec, &t)?;
+        // the next stretch starts where this one ends, not where its automaton stopped
         let rem = self.w.remaining;
-        self.w.move_along_input_segment(rem);
+        self.w.move_along_path(rem);
         if let Some(code) = after {
             self.tex_code(code, &Transform::default(), false, true)?;
         }
@@ -1700,7 +1701,10 @@ impl<'a> Run<'a> {
     /// The label of one character, with the format's color (`\color{…}`) taken out.
     fn char_label(&mut self, text: &str, format: &str, math: bool) -> crate::scene::Label {
         let (font, color) = split_color(format);
-        let color = color.and_then(|c| self.e.color(&c)).or_else(|| self.e.color(&self.s.text_color.clone())).unwrap_or(Color::BLACK);
+        let color = color
+            .and_then(|(model, spec)| model.map_or_else(|| self.e.color(&spec), |m| crate::color::define(&m, &spec)))
+            .or_else(|| self.e.color(&self.s.text_color.clone()))
+            .unwrap_or(Color::BLACK);
         let body = if math { format!("${text}$") } else { text.to_string() };
         let mut warnings = Vec::new();
         let label = crate::label::compose_label(&body, &font, None, 'l', color, &mut warnings);
@@ -1739,17 +1743,22 @@ fn split_keyword(s: &str) -> (String, String) {
     }
 }
 
-/// A text format without its `\color{…}`, and the color.
-fn split_color(format: &str) -> (String, Option<String>) {
+/// A text format without its `\color[model]{…}`, and the color: its model (if given) and spec.
+fn split_color(format: &str) -> (String, Option<(Option<String>, String)>) {
     let mut font = String::new();
     let mut color = None;
     let mut rest = format;
     while let Some(i) = rest.find("\\color") {
         font.push_str(&rest[..i]);
-        let after = rest[i + 6..].trim_start();
+        let mut after = rest[i + 6..].trim_start();
+        let mut model = None;
+        if let Some((m, b)) = after.strip_prefix('[').and_then(|a| a.split_once(']')) {
+            model = Some(m.trim().to_string());
+            after = b.trim_start();
+        }
         if let Some(b) = after.strip_prefix('{') {
             if let Some(j) = b.find('}') {
-                color = Some(b[..j].to_string());
+                color = Some((model, b[..j].to_string()));
                 rest = &b[j + 1..];
                 continue;
             }
