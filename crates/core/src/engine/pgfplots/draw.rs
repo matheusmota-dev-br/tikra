@@ -2215,11 +2215,8 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
         }
         // `\pgfplotspointgetcoordinates{(point)}`: the point's axis coordinates as `/data point/x`…
         if tokens[i].is_cs("pgfplotspointgetcoordinates") {
-            let mut j = i + 1;
-            while j < tokens.len() && tokens[j].is_space() {
-                j += 1;
-            }
-            let (arg, end) = group_at(tokens, j);
+            // (no space after the command: TeX skips those when it reads it)
+            let (arg, end) = group_at(tokens, i + 1);
             i = end;
             let text = e.tex.expand_to_string(arg)?;
             let inner = text.trim().strip_prefix('(').and_then(|r| r.strip_suffix(')')).unwrap_or(text.trim()).to_string();
@@ -2231,11 +2228,9 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
             continue;
         }
         if tokens[i].is_cs("pgfmathprintnumber") {
+            // (no space after the command: TeX skips those when it reads it)
             let mut j = i + 1;
             let mut opts = Vec::new();
-            while j < tokens.len() && tokens[j].is_space() {
-                j += 1;
-            }
             if j < tokens.len() && tokens[j].is_char('[') {
                 let k = tokens[j..].iter().position(|t| t.is_char(']')).map_or(tokens.len(), |p| j + p);
                 opts = tokens[j + 1..k.min(tokens.len())].to_vec();
