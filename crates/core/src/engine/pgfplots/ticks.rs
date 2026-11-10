@@ -73,10 +73,8 @@ pub fn normalize_distance(h: f64) -> f64 {
     let mut e = h.log10().floor();
     let mut m = h / 10f64.powf(e);
     // guard the mantissa against the floor of an inexact logarithm
-    if m >= 10.0 {
-        m /= 10.0;
-        e += 1.0;
-    } else if m < 1.0 {
+    // (a mantissa just above 10, of a logarithm a little short, snaps to 10 below anyway)
+    if m < 1.0 {
         m *= 10.0;
         e -= 1.0;
     }
@@ -154,13 +152,9 @@ fn clean(v: f64, h: f64) -> f64 {
     if v.abs() < h * 1e-9 {
         return 0.0;
     }
+    // (finite: v is at most some 10^4 steps of h, and a step is at least an ulp of v)
     let scale = 10f64.powi((-(h.abs().log10().floor()) as i32 + 12).clamp(-300, 300));
-    let r = (v * scale).round() / scale;
-    if r.is_finite() {
-        r
-    } else {
-        v
-    }
+    (v * scale).round() / scale
 }
 
 /// A value as a TeX dimension, in sp.
