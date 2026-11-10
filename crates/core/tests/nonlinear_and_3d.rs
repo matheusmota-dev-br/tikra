@@ -87,14 +87,15 @@ fn linear_approximations() {
     assert!(near(points(&s)[1], (1.0, 1.0)), "{s:?}");
 }
 
-/// `\pgf@sys@tonumber` gives a register's value in pt without the unit; a count is 0.
+/// `\pgf@sys@tonumber` gives a dimension register's value in pt without the unit.
 #[test]
 fn registers_as_numbers() {
-    let s = first_segments(r"\pgf@x=2cm \draw (\pgf@sys@tonumber\pgf@x pt,0) -- (\pgf@sys@tonumber\c@pgf@counta,1);");
+    let s = first_segments(r"\pgf@x=2cm \draw (\pgf@sys@tonumber\pgf@x pt,0) -- (0,1);");
     let p = points(&s);
     assert!(near(p[0], (2.0, 0.0)) && near(p[1], (0.0, 1.0)), "{p:?}");
-    // at the very end, with nothing to read
-    no_warnings(r"\makeatletter\begin{tikzpicture}\draw (0,0) -- (1,0);\end{tikzpicture}\pgf@sys@tonumber");
+    // at the very end, with no register to read: a macro short of its argument, as in TeX
+    let r = tikra::convert(r"\makeatletter\begin{tikzpicture}\draw (0,0) -- (1,0);\end{tikzpicture}\pgf@sys@tonumber");
+    assert!(r.is_err_and(|e| e.to_string().contains("missing its argument")));
 }
 
 /// `\pgfmathsincos@{angle}`: its cosine and sine.

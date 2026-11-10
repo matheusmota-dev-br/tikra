@@ -101,7 +101,8 @@ fn number_format_keys_in_a_node() {
           \node at (0,3) {\pgfmathprintnumber[int detect]{4.0}};
           \node at (0,4) {$\pgfmathprintnumber[frac]{0.75}$};",
     );
-    assert_eq!(d, "Text in the figure: 2.500; 2.5; +7; 4; 3 over 4.");
+    // printed in math, as pgf does, so the sign is read as math
+    assert_eq!(d, "Text in the figure: 2.500; 2.5; plus 7; 4; 3 over 4.");
 }
 
 // ---------------------------------------------------------------------------------------------
