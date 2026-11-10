@@ -67,6 +67,21 @@ fn ticks_have_texts() {
     assert!(n >= 5, "{n} texts");
 }
 
+/// A style sheet of a color series in cmyk or cmy colors its lines in that series.
+#[test]
+fn color_series_in_cmyk_and_cmy() {
+    let stroke = |model: &str, start: &str, step: &str| {
+        let body = format!(
+            r"\tikzdvdeclarestylesheetcolorseries{{mine}}{{{model}}}{{{start}}}{{{step}}}
+              \datavisualization [xy Cartesian, visualize as line=a, style sheet=mine] data point [x=0, y=0, set=a] data point [x=1, y=1, set=a];"
+        );
+        items(&body).into_iter().find_map(|i| if let Item::Path { stroke: Some(s), .. } = i { Some(s.color) } else { None }).unwrap()
+    };
+    // the first style: start + step
+    assert_eq!(stroke("cmyk", "0,0,0,0", "1,0,0,0").hex(), tikra::color::Color::cmyk(1.0, 0.0, 0.0, 0.0).hex());
+    assert_eq!(stroke("cmy", "0,0,0", "0,1,1").hex(), "#ff0000");
+}
+
 #[test]
 fn school_book_axes_have_arrows_through_the_origin() {
     let p = paths(r"\datavisualization [school book axes, visualize as smooth line] data [format=function] { var x : interval [-1:1]; func y = \value x*\value x; };");
