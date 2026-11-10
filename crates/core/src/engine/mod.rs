@@ -104,7 +104,6 @@ pub enum Cmd {
     SetCurvilinear,
     PointCurvilinear,
     PointCurvilinearPolar,
-    ToNumber,
     MathSinCos,
     SetFadingForPath,
     SetFadingForPathStroked,
@@ -244,7 +243,6 @@ const COMMANDS: &[(&str, Cmd)] = &[
     ("pgfsetcurvilinearbeziercurve", Cmd::SetCurvilinear),
     ("pgfpointcurvilinearbezierorthogonal", Cmd::PointCurvilinear),
     ("pgfpointcurvilinearbezierpolar", Cmd::PointCurvilinearPolar),
-    ("pgf@sys@tonumber", Cmd::ToNumber),
     ("tikz@checkunit", Cmd::CheckUnit),
     ("pgfmathsincos@", Cmd::MathSinCos),
     ("pgfsetfadingforcurrentpath", Cmd::SetFadingForPath),
@@ -1408,19 +1406,8 @@ impl Engine {
             t.extend(rest);
         }
         let mut s = String::new();
-        // `\pgf@sys@tonumber\reg`: the register without its unit
-        let mut bare = false;
         for (i, x) in t.iter().enumerate() {
-            if x.is_cs("pgf@sys@tonumber") {
-                bare = true;
-                continue;
-            }
             match self.tex.meaning(x) {
-                Meaning::Dimen(r) if bare && matches!(x, Token::Cs(_)) => {
-                    bare = false;
-                    let sp = self.tex.dimens.get(&r).copied().unwrap_or(0);
-                    s.push_str(&pgf_number(sp as f64 / 65536.0));
-                }
                 Meaning::Count(r) if matches!(x, Token::Cs(_)) => s.push_str(&self.tex.counts.get(&r).copied().unwrap_or(0).to_string()),
                 Meaning::CharDef(v) if matches!(x, Token::Cs(_)) => s.push_str(&v.to_string()),
                 Meaning::Dimen(r) | Meaning::Skip(r) if matches!(x, Token::Cs(_)) => {
@@ -1658,7 +1645,6 @@ impl Engine {
             Cmd::SetCurvilinear => self.set_curvilinear(),
             Cmd::PointCurvilinear => self.point_curvilinear(),
             Cmd::PointCurvilinearPolar => self.point_curvilinear_polar(),
-            Cmd::ToNumber => self.to_number(),
             Cmd::MathSinCos => self.math_sincos(),
             Cmd::SetFadingForPath => self.set_fading_for_path(false),
             Cmd::SetFadingForPathStroked => self.set_fading_for_path(true),
