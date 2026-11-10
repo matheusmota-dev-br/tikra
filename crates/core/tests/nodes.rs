@@ -573,6 +573,19 @@ fn text_in_times_is_as_wide_as_tex_sets_it() {
     assert!(svg.contains(r#"id="tr-gt"#) && !svg.contains(r#"id="tr-g1"#), "{svg}");
 }
 
+/// `\fontsize`'s arguments may come without braces, one token each: `\fontsize{12}9` sets nothing of the `9`.
+#[test]
+fn fontsize_takes_unbraced_arguments() {
+    let width = |text: &str| {
+        let body = format!(r"\node[inner sep=0, outer sep=0] (n) {{{text}}};");
+        point(&body, "n.east").x - point(&body, "n.west").x
+    };
+    let braced = width(r"\fontsize{12}{9}\selectfont x");
+    assert!(close(width(r"\fontsize{12}9\selectfont x"), braced));
+    assert!(close(width(r"\fontsize{12} 9 \selectfont x"), braced));
+    assert!(close(width(r"\fontsize{12}\baselineskip\selectfont x"), braced));
+}
+
 #[test]
 fn bold_text_stays_bold_after_a_formula() {
     let svg = |text: &str| no_warnings(&format!(r"\tikz \node[font=\bfseries] {{{text}}};")).svg;
