@@ -1116,14 +1116,16 @@ impl Engine {
                     }
                 }
                 let start = self.canvas.items.len();
+                // (a statement run inside this one, as a node's text is, places only its own)
+                let animations_before = self.animations.len();
                 let r = if self.slide_hidden && self.hiding == 0 && self.picture_depth > 0 && !overlays::stays_out(id) {
                     self.hiding_around(|e| e.command(id, &t))
                 } else {
                     self.command(id, &t)
                 };
                 if self.play {
-                    if !self.animations.is_empty() {
-                        self.place_animations(start, id == Cmd::Begin as u16);
+                    if self.animations.len() > animations_before {
+                        self.place_animations(start, id == Cmd::Begin as u16, animations_before);
                     }
                     if id == Cmd::End as u16 {
                         self.close_animated_scopes();
