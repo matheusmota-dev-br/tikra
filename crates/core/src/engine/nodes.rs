@@ -1202,18 +1202,22 @@ impl Engine {
         let mut opts = Vec::new();
         if v.first().is_some_and(|t| t.is_char('[')) {
             let mut depth = 0usize;
-            let mut end = 0;
+            let mut end = None;
             for (i, t) in v.iter().enumerate() {
                 if t.is_char('[') {
                     depth += 1;
                 } else if t.is_char(']') {
                     depth -= 1;
                     if depth == 0 {
-                        end = i;
+                        end = Some(i);
                         break;
                     }
                 }
             }
+            let Some(end) = end else {
+                self.warn(format!("label '{}': options without ']': label ignored", tex::tokens_to_string(&v)));
+                return Ok(Vec::new());
+            };
             opts = v[1..end].to_vec();
             v = v[end + 1..].to_vec();
         }
