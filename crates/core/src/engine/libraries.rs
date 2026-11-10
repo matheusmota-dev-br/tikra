@@ -244,3 +244,22 @@ pub fn box_node(lo: Point, hi: Point) -> NodeInfo {
     let geometry = compute("rectangle", &mut input).expect("a rectangle");
     NodeInfo { shape: "rectangle".into(), geometry: Rc::new(geometry), transform: Transform::translation(lo.x, lo.y) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::shapes::Keys;
+    use super::*;
+
+    /// The rectangle of a box node reads no key, so no input reaches these: each key is at its
+    /// default, as it would be for a shape that asked.
+    #[test]
+    fn no_keys_are_defaults() {
+        let mut k = NoKeys;
+        assert_eq!(k.length("/pgf/inner xsep", 1.5), 1.5);
+        assert_eq!(k.length_of("2cm", 0.25), 0.25);
+        assert_eq!(k.number("/pgf/star points", 5.0), 5.0);
+        assert_eq!(k.text("/pgf/cylinder end fill"), "");
+        assert!(!k.flag("pgfshapeborderusesincircle"));
+        assert_eq!(k.point("/pgf/at"), None);
+    }
+}
