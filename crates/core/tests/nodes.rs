@@ -643,6 +643,17 @@ fn quoted_labels_with_a_direction_or_options() {
     assert_eq!(t[2].0.color.hex(), "#ff0000");
 }
 
+/// `child foreach` takes `\foreach`'s variables (`\x/\c`) and options (`count`), as `\foreach` does.
+#[test]
+fn child_foreach_with_several_variables_and_a_count() {
+    let tree = r"\node {r} child foreach \x/\c [count=\i] in {a/red, b/blue} {node[text=\c] (n\i) {\x}};";
+    let t = texts(&canvas(tree));
+    assert_eq!(t.len(), 3, "{t:?}");
+    assert_eq!((t[1].0.color.hex(), t[2].0.color.hex()), ("#ff0000".to_string(), "#0000ff".to_string()));
+    // the children are named by the count, left and right of the root
+    assert!(point(tree, "n1").x < 0.0 && point(tree, "n2").x > 0.0);
+}
+
 #[test]
 fn edge_from_parent_of_a_child_that_has_children() {
     // `edge from parent[draw=none]` before the child's own children still hides its edge
