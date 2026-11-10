@@ -408,8 +408,9 @@ impl<'a> Run<'a> {
         w.path_last = if w.rem_total < 1.0 { w.total_last } else { w.point_ahead(w.remaining) };
         let t = self.t();
         self.final_code(dec, &t)?;
+        // the next stretch starts where this one ends, not where its automaton stopped
         let rem = self.w.remaining;
-        self.w.move_along_input_segment(rem);
+        self.w.move_along_path(rem);
         if let Some(code) = after {
             self.tex_code(code, &Transform::default(), false, true)?;
         }

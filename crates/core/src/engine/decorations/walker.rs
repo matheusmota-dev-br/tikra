@@ -502,7 +502,7 @@ impl Walker {
     /// Where the current section ends, when it does not end with the path (`\pgfpoint@decorated@pathlast`).
     pub fn point_ahead(&self, d: f64) -> Point {
         let mut w = self.clone();
-        w.move_along_input_segment(d);
+        w.move_along_path(d);
         w.transform().apply(Point::default())
     }
 }
