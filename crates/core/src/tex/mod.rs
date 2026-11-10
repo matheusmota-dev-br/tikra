@@ -1191,11 +1191,21 @@ impl Tex {
                     continue;
                 }
                 Cat::Sup if next == Some(c) && pos + 2 < chars.len() => {
-                    // ^^M, ^^?: the character 64 away
                     let x = chars[pos + 2];
-                    pos += 3;
-                    let code = x as u32;
-                    let ch = char::from_u32(if code < 64 { code + 64 } else { code - 64 }).unwrap_or(x);
+                    let hex = |c: char| matches!(c, '0'..='9' | 'a'..='f');
+                    let ch = match chars.get(pos + 3) {
+                        // ^^41: the character of that code, in two lowercase hexadecimal digits
+                        Some(&y) if hex(x) && hex(y) => {
+                            pos += 4;
+                            char::from_u32(u32::from_str_radix(&format!("{x}{y}"), 16).unwrap_or(0)).unwrap_or(x)
+                        }
+                        // ^^M, ^^?: the character 64 away
+                        _ => {
+                            pos += 3;
+                            let code = x as u32;
+                            char::from_u32(if code < 64 { code + 64 } else { code - 64 }).unwrap_or(x)
+                        }
+                    };
                     skip = false;
                     let cat = self.catcode(ch);
                     break Some(Token::Char(ch, cat));

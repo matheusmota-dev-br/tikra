@@ -48,6 +48,16 @@ fn spaces_lines_and_comments() {
     assert_eq!(run("a\n\nb"), "ab");
 }
 
+/// `^^` followed by two lowercase hexadecimal digits is the character of that code; followed by
+/// anything else, the character 64 away.
+#[test]
+fn caret_notation() {
+    assert_eq!(run("^^41^^62c"), "Abc");
+    assert_eq!(run("^^41x"), "Ax");
+    assert_eq!(run("^^5a^^4G"), "ZtG");
+    assert_eq!(run(r"\def\a{^^7a}\a"), "z");
+}
+
 #[test]
 fn groups_and_global() {
     assert_eq!(run(r"\def\a{1}{\def\a{2}\a}\a"), "21");
