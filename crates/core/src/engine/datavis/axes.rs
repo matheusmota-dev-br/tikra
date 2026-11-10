@@ -169,7 +169,7 @@ impl Engine {
     }
 
     /// Steps as a TikZ path (pt): moves, lines, and the arcs of polar axes as Bézier curves.
-    fn path_text(steps: &[(PathToken, Step)]) -> String {
+    pub(super) fn path_text(steps: &[(PathToken, Step)]) -> String {
         let mut out = String::new();
         let mut current = Point::new(0.0, 0.0);
         for (token, step) in steps {
