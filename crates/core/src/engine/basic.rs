@@ -311,6 +311,7 @@ pub const DEFINITIONS: &str = r"
 \def\pgfmathln#1{\pgfmathparse{ln(#1)}}
 \def\pgfmathdeg#1{\pgfmathparse{deg(#1)}}
 \def\pgfmathrad#1{\pgfmathparse{rad(#1)}}
+\def\pgfmathsign#1{\pgfmathparse{sign(#1)}}
 \def\pgfmathint#1{\pgfmathparse{int(#1)}}
 \def\pgfmathfrac#1{\pgfmathparse{frac(#1)}}
 \def\pgfmathasin#1{\pgfmathparse{asin(#1)}}
@@ -323,6 +324,7 @@ pub const DEFINITIONS: &str = r"
 \def\pgfmathmax#1#2{\pgfmathparse{max(#1,#2)}}
 \def\pgfmathmin#1#2{\pgfmathparse{min(#1,#2)}}
 \def\pgfmathmod#1#2{\pgfmathparse{mod(#1,#2)}}
+\def\pgfmathMod#1#2{\pgfmathparse{Mod(#1,#2)}}
 \def\pgfmathveclen#1#2{\pgfmathparse{veclen(#1,#2)}}
 \def\pgfmathpow#1#2{\pgfmathparse{pow(#1,#2)}}
 \def\pgfmathatan2#1#2{\pgfmathparse{atan2(#1,#2)}}
