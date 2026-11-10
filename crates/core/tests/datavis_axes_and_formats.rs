@@ -339,7 +339,33 @@ fn a_square_root_axis() {
     assert!(ticks.len() == 5 && ticks.iter().zip(&want).all(|(a, b)| (a - b).abs() < 1e-3), "{ticks:?}");
 }
 
+/// A scaling given at values the axis' function has no value for says so: the logarithm of 0, the
+/// square root of a negative number, a number too large to be one.
+#[test]
+fn a_scaling_at_values_the_function_has_no_value_for() {
+    for (axis, message) in [
+        ("logarithmic, scaling=0 at 0cm and 10 at 5cm", "logarithmic scaling of 'x': 0 has no logarithm: left out"),
+        (r"function=\pgfdvmathunaryop{\pgfvalue}{sqrt}{\pgfvalue}, scaling=-4 at 0cm and 4 at 2cm", "scaling of 'x': sqrt has no value at -4: left out"),
+        ("scaling=0 at 0cm and 1e400 at 5cm", "scaling of 'x': inf is not a finite number: left out"),
+    ] {
+        warns(&format!("\\datavisualization [xy Cartesian, visualize as line, x axis={{{axis}}}] data point [x=1, y=0] data point [x=4, y=1];"), message);
+    }
+}
+
 // ---------------------------------------------------------------- logarithmic axes
+
+/// Logarithmic ticks over a range that starts at 0 (a value left out, as it has no logarithm): no
+/// ticks, and a warning; a step of 0 gives none either.
+#[test]
+fn logarithmic_ticks_that_cannot_be() {
+    let body = r"\datavisualization [scientific axes, visualize as line, x axis={logarithmic}] data point [x=0, y=0] data point [x=10, y=1] data point [x=100, y=2];";
+    warns(body, "logarithmic ticks for a range from 0 to 100, which has no logarithm: no ticks");
+    // the texts are the y axis' only: 0 to 2 by 0.5
+    let texts = |c: &Canvas| c.items.iter().filter(|i| matches!(i, tikra::canvas::Item::Text { .. })).count();
+    assert_eq!(texts(&drawn_and_warnings(body).0), 5);
+    let step_0 = r"\datavisualization [scientific axes, visualize as line, x axis={logarithmic, ticks={step=0}}] data point [x=1, y=0] data point [x=100, y=1];";
+    assert_eq!(words(step_0), ["0", "0.2", "0.4", "0.6", "0.8", "1"]);
+}
 
 /// A logarithmic axis: its ticks at powers of ten, each decade the same length.
 #[test]
@@ -505,6 +531,15 @@ fn fractions_as_tick_texts() {
         r"\datavisualization [scientific axes, visualize as line, x axis={ticks={node style={/pgf/number format/frac}, step=0.25}}] data point [x=0, y=0] data point [x=1, y=1];",
     );
     assert_eq!(w[..5], ["0", "1 over 4", "1 over 2", "3 over 4", "1"]);
+}
+
+/// A fraction that rounds up to its denominator is the next whole number: 2.9 in quarters is 3.
+#[test]
+fn a_fraction_rounded_to_a_whole_number() {
+    let w = words(
+        r"\datavisualization [scientific axes, visualize as line, x axis={ticks={node style={/pgf/number format/frac, /pgf/number format/frac denom=4}, major={at={2.9}}}}] data point [x=0, y=0] data point [x=3, y=1];",
+    );
+    assert_eq!(w[0], "3");
 }
 
 /// The polar axes in radians write multiples of π: π itself, and -π.

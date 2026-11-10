@@ -190,13 +190,10 @@ pub fn cloud_parts(input: &mut Input) -> Cloud {
         (x, y)
     } else {
         let aspect = input.aspect;
-        let mut xc = (aspect * y).max(x);
-        let mut yc = xc / aspect;
-        if yc < y {
-            yc = y;
-            xc = aspect * y;
-        }
-        (xc, yc)
+        let xc = (aspect * y).max(x);
+        // (the height the aspect gives may round a hair below the text's)
+        let low = xc / aspect < y;
+        (if low { aspect * y } else { xc }, if low { y } else { xc / aspect })
     };
     let half_arc = arc / 2.0;
     let k = sin(step / 2.0) * (1.0 - cos(half_arc)) / sin(half_arc);

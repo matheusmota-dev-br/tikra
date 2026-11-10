@@ -130,6 +130,20 @@ fn horizontal_rectangle_splits() {
     assert_eq!(horizontal, 2);
 }
 
+/// `rectangle split draw splits=false`: the outline alone, no line between the parts, though the
+/// parts stay where they are.
+#[test]
+fn rectangle_split_without_its_split_lines() {
+    let with = node("shapes.multipart", "rectangle split, rectangle split parts=2, draw", r"a\nodepart{two}b");
+    let without = node("shapes.multipart", "rectangle split, rectangle split parts=2, draw, rectangle split draw splits=false", r"a\nodepart{two}b");
+    clean(&without);
+    let horizontal = |body: &str| lines(body).into_iter().filter(|(a, b)| close(a.y, b.y) && (a.x - b.x).abs() > 0.1).count();
+    // the split, and the outline's sides (moveto then lineto: its bottom)
+    assert_eq!(horizontal(&with), horizontal(&without) + 1);
+    assert_eq!(paths(&canvas(&without)).len(), 1);
+    assert!(close(at(&with, "two").y, at(&without, "two").y));
+}
+
 // ---------------------------------------------------------------- geometric shapes
 
 /// An empty node with an inner sep of 3mm by 1mm and no outer sep.

@@ -266,4 +266,26 @@ mod tests {
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert_eq!((lines[0].start, lines[0].end), (0, 3));
     }
+
+    /// A word exactly as wide as the line fills it (badness 0); a break at a penalty right after
+    /// a break at glue would make a line with no box, which is not taken; the line after a break
+    /// starts at its first box, past the glue and penalties.
+    #[test]
+    fn breaks_next_to_each_other() {
+        let glue = Item::Glue { width: 3.0, stretch: 0.0, fil: 0.0, shrink: 0.0 };
+        let items = [
+            Item::Box(10.0),
+            glue,
+            Item::Penalty { width: 0.0, penalty: 0.0, flagged: false, hyphen: false },
+            glue,
+            Item::Box(10.0),
+            Item::Penalty { width: 0.0, penalty: 10000.0, flagged: false, hyphen: false },
+            Item::Glue { width: 0.0, stretch: 0.0, fil: 1.0, shrink: 0.0 },
+            Item::Penalty { width: 0.0, penalty: -10000.0, flagged: false, hyphen: false },
+        ];
+        let lines = break_lines(&items, 10.0, Skip::default(), Skip::default(), 0.0);
+        let spans: Vec<(usize, usize)> = lines.iter().map(|l| (l.start, l.end)).collect();
+        assert_eq!(spans, [(0, 1), (4, 7)], "{lines:?}");
+        assert_eq!(lines[0].ratio, 0.0);
+    }
 }

@@ -576,10 +576,8 @@ fn k_radius_axes(e: &mut Engine, _v: Option<Vec<Token>>) -> Result<(), Error> {
     let which = key_text(e, &format!("{DV}/@which radius axes at")).unwrap_or_default();
     let style = key_text(e, &format!("{DV}/@which visualize radius axis")).unwrap_or_default();
     let list = keys::value(&e.tex, &format!("{DV}/{which}")).unwrap_or_default();
-    for item in super::axes_split(&list) {
-        if keys::trim(&item).is_empty() {
-            continue;
-        }
+    // (the ranges list no empty item)
+    for item in super::axes_split(&list).into_iter().filter(|i| !keys::trim(i).is_empty()) {
         let mut v = tikra_tokens(&format!("{style}="));
         v.extend(group(item));
         dv_keys(e, v)?;
@@ -723,10 +721,7 @@ fn k_label_at(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let name = current_visualizer(e);
     e.tex.define_string("tikra@dv@labelattr", &format!("set/{name}/count"), false);
     let count = e.object_of(&format!("{DV}/visualizers/{name}/count/obj"));
-    let total = match count.and_then(|c| e.datavis.last().and_then(|d| d.objects.get(c)).cloned()) {
-        Some(Object::Count { max, .. }) => max,
-        _ => 0.0,
-    };
+    let total = if let Some(Object::Count { max, .. }) = count.and_then(|c| e.datavis.last().and_then(|d| d.objects.get(c)).cloned()) { max } else { 0.0 };
     let at = match name_of(e).as_str() {
         "index" => text_of(e, v)?,
         "pos" => {

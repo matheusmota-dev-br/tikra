@@ -851,6 +851,17 @@ mod tests {
         (p.x - x * PT).abs() < 1e-3 * PT && (p.y - y * PT).abs() < 1e-3 * PT
     }
 
+    /// Keys without an engine of their own draw arrow tips with plain values (the engine's keys,
+    /// the only ones that draw a shape with a tip, evaluate the tip's options).
+    #[test]
+    fn keys_draw_arrow_tips_with_plain_values() {
+        let mut k = TableKeys::default();
+        let (length, paths) = k.tip_shapes("stealth", 0.4 * PT).expect("a known tip");
+        assert!(length > 0.0, "{length}");
+        assert!(!paths.is_empty() && paths.iter().all(|(segments, filled, _)| *filled && !segments.is_empty()), "{paths:?}");
+        assert!(k.tip_shapes("no such tip", 0.4 * PT).is_none());
+    }
+
     #[test]
     fn rectangle_and_circle_anchors() {
         let mut k = TableKeys::default();

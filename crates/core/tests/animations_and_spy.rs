@@ -84,6 +84,19 @@ fn animate_gives_the_snapshot_values_to_the_options() {
     assert_eq!(fill(&format!(r"{snap}{styles}\fill[green, animate={{tint=blue}}] (0,0) rectangle (1,1);")), "#0000ff");
 }
 
+/// In `whom: = {…}`, an attribute whose timeline is over at the snapshot keeps its base value,
+/// while the others take theirs.
+#[test]
+fn animate_with_several_attributes_some_over() {
+    let snap = r"\tikzset{make snapshot of=3s}";
+    let c = canvas(&format!(
+        r#"{ANIM}{snap}\draw[green, line width=1pt, animate={{myself: = {{:fill = {{0s="red", 1s="blue"}}, :line width = {{0s="2pt", 4s="2pt"}}}}}}] (0,0) rectangle (1,1);"#
+    ));
+    let p = &paths(&c)[0];
+    assert!(p.fill.is_none(), "the fill is over: none, as without it");
+    assert!(close(p.stroke.as_ref().unwrap().width, 2.0 * tikra::PT));
+}
+
 #[test]
 fn an_animation_cut_short_by_the_end_of_the_document() {
     for code in [r"\begin{tikzpicture}\fill (0,0) circle (1) :fill", r"\begin{tikzpicture}\fill (0,0) circle (1) :fill ="] {
@@ -179,6 +192,27 @@ fn system_layer_timelines_of_several_attributes() {
     let s = c.items.iter().find_map(|i| if let Item::Path { stroke: Some(s), .. } = i { Some(s.opacity) } else { None }).unwrap();
     assert!(close(s, 0.5), "{s}");
     assert!(matches!(f.paint, tikra::canvas::Paint::Solid(c) if c.hex() == "#0000ff"));
+}
+
+/// Two attributes of one object, each by its own timeline: both are at their snapshot values.
+#[test]
+fn system_layer_two_timelines_for_one_object() {
+    let body = r"\pgfsysanimsnapshot{1}\tikz {
+        \pgfidrefnextuse{\objid}{n}\pgfsysanimkeywhom{\objid}{}
+        \pgfsysanimkeytime{0}{1}{1}{0}{0}\pgfsysanimvalscalar{1}
+        \pgfsysanimkeytime{2}{1}{1}{0}{0}\pgfsysanimvalscalar{0}
+        \pgfsysanimate{fillopacity}
+        \pgfsysanimkeytime{0}{1}{1}{0}{0}\pgfsysanimvaldimension{0pt}
+        \pgfsysanimkeytime{2}{1}{1}{0}{0}\pgfsysanimvaldimension{4pt}
+        \pgfsysanimate{linewidth}
+        \node (n) [fill=blue, draw] {N};
+      }";
+    let (c, w) = tikra::engine::run_document(body).unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    let f = c.items.iter().find_map(|i| if let Item::Path { fill: Some(f), .. } = i { Some(f.opacity) } else { None }).unwrap();
+    assert!(close(f, 0.5), "{f}");
+    let s = c.items.iter().find_map(|i| if let Item::Path { stroke: Some(s), .. } = i { Some(s.width) } else { None }).unwrap();
+    assert!(close(s, 2.0 * tikra::PT), "{s}");
 }
 
 // ------------------------------------------------------------------ spy

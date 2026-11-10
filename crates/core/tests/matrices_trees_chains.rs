@@ -169,8 +169,16 @@ fn figures_cut_short_draw_what_they_have() {
         assert!(has(&w, "path without ';' at the end"), "{code}: {w:?}");
         assert_eq!(paths(&c).len(), edges, "{code}");
     }
-    let (_, w) = run(r"\begin{tikzpicture}\node {r} child foreach \x");
-    assert!(has(&w, "child foreach without 'in'; statement ignored"), "{w:?}");
+    // without its `in`, even when the document ends after an `i`, or without a variable
+    for (code, message) in [
+        (r"\begin{tikzpicture}\node {r} child foreach \x", "child foreach without 'in'; statement ignored"),
+        (r"\begin{tikzpicture}\node {r} child foreach \x i", "child foreach without 'in'; statement ignored"),
+        (r"\begin{tikzpicture}\node {r} child foreach in {1,2} {node {c}};", "child foreach without a variable; statement ignored"),
+    ] {
+        let (c, w) = run(code);
+        assert!(has(&w, message), "{code}: {w:?}");
+        assert!(paths(&c).is_empty(), "{code}: no edge");
+    }
     let (c, w) = run(r"\begin{tikzpicture}\node (x) {x}; \begin{scope}[start chain] \chainin (x)");
     assert!(has(&w, "path without ';' at the end"), "{w:?}");
     assert_eq!(texts(&c).len(), 1);

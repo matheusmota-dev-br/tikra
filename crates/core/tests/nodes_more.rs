@@ -49,6 +49,19 @@ fn a_node_past_the_corner_of_a_vertical_horizontal_path_is_on_its_second_leg() {
     assert!(close_to((c[0].x, c[0].y), (2.0, 1.0)), "{c:?}");
 }
 
+/// Options between a corner path (`|-`) or an arc and a node move the node as they move points:
+/// the node is where `pos` puts it on that part of the path, then shifted.
+#[test]
+fn options_before_a_node_after_a_corner_or_an_arc_move_it() {
+    // `|-` up, then right: pos .25 is halfway up the first leg, at (0, .5)
+    let q = point(r"\draw (0,0) |- (2,1) [xshift=1cm] node[pos=.25] (n) {};", "n.center");
+    assert!(close_to((q.x, q.y), (1.0, 0.5)), "{q:?}");
+    // a quarter circle around (-1, 0): pos .5 is at 45 degrees
+    let q = point(r"\draw (0,0) arc (0:90:1) [xshift=1cm] node[pos=.5] (n) {};", "n.center");
+    let h = std::f64::consts::FRAC_1_SQRT_2;
+    assert!(close_to((q.x, q.y), (h, h)), "{q:?}");
+}
+
 #[test]
 fn an_unknown_anchor_is_the_center() {
     let (c, w) = canvas_and_warnings(r"\node[anchor=nowhere] at (1,1) {x};");

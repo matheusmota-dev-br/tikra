@@ -431,18 +431,18 @@ impl<'a> Run<'a> {
         if let Some(v) = get(self.e, 4017) {
             self.s.amplitude = v;
         }
-        if let Some(code) = macro_body(self.e, "pgf@decorate@additionaltransform") {
-            if !crate::keys::trim(&code).is_empty() {
-                let e = &mut *self.e;
-                e.begin_group();
-                e.st.transform = Transform::default();
-                let r = e.run_tokens(code);
-                let t = e.st.transform;
-                e.end_group();
-                match r {
-                    Ok(()) => self.extra = Transform { e: t.e / PT, f: t.f / PT, ..t },
-                    Err(err) => self.e.warn(format!("decoration segment transformation: {err}")),
-                }
+        // (defined, empty, by the decorations' definitions)
+        let code = macro_body(self.e, "pgf@decorate@additionaltransform").unwrap_or_default();
+        if !crate::keys::trim(&code).is_empty() {
+            let e = &mut *self.e;
+            e.begin_group();
+            e.st.transform = Transform::default();
+            let r = e.run_tokens(code);
+            let t = e.st.transform;
+            e.end_group();
+            match r {
+                Ok(()) => self.extra = Transform { e: t.e / PT, f: t.f / PT, ..t },
+                Err(err) => self.e.warn(format!("decoration segment transformation: {err}")),
             }
         }
     }
@@ -608,34 +608,34 @@ impl<'a> Run<'a> {
             let mut width = 0.0;
             let mut next = state;
             let mut jump = false;
-            if let Some(opts) = macro_body(self.e, &format!("pgf@metadecoration@@{name}@{state}@options")) {
-                for item in crate::keys::split_list(&opts) {
-                    let v = item.value.unwrap_or_default();
-                    let mut switch = |r: &mut Run, v: &[Token], input: bool| -> Result<(), Error> {
-                        if jump {
-                            return Ok(());
-                        }
-                        let Some((x, s)) = super::split_word(v, "to") else { return Ok(()) };
-                        let x = r.e.length_of(x)? / PT;
-                        let d = if input { r.w.seg_remaining } else { r.w.rem_total };
-                        if d < x - EPS {
-                            state = intern(crate::tex::tokens_to_string(&s).trim());
-                            jump = true;
-                        }
-                        Ok(())
-                    };
-                    match item.key.as_str() {
-                        "width" => {
-                            width = self.e.length_of(v.clone())? / PT;
-                            let mut t = v;
-                            t.extend(crate::engine::tikra_tokens(" to final"));
-                            switch(self, &t, false)?;
-                        }
-                        "switch if less than" => switch(self, &v, false)?,
-                        "switch if input segment less than" => switch(self, &v, true)?,
-                        "next state" => next = intern(&self.e.tex.expand_to_string(v)?),
-                        other => self.e.warn(format!("meta-decoration state option '{other}' not supported: ignored")),
+            // (every state declared has its options, maybe none)
+            let opts = macro_body(self.e, &format!("pgf@metadecoration@@{name}@{state}@options")).unwrap_or_default();
+            for item in crate::keys::split_list(&opts) {
+                let v = item.value.unwrap_or_default();
+                let mut switch = |r: &mut Run, v: &[Token], input: bool| -> Result<(), Error> {
+                    if jump {
+                        return Ok(());
                     }
+                    let Some((x, s)) = super::split_word(v, "to") else { return Ok(()) };
+                    let x = r.e.length_of(x)? / PT;
+                    let d = if input { r.w.seg_remaining } else { r.w.rem_total };
+                    if d < x - EPS {
+                        state = intern(crate::tex::tokens_to_string(&s).trim());
+                        jump = true;
+                    }
+                    Ok(())
+                };
+                match item.key.as_str() {
+                    "width" => {
+                        width = self.e.length_of(v.clone())? / PT;
+                        let mut t = v;
+                        t.extend(crate::engine::tikra_tokens(" to final"));
+                        switch(self, &t, false)?;
+                    }
+                    "switch if less than" => switch(self, &v, false)?,
+                    "switch if input segment less than" => switch(self, &v, true)?,
+                    "next state" => next = intern(&self.e.tex.expand_to_string(v)?),
+                    other => self.e.warn(format!("meta-decoration state option '{other}' not supported: ignored")),
                 }
             }
             if jump {
@@ -995,9 +995,7 @@ impl<'a> Run<'a> {
         let (a, l) = (self.amp(), self.len());
         match (dec, state) {
             (Dec::User(n), s) => {
-                if let Some(code) = macro_body(self.e, &format!("pgf@decorate@@{n}@{s}@code")) {
-                    self.tex_code(code, t, true, false)?;
-                }
+                macro_body(self.e, &format!("pgf@decorate@@{n}@{s}@code")).map(|code| self.tex_code(code, t, true, false)).transpose()?;
             }
             (Dec::LineTo, "input segment") => {
                 let q = self.w.seg.last;
@@ -1142,9 +1140,7 @@ impl<'a> Run<'a> {
             (Dec::ShapeBackgrounds, "shape") => self.shape_code(t),
             (Dec::TextAlongPath, "typeset") => self.text_typeset(t),
             (Dec::TextEffects, "token") => {
-                if let Some(i) = self.te.count.checked_sub(1).filter(|i| *i < self.te.chars.len()) {
-                    self.te_node(i, Some(t))?;
-                }
+                self.te.count.checked_sub(1).filter(|i| *i < self.te.chars.len()).map(|i| self.te_node(i, Some(t))).transpose()?;
             }
             _ => {}
         }
@@ -1675,10 +1671,8 @@ impl<'a> Run<'a> {
                         let depth = self.e.tex.depth();
                         self.e.tex.push_frame(vec![t.clone()]);
                         let mut out = Vec::new();
-                        if let Some(x) = self.e.tex.get_token_until(depth) {
-                            let m = self.e.tex.meaning(&x);
-                            self.e.tex.expand(&x, &m)?;
-                        }
+                        let x = self.e.tex.get_token_until(depth).expect("the token pushed just before");
+                        self.e.tex.expand(&x, &m)?;
                         while let Some(x) = self.e.tex.get_token_until(depth) {
                             out.push(x);
                         }

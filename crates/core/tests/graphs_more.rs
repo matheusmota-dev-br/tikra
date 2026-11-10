@@ -320,6 +320,8 @@ fn butterflies_cross_the_shores() {
     assert_eq!(g("butterfly={level=2}"), (8, 8));
     // level 0: no crossing, just the straight edges
     assert_eq!(g("butterfly'={level=0}"), (8, 4));
+    // nothing on one side: nothing to cross to
+    assert_eq!(counts(r"\graph { {} -- [butterfly'] {e, f} };"), (2, 0));
     // which ones: with level 1, e goes to b and a to f
     let (_, p, _) = draw(r"\graph [grow down, branch right] { {a, b} -- [butterfly'] {e, f} };");
     let ends: Vec<_> = p.iter().map(|d| (start(d), end(d))).collect();
