@@ -805,7 +805,7 @@ impl Engine {
         for library in libraries {
             e.register(library);
         }
-        e.tex.warnings.clear();
+        // (what the definitions warned stays with the engine: each figure that uses them says so)
         WITH_LIBRARIES.with(|w| w.borrow_mut().push((names, e.clone())));
         e
     }

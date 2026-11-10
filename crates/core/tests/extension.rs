@@ -62,6 +62,16 @@ fn a_library_key_warns() {
     assert!(r.warnings.iter().any(|w| w.contains("complain: nothing to do")), "{:?}", r.warnings);
 }
 
+/// What goes wrong in a library's definitions is told with every figure that uses it, the first and the next.
+#[test]
+fn a_library_whose_definitions_warn_says_so() {
+    static BROKEN: Library = Library { name: "broken", definitions: || r"\tikzset{oops/.style={draw}} \pgfkeys{/tikz/no such key here}".into(), keys: &[] };
+    for _ in 0..2 {
+        let r = convert(r"\draw[oops] (0,0) -- (1,0);", &[&BROKEN]);
+        assert!(r.warnings.iter().any(|w| w.contains("no such key here")), "{:?}", r.warnings);
+    }
+}
+
 #[test]
 fn tokens_split_as_tex_does() {
     let a = Tokens::text("{a}{b c}").arguments(3);
