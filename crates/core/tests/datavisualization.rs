@@ -92,6 +92,16 @@ fn style_sheets_legends_and_polar_axes_run_without_warnings() {
     items(r"\datavisualization [scientific polar axes, visualize as smooth line] data [format=function] { var angle : interval [0:90]; func radius = \value{angle}; };");
 }
 
+/// A legend's options set before the data visualization still give it its legend, there.
+#[test]
+fn a_legend_set_outside_is_drawn() {
+    let picture = r"\datavisualization [scientific axes, visualize as line/.list={a,b}, a={label in legend={text=first}}, b={label in legend={text=second}}]
+          data point [x=0, y=0, set=a] data point [x=1, y=1, set=a] data point [x=0, y=1, set=b] data point [x=1, y=0, set=b];";
+    let inside = items(&picture.replace("scientific axes,", "scientific axes, legend={below},"));
+    let outside = items(&format!(r"\tikzdatavisualizationset{{legend={{below}}}}{picture}"));
+    assert_eq!(format!("{outside:?}"), format!("{inside:?}"));
+}
+
 #[test]
 fn a_tick_placement_strategy_of_ones_own() {
     let n = texts(
