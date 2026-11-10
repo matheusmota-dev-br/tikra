@@ -57,6 +57,14 @@ fn groups_and_global() {
     assert_eq!(run(r"\def\x{X}{\aftergroup\x}y"), "Xy");
 }
 
+/// `\global` before `\catcode` makes that one assignment global, and no other after it.
+#[test]
+fn global_catcode_is_one_assignment() {
+    assert_eq!(run(r"{\global\catcode`\Q=11 \count1=7 }\the\count1"), "0");
+    assert_eq!(run(r"\def\a{1}{\global\catcode`\Q=11 \def\a{2}}\a"), "1");
+    assert_eq!(run(r"{\global\catcode`\Q=12 }\the\catcode`\Q"), "12");
+}
+
 #[test]
 fn edef_let_and_expansion_control() {
     assert_eq!(run(r"\def\a{A}\edef\b{\a\a}\def\a{Z}\b"), "AA");
