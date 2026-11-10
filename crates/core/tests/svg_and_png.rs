@@ -438,6 +438,18 @@ mod played {
         assert!(inner.split(' ').all(|v| v.parse::<f64>().is_ok()), "{inner}");
     }
 
+    /// A node's animations go over the node: its border and its text, though setting the text runs
+    /// statements of its own.
+    #[test]
+    fn a_nodes_animations_are_played() {
+        let play = |node: &str| convert_with(&format!("\\usetikzlibrary{{animations}}\\begin{{tikzpicture}}{node}\\end{{tikzpicture}}"), &Options::default().play()).unwrap().svg;
+        let svg = play("\\node :color={0s=\"red\",2s=\"blue\"} [draw] {A};");
+        assert!(svg.contains(r#"<animate attributeName="stroke""#) && svg.contains(r#"<animate attributeName="fill""#), "{svg}");
+        assert!(play("\\node :text={0s=\"red\",2s=\"blue\"} {A};").contains(r#"<animate attributeName="fill""#));
+        assert!(play("\\node :fill opacity={0s=\"1\",2s=\"0\"} [fill=red] {A};").contains(r#"<animate attributeName="fill-opacity""#));
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
     #[test]
     fn a_scope_moves_all_it_draws() {
         let code = "\\usetikzlibrary{animations}\\begin{tikzpicture}\\begin{scope}[animate={myself:opacity={0s=\"1\",1s=\"0\"}}]\\draw (0,0) -- (1,0);\\draw (0,1) -- (1,1);\\end{scope}\\draw (0,2) -- (1,2);\\end{tikzpicture}";

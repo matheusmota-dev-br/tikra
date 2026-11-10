@@ -206,10 +206,10 @@ impl Engine {
         self.animation_center.get_or_insert(self.st.transform.apply(Point::default()));
     }
 
-    /// After a statement: what it drew, from `start`, moves as it asked. A scope's animations go
-    /// over what it will draw, up to its end.
-    pub fn place_animations(&mut self, start: usize, opens: bool) {
-        let animations = std::mem::take(&mut self.animations);
+    /// After a statement: what it drew, from `start`, moves as it asked (the animations it noted,
+    /// from `from`). A scope's animations go over what it will draw, up to its end.
+    pub fn place_animations(&mut self, start: usize, opens: bool, from: usize) {
+        let animations = self.animations.split_off(from);
         let center = self.animation_center.take().unwrap_or_default();
         let item = Item::Animated { animations, center };
         if opens {
