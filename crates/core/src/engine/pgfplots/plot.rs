@@ -1201,7 +1201,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
         }
         ends
     });
-    if tie.as_ref().is_some_and(|t| t.iter().any(|s| matches!(s, Src::None | Src::Col(None)))) {
+    // (in 2d, the ends need no z)
+    if tie.as_ref().is_some_and(|t| t.iter().take(if three_d { 3 } else { 2 }).any(|s| matches!(s, Src::None | Src::Col(None)))) {
         e.warn("tieline: the tie ends' columns are not found (give 'tie end x' and its friends): ties not drawn");
     }
     let sey = pick(e, "y error", None);
