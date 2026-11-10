@@ -241,6 +241,24 @@ fn replaced_characters_and_relative_controls() {
     assert_eq!(paths(&items).len(), 1);
 }
 
+/// A replaced character takes the room of what it draws even when the picture's size is fixed by
+/// `use as bounding box`, or inside a clip.
+#[test]
+fn replaced_characters_take_room_after_use_as_bounding_box() {
+    let path = r"\path[decoration={text effects along path, text={a0a}, text effects/.cd, replace characters=0 with {\fill circle [radius=2pt];}}, decorate] (0,0) -- (3,0);";
+    let xs = |before: &str| -> Vec<f64> {
+        let (c, _) = run_document(&format!("\\begin{{tikzpicture}}{before}{path}\\end{{tikzpicture}}")).unwrap_or_else(|e| panic!("{e}"));
+        c.items.iter().filter_map(|i| if let Item::Text { place, .. } = i { Some(place.e) } else { None }).collect()
+    };
+    let free = xs("");
+    assert_eq!(free.len(), 2);
+    assert!(free[1] - free[0] > 4.0 * PT, "the circle takes 4pt: {free:?}");
+    for before in [r"\useasboundingbox (0,-1) rectangle (4,1);", r"\clip (0,-1) rectangle (4,1);"] {
+        let fixed = xs(before);
+        assert!((fixed[1] - fixed[0] - (free[1] - free[0])).abs() < 1e-6, "{before}: {fixed:?} vs {free:?}");
+    }
+}
+
 #[test]
 fn the_mindmap_library_sets_the_decoration_angle_to_20() {
     // as pgf's mindmap library does when it loads: each wave starts at 20 degrees, not 45

@@ -333,12 +333,19 @@ impl Run<'_> {
             let saved_items = std::mem::take(&mut e.canvas.items);
             e.canvas.min = None;
             e.canvas.max = None;
+            // measured as a picture of its own: `use as bounding box` and clips around do not count
+            let frozen = std::mem::replace(&mut e.canvas_frozen, false);
+            let clipped: Vec<bool> = e.scopes.iter_mut().map(|s| std::mem::take(&mut s.clipped)).collect();
             e.begin_scope();
             let r = e.process_keys(options, Some("/tikz")).and_then(|_| {
                 e.st.apply_pending();
                 e.run_tokens(code)
             });
             e.end_scope();
+            e.canvas_frozen = frozen;
+            for (s, c) in e.scopes.iter_mut().zip(clipped) {
+                s.clipped = c;
+            }
             let drawn = std::mem::replace(&mut e.canvas.items, saved_items);
             let (lo, hi) = (e.canvas.min, e.canvas.max);
             (e.canvas.min, e.canvas.max) = saved;
@@ -347,8 +354,10 @@ impl Run<'_> {
             if t.is_some() {
                 self.e.canvas.items.extend(drawn);
                 // the drawing counts in the picture as it was drawn
-                for q in [lo, hi].into_iter().flatten() {
-                    self.e.canvas.include(q);
+                if self.e.counts_for_size() {
+                    for q in [lo, hi].into_iter().flatten() {
+                        self.e.canvas.include(q);
+                    }
                 }
             }
             let width = match (lo, hi) {
