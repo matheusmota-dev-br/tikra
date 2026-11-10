@@ -305,6 +305,18 @@ fn an_overlay_node_makes_no_room_for_its_shift_animation() {
     assert!(close(w2, w) && close(h2, h), "{w2} {h2} against {w} {h}");
 }
 
+/// A shift animation's points are braced inside their quotes (`"{(5,0)}"`, the comma would end the
+/// value otherwise): the picture makes room for the node at each, as for an `xshift` of 5cm.
+#[test]
+fn a_shift_animation_takes_braced_points() {
+    let body = |a: &str| format!(r#"\usetikzlibrary{{animations}} \draw (0,0) -- (1,0); \node[animate={{myself:{a}}}] {{A}};"#);
+    let xshift = size(&body(r#"xshift={0s="0cm", 2s="5cm"}"#));
+    assert!(xshift.0 > 5.0, "{xshift:?}");
+    let (c, w) = drawn_and_warnings(&body(r#"shift={0s="{(0,0)}", 2s="{(5,0)}"}"#));
+    assert!(w.is_empty(), "{w:?}");
+    assert!(close(c.max.unwrap().x - c.min.unwrap().x, xshift.0), "{c:?}");
+}
+
 #[test]
 fn node_syntax_errors() {
     // (a label's options without their `]` too, in a node and in a graph)
