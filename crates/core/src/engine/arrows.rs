@@ -2100,11 +2100,11 @@ pub fn tip_shapes(ev: &mut dyn Eval, spec: &str, line_width: f64) -> Option<(f64
     Some((e.total * PT, paths))
 }
 
-/// Draws the tip `spec` at `p`, pointing along `d`, for a caller without an engine (the pgfplots
-/// bridge). Returns how far to pull the line back, in cm.
-pub fn tip_items(spec: &str, p: Point, d: Point, stroke: &Stroke, items: &mut Vec<Item>) -> f64 {
+/// Draws the tip `spec` at `p`, pointing along `d`, its options evaluated by `ev` and the tips
+/// declared in the document from `user`. Returns how far to pull the line back, in cm.
+pub fn tip_items(ev: &mut dyn Eval, user: &UserTips, spec: &str, p: Point, d: Point, stroke: &Stroke, items: &mut Vec<Item>) -> f64 {
     let mut warn = Vec::new();
-    let e = EndTips::new(&mut Plain, spec, false, &UserTips::default(), Widths { line: stroke.width / PT, inner: 0.0 }, 0.0, &mut warn);
+    let e = EndTips::new(ev, spec, false, user, Widths { line: stroke.width / PT, inner: 0.0 }, 0.0, &mut warn);
     e.draw(p, p.minus(d), stroke, stroke.opacity, items);
     e.shortening * PT
 }
