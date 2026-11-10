@@ -349,6 +349,18 @@ impl OnPath {
             }
         }
     }
+
+    /// The same place moved by `m` (the axes of an arc by its linear part only).
+    pub fn transformed(&self, m: &Transform) -> OnPath {
+        let o = m.apply(Point::default());
+        let v = |p: Point| m.apply(p).minus(o);
+        match *self {
+            OnPath::Point(p) => OnPath::Point(m.apply(p)),
+            OnPath::Segment(a, c, b) => OnPath::Segment(m.apply(a), c.map(|(c1, c2)| (m.apply(c1), m.apply(c2))), m.apply(b)),
+            OnPath::Corner(a, c, b) => OnPath::Corner(m.apply(a), m.apply(c), m.apply(b)),
+            OnPath::Arc { center, x, y, from, to } => OnPath::Arc { center: m.apply(center), x: v(x), y: v(y), from, to },
+        }
+    }
 }
 
 pub struct NodeSpec {
