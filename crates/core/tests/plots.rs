@@ -626,3 +626,12 @@ fn execute_at_end_axis_is_inside_the_axis() {
     assert_eq!(filled(&with).len(), filled(&direct).len());
     assert!(!filled(&with).is_empty());
 }
+
+/// `boxplot cs` belongs to the box plot being drawn: a later figure (on the same thread) has none.
+#[test]
+fn boxplot_cs_does_not_outlive_its_figure() {
+    let (_, w) = axis("", r"\addplot+[boxplot] table[row sep=\\, y index=0] {1\\ 2\\ 3\\ 4\\ 5\\};");
+    assert!(w.is_empty(), "{w:?}");
+    let (_, w) = axis("xmin=0, xmax=2, ymin=0, ymax=6", r"\draw (boxplot cs:3,1) circle[radius=2pt];");
+    assert!(w.iter().any(|w| w.contains("outside a box plot")), "{w:?}");
+}

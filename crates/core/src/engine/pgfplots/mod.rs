@@ -169,6 +169,7 @@ impl Engine {
         }
         self.begin_group();
         dateplot::reset(self);
+        boxplot::reset();
         let mut axis = Axis { kind: kind.to_string(), source: self.source, opened_picture: opened, depth: self.tex.group_depth(), ..Default::default() };
         let style = match kind {
             "polaraxis" => "enlarge x limits=false,every polar axis",
