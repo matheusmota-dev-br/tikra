@@ -418,7 +418,11 @@ impl Engine {
             }
         } else {
             let (lo_l, hi_l) = (lo.log10(), hi.log10());
-            if step <= 0.0 || !lo_l.is_finite() || !hi_l.is_finite() {
+            if !lo_l.is_finite() || !hi_l.is_finite() {
+                self.warn(format!("data visualization: logarithmic ticks for a range from {} to {}, which has no logarithm: no ticks", num(lo), num(hi)));
+                return Ok(());
+            }
+            if step <= 0.0 {
                 return Ok(());
             }
             let mut current = ((lo_l - phase) / step).floor() * step + phase;
