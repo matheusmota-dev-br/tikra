@@ -66,6 +66,15 @@ fn more_than_one_tikzpicture() {
     assert!(width(&lines.svg) < width(&one.svg) + 0.1);
 }
 
+/// `\vskip` in a paragraph ends it, as a blank line does: the pictures around it are one above the other.
+#[test]
+fn vskip_between_pictures_ends_the_paragraph() {
+    let width = |svg: &str| -> f64 { svg.split("width=\"").nth(1).unwrap().split("pt").next().unwrap().parse().unwrap() };
+    let blank = no_warnings("\\tikz \\fill (0,0) rectangle (1,1);\n\n\\tikz \\fill (0,0) rectangle (1,1);");
+    let vskip = no_warnings("\\tikz \\fill (0,0) rectangle (1,1);\n\\vskip 0pt\n\\tikz \\fill (0,0) rectangle (1,1);");
+    assert_eq!(width(&vskip.svg), width(&blank.svg), "{}", vskip.svg);
+}
+
 #[test]
 fn scalebox_scales_the_pictures_in_it() {
     // the drawing, its lines and its size, by each factor (the second one up)

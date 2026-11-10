@@ -2272,6 +2272,10 @@ impl Engine {
                 if self.picture_depth == 0 && matches!(cmd, Cmd::Hskip) {
                     self.layout.push(Layout::Skip(w as f64 / 65536.0 * crate::PT));
                 }
+                // vertical glue in a paragraph ends it first, as `\par` does
+                if self.picture_depth == 0 && matches!(cmd, Cmd::Vskip) && !self.layout.is_empty() && self.layout.last() != Some(&Layout::Par) {
+                    self.layout.push(Layout::Par);
+                }
                 Ok(())
             }
             // the picture's size forgotten: what follows makes it anew
