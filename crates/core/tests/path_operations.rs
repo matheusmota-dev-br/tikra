@@ -80,6 +80,28 @@ fn a_path_cut_short_by_the_end_of_the_input() {
     assert!(w.iter().any(|w| w.contains("'+' without a point")), "{w:?}");
 }
 
+/// Operations whose options or point could follow, with the input ending there: an L-system and a
+/// circle are drawn with what the path's options give them; a parabola, a `foreach` and a `let`
+/// without what they need are errors.
+#[test]
+fn operations_at_the_end_of_the_input() {
+    let doc = |d: &str| tikra::engine::run_document(&format!(r"\begin{{tikzpicture}}{d}")).unwrap();
+    let (c, w) = doc(r"\pgfdeclarelindenmayersystem{hook}{\rule{F -> F+F}}\draw[l-system={hook, axiom=F, order=1, step=1cm, angle=90}] (0,0) l-system");
+    assert_eq!(w, ["path without ';' at the end"]);
+    let p = points(&paths(&c)[0].segments);
+    let (o, a, b) = (p[0], p[p.len() - 2], p[p.len() - 1]);
+    assert!(near((a.0 - o.0, a.1 - o.1), (1.0, 0.0)) && near((b.0 - o.0, b.1 - o.1), (1.0, 1.0)), "{p:?}");
+    let (c, w) = doc(r"\draw[radius=1] (0,0) circle");
+    assert_eq!(w, ["path without ';' at the end"]);
+    let (lo, hi) = bounds(&paths(&c)[0].segments);
+    assert!(near((hi.x - lo.x, hi.y - lo.y), (2.0, 2.0)), "{lo:?} {hi:?}");
+    for (d, message) in [(r"\draw (0,0) parabola", "parabola without a point"), (r"\draw (0,0) foreach \x i", "\\foreach without 'in'"), (r"\draw let \n1 =", "empty expression")] {
+        let (c, w) = doc(d);
+        assert!(paths(&c).is_empty(), "{d}");
+        assert!(w.len() == 1 && w[0].contains(message) && w[0].ends_with("statement ignored"), "{d}: {w:?}");
+    }
+}
+
 // ---------------------------------------------------------------- curves and cycles
 
 #[test]
@@ -186,6 +208,18 @@ fn an_edge_to_path_with_options_in_braces() {
     // the options a to path starts with are the edge's own path's
     let c = canvas(r"\draw (0,0) edge[to path={[dash pattern={on 1pt off 1pt}] -- (\tikztotarget)}] (2,0);");
     assert!(paths(&c).iter().any(|d| d.stroke.as_ref().is_some_and(|s| s.dash.is_some())));
+}
+
+/// A `to path` that starts with `[` never closed (a `]` only inside braces): an error, for `to`
+/// and `edge` alike, and nothing drawn.
+#[test]
+fn a_to_path_with_unclosed_options() {
+    for op in ["to", "edge"] {
+        let body = format!(r"\draw (0,0) {op}[to path={{[label={{]}} (\tikztostart) -- (\tikztotarget)}}] (1,0);");
+        let (c, w) = canvas_and_warnings(&body);
+        assert!(paths(&c).is_empty(), "{body}");
+        assert!(w.iter().any(|w| w.contains("']' missing")), "{body}: {w:?}");
+    }
 }
 
 #[test]
@@ -420,6 +454,12 @@ fn circles_in_a_foreach_with_the_radius_of_the_path() {
     assert_eq!(curves(&t.segments), 8);
     let (lo, hi) = bounds(&t.segments);
     assert!(close(lo.x, -1.0) && close(hi.x, 4.0), "{lo:?} {hi:?}");
+    // a circle with the path's radius and another operation after it: the path goes on from its center
+    let t = first_path(r"\draw[radius=1] (0,0) circle -- (3,0);");
+    assert_eq!(curves(&t.segments), 4);
+    assert!(matches!(t.segments[t.segments.len() - 2], Segment::MoveTo(p) if close(p.x, 0.0) && close(p.y, 0.0)), "{:?}", t.segments);
+    let (lo, hi) = bounds(&t.segments);
+    assert!(close(lo.x, -1.0) && close(hi.x, 3.0), "{lo:?} {hi:?}");
 }
 
 // ---------------------------------------------------------------- parabolas

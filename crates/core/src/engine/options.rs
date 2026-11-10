@@ -214,11 +214,8 @@ impl Engine {
 
     /// `/tikz/.unknown`: a color, an arrow specification or a shape name; otherwise a `/pgf/` key.
     fn tikz_unknown(&mut self, value: Option<Vec<Token>>) -> Result<(), Error> {
-        let name = keys::value(&self.tex, "pgfkeyscurrentname").or_else(|| match self.tex.meaning_of("pgfkeyscurrentname") {
-            Meaning::Macro(m) => Some(tex::substitute(&m.body, &[])),
-            _ => None,
-        });
-        let name = name.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+        // `\pgfkeyscurrentname`, as `unknown` defines it before it runs the handler
+        let name = if let Meaning::Macro(m) = self.tex.meaning_of("pgfkeyscurrentname") { tex::tokens_to_string(&tex::substitute(&m.body, &[])) } else { String::new() };
         if name.starts_with('"') {
             return self.quotes(&name, value);
         }

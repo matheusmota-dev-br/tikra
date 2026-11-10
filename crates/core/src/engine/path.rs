@@ -610,10 +610,10 @@ fn operations_in(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
                 // while the path goes on from where it ended
                 let local = e.st.current_point_local;
                 e.end_group();
-                if let Some(c) = b.groups.pop() {
-                    if local {
-                        b.current = c;
-                    }
+                // (a `}` of the path always closes one of its `{`: the reader stops at the end of the
+                // group the statement is in)
+                if let Some(c) = b.groups.pop().filter(|_| local) {
+                    b.current = c;
                 }
             }
             Token::Char(c, Cat::Letter) => {

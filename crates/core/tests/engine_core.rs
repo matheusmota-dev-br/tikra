@@ -512,6 +512,20 @@ mod pgfmath_commands {
         assert!(near(e[0].x - s[0].x, 3.0, 1e-9) && near(e[1].x - s[1].x, -2.0, 1e-9), "{s:?} {e:?}");
     }
 
+    /// The inner forms (`\pgfmathdivide@`, with `@` a letter) are the commands themselves: a quotient,
+    /// a negation, a function by its name; an argument pgfmath cannot read is a warning.
+    #[test]
+    fn inner_forms_as_commands() {
+        let (c, w) = document(
+            r"\makeatletter\begin{tikzpicture}\pgfmathdivide@{6}{4} \draw (0,0) -- (\pgfmathresult,0); \pgfmathneg@{2} \draw (0,1) -- (\pgfmathresult,1); \pgfmathsqrt@{16} \draw (0,2) -- (\pgfmathresult,2); \pgfmathsqrt@{y}\end{tikzpicture}",
+        );
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].starts_with("\\pgfmathsqrt: ") && w[0].contains('y'), "{w:?}");
+        let (s, e) = (starts(&c), ends(&c));
+        let lengths: Vec<f64> = s.iter().zip(&e).map(|(s, e)| e.x - s.x).collect();
+        assert!(near(lengths[0], 1.5, 1e-9) && near(lengths[1], -2.0, 1e-9) && near(lengths[2], 4.0, 1e-9), "{lengths:?}");
+    }
+
     /// `\pgfmathdeclarefunction`: a `\pgfmathparse` body with its parameters (`#1`, `##2`) is a
     /// function; another body is not understood, and said so.
     #[test]
@@ -854,6 +868,18 @@ mod foreach_statements {
             let (_, w) = document(code);
             assert_eq!(w, ["\\foreach: figure: \\foreach without 'in'; statement ignored"], "{code}");
         }
+    }
+
+    /// `evaluate … using` a text: parentheses that do not hold the whole are not taken off, and a
+    /// `?:` inside the first choice of another pairs with its own `:`.
+    #[test]
+    fn evaluated_texts_with_parentheses_and_nested_choices() {
+        let colors = |code: &str| -> Vec<String> { paths(&quiet(code)).iter().map(|d| d.stroke.as_ref().unwrap().color.hex()).collect() };
+        let c = colors(r#"\begin{tikzpicture}\foreach \x [evaluate=\x as \c using {(\x>1) ? "red" : ("blue")}] in {1,2} \draw[\c] (0,\x) -- (1,\x);\end{tikzpicture}"#);
+        assert_eq!(c, ["#0000ff", "#ff0000"]);
+        let c =
+            colors(r#"\begin{tikzpicture}\foreach \x [evaluate=\x as \c using {\x>1 ? \x>2 ? "green" : "red" : "blue"}] in {1,2,3} \draw[\c] (0,\x) -- (1,\x);\end{tikzpicture}"#);
+        assert_eq!(c, ["#0000ff", "#ff0000", "#00ff00"]);
     }
 
     /// `\foreach` cut short: no list, or nothing after the list.

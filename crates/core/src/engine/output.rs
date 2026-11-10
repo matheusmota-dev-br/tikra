@@ -406,7 +406,6 @@ fn last_subpath(segs: &[Segment]) -> Option<usize> {
 fn path_end(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
     let k = segs.len().checked_sub(1)?;
     match segs[k] {
-        Segment::MoveTo(p) => Some((k, false, p, p)),
         Segment::LineTo(last) => Some((k, true, last, point_of(&segs[k.checked_sub(1)?])?)),
         Segment::CurveTo(c1, c2, last) => {
             let r = if c2 != last {
@@ -418,7 +417,8 @@ fn path_end(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
             };
             Some((k, true, last, r))
         }
-        Segment::Close => unreachable!("a closed path has no tips"),
+        // a lone point (a closed path has no tips)
+        ref s => point_of(s).map(|p| (k, false, p, p)),
     }
 }
 
@@ -429,7 +429,6 @@ fn path_start(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
     let m = last_subpath(segs)?;
     let first = point_of(&segs[m])?;
     match segs.get(m + 1) {
-        None => Some((m, false, first, first)),
         Some(&Segment::LineTo(p)) => Some((m, true, first, p)),
         Some(&Segment::CurveTo(c1, c2, p)) => Some((
             m,
@@ -443,7 +442,8 @@ fn path_start(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
                 p
             },
         )),
-        _ => unreachable!("a subpath goes on with a line or a curve, or ends: a closed path has no tips"),
+        // a lone point: the subpath ends there (a closed path has no tips)
+        _ => Some((m, false, first, first)),
     }
 }
 
