@@ -670,12 +670,12 @@ impl Engine {
                 let p = p.ok_or_else(|| Error::Figure(format!("no intersection {k}")))?;
                 self.st.transform.inverse().apply(p)
             }
-            "pgfpointtransformed" => {
+            // the last of `POINTS`: `\pgfpointtransformed`
+            _ => {
                 let p = arg(self)?;
                 let p = self.point_of(p)?;
                 self.st.transform.apply(p)
             }
-            _ => Point::default(),
         })
     }
 
@@ -734,9 +734,8 @@ impl Engine {
             if self.st.mode.draw {
                 uses.push(Usage::Stroke);
             }
-            if let Some(c) = &mut self.shape_capture {
-                c.paths.extend(uses.into_iter().map(|usage| ShapePath { layer, segments: segs.clone(), usage }));
-            }
+            let capture = self.shape_capture.as_mut().expect("a shape's code: its layer was just read");
+            capture.paths.extend(uses.into_iter().map(|usage| ShapePath { layer, segments: segs.clone(), usage }));
             self.end_group();
             self.canvas_frozen = frozen;
             return Ok(());
