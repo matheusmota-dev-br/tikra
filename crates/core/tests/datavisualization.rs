@@ -103,6 +103,20 @@ fn a_tick_placement_strategy_of_ones_own() {
     assert!(n >= 4 + 3, "{n} texts");
 }
 
+/// A legend of three rows and two columns filled down then left has all its six entries.
+#[test]
+fn a_legend_filled_down_then_left_has_every_entry() {
+    let picture = |legend: &str| {
+        texts(&format!(
+            r"\datavisualization [scientific axes, visualize as line/.list={{a,b,c,d,e,f}}, legend={{ideal number of columns=2{legend}}},
+              a={{label in legend={{text=a}}}}, b={{label in legend={{text=b}}}}, c={{label in legend={{text=c}}}},
+              d={{label in legend={{text=d}}}}, e={{label in legend={{text=e}}}}, f={{label in legend={{text=f}}}}]
+              data point [x=0, y=0, set=a] data point [x=1, y=1, set=a];"
+        ))
+    };
+    assert_eq!(picture(", down then left"), picture(""));
+}
+
 #[test]
 fn a_new_axis_system_from_its_parts() {
     let p = paths(

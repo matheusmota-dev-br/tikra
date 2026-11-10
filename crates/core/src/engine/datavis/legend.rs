@@ -329,7 +329,7 @@ impl Engine {
                 }
                 "down then left" => {
                     r += 1;
-                    if r > cols as i64 {
+                    if r > rows as i64 {
                         r = 1;
                         c -= 1;
                     }
