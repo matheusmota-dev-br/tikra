@@ -18,6 +18,17 @@ fn line_elbows_and_closing() {
     assert!(!t.segments.contains(&Segment::Close));
 }
 
+/// A word at the end of a path `foreach` body (`circle`) ends with the body: the next statement
+/// is still drawn.
+#[test]
+fn foreach_body_ending_in_a_word() {
+    let c = canvas(r"\draw[radius=1] foreach \p in {(0,0),(3,0)} {\p circle}; \draw (5,0) -- (6,0);");
+    let t = paths(&c);
+    assert_eq!(t.len(), 2);
+    let p = points(&t[1].segments);
+    assert!(close_to(p[0], (5.0, 0.0)) && close_to(p[1], (6.0, 0.0)), "{p:?}");
+}
+
 #[test]
 fn relative_coordinates() {
     // ++ accumulates, + does not move the base

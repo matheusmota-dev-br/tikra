@@ -89,6 +89,17 @@ fn scopes_and_transforms() {
     assert!(close_to(points(&t[3].segments)[1], (2.0, 3.0)));
 }
 
+/// A nonlinear transformation whose code ends in a length moves the points, and reads nothing of
+/// the path after its code.
+#[test]
+fn nonlinear_code_ending_in_a_length() {
+    let c = canvas(r"\makeatletter\pgftransformnonlinear{\advance\pgf@x by 1cm}\draw (0,0) -- (1,0);");
+    let t = paths(&c);
+    assert_eq!(t.len(), 1);
+    let p = points(&t[0].segments);
+    assert!(close_to(p[0], (1.0, 0.0)) && close_to(*p.last().unwrap(), (2.0, 0.0)), "{p:?}");
+}
+
 #[test]
 fn errors_in_scope_options_are_figure_errors() {
     for op in ["scale=zz", "xscale=zz", "yscale=zz", "rotate=zz", "xshift=zz", "yshift=zz", "shift={(zz)}", "x=zz", "y={(zz)}"] {

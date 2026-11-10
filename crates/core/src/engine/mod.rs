@@ -1023,12 +1023,15 @@ impl Engine {
         let depth = self.tex.depth();
         let floor = std::mem::replace(&mut self.floor, depth);
         self.tex.push_frame(tokens);
+        // the code ends where its tokens end: a number or a word at its end reads no further
+        let floor = self.tex.seal(depth);
         let r = (|| {
             while let Some(t) = self.tex.get_x_token_until(depth)? {
                 self.execute(t)?;
             }
             Ok(())
         })();
+        self.tex.unseal(floor);
         if r.is_err() {
             self.tex.drain_to(depth);
         }
