@@ -165,7 +165,7 @@ The corpus now holds large figures too (3D surfaces of a thousand cells, fractal
 
 ```console
 $ cargo test                                  # every test
-$ cargo llvm-cov --workspace --summary-only   # coverage (100% of lines)
+$ scripts/coverage.sh                          # coverage: every line runs in the tests
 $ cargo clippy --all-targets -- -D warnings
 $ npm/build.sh && npm/test/run.sh             # the npm package, packed and installed as users get it
 $ site/build.sh                               # the playground: then open site/index.html

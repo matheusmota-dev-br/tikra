@@ -26,6 +26,20 @@ jobs:
       - run: cargo clippy --workspace --exclude tikra-python --all-targets -- -D warnings
       - run: cargo test --workspace --exclude tikra-python
 
+  # every line of the Rust crates runs in the tests (docs/tests.md, "Coverage")
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - run: scripts/coverage.sh
+
   wasm:
     runs-on: ubuntu-latest
     env:
