@@ -98,13 +98,8 @@ impl Engine {
                 // up to `in`
                 loop {
                     match self.tex.next_nonspace() {
-                        Some(t) if t.is_char('i') => {
-                            if let Some(n) = self.tex.get_token() {
-                                if n.is_char('n') {
-                                    break;
-                                }
-                            }
-                        }
+                        // an `i` not followed by `n` is skipped with what follows it
+                        Some(t) if t.is_char('i') && self.tex.get_token().is_some_and(|n| n.is_char('n')) => break,
                         Some(_) => {}
                         None => return Err(Error::Figure("child foreach without 'in'".into())),
                     }
@@ -349,9 +344,4 @@ fn split_first_word(v: &[Token]) -> (String, Vec<Token>) {
         i += 1;
     }
     (word, v[i..].to_vec())
-}
-
-#[allow(dead_code)]
-fn show(v: &[Token]) -> String {
-    tex::tokens_to_string(v)
 }

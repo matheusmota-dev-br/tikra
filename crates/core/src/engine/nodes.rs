@@ -572,20 +572,20 @@ impl Engine {
                 out.push(t);
                 if !picture {
                     let mut name = Vec::new();
-                    if let Some(open) = self.tex.get_token_until(depth) {
-                        if matches!(open, Token::Char(_, tex::Cat::Begin)) {
-                            while let Some(x) = self.tex.get_token_until(depth) {
-                                let end = matches!(x, Token::Char(_, tex::Cat::End));
-                                name.push(x);
-                                if end {
-                                    break;
-                                }
+                    // the \relax put after the text follows \begin at the latest
+                    let open = self.tex.get_token_until(depth).expect("a token after \\begin");
+                    if matches!(open, Token::Char(_, tex::Cat::Begin)) {
+                        while let Some(x) = self.tex.get_token_until(depth) {
+                            let end = matches!(x, Token::Char(_, tex::Cat::End));
+                            name.push(x);
+                            if end {
+                                break;
                             }
                         }
-                        picture = tex::tokens_to_string(&name) == "tikzpicture}";
-                        out.push(open);
-                        out.extend(name);
                     }
+                    picture = tex::tokens_to_string(&name) == "tikzpicture}";
+                    out.push(open);
+                    out.extend(name);
                 }
                 if picture {
                     while let Some(x) = self.tex.get_token_until(depth) {
@@ -1607,10 +1607,8 @@ impl Engine {
         while let Some(i) = rest.find("\\textcolor{") {
             out.push_str(&rest[..i]);
             let after = &rest[i + "\\textcolor{".len()..];
-            let Some(end) = after.find('}') else {
-                out.push_str(&rest[i..]);
-                return out;
-            };
+            // the text is made of TeX's tokens, whose braces pair up: the color's `{` is closed
+            let end = after.find('}').expect("the color of a \\textcolor is closed");
             let spec = &after[..end];
             let body_start = &after[end + 1..];
             // the braced text after the color

@@ -195,24 +195,29 @@ fn parse(s: &str) -> Option<Polygon> {
         }
     }
     let mut it = words.into_iter().peekable();
-    match polygon(&mut it)? {
-        Item::Polygon(p) => Some(p),
-        _ => None,
-    }
+    // a net is a polygon: `K(`, then its items
+    let kind = it.next()?.strip_suffix('(')?.chars().next()?;
+    polygon_body(kind, &mut it)
 }
 
-fn polygon(it: &mut std::iter::Peekable<std::vec::IntoIter<String>>) -> Option<Item> {
+type Words = std::iter::Peekable<std::vec::IntoIter<String>>;
+
+/// The items of a polygon of kind `kind`, after its `K(`, up to its `)`.
+fn polygon_body(kind: char, it: &mut Words) -> Option<Polygon> {
+    let mut items = Vec::new();
+    while it.peek().map(String::as_str) != Some(")") {
+        items.push(polygon(it)?);
+    }
+    it.next();
+    let mut items = items.into_iter();
+    let face = items.next().filter(|f| matches!(f, Item::Face(..))).map(Box::new);
+    Some(Polygon { kind, face, edges: items.collect() })
+}
+
+fn polygon(it: &mut Words) -> Option<Item> {
     let w = it.next()?;
     if let Some(kind) = w.strip_suffix('(') {
-        let kind = kind.chars().next()?;
-        let mut items = Vec::new();
-        while it.peek().map(String::as_str) != Some(")") {
-            items.push(polygon(it)?);
-        }
-        it.next();
-        let mut items = items.into_iter();
-        let face = items.next().filter(|f| matches!(f, Item::Face(..))).map(Box::new);
-        return Some(Item::Polygon(Polygon { kind, face, edges: items.collect() }));
+        return polygon_body(kind.chars().next()?, it).map(Item::Polygon);
     }
     Some(match w.as_str() {
         "f" => Item::Fold,
@@ -242,14 +247,7 @@ fn vertices(kind: char) -> (Vec<Point>, Point, f64) {
         'g' => return rhombus(116.565, (0.276, 0.447), -0.447),
         _ => {}
     }
-    let n = match kind {
-        'T' => 3,
-        'S' => 4,
-        'P' => 5,
-        'H' => 6,
-        'O' => 8,
-        _ => 10,
-    };
+    let n = [('T', 3), ('S', 4), ('P', 5), ('H', 6), ('O', 8), ('D', 10)].iter().find(|(k, _)| *k == kind).map(|(_, n)| *n).expect("a polygon kind of the nets");
     let mut v = vec![Point::new(0.0, 0.0)];
     for k in 0..n - 1 {
         let (s, c) = (360.0 * k as f64 / n as f64).to_radians().sin_cos();
@@ -277,10 +275,8 @@ fn edge_frames(v: &[Point], length: f64) -> Vec<Transform> {
 impl Engine {
     pub fn folding_command(&mut self, _id: u16) -> Result<(), Error> {
         let name = self.argument_string()?;
-        let Some((_, _, net)) = NETS.iter().find(|(n, _, _)| *n == name) else {
-            return Err(Error::Figure(format!("no folding named '{name}'")));
-        };
-        let net = parse(net).ok_or_else(|| Error::Figure(format!("internal: the net of {name} is malformed")))?;
+        // (only the library's own commands and pics name a net, and its nets are well formed)
+        let net = NETS.iter().find(|(n, _, _)| *n == name).and_then(|(_, _, net)| parse(net)).ok_or_else(|| Error::Figure(format!("no folding named '{name}'")))?;
         let length = self.tex.expand_to_string(vec![Token::cs("tikra@fold@length")])?;
         let length = self.length(&length)?;
         self.fold_polygon(&net, length)
@@ -288,11 +284,9 @@ impl Engine {
 
     fn fold_polygon(&mut self, p: &Polygon, length: f64) -> Result<(), Error> {
         let (v, center, slant) = vertices(p.kind);
-        if let Some(face) = &p.face {
-            let frame = Transform::translation(center.x * length, center.y * length).compose(&Transform { c: slant, ..Transform::default() });
-            self.fold_scope(frame, face, length)?;
-        }
-        for (frame, item) in edge_frames(&v, length).into_iter().zip(&p.edges) {
+        // the face first, in the middle, then the edges
+        let face = p.face.iter().map(|f| (Transform::translation(center.x * length, center.y * length).compose(&Transform { c: slant, ..Transform::default() }), &**f));
+        for (frame, item) in face.chain(edge_frames(&v, length).into_iter().zip(&p.edges)) {
             self.fold_scope(frame, item, length)?;
         }
         Ok(())

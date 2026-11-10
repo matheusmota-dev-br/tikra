@@ -38,8 +38,8 @@ fn number_unit(s: &str) -> Option<(f64, &str)> {
 fn between(a: &str, b: &str, f: f64) -> String {
     match (number_unit(a), number_unit(b)) {
         (Some((x, u)), Some((y, w))) if u == w || w.is_empty() => format!("{}{u}", super::pgf_number(x + (y - x) * f)),
+        // (f is below 1: the times around it differ)
         _ if f <= 0.0 => a.to_string(),
-        _ if f >= 1.0 => b.to_string(),
         _ => format!("{b}!{}!{a}", super::pgf_number(f * 100.0)),
     }
 }
@@ -48,8 +48,6 @@ fn between(a: &str, b: &str, f: f64) -> String {
 fn option_name(attribute: &str) -> &str {
     match attribute {
         "position" | "translate" => "shift",
-        "rotate" | "xshift" | "yshift" | "shift" | "scale" | "xscale" | "yscale" | "xslant" | "yslant" => attribute,
-        "fill" | "draw" | "color" | "text" | "line width" | "opacity" | "fill opacity" | "draw opacity" | "text opacity" | "dash pattern" | "dash phase" => attribute,
         other => other,
     }
 }

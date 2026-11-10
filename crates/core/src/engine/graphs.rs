@@ -119,21 +119,19 @@ impl Reader {
     fn group(&mut self) -> Vec<Token> {
         let start = self.i + 1;
         let mut depth = 0usize;
-        while self.i < self.t.len() {
-            match self.t[self.i] {
-                Token::Char(_, Cat::Begin) => depth += 1,
-                Token::Char(_, Cat::End) => {
-                    depth -= 1;
-                    if depth == 0 {
-                        self.i += 1;
-                        return self.t[start..self.i - 1].to_vec();
-                    }
+        // the tokens of a graph are TeX's, whose braces pair up
+        let end = (self.i..self.t.len())
+            .find(|&j| {
+                match self.t[j] {
+                    Token::Char(_, Cat::Begin) => depth += 1,
+                    Token::Char(_, Cat::End) => depth -= 1,
+                    _ => {}
                 }
-                _ => {}
-            }
-            self.i += 1;
-        }
-        self.t[start.min(self.t.len())..].to_vec()
+                depth == 0
+            })
+            .expect("a group's closing brace");
+        self.i = end + 1;
+        self.t[start..end].to_vec()
     }
 
     /// At `open`: what is up to the matching `close` (outside braces), both read.
@@ -775,12 +773,11 @@ impl Engine {
                     None => used.push(n.to_string()),
                 }
             }
-            if let Some(g) = self.graph_state() {
-                for n in &used {
-                    g.colors.insert(n.clone(), vec!["all".into(), "source".into(), "target".into()]);
-                }
-                g.list.extend(used);
+            let g = self.graph_state().expect("a graph's nodes are read inside it");
+            for n in &used {
+                g.colors.insert(n.clone(), vec!["all".into(), "source".into(), "target".into()]);
             }
+            g.list.extend(used);
             return Ok(());
         }
         let full = format!("{path}{name}");
@@ -1450,10 +1447,7 @@ fn k_annotate_clear(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> 
 fn k_edge_node_from_text(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let a = split_arguments(&v.unwrap_or_default(), 2);
     let side = if e.tex.expand_to_string(a[0].clone())?.trim() == "source" { "a" } else { "b" };
-    let text = match e.tex.meaning_of("tikzgraphnodetext") {
-        Meaning::Macro(m) => tex::substitute(&m.body, &[]),
-        _ => Vec::new(),
-    };
+    let text = super::spy::macro_body(e, "tikzgraphnodetext");
     let mut node = tikra_tokens("node[");
     // the style given no value passes \pgfkeysnovalue
     node.extend(a[1].iter().filter(|t| !t.is_cs("pgfkeysnovalue")).cloned());
@@ -1837,9 +1831,7 @@ pub fn define(e: &mut Engine) {
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
     }
-    if let Err(err) = e.run_tokens(tokens) {
-        e.warn(format!("internal: graphs definitions failed: {err}"));
-    }
+    e.run_tokens(tokens).expect("the graphs libraries' definitions are fixed and run");
     e.tex.warnings.clear();
     e.st.key_path = "/".into();
 }

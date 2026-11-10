@@ -8,7 +8,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::canvas::Canvas;
 use crate::scene::{Point, Transform};
 use crate::tex::{self, Cat, Meaning, Token};
 use crate::Error;
@@ -299,10 +298,9 @@ impl Engine {
             ys.push(ys[r - 1] - step);
         }
         // the matrix's baseline is its last row's, as a \vbox's
-        if let Some(&last) = ys.last() {
-            for y in &mut ys {
-                *y -= last;
-            }
+        let last = *ys.last().expect("a matrix has a row at least");
+        for y in &mut ys {
+            *y -= last;
         }
         let width = if ncols == 0 { 0.0 } else { xs[ncols - 1] + right[ncols - 1] };
         let height = up.first().map_or(0.0, |u| u + ys[0]);
@@ -433,14 +431,6 @@ impl Engine {
             self.tex.define_string("pgfmatrixcurrentrow", &r.to_string(), false);
             self.tex.define_string("pgfmatrixcurrentcolumn", &c.to_string(), false);
             let parity = |n: usize| if n.is_multiple_of(2) { "even" } else { "odd" };
-            // the matrix's `nodes=…` first, then what the cell's styles add to it
-            if !settings.nodes_style.is_empty() {
-                let mut v = tikra_tokens("every node/.append style=");
-                v.push(Token::Char('{', Cat::Begin));
-                v.extend(settings.nodes_style.clone());
-                v.push(Token::Char('}', Cat::End));
-                self.process_keys(v, Some("/tikz"))?;
-            }
             // `matrix of nodes` sets `cells={anchor=base}`: the nodes' styles may change it
             let mut styles = if settings.of_nodes { "anchor=base,".to_string() } else { String::new() };
             styles.push_str(&format!("every cell/.try,every {} row/.try,every {} column/.try,row {r}/.try,column {c}/.try,row {r} column {c}/.try", parity(r), parity(c)));
@@ -530,7 +520,6 @@ pub struct MatrixSettings {
     pub row_sep: Vec<Token>,
     pub of_nodes: bool,
     pub math: bool,
-    pub nodes_style: Vec<Token>,
     /// `execute at begin cell`, `execute at end cell`, `execute at empty cell`
     pub at_begin_cell: Vec<Token>,
     pub at_end_cell: Vec<Token>,
@@ -540,6 +529,3 @@ pub struct MatrixSettings {
     pub nodes_in_empty_cells: bool,
     pub anchor: Option<String>,
 }
-
-#[allow(dead_code)]
-fn unused(_: Canvas) {}
