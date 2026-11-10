@@ -745,11 +745,19 @@ fn k_label_at(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
 
 // ---------------------------------------------------------------- legends
 
-/// `new legend=name`: a legend (once), drawn after the axes, with its options key `name={…}`.
+/// `new legend=name`: a legend (once per data visualization), drawn after the axes, with its
+/// options key `name={…}`; options set before the data visualization are kept.
 fn k_new_legend(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     let name = text_of(e, v)?;
     let base = format!("{DV}/{name}");
-    if e.key_exists(&format!("{base}/at")) {
+    let defined = e.key_exists(&format!("{base}/at"));
+    if let Some(dv) = e.datavis.last_mut() {
+        if !dv.legends.contains(&name) {
+            dv.legends.push(name.clone());
+            add_hook(e, "before survey", command("tikra@dv@make", &[text_arg("legend"), text_arg(&name)]))?;
+        }
+    }
+    if defined {
         return Ok(());
     }
     for (sub, value) in [
@@ -764,7 +772,6 @@ fn k_new_legend(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
     }
     dv_text(e, &format!("{name}/matrix node styling/.style={{row sep=0pt,column sep=.8em}}"))?;
     define_native(e, &base, k_legend);
-    add_hook(e, "before survey", command("tikra@dv@make", &[text_arg("legend"), text_arg(&name)]))?;
     dv_text(e, &format!("{name}={{every new legend}}"))
 }
 
