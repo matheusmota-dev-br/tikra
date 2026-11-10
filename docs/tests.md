@@ -71,7 +71,8 @@ Unit tests, inside the modules: `describe.rs` (numbers, text and math as spoken,
 
 Every line of the Rust crates runs in the tests: `scripts/coverage.sh` runs them all under
 `cargo llvm-cov` and fails if any line of `crates/` is left out (`--show-missing-lines`). CI runs it
-on every push to main. The Python module is out of it: pytest covers it, not llvm-cov.
+on every push to main, in its own workflow (`.github/workflows/coverage.yml`), whose result is the README's
+coverage badge. The Python module is out of it: pytest covers it, not llvm-cov.
 
 The script reads the per-line list, not the summary's percentage. The library is built twice, once
 with its own unit tests (`cfg(test)`), and the summary counts the closures of that build again, so it
