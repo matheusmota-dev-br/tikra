@@ -206,6 +206,21 @@ fn position_along_the_path() {
     assert!(close(q.x, 3.0), "{q:?}");
 }
 
+/// Options between a point and a node move the node as they would move the point: a shift given
+/// there shifts the nodes that follow, at the point or along the segment before it.
+#[test]
+fn options_before_a_node_move_it() {
+    let q = point(r"\path (0,0) [yshift=1cm] node (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (0.0, 1.0)), "{q:?}");
+    let q = point(r"\draw (0,0) -- (2,0) [xshift=1cm, yshift=1cm] node[midway] (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (2.0, 1.0)), "{q:?}");
+    // a point given after the options is already in the new coordinates: no second shift
+    let q = point(r"\path [yshift=1cm] (0,0) node (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (0.0, 1.0)), "{q:?}");
+    let q = point(r"\path (5,5) [yshift=1cm] (0,0) node (n) {B};", "n.center");
+    assert!(close_to((q.x, q.y), (0.0, 1.0)), "{q:?}");
+}
+
 #[test]
 fn extra_labels_by_side_and_by_angle() {
     for l in [
