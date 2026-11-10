@@ -2432,6 +2432,16 @@ impl Engine {
                             out.push(b);
                             out.extend(self.tex.read_group_body()?);
                             out.push(Token::Char('}', Cat::End));
+                            // options after the list (`{1,2} [count=\i]`)
+                            match self.tex.next_nonspace() {
+                                Some(x) if x.is_char('[') => {
+                                    out.push(x);
+                                    out.extend(self.tex.read_until_char(']', false)?);
+                                    out.push(Token::other(']'));
+                                }
+                                Some(x) => self.tex.back(x),
+                                None => {}
+                            }
                         }
                         Some(x) if x.is_char('[') => {
                             out.push(x);

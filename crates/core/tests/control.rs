@@ -54,6 +54,16 @@ fn foreach_evaluate_with_a_conditional_text() {
     assert_eq!(fills, ["0000ff", "ff0000", "00ff00"], "{}", r.svg);
 }
 
+/// `\tikz \foreach` with its options after the list: the statement ends with the body, and the next
+/// `\tikz` is a picture of its own, as with the options before the list.
+#[test]
+fn tikz_foreach_with_options_after_the_list() {
+    let after = no_warnings(r"\tikz \foreach \x in {1,2} [count=\i] {\fill (\i,0) circle (0.2);} \tikz \draw (0,0) -- (1,0);");
+    let before = no_warnings(r"\tikz \foreach \x [count=\i] in {1,2} {\fill (\i,0) circle (0.2);} \tikz \draw (0,0) -- (1,0);");
+    let drawing = |svg: &str| svg[svg.find("</metadata>").unwrap()..].to_string();
+    assert_eq!(drawing(&after.svg), drawing(&before.svg));
+}
+
 #[test]
 fn nested_foreach_with_a_braced_inner_body() {
     let c = canvas(r"\foreach \x in {0,1,2} \foreach \y in {0,1} { \fill (\x,\y) circle (1pt); }");
