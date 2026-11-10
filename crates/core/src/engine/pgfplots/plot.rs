@@ -1046,7 +1046,8 @@ fn load_table(e: &mut Engine, opts: Option<Vec<Token>>, mut text: String, what: 
     let skip = keys::number(e, "/pgfplots/table/skip first n").unwrap_or(0.0) as usize;
     let comment = keys::value(e, "/pgfplots/table/comment chars");
     let trimmed = text.trim();
-    let is_file = !trimmed.contains('\n') && !trimmed.contains(' ') && !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphabetic());
+    // (a macro left as it is was not defined: not a file's name)
+    let is_file = !trimmed.starts_with('\\') && !trimmed.contains('\n') && !trimmed.contains(' ') && !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphabetic());
     // a file the document wrote (`\pgfplotscolormaptodatafile`)
     let written = format!("tikra@file@{trimmed}");
     let table = if is_file && e.tex.is_defined(&written) {
@@ -1061,7 +1062,7 @@ fn load_table(e: &mut Engine, opts: Option<Vec<Token>>, mut text: String, what: 
             }
         }
     } else if trimmed.starts_with('\\') {
-        e.warn(format!("{what} {trimmed}: tables read with \\pgfplotstableread are not supported"));
+        e.warn(format!("{what}: {trimmed} is not defined"));
         return Ok(None);
     } else {
         Table::parse(&text, sep, &header, skip, &comment)
