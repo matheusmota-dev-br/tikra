@@ -383,3 +383,18 @@ fn nothing_after_end_document_and_no_title_without_maketitle() {
     );
     assert_eq!(drawing(&r.svg), drawing(&plain.svg));
 }
+
+/// An animation shows its first frame: a `\tikz` in a later frame is not drawn, as a tikzpicture is not.
+#[test]
+fn an_animation_draws_only_its_first_frame_also_with_tikz() {
+    let r = no_warnings(
+        r"\documentclass{article}\usepackage{tikz,animate}\begin{document}
+          \begin{animateinline}{2}
+          \tikz \fill[red] (0,0) circle (1);
+          \newframe \tikz[scale=2] \fill[blue] (0,0) circle (1);
+          \newframe \tikz {\fill[green] (0,0) circle (1);}
+          \end{animateinline}\end{document}",
+    );
+    assert!(r.svg.contains(r##"fill="#ff0000""##), "{}", r.svg);
+    assert!(!r.svg.contains(r##"fill="#0000ff""##) && !r.svg.contains(r##"fill="#00ff00""##), "{}", r.svg);
+}

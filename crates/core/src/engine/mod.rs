@@ -1563,10 +1563,14 @@ impl Engine {
             return self.defer_statement(t);
         }
         // in a frame of an animation after its first, a statement outside a picture is not drawn
+        // (nor a `\tikz` picture: its options, then its statement)
         if self.picture_depth == 0
             && self.animate_frames.last().is_some_and(|a| a.past_first)
-            && (path_command(cmd).is_some() || matches!(cmd, Cmd::Node | Cmd::Coordinate | Cmd::Matrix | Cmd::Pic | Cmd::Graph))
+            && (path_command(cmd).is_some() || matches!(cmd, Cmd::Node | Cmd::Coordinate | Cmd::Matrix | Cmd::Pic | Cmd::Graph | Cmd::Tikz))
         {
+            if cmd == Cmd::Tikz {
+                let _ = self.optional()?;
+            }
             let _ = self.next_statement()?;
             return Ok(());
         }
