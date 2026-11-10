@@ -115,6 +115,14 @@ fn hatchings() {
     }
 }
 
+/// A pattern of no library nor declaration is reported (TeX stops at it), not silently hatched.
+#[test]
+fn an_unknown_pattern_is_reported() {
+    with_warning(r"\begin{tikzpicture} \fill[pattern=zebra stripes] (0,0) rectangle (1,1); \end{tikzpicture}", "unknown pattern 'zebra stripes'");
+    // the ones of the patterns library, its meta patterns and declared ones are known
+    no_warnings(r"\begin{tikzpicture} \fill[pattern=checkerboard light gray] (0,0) rectangle (1,1); \fill[pattern={Lines[angle=45]}] (0,0) rectangle (1,1); \end{tikzpicture}");
+}
+
 #[test]
 fn arrow_tips() {
     // how many tips sit at the start and at the end

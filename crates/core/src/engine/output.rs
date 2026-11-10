@@ -76,7 +76,17 @@ impl Engine {
             let paint = if mode.pattern {
                 let name = self.st.pattern_name.clone().unwrap_or_else(|| "north east lines".into());
                 let color = self.st.pattern_color.unwrap_or(crate::color::Color::BLACK);
-                self.pattern_paint(&name, color).unwrap_or(Paint::Pattern { name, color })
+                match self.pattern_paint(&name, color) {
+                    Some(paint) => paint,
+                    None => {
+                        // TeX stops at a pattern it does not know; the driver draws north east lines
+                        let base = name.split('[').next().unwrap_or_default().trim();
+                        if !crate::driver::known_pattern(&name) && !self.user_patterns.contains_key(base) {
+                            self.warn(format!("unknown pattern '{name}': north east lines used"));
+                        }
+                        Paint::Pattern { name, color }
+                    }
+                }
             } else if mode.shade {
                 Paint::Shading(self.shading_for(&segs))
             } else {

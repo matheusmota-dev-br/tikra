@@ -178,6 +178,33 @@ fn tint(c: (f64, f64, f64), f: f64) -> String {
     format!("#{:02x}{:02x}{:02x}", m(c.0), m(c.1), m(c.2))
 }
 
+/// Whether `pattern` below draws `name` itself (any other name falls back to north east lines).
+pub(crate) fn known_pattern(name: &str) -> bool {
+    matches!(
+        name,
+        "north east lines"
+            | "north west lines"
+            | "horizontal lines"
+            | "vertical lines"
+            | "grid"
+            | "crosshatch"
+            | "dots"
+            | "crosshatch dots"
+            | "fivepointed stars"
+            | "sixpointed stars"
+            | "bricks"
+            | "checkerboard"
+            | "checkerboard light gray"
+            | "horizontal lines light gray"
+            | "horizontal lines gray"
+            | "horizontal lines dark gray"
+            | "horizontal lines light blue"
+            | "horizontal lines dark blue"
+            | "crosshatch dots gray"
+            | "crosshatch dots light steel blue"
+    )
+}
+
 /// pgf's patterns (the `patterns` library), at their size in TeX: 3 pt cells, 0.4 pt lines; tiled
 /// from the page's lower left corner `corner`.
 fn pattern(name: &str, id: &str, c: &str, corner: (f64, f64)) -> String {
