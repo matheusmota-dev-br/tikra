@@ -347,6 +347,7 @@ fn textcolor_takes_an_unbraced_argument() {
     for text in [r"\textcolor{red}x y", r"a \textcolor{red} x y", r"a \textcolor{red}\& y"] {
         let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"));
         assert_eq!(r.svg.matches("#ff0000").count(), 1, "{text}: {}", r.svg);
+    }
 }
 
 /// `\{` and `\}` in the text of a `\textcolor` are characters: they neither open nor close its group.
