@@ -23,13 +23,7 @@ fn top_level(t: &str, target: char) -> Option<usize> {
     for (i, c) in t.char_indices() {
         match c {
             '{' | '(' | '[' => depth += 1,
-            '}' | ')' | ']' => {
-                depth -= 1;
-                // a closing target: the one that closes the first opening
-                if c == target && depth == 0 {
-                    return Some(i);
-                }
-            }
+            '}' | ')' | ']' => depth -= 1,
             c if c == target && depth == 0 => return Some(i),
             _ => {}
         }
@@ -475,11 +469,9 @@ impl Engine {
     }
 }
 
-/// `(…)` starting at `start`: the content and the index after the closing parenthesis.
+/// `(…)` starting at `start` (a `(`, as every caller has found): the content and the index after
+/// the closing parenthesis.
 fn paren(c: &[char], start: usize) -> Option<(String, usize)> {
-    if c.get(start) != Some(&'(') {
-        return None;
-    }
     let mut depth = 0i32;
     for (k, ch) in c.iter().enumerate().skip(start) {
         match ch {

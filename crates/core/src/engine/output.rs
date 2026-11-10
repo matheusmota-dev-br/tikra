@@ -283,7 +283,9 @@ impl Engine {
         }
         let mut at_end = None;
         if !end.is_empty() || end.shortening != 0.0 {
-            if let Some((k, movable, last, reference)) = path_end(segs) {
+            // (the path has a point: it starts with a move, and a closed one has no tips)
+            {
+                let (k, movable, last, reference) = path_end(segs).expect("a point at the end");
                 // a curve with flexed tips: shortened along it, and the tips laid on it
                 let curve = match (segs[k], end.flexed()) {
                     (Segment::CurveTo(c1, c2, _), true) => point_of(&segs[k - 1]).map(|prev| Curvilinear::new([last, c2, c1, prev])),
@@ -311,7 +313,8 @@ impl Engine {
         }
         let mut at_start = None;
         if !start.is_empty() || start.shortening != 0.0 {
-            if let Some((m, movable, first, reference)) = path_start(segs) {
+            {
+                let (m, movable, first, reference) = path_start(segs).expect("a point at the start");
                 let curve = match (segs.get(m + 1), start.flexed()) {
                     (Some(&Segment::CurveTo(c1, c2, p)), true) => Some(Curvilinear::new([first, c1, c2, p])),
                     _ => None,
@@ -378,10 +381,8 @@ fn toward(p: Point, q: Point, distance: f64) -> Point {
 }
 
 fn point_of(s: &Segment) -> Option<Point> {
-    match s {
-        Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
-        Segment::Close => None,
-    }
+    let (Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p)) = s else { return None };
+    Some(*p)
 }
 
 /// Where the last subpath (the only one with tips, as pgf splits the path) begins.
@@ -407,7 +408,7 @@ fn path_end(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
             };
             Some((k, true, last, r))
         }
-        Segment::Close => None,
+        Segment::Close => unreachable!("a closed path has no tips"),
     }
 }
 
@@ -432,7 +433,7 @@ fn path_start(segs: &[Segment]) -> Option<(usize, bool, Point, Point)> {
                 p
             },
         )),
-        _ => None,
+        _ => unreachable!("a subpath goes on with a line or a curve, or ends: a closed path has no tips"),
     }
 }
 
@@ -442,11 +443,8 @@ fn proper(segs: &[Segment]) -> bool {
     let last = segs.iter().rposition(|s| matches!(s, Segment::MoveTo(_))).unwrap_or(0);
     let points: Vec<Point> = segs[last..]
         .iter()
-        .flat_map(|s| match *s {
-            Segment::MoveTo(p) | Segment::LineTo(p) => vec![p],
-            Segment::CurveTo(a, b, p) => vec![a, b, p],
-            Segment::Close => vec![],
-        })
+        // (a closed path has no tips: no `Close` comes here)
+        .flat_map(|s| if let Segment::CurveTo(a, b, p) = *s { vec![a, b, p] } else { point_of(s).into_iter().collect() })
         .collect();
     points.iter().any(|p| Some(p) != points.first())
 }

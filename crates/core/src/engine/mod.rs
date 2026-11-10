@@ -165,7 +165,6 @@ pub enum Cmd {
     SetBeamerTemplate,
     FontSize,
     FontSeries,
-    Unsupported,
     OnLayer,
     EndOnLayer,
     NamePrefix,
@@ -1700,12 +1699,6 @@ impl Engine {
                 let r = path::statement(self, "");
                 self.recover(r, t)
             }
-            Cmd::Unsupported => {
-                let name = tex::show_token(t);
-                let rest = if self.picture_depth > 0 { self.skip_statement()? } else { String::new() };
-                self.warn(format!("{name} not supported: '{}' ignored", rest.chars().take(40).collect::<String>().trim()));
-                Ok(())
-            }
             Cmd::Tikz => self.tikz_command(),
             Cmd::Arrow => self.arrow_command(false),
             Cmd::ArrowReversed => self.arrow_command(true),
@@ -2315,7 +2308,8 @@ impl Engine {
                 }
                 Ok(())
             }
-            _ => Ok(()),
+            // the path commands are run above; the overlay commands are read by name, never defined
+            _ => unreachable!("a path or overlay command"),
         }
     }
 
@@ -3709,7 +3703,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             Layout::Word(i) => Some((labels[*i].width(), labels[*i].height(), labels[*i].depth())),
             Layout::Skip(w) => Some((*w, 0.0, 0.0)),
             Layout::Space => Some((SPACE, 0.0, 0.0)),
-            _ => None,
+            _ => unreachable!("a cell holds pictures, words and glue only"),
         }
     };
     let mut out = Vec::new();
@@ -3793,7 +3787,7 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
                         }
                         Layout::Skip(s) => cx += s,
                         Layout::Space => cx += SPACE,
-                        _ => {}
+                        _ => unreachable!("a cell holds pictures, words and glue only"),
                     }
                 }
                 x += w + 2.0 * TABCOLSEP;
