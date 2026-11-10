@@ -100,6 +100,14 @@ fn nonlinear_code_ending_in_a_length() {
     assert!(close_to(p[0], (1.0, 0.0)) && close_to(*p.last().unwrap(), (2.0, 0.0)), "{p:?}");
 }
 
+/// `\pgf@sys@tonumber` expands to the register's value in pt, so an `\edef` keeps the value it had.
+#[test]
+fn pgf_sys_tonumber_expands() {
+    let c = canvas(r"\makeatletter\pgf@x=2cm \edef\v{\pgf@sys@tonumber\pgf@x}\pgf@x=1cm \draw (\v pt,0) -- (0,0);");
+    let p = points(&paths(&c)[0].segments);
+    assert!(close_to(p[0], (2.0, 0.0)), "{p:?}");
+}
+
 #[test]
 fn errors_in_scope_options_are_figure_errors() {
     for op in ["scale=zz", "xscale=zz", "yscale=zz", "rotate=zz", "xshift=zz", "yshift=zz", "shift={(zz)}", "x=zz", "y={(zz)}"] {

@@ -7,7 +7,9 @@
 //! `\pgfsetcurvilinearbeziercurve` and `\pgfpointcurvilinearbezierorthogonal` are here too.
 
 use crate::scene::{Point, Segment, Transform};
-use crate::tex::{Meaning, Token};
+use std::rc::Rc;
+
+use crate::tex::{Body, Macro, Meaning, Param, Token};
 use crate::{Error, PT};
 
 use super::Engine;
@@ -22,6 +24,12 @@ pub fn define(e: &mut Engine) {
     for (name, r) in REGISTERS {
         e.tex.define(name, Meaning::Dimen(*r));
     }
+    // `\pgf@sys@tonumber\reg`, expandable: what `\the` gives, without its pt (whose letters `\the`
+    // writes as other characters, so the delimiter is made of those)
+    let pt = [Param::Tok(Token::other('p')), Param::Tok(Token::other('t'))];
+    let without_pt = Macro { params: [Param::Arg(1)].into_iter().chain(pt).collect(), body: vec![Body::Arg(1)], optional: None, protected: false };
+    e.tex.define("tikra@withoutpt", Meaning::Macro(Rc::new(without_pt)));
+    e.tex.define_text(r"\def\pgf@sys@tonumber#1{\expandafter\tikra@withoutpt\the#1}");
 }
 
 impl Engine {
@@ -175,17 +183,6 @@ impl Engine {
         let r = start.plus(Point::new(dir.x * v.x - dir.y * v.y, dir.y * v.x + dir.x * v.y));
         self.tex.dimens.insert(4050, (r.x / PT * 65536.0).round() as i64);
         self.tex.dimens.insert(4051, (r.y / PT * 65536.0).round() as i64);
-        Ok(())
-    }
-
-    /// `\pgf@sys@tonumber\reg`: the register's value in pt, without the unit.
-    pub fn to_number(&mut self) -> Result<(), Error> {
-        let Some(t) = self.tex.get_token() else { return Ok(()) };
-        let v = match self.tex.meaning(&t) {
-            Meaning::Dimen(r) => self.tex.dimens.get(&r).copied().unwrap_or(0) as f64 / 65536.0,
-            _ => 0.0,
-        };
-        self.tex.push_tokens(crate::tex::string_tokens(&super::pgf_number(v)));
         Ok(())
     }
 
