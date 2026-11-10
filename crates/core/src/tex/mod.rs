@@ -949,7 +949,8 @@ impl Tex {
 
     pub fn set_catcode(&mut self, c: char, cat: Cat) {
         let old = self.catcodes.get(&c).copied();
-        if !self.global {
+        // a \global prefix is for this assignment only
+        if !std::mem::take(&mut self.global) {
             if let Some(level) = self.save.last_mut() {
                 level.push(Saved::Catcode(c, old));
             }
