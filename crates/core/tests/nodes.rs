@@ -350,6 +350,15 @@ fn textcolor_takes_an_unbraced_argument() {
     }
 }
 
+/// `\{` and `\}` in the text of a `\textcolor` are characters: they neither open nor close its group.
+#[test]
+fn escaped_braces_in_a_textcolor() {
+    for text in [r"\textcolor{red}{a \{ b}", r"x \textcolor{red}{a \} b} y"] {
+        let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"));
+        assert!(r.svg.contains("#ff0000"), "{text}");
+    }
+}
+
 #[test]
 fn newline_breaks_a_paragraphs_line() {
     // in a text width, as `\\`; out of one TeX sets the words together

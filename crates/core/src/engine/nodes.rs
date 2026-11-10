@@ -1463,8 +1463,14 @@ fn whole_textcolor(t: &str) -> Option<(String, String)> {
     let group = |s: &str| -> Option<(String, usize)> {
         let s2 = s.strip_prefix('{')?;
         let mut depth = 1;
+        // (`\{` and `\}` are characters, not braces)
+        let mut escaped = false;
         for (i, ch) in s2.char_indices() {
+            if std::mem::take(&mut escaped) {
+                continue;
+            }
             match ch {
+                '\\' => escaped = true,
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
@@ -1654,8 +1660,13 @@ impl Engine {
             };
             let mut depth = 1;
             let mut close = body.len();
+            let mut escaped = false;
             for (k, c) in body.char_indices() {
+                if std::mem::take(&mut escaped) {
+                    continue;
+                }
                 match c {
+                    '\\' => escaped = true,
                     '{' => depth += 1,
                     '}' => {
                         depth -= 1;
