@@ -3573,6 +3573,11 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
                     broken.push(std::mem::replace(cur, next));
                     *x = 0.0;
                     *pending = 0.0;
+                    // glue after a break is discarded (TeX keeps it only at a paragraph's start)
+                    while let Some(&Layout::Skip(g)) = chunk.first() {
+                        chunk.remove(0);
+                        *chunk_w -= g;
+                    }
                 } else if *started {
                     cur.items.push(Layout::Space);
                     *x += *pending;

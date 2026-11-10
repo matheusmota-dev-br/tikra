@@ -48,6 +48,17 @@ fn standalone_varwidth_breaks_the_line() {
     assert!((w - w1).abs() < 0.01, "{w} {w1}");
 }
 
+/// Glue where a line is broken is dropped: the picture after the break starts its line, as the first one does.
+#[test]
+fn glue_at_a_line_break_is_dropped() {
+    let r = no_warnings(
+        r"\documentclass[varwidth=3cm]{standalone}\usepackage{tikz}\begin{document}\color{black}%
+          \tikz \fill (0,0) rectangle (2,1); \hskip 1cm\tikz \fill (0,0) rectangle (2,1);\end{document}",
+    );
+    let starts: Vec<&str> = r.svg.split(r#"<path d="M"#).skip(1).map(|p| p.split(' ').next().unwrap()).collect();
+    assert_eq!(starts, ["0", "0"], "{}", r.svg);
+}
+
 #[test]
 fn preview_package_setup_is_neither_text_nor_a_warning() {
     // the preamble of many TeXample figures: nothing of it is drawn
