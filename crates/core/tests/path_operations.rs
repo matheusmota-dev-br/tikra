@@ -95,7 +95,12 @@ fn operations_at_the_end_of_the_input() {
     assert_eq!(w, ["path without ';' at the end"]);
     let (lo, hi) = bounds(&paths(&c)[0].segments);
     assert!(near((hi.x - lo.x, hi.y - lo.y), (2.0, 2.0)), "{lo:?} {hi:?}");
-    for (d, message) in [(r"\draw (0,0) parabola", "parabola without a point"), (r"\draw (0,0) foreach \x i", "\\foreach without 'in'"), (r"\draw let \n1 =", "empty expression"), (r"\draw let \p", "'=' missing")] {
+    for (d, message) in [
+        (r"\draw (0,0) parabola", "parabola without a point"),
+        (r"\draw (0,0) foreach \x i", "\\foreach without 'in'"),
+        (r"\draw let \n1 =", "empty expression"),
+        (r"\draw let \p", "'=' missing"),
+    ] {
         let (c, w) = doc(d);
         assert!(paths(&c).is_empty(), "{d}");
         assert!(w.len() == 1 && w[0].contains(message) && w[0].ends_with("statement ignored"), "{d}: {w:?}");
