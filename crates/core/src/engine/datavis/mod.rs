@@ -47,7 +47,6 @@ const COMMANDS: &[&str] = &[
     "tikra@dv@printnumber",
     "tikra@dv@colorseries",
     "tikra@dv@stylesignal",
-    "tikra@dv@adddata",
     "tikra@dv@about",
     "tikra@dv@pi",
     "tikra@dv@finish",
@@ -224,9 +223,7 @@ pub fn define(e: &mut Engine) {
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
     }
-    if let Err(err) = e.run_tokens(tokens) {
-        e.warn(format!("internal: data visualization definitions failed: {err}"));
-    }
+    e.run_tokens(tokens).expect("the data visualization definitions run");
     e.st.key_path = old;
 }
 
@@ -363,10 +360,6 @@ impl Engine {
             "tikzdvdeclarestylesheetcolorseries" => self.declare_color_series(),
             "pgfmathapproxequalto" => self.approx_equal_command(),
             "tikra@dv@stylesignal" => self.emit(Signal::Style, None),
-            "tikra@dv@adddata" => {
-                let code = self.argument()?;
-                self.add_data_call(code)
-            }
             "pgfkeysaddvalue" => {
                 let key = self.argument_string()?;
                 let pre = self.argument()?;
@@ -487,12 +480,10 @@ impl Engine {
                 if made(self, &key) {
                     return Ok(());
                 }
-                let id = self.create("count", &[t(&format!("set/{name}/count"))])?;
-                store(self, &key, id);
-                if let Some(id) = id {
-                    let filter = tikra_tokens(&format!("\\pgfdvvisualizerfilter{{{name}}}"));
-                    self.call(id, "set filter", vec![filter])?;
-                }
+                let Some(id) = self.create("count", &[t(&format!("set/{name}/count"))])? else { unreachable!("a count is always made") };
+                store(self, &key, Some(id));
+                let filter = tikra_tokens(&format!("\\pgfdvvisualizerfilter{{{name}}}"));
+                self.call(id, "set filter", vec![filter])?;
             }
             "label" => {
                 let name = arg(self)?;
@@ -563,13 +554,11 @@ impl Engine {
             self.facts.data_visualizations += 1;
         }
         let r = self.datavisualization_body();
-        let dv = self.datavis.pop();
-        if let Some(dv) = dv {
-            self.update_bounding_box(false);
-            let (lo, hi) = dv.outer_box;
-            for p in [lo, hi].into_iter().flatten() {
-                self.canvas.include(p);
-            }
+        let dv = self.datavis.pop().expect("the data visualization pushed above");
+        self.update_bounding_box(false);
+        let (lo, hi) = dv.outer_box;
+        for p in [lo, hi].into_iter().flatten() {
+            self.canvas.include(p);
         }
         self.end_group();
         r
@@ -831,7 +820,7 @@ impl Engine {
         self.add_data_call(call)
     }
 
-    /// `\tikra@dv@adddata{call}`: the call adding data is run, or kept in the group being defined.
+    /// The call adding data is run, or kept in the group being defined.
     pub fn add_data_call(&mut self, call: Vec<Token>) -> Result<(), Error> {
         match key_text(self, "/pgf/data/store in group").filter(|s| !s.is_empty()) {
             Some(name) => {

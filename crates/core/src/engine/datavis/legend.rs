@@ -39,7 +39,7 @@ const TENSION: f64 = 0.5 * 0.2775;
 /// A stream of points as a path with a plot handler (pt).
 fn stream_path(points: &[Point], h: Handler) -> String {
     let mut out = String::new();
-    if points.is_empty() || h == Handler::Discard {
+    if points.is_empty() {
         return out;
     }
     let p = |q: Point| pt(q);
@@ -110,16 +110,9 @@ fn hsb(h: f64, s: f64, b: f64) -> Color {
 impl Engine {
     /// The visualizer's color (`visualizer color`, a color name) around `f`: TeX's `\colorlet` is local.
     fn keeping_visualizer_color<T>(&mut self, f: impl FnOnce(&mut Engine) -> Result<T, Error>) -> Result<T, Error> {
-        let saved = self.colors.get("visualizer color").copied();
+        let saved = self.colors.get("visualizer color").copied().expect("the library sets `visualizer color=black`");
         let r = f(self);
-        match saved {
-            Some(c) => {
-                self.colors.insert("visualizer color".into(), c);
-            }
-            None => {
-                self.colors.remove("visualizer color");
-            }
-        }
+        self.colors.insert("visualizer color".into(), saved);
         r
     }
 
@@ -538,18 +531,17 @@ impl Engine {
             let length = option(self, "pin length");
             let sign = if option(self, "tikra pin sign") == "-" { -1.0 } else { 1.0 };
             let distance = self.length(&length)? * sign;
-            let at = self.lookup_node("label visualizer coordinate").map(|n| n.center());
-            let before = self.lookup_node("label visualizer coordinate'").map(|n| n.center());
+            // the label visualizer defines both coordinates before it draws its label
+            let at = self.lookup_node("label visualizer coordinate").expect("the label's place").center();
+            let before = self.lookup_node("label visualizer coordinate'").expect("the place before it").center();
             let angle = option(self, "pin angle");
             let d = if !angle.is_empty() {
                 let a = self.number(&angle)?.to_radians();
                 Some(Point::new(a.cos(), a.sin()))
-            } else if let (Some(a), Some(b)) = (at, before) {
-                let v = b.minus(a);
+            } else {
+                let v = before.minus(at);
                 let n = v.norm();
                 (n > 1e-9).then(|| Point::new(v.y / n, -v.x / n))
-            } else {
-                None
             };
             if let Some(d) = d {
                 shift = format!(",shift={{({}cm,{}cm)}},name=tikra@dv@pin", d.x * distance, d.y * distance);
