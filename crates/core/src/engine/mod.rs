@@ -830,14 +830,19 @@ impl Engine {
 
     /// Defines a library's keys only (TikZ's own libraries run their definitions with TikZ's).
     pub(crate) fn register_keys(&mut self, library: &crate::extension::Library) {
-        for (path, f) in library.keys {
+        let mut left_out = library.keys.iter().skip_while(|(path, f)| {
             let id = EXTENSION_KEY_BASE as usize + self.extension_fns.len();
             if id > u16::MAX as usize {
-                self.warn(format!("library {}: too many keys, {path} left out", library.name));
-                continue;
+                return false;
             }
             self.extension_fns.push(*f);
             self.tex.define(&crate::keys::macro_name(&format!("{path}/.@cmd")), Meaning::Native(id as u16));
+            true
+        });
+        // past the room for native keys, one warning for all the keys left out
+        if let Some((first, _)) = left_out.next() {
+            let n = 1 + left_out.count();
+            self.warn(format!("library {}: too many keys, {n} left out from {first} on", library.name));
         }
     }
 
