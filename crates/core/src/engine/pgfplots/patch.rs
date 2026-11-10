@@ -505,4 +505,25 @@ mod tests {
         assert!((c1[0] - 1.0 / 3.0).abs() < 1e-12 && c1[1].abs() < 1e-12);
         assert!((c2[1] - 1.0 / 3.0).abs() < 1e-12);
     }
+
+    // What no figure reaches yet (a Bézier spline is never refined, a triangle is shaded exactly,
+    // a Coons patch is never refined) still answers as its patch type says.
+    #[test]
+    fn bezier_splines_triangles_and_coons_patches_cut_and_colored() {
+        // a Bézier spline: its point is the Bézier curve's, its color goes from one end to the other
+        let b = Patch { kind: Kind::BezierSpline, pts: vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [1.0, 1.0, 0.0], [2.0, 1.0, 0.0]], metas: vec![0.0, 1.0, 0.0, 0.0] };
+        assert_eq!(b.eval(0.5, 0.0), [1.5, 0.75, 0.0]);
+        assert_eq!(b.color_meta(0.25, 0.0), 0.25);
+        // a triangle in n² small triangles, its outline cut where they cut it
+        let t = Patch { kind: Kind::Triangle, pts: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], metas: vec![0.0, 1.0, 2.0] };
+        let tris = t.shaded_triangles(2);
+        assert_eq!(tris.len(), 4);
+        assert_eq!(tris[0][1], ([0.5, 0.0, 0.0], 0.5));
+        assert_eq!(t.shaded_outline(2), vec![[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.0, 1.0, 0.0], [0.0, 0.5, 0.0]]);
+        // a Coons patch: its meta bilinear between its corners
+        let mut metas = vec![0.0; 12];
+        (metas[0], metas[9], metas[6], metas[3]) = (0.0, 1.0, 2.0, 3.0);
+        let c = Patch { kind: Kind::Coons, pts: vec![[0.0; 3]; 12], metas };
+        assert_eq!(c.meta_at(0.5, 0.5), 1.5);
+    }
 }

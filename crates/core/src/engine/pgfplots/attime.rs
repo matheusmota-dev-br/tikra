@@ -81,10 +81,8 @@ fn lerp(a: [f64; 3], b: [f64; 3], f: f64) -> [f64; 3] {
 /// `\pgfplotspointplotattime` or `\pgfplotspointplotattime{t}` at `tokens[i]` in a node's text:
 /// sets `/data point/x`, `y`, `z` and returns where the text goes on.
 pub fn run(e: &mut Engine, tokens: &[Token], i: usize) -> Result<usize, Error> {
-    let mut j = i + 1;
-    while j < tokens.len() && tokens[j].is_space() {
-        j += 1;
-    }
+    // (TeX skips the spaces after a control word: the argument, if any, is next)
+    let j = i + 1;
     let (arg, end) = if j < tokens.len() && matches!(tokens[j], Token::Char(_, crate::tex::Cat::Begin)) {
         let mut depth = 0;
         let mut k = j;

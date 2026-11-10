@@ -65,13 +65,10 @@ pub fn view_dir(ev: &[Point; 3], dir: [bool; 3]) -> [f64; 3] {
     normalised([nx * scale, ny * scale, nz * scale])
 }
 
+/// (`v` is never zero: one of its components is ±1)
 fn normalised(v: [f64; 3]) -> [f64; 3] {
     let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if l > 0.0 {
-        v.map(|c| c / l)
-    } else {
-        v
-    }
+    v.map(|c| c / l)
 }
 
 /// Which faces are in front: `[axis][lower, upper]`.
@@ -89,13 +86,11 @@ pub fn foreground(n: [f64; 3], dir: [bool; 3]) -> [[bool; 2]; 3] {
 
 /// `\pgfplotsifaxissurfaceisforeground`: faces at a centered line count as foreground.
 fn is_fg(fg: &[[bool; 2]; 3], s: Part) -> bool {
-    match (0..3).find(|&k| s[k] != b'v') {
-        Some(k) => match s[k] {
-            b'0' => fg[k][0],
-            b'1' => fg[k][1],
-            _ => true,
-        },
-        None => true,
+    let k = (0..3).find(|&k| s[k] != b'v').expect("a face has an axis fixed");
+    match s[k] {
+        b'0' => fg[k][0],
+        b'1' => fg[k][1],
+        _ => true,
     }
 }
 
@@ -267,8 +262,8 @@ fn match_line(line: Part, surf: Part) -> Option<u8> {
             b'v' => matches!(s, b'a' | b'b' | b'v'),
             b'0' => s != b'1',
             b'1' => s != b'0',
-            b'2' => s != b'0' && s != b'1',
-            _ => true,
+            // b'2' (a line is made of v, 0, 1 and 2 only)
+            _ => s != b'0' && s != b'1',
         };
         if !ok {
             r = 0;
@@ -445,10 +440,10 @@ impl Ctx<'_> {
         let (origin, offset) = if self.nums[a] == 2 {
             (f.zero[b], if self.dir[b] { off } else { -off })
         } else {
+            // (the side is 0 or 1: a centered line has its own case above)
             match side {
                 b'0' => (f.min[b], -off),
-                b'1' => (f.max[b], off),
-                _ => (f.zero[b], off),
+                _ => (f.max[b], off),
             }
         };
         let moved = if self.nums[a] == 2 || !matches!(side, b'0' | b'1') { Point::default() } else { self.line_shift(e, surf, side) };
