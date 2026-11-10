@@ -1778,8 +1778,9 @@ impl Tex {
                 }
             }
             Ifstrequal => {
-                let a = tokens_to_string(&self.read_expanded_general_undelimited()?);
-                let b = tokens_to_string(&self.read_expanded_general_undelimited()?);
+                // etoolbox: the two texts compared as written, nothing expanded
+                let a = tokens_to_string(&self.read_undelimited()?);
+                let b = tokens_to_string(&self.read_undelimited()?);
                 let yes = self.read_undelimited()?;
                 let no = self.read_undelimited()?;
                 self.push_tokens(if a == b { yes } else { no });
@@ -2090,11 +2091,6 @@ impl Tex {
 
     fn read_expanded_general_text(&mut self) -> Result<Vec<Token>, Error> {
         let body = self.read_general_text()?;
-        self.expand_fully(body)
-    }
-
-    fn read_expanded_general_undelimited(&mut self) -> Result<Vec<Token>, Error> {
-        let body = self.read_undelimited()?;
         self.expand_fully(body)
     }
 
