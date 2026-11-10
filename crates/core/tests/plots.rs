@@ -525,3 +525,14 @@ fn intersection_segments_of_an_empty_path() {
     assert_eq!(f.len(), 1);
     assert!(matches!(f[0][0], Segment::MoveTo(_)), "{:?}", f[0]);
 }
+
+/// `table {\macro}`: a macro holding the file's name is read for the name, one holding the data
+/// for the data.
+#[test]
+fn a_table_named_by_a_macro() {
+    let (_, w) = canvas(r"\def\fname{no-such-file.dat}\begin{axis}\addplot table {\fname};\end{axis}");
+    assert!(w.iter().any(|x| x.contains("'no-such-file.dat' not found")), "{w:?}");
+    let (c, w) = canvas(r"\def\data{x y\\ 0 0\\ 1 1\\ 2 0\\}\begin{axis}\addplot table[row sep=\\] {\data};\end{axis}");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!filled(&c).is_empty(), "the marks");
+}
