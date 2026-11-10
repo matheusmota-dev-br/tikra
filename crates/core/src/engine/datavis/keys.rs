@@ -608,9 +608,9 @@ fn k_visualize_as(e: &mut Engine, v: Option<Vec<Token>>) -> Result<(), Error> {
             new_visualizer(e, &name, tikra_tokens(k.options), tikra_tokens(&format!("visualizer in legend={}", k.sample)))?;
         }
     }
-    if let Some(h) = k.handler {
-        dv_text(e, &format!("{name}={{{h}}}"))?;
-    }
+    // the visualizer's options key, run once even with no handler: it sets the visualizer up
+    let h = k.handler.unwrap_or_default();
+    dv_text(e, &format!("{name}={{{h}}}"))?;
     Ok(())
 }
 

@@ -52,6 +52,16 @@ fn tables_and_functions_give_data_points() {
     assert!(near(end(&p[0][4]).unwrap().minus(end(&p[0][0]).unwrap()), 2.0, 4.0), "{:?}", p[0]);
 }
 
+/// `visualize as rectangles` draws its rectangles with no options of its own, as with them.
+#[test]
+fn rectangles_need_no_options() {
+    let data = "data [headline={x/min, x/max, y/min, y/max}] {\n 0, 1, 0, 2\n 2, 3, 0, 1\n};";
+    let closed = |options: &str| paths(&format!("\\datavisualization [xy Cartesian, {options}] {data}")).iter().filter(|l| l.last() == Some(&Segment::Close)).count();
+    assert_eq!(closed("visualize as rectangles=bars, bars={style={red}}"), 2);
+    assert_eq!(closed("visualize as rectangles=bars"), 2);
+    assert_eq!(closed("visualize as rectangles"), 2);
+}
+
 #[test]
 fn scientific_axes_fit_the_data_in_their_width() {
     let p = paths(r"\datavisualization [scientific axes, visualize as line] data point [x=10, y=1] data point [x=20, y=3];");
