@@ -381,6 +381,15 @@ fn textcolor_takes_an_unbraced_argument() {
     }
 }
 
+/// A `\textcolor` at the very end of the text has nothing to color: it is reported and dropped, the rest is set.
+#[test]
+fn textcolor_with_no_text_after_it_is_dropped() {
+    for text in [r"x\textcolor{red}", r"x \textcolor{red} "] {
+        let r = with_warning(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"), "without a text to color");
+        assert!(!r.svg.contains("#ff0000"), "{text}");
+    }
+}
+
 /// `\{` and `\}` in the text of a `\textcolor` are characters: they neither open nor close its group.
 #[test]
 fn escaped_braces_in_a_textcolor() {
