@@ -1267,7 +1267,8 @@ fn table_coords(e: &mut Engine, t: &Table, three_d: bool) -> Result<Vec<Coord>, 
             }
         }
         if let Some((tokens, mathparse)) = &symbolic {
-            let replaced = replace_thisrow(tokens, t, r);
+            // a symbolic meta is text: the cells as written (`0,0,1` is a color, not a number)
+            let replaced = replace_thisrow_as(tokens, t, r, true);
             let text = e.tex.expand_to_string(replaced).unwrap_or_default();
             let l = symbolic_label(e, &text, *mathparse, [x, y, z]);
             c.label = add_label(tex::string_tokens(&l));
