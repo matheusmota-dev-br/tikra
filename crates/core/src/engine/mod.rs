@@ -3466,7 +3466,9 @@ const PARTOPSEP: f64 = 2.0 * crate::PT;
 
 /// Lays the pictures out as TeX sets boxes in a paragraph: side by side on a baseline, a space
 /// where the source had one, a new line at each paragraph; then one canvas with all of them.
-fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64) -> Canvas {
+/// `varwidth` (cm, of the `standalone` class): lines are broken at that width, and the page is as
+/// wide as its widest line.
+fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], margin: f64, varwidth: Option<f64>) -> Canvas {
     let mut out = Canvas { margin, ..Canvas::default() };
     // the words as TeX sets them, in the text font
     let mut warnings = Vec::new();
@@ -3540,9 +3542,14 @@ fn typeset(boxes: &[PictureBox], layout: &[Layout], words: &[(String, String)], 
         after_break = matches!(l, Layout::Break) || (after_break && matches!(l, Layout::Center(_)));
     }
     // a line longer than the line's width (when known) is broken at its spaces
-    if let Some(w) = hsize {
+    if let Some(w) = hsize.or(varwidth) {
         let mut broken = Vec::new();
         for l in lines {
+            // (`varwidth` alone: a line that fits is left as it is)
+            if hsize.is_none() && l.items.iter().map(&width_of).sum::<f64>() <= w + 1e-9 {
+                broken.push(l);
+                continue;
+            }
             let mut cur = Line { items: Vec::new(), center: l.center, empty_kept: l.empty_kept, skip: l.skip };
             let (mut x, mut pending) = (0.0, 0.0);
             let mut started = false;
@@ -3884,7 +3891,7 @@ pub fn run_document_mapped(code: &str, libraries: &[&'static crate::extension::L
         e.end_scope();
     }
     let margin = e.canvas.margin;
-    e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin);
+    e.canvas = typeset(&e.boxes, &e.layout, &e.words, margin, e.varwidth);
     e.canvas.page_color = e.page_color;
     e.canvas.slides = e.slides;
     e.canvas.sources = source_spans(code, e.spans.as_deref().unwrap_or_default());
