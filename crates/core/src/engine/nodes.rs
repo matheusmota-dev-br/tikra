@@ -1633,11 +1633,24 @@ impl Engine {
             };
             let spec = &after[..end];
             let body_start = &after[end + 1..];
-            // the braced text after the color
+            // the braced text after the color; unbraced, its one character or command (`\textcolor{red}x`)
             let Some(body) = body_start.strip_prefix('{') else {
-                out.push_str(&rest[i..i + "\\textcolor{".len() + end + 1]);
-                rest = body_start;
-                continue;
+                let arg = body_start.trim_start();
+                let n = match arg.strip_prefix('\\') {
+                    Some(cs) => {
+                        let letters = cs.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(cs.len());
+                        1 + if letters > 0 { letters } else { cs.chars().next().map_or(0, char::len_utf8) }
+                    }
+                    None => arg.chars().next().map_or(0, char::len_utf8),
+                };
+                if n == 0 {
+                    out.push_str(&rest[i..i + "\\textcolor{".len() + end + 1]);
+                    rest = body_start;
+                    continue;
+                }
+                let braced = format!("\\textcolor{{{spec}}}{{{}}}{}", &arg[..n], &arg[n..]);
+                out.push_str(&self.inline_colors(&braced));
+                return out;
             };
             let mut depth = 1;
             let mut close = body.len();

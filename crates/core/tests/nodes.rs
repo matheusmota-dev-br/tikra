@@ -341,6 +341,15 @@ fn rows_of_math_in_text_are_not_lines_of_the_node() {
     no_warnings(r"\begin{tikzpicture} \node {$\begin{matrix} a \\ \textcolor{red}{b} \end{matrix}$}; \end{tikzpicture}");
 }
 
+/// `\textcolor` without braces around its text colors the one character or command after it.
+#[test]
+fn textcolor_takes_an_unbraced_argument() {
+    for text in [r"\textcolor{red}x y", r"a \textcolor{red} x y", r"a \textcolor{red}\& y"] {
+        let r = no_warnings(&format!(r"\begin{{tikzpicture}} \node {{{text}}}; \end{{tikzpicture}}"));
+        assert_eq!(r.svg.matches("#ff0000").count(), 1, "{text}: {}", r.svg);
+    }
+}
+
 #[test]
 fn newline_breaks_a_paragraphs_line() {
     // in a text width, as `\\`; out of one TeX sets the words together
