@@ -487,6 +487,9 @@ pub struct Engine {
     pub canvas_frozen: bool,
     /// nested runs of token lists (styles, loop bodies)
     nesting: usize,
+    /// the input depth below which the token list being run (`run_tokens`) ends: a statement
+    /// skipped in it stops there
+    floor: usize,
     /// the basic layer's path being built
     pub pgf_path: basic::PgfPath,
     /// the points of `\pgfplotstreampoint` since `\pgfplotstreamstart`, on the canvas
@@ -711,6 +714,7 @@ impl Clone for Engine {
             extension_fns: self.extension_fns.clone(),
             canvas_frozen: self.canvas_frozen,
             nesting: self.nesting,
+            floor: 0,
             keys_run: self.keys_run,
             first_char_syntax: self.first_char_syntax,
             datavis: self.datavis.clone(),
@@ -874,6 +878,7 @@ impl Engine {
             extension_fns: Vec::new(),
             canvas_frozen: false,
             nesting: 0,
+            floor: 0,
             keys_run: 0,
             first_char_syntax: false,
             datavis: Vec::new(),
@@ -1016,6 +1021,7 @@ impl Engine {
         }
         self.nesting += 1;
         let depth = self.tex.depth();
+        let floor = std::mem::replace(&mut self.floor, depth);
         self.tex.push_frame(tokens);
         let r = (|| {
             while let Some(t) = self.tex.get_x_token_until(depth)? {
@@ -1026,6 +1032,7 @@ impl Engine {
         if r.is_err() {
             self.tex.drain_to(depth);
         }
+        self.floor = floor;
         self.nesting -= 1;
         r
     }
@@ -1245,7 +1252,8 @@ impl Engine {
     pub fn skip_statement(&mut self) -> Result<String, Error> {
         let mut out = Vec::new();
         let mut depth = 0usize;
-        while let Some(t) = self.tex.get_token() {
+        // not past the end of the token list being run
+        while let Some(t) = self.tex.get_token_until(self.floor) {
             match t {
                 Token::Char(_, Cat::Begin) => depth += 1,
                 Token::Char(_, Cat::End) => {

@@ -545,3 +545,14 @@ fn a_symbolic_meta_from_a_cell_is_its_text() {
     let blue = c.items.iter().any(|i| matches!(i, Item::Path { fill: Some(f), .. } if matches!(f.paint, Paint::Solid(k) if k.hex() == "#0000ff")));
     assert!(blue, "a blue triangle");
 }
+
+/// A bad `\addplot` is skipped up to the end of the code it is in, not into the rest of the
+/// picture, and its input is named whole.
+#[test]
+fn a_bad_addplot_is_skipped_within_its_code() {
+    let (c, _) = canvas(r"\begin{axis}\pgfplotsextra{\addplot}\end{axis}\draw[red] (0,0) -- (5,5);");
+    let red = c.items.iter().any(|i| matches!(i, Item::Path { stroke: Some(s), .. } if s.color.hex() == "#ff0000"));
+    assert!(red, "the line after the axis");
+    let (_, w) = axis("", r"\addplot pizza; \addplot coordinates {(0,0) (1,1)};");
+    assert!(w.iter().any(|w| w.contains("'pizza'")), "{w:?}");
+}

@@ -160,7 +160,8 @@ pub fn addplot(e: &mut Engine) -> Result<(), Error> {
                 behavior = o;
             }
         } else {
-            e.tex.push_tokens(tex::string_tokens(&w));
+            // the word given back as letters: `\addplot pizza` is the input 'pizza'
+            e.tex.push_tokens(w.chars().map(|c| Token::Char(c, Cat::Letter)));
         }
     }
     let (index, cycle) = {
