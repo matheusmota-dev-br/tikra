@@ -65,6 +65,19 @@ fn group(v: &[Token]) -> Option<(Vec<Token>, &[Token])> {
     None
 }
 
+/// Where the first `=` outside braces is in `v` (`\a{x=y} = 1`: the one after the index).
+fn equals(v: &[Token]) -> Option<usize> {
+    let mut depth = 0usize;
+    v.iter().position(|t| {
+        match t {
+            Token::Char(_, Cat::Begin) => depth += 1,
+            Token::Char(_, Cat::End) => depth = depth.saturating_sub(1),
+            _ => return depth == 0 && t.is_char('='),
+        }
+        false
+    })
+}
+
 /// Where the word `word` is at the top level of `v`.
 fn find_word(v: &[Token], word: &str) -> Option<usize> {
     let chars: Vec<char> = word.chars().collect();
@@ -124,7 +137,7 @@ impl Engine {
                 Ok(())
             }
             "let" => {
-                let Some(eq) = rest.iter().position(|t| t.is_char('=')) else { return Err(Error::Figure("\\tikzmath: let without '='".into())) };
+                let Some(eq) = equals(rest) else { return Err(Error::Figure("\\tikzmath: let without '='".into())) };
                 let value = self.tex.expand_fully(crate::keys::trim(&rest[eq + 1..]).to_vec())?;
                 self.math_set(&rest[..eq], tex::tokens_to_string(&value).trim(), None)
             }
@@ -162,7 +175,7 @@ impl Engine {
                 Ok(())
             }
             _ => {
-                let Some(eq) = s.iter().position(|t| t.is_char('=')) else { return Err(Error::Figure(format!("\\tikzmath: '{}' is not a statement", tex::tokens_to_string(s)))) };
+                let Some(eq) = equals(s) else { return Err(Error::Figure(format!("\\tikzmath: '{}' is not a statement", tex::tokens_to_string(s)))) };
                 self.math_assign(&s[..eq], &s[eq + 1..])
             }
         }

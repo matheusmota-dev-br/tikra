@@ -170,6 +170,13 @@ fn pgfmath_sign_and_mod_under_let() {
     assert!(close_to(start(r"\catcode`\~=13 \let~\pgfmathMod ~{-7}{3}\let\x\pgfmathresult \draw (\x,0) -- (1,1);"), (2.0, 0.0)));
 }
 
+/// A `\tikzmath` assignment is split at its first `=` outside braces, so an index may hold one.
+#[test]
+fn tikzmath_index_with_an_equals_sign() {
+    assert!(close_to(start(r"\tikzmath{\a{x=y} = 2;} \draw (\a{x=y},0) -- (1,1);"), (2.0, 0.0)));
+    assert!(close_to(start(r"\tikzmath{let \b{x=y} = 3;} \draw (\b{x=y},0) -- (1,1);"), (3.0, 0.0)));
+}
+
 #[test]
 fn pgfmath_inner_commands_and_random_numbers() {
     // `\pgfmathadd@` and the other inner forms
