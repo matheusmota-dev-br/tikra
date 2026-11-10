@@ -527,11 +527,15 @@ fn intersection_segments_of_an_empty_path() {
 }
 
 /// `table {\macro}`: a macro holding the file's name is read for the name, one holding the data
-/// for the data.
+/// for the data, and an undefined one is reported as undefined.
 #[test]
 fn a_table_named_by_a_macro() {
     let (_, w) = canvas(r"\def\fname{no-such-file.dat}\begin{axis}\addplot table {\fname};\end{axis}");
     assert!(w.iter().any(|x| x.contains("'no-such-file.dat' not found")), "{w:?}");
+    // an undefined macro is reported as one, not looked for as a file
+    let (_, w) = canvas(r"\begin{axis}\addplot table {\nosuchtable};\end{axis}");
+    assert!(w.iter().any(|x| x.contains(r"\nosuchtable is not defined")), "{w:?}");
+    assert!(!w.iter().any(|x| x.contains("not found")), "{w:?}");
     let (c, w) = canvas(r"\def\data{x y\\ 0 0\\ 1 1\\ 2 0\\}\begin{axis}\addplot table[row sep=\\] {\data};\end{axis}");
     assert!(w.is_empty(), "{w:?}");
     assert!(!filled(&c).is_empty(), "the marks");
