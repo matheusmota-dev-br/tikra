@@ -1173,7 +1173,9 @@ impl Engine {
                 let linear = t.a != 1.0 || t.b != 0.0 || t.c != 0.0 || t.d != 1.0;
                 let shape = if linear { ",transform shape" } else { "" };
                 let options = tikra_tokens(&format!("shape=rectangle,inner sep=0pt,outer sep=0pt,anchor={anchor},rotate={rotate}{shape}"));
-                let items = self.node(NodeSpec { options, name: None, at: Some(place), text, place: OnPath::Point(place), point: place, coordinate: false, default_pos: None })?;
+                // (the node moves its point by the nonlinear transformation itself)
+                let at = t.apply(at);
+                let items = self.node(NodeSpec { options, name: None, at: Some(at), text, place: OnPath::Point(at), point: at, coordinate: false, default_pos: None })?;
                 self.canvas.items.extend(items);
             }
             B::Node | B::MultipartNode => {
