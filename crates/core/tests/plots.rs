@@ -513,3 +513,15 @@ fn a_declared_function_is_plotted_and_a_failed_plot_says_why() {
     let (_, w) = axis("", r"\addplot[domain=0:2] {nosuchfunction(x)};");
     assert!(w.iter().any(|w| w.contains("no point of the plot")), "{w:?}");
 }
+
+/// A named path with no points has no pieces: `A*` adds nothing and `B*` starts the path.
+#[test]
+fn intersection_segments_of_an_empty_path() {
+    let (c, _) = canvas(
+        r"\path[name path=A]; \path[name path=B] (0,1) -- (2,1);
+        \fill[intersection segments={of=A and B, sequence={A* -- B*}}];",
+    );
+    let f = filled(&c);
+    assert_eq!(f.len(), 1);
+    assert!(matches!(f[0][0], Segment::MoveTo(_)), "{:?}", f[0]);
+}
