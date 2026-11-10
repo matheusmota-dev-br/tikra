@@ -2400,7 +2400,8 @@ impl Tex {
         let mut sign_and_number = Vec::new();
         loop {
             match self.get_x_token()? {
-                Some(Token::Char(d, _)) if d.is_ascii_digit() || matches!(d, '.' | ',' | '-' | '+' | ' ') => sign_and_number.push(Token::other(d)),
+                // spaces stay spaces, which the number skips
+                Some(t @ Token::Char(d, _)) if d.is_ascii_digit() || matches!(d, '.' | ',' | '-' | '+' | ' ') => sign_and_number.push(t),
                 Some(other) => {
                     self.back(other);
                     break;

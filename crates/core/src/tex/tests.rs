@@ -84,6 +84,15 @@ fn registers_and_arithmetic() {
     assert_eq!(run(r"\newcounter{c}\setcounter{c}{3}\stepcounter{c}\arabic{c}"), "4");
 }
 
+/// The stretch and shrink of glue are read whole when a space comes before their number.
+#[test]
+fn glue_with_a_space_before_its_stretch() {
+    assert_eq!(run(r"\skip3=2pt plus 1pt x"), "x");
+    assert_eq!(run(r"\skip3=2pt plus 1pt minus 2pt x"), "x");
+    assert_eq!(run(r"\skip3=2pt plus 1 fil x"), "x");
+    assert_eq!(run(r"\skip3=2pt minus -1pt x\the\skip3"), "x2.0pt");
+}
+
 #[test]
 fn conditionals() {
     assert_eq!(run(r"\ifnum 3>2 yes\else no\fi"), "yes");
