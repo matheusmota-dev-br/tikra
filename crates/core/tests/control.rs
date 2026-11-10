@@ -43,6 +43,17 @@ fn nested_foreach() {
     assert_eq!(paths(&c).len(), 6);
 }
 
+/// `evaluate … using` a `?:` that picks a text: the text of the branch taken, nested ones too.
+#[test]
+fn foreach_evaluate_with_a_conditional_text() {
+    let r = no_warnings(
+        r#"\begin{tikzpicture}\foreach \x [evaluate=\x as \c using {\x>1 ? (\x>2 ? "green" : "red") : "blue"}] in {1,2,3}
+           \fill[\c] (\x,0) circle (0.3);\end{tikzpicture}"#,
+    );
+    let fills: Vec<&str> = r.svg.split(r##"fill="#"##).skip(1).map(|f| &f[..6]).collect();
+    assert_eq!(fills, ["0000ff", "ff0000", "00ff00"], "{}", r.svg);
+}
+
 #[test]
 fn nested_foreach_with_a_braced_inner_body() {
     let c = canvas(r"\foreach \x in {0,1,2} \foreach \y in {0,1} { \fill (\x,\y) circle (1pt); }");
