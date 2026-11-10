@@ -413,3 +413,19 @@ fn a_shift_reads_length_registers() {
     assert_eq!(path(shifted(r"shift={(0,\R)}")), path(shifted("shift={(0,1cm)}")));
     assert_eq!(path(shifted(r"shift={(-60:{2*\R})}")), path(shifted("shift={(-60:2cm)}")));
 }
+
+/// `.append code` and `.prefix code` keep the key's code as it was: a `\def` inside a `\def`
+/// (its `####1`) still reads its own argument.
+#[test]
+fn appending_code_keeps_nested_parameters() {
+    let svg = |extra: &str| {
+        let s = no_warnings(&format!(
+            r"\tikzset{{k/.code={{\def\a##1{{\def\b####1{{##1####1}}}}}}{extra}}}\begin{{tikzpicture}}\tikzset{{k}}\a{{1}}\draw (0,0) -- (\b{{2}}pt,0);\end{{tikzpicture}}"
+        ))
+        .svg;
+        s[s.find("<path").unwrap()..].to_string()
+    };
+    let plain = svg("");
+    assert_eq!(svg(", k/.append code={}"), plain);
+    assert_eq!(svg(", k/.prefix code={}"), plain);
+}
