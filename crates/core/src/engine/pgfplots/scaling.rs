@@ -262,11 +262,9 @@ fn unit_ratio(inp: &Input, zero: &[bool; 3], inv: &mut [f64; 3], limit: &mut [f6
 /// `\pgfplots@scaling@minimize@limitrescale`: limits that all grow are grown less, the unit
 /// vectors made longer by as much.
 fn minimize_limits(zero: &[bool; 3], inv: &mut [f64; 3], limit: &mut [f64; 3]) {
-    if (0..3).any(|a| !zero[a] && limit[a] < 1.002) {
-        return;
-    }
+    // (no smallest: no unit vector, or no limit that is a number)
     let smallest = (0..3).filter(|&a| !zero[a]).map(|a| limit[a]).fold(f64::INFINITY, f64::min);
-    if !smallest.is_finite() {
+    if (0..3).any(|a| !zero[a] && limit[a] < 1.002) || !smallest.is_finite() {
         return;
     }
     for a in 0..3 {

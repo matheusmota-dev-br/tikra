@@ -1819,9 +1819,8 @@ pub fn define(e: &mut Engine) {
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
     }
-    if let Err(err) = e.run_tokens(tokens) {
-        e.warn(format!("internal: pgfplots definitions failed: {err}"));
-    }
+    // (tikra's own text, run when the engine starts: before any document code)
+    e.run_tokens(tokens).expect("pgfplots' definitions run");
     e.tex.warnings.clear();
     e.st.key_path = saved;
 }

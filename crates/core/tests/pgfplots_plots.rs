@@ -511,3 +511,48 @@ fn more_coordinate_inputs() {
     let r = common::figure(&picture("", &format!(r"\addplot coordinates {{(0,0) (1,1)}} {long};")));
     assert!(r.description.contains("2 points"), "{}", r.description);
 }
+
+// ---------------------------------------------------------------------------------------------
+// limits and errors inside an axis
+
+/// A macro that opens scopes without end.
+const DEEP: &str = r"\def\deep{\begin{scope}\deep\end{scope}}";
+
+/// Past the nesting limit the figure stops, wherever in the axis the code runs (TeX would run out
+/// of memory).
+#[test]
+fn limits_inside_an_axis_stop_the_figure() {
+    for (options, body) in [
+        // the options of a plot, read while the axis is surveyed
+        ("", r"\addplot[/utils/exec={\deep}] coordinates {(0,0) (1,1)};"),
+        // a statement kept for when the axis is drawn
+        ("", r"\addplot coordinates {(0,0) (1,1)}; \path[/utils/exec={\deep}] (0,0);"),
+        // the code at the end of the axis' body
+        (r"before end axis/.code={\deep}", r"\addplot coordinates {(0,0) (1,1)};"),
+        // the code run around each scatter mark, when the plot is drawn
+        ("", r"\addplot[scatter, scatter/@pre marker code/.code={\deep}] coordinates {(0,0) (1,1)};"),
+        // the code run before a plot is drawn
+        ("", r"\addplot[execute at begin plot visualization={\deep}] coordinates {(0,0) (1,1)};"),
+    ] {
+        let tikz = format!("{DEEP}{}", picture(options, body));
+        let err = tikra::convert(&tikz).expect_err("a limit stops the figure");
+        assert!(err.to_string().contains("nesting went past"), "{err}\n{body}");
+    }
+}
+
+/// Errors that are no limit are reported and the axis is drawn: an endless macro in `before end
+/// axis`, an error in the code before a plot (that plot is left out), a table macro that is not
+/// defined.
+#[test]
+fn errors_inside_an_axis_are_reported() {
+    let w = warnings(r"before end axis/.code={\loop}", r"\def\loop{\loop}\addplot coordinates {(0,0) (1,1)};");
+    assert!(has(&w, "before end axis: figure: macro expansion did not end"), "{w:?}");
+    let body = r"\addplot[red] coordinates {(0,0) (1,1)}; \addplot[blue, execute at begin plot visualization={\csname}] coordinates {(0,1) (1,0)};";
+    let (c, w) = tikra::engine::run_document(&picture("", body)).unwrap();
+    assert!(has(&w, "\\addplot: figure: \\csname without \\endcsname; plot not drawn"), "{w:?}");
+    let colors: Vec<String> = strokes(&c).into_iter().map(|(color, _)| color).collect();
+    assert!(colors.contains(&"#ff0000".to_string()) && !colors.contains(&"#0000ff".to_string()), "{colors:?}");
+    let (d, w) = describe("", r"\addplot coordinates {(0,0) (1,1)}; \addplot table {\nosuchtable};");
+    assert!(has(&w, "\\addplot table") && has(&w, "\\nosuchtable"), "{w:?}");
+    assert!(d.contains("2 points"), "{d}");
+}

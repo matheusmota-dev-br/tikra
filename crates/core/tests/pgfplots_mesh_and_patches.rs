@@ -536,6 +536,31 @@ fn tick_positions_and_label_sides() {
 }
 
 #[test]
+fn ticks_of_lines_on_one_side_take_their_labels() {
+    // `axis lines*=left` (without the styles that set the tick positions again): the x ticks on
+    // the upper side, their labels there too
+    let (_, w, _, lower) = cube("axis lines*=left, xtick={0,1}, ytick=\\empty, ztick=\\empty, xtick pos=lower");
+    assert!(w.is_empty(), "{w:?}");
+    let (_, _, _, upper) = cube("axis lines*=left, xtick={0,1}, ytick=\\empty, ztick=\\empty, xtick pos=upper");
+    assert_eq!((lower.len(), upper.len()), (2, 2));
+    assert!(upper.iter().zip(&lower).all(|(u, l)| u.y > l.y + 1.0), "{upper:?} {lower:?}");
+}
+
+#[test]
+fn unit_vectors_degenerate_on_paper() {
+    // x and y along one line: no view direction solves them (taken as seen from above); y and z
+    // opposite: the x axis' line has no outward side. Drawn all the same, the labels where the
+    // ticks are.
+    for units in ["x={(1cm,1cm)}, y={(2cm,2cm)}, z={(0cm,1cm)}", "x={(1cm,0cm)}, y={(0cm,1cm)}, z={(0cm,-1cm)}"] {
+        let (_, w, corners, labels) = cube(&format!("{units}, xtick={{0,1}}, ytick=\\empty, ztick=\\empty"));
+        assert!(w.is_empty(), "{units}: {w:?}");
+        assert_eq!(corners.len(), 8, "{units}");
+        assert_eq!(labels.len(), 2, "{units}");
+        assert!(labels.iter().all(|l| l.x.is_finite() && l.y.is_finite()), "{units}: {labels:?}");
+    }
+}
+
+#[test]
 fn minor_ticks_grids_and_extra_ticks_in_3d() {
     let plain = box_paths("");
     assert!(box_paths("minor tick num=1") > plain);

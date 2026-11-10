@@ -473,16 +473,18 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             let Some(inner) = after.strip_prefix('(').and_then(|a| a.find(')').map(|i| (a[..i].to_string(), a[i + 1..].to_string()))) else { break };
             let Ok(q) = e.coordinate(&inner.0) else { break };
             let q = q.p;
-            let cur = segs.iter().rev().find_map(|s| match s {
-                Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
-                Segment::Close => None,
-            });
-            if let Some(c) = cur {
-                match op {
-                    "|-" => segs.push(Segment::LineTo(Point::new(c.x, q.y))),
-                    "-|" => segs.push(Segment::LineTo(Point::new(q.x, c.y))),
-                    _ => {}
-                }
+            let c = segs
+                .iter()
+                .rev()
+                .find_map(|s| match s {
+                    Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+                    Segment::Close => None,
+                })
+                .expect("the plot's path starts with a point");
+            match op {
+                "|-" => segs.push(Segment::LineTo(Point::new(c.x, q.y))),
+                "-|" => segs.push(Segment::LineTo(Point::new(q.x, c.y))),
+                _ => {}
             }
             segs.push(Segment::LineTo(q));
             text = inner.1;
@@ -1070,13 +1072,7 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         // the native keys keep these in the state
         let repeat = e.st.mark_repeat.max(1);
         let phase = e.st.mark_phase.max(1);
-        let indices: Vec<usize> = match keys::value_tokens(e, "/tikz/mark indices") {
-            Some(v) => {
-                let list = e.tex.expand_fully(v)?;
-                super::super::foreach_items(&list).into_iter().filter_map(|i| tex::tokens_to_string(&i).trim().parse().ok()).collect()
-            }
-            None => e.st.mark_indices.clone().unwrap_or_default(),
-        };
+        let indices: Vec<usize> = e.st.mark_indices.clone().unwrap_or_default();
         let chosen = m.points.iter().copied().enumerate().filter(|(i, _)| {
             let k = i + 1;
             if !indices.is_empty() {
@@ -1087,9 +1083,10 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         let styled = m.styled.clone();
         // `scatter/@pre marker code` and `@post marker code` of the document: run around each mark,
         // with `\pgfplotspointmetatransformed` (the default code sets the mapped color)
-        let code = |e: &Engine, k: &str| match e.tex.meaning_of(&pk::macro_name(&format!("/pgfplots/scatter/{k} marker code/.@cmd"))) {
-            tex::Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
-            _ => String::new(),
+        let code = |e: &Engine, k: &str| {
+            // (pgfplots defines both, as code: they are macros)
+            let tex::Meaning::Macro(m) = e.tex.meaning_of(&pk::macro_name(&format!("/pgfplots/scatter/{k} marker code/.@cmd"))) else { return String::new() };
+            tex::tokens_to_string(&tex::substitute(&m.body, &[]))
         };
         let (pre, post) = (code(e, "@pre"), code(e, "@post"));
         let bare = |s: &str| s.replace([' ', '{', '}'], "").replace("\\pgfeov", "");

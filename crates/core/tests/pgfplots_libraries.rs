@@ -538,6 +538,9 @@ fn polar_marks_in_the_sector() {
     assert_eq!(count("xmin=300, xmax=420", "(10,1) (330,1) (180,1)"), 2);
     // a sector with an inner radius
     assert_eq!(count("xmin=0, xmax=90, ymin=1", "(45,0.5) (45,1.5)"), 1);
+    // an axis of no size has no sector to tell inside from outside: its marks are all kept, at
+    // its center
+    assert_eq!(count("xmin=0, xmax=90, scale only axis, width=0pt, height=0pt", "(45,1) (45,3) (180,1)"), 3);
 }
 
 /// The angles' ticks: as given, or by the arc's length.

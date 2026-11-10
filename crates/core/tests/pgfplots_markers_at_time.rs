@@ -652,3 +652,26 @@ fn node_options_after_a_space_and_with_braces() {
     // `node [pos=…]` with a space, options holding a group, and a node without options at the end
     same_places("", "(0,0) (2,0) (2,2)", r"node [pos=0.25, font={\small}] {A} node {B}", r"\node[font={\small}] at (axis cs:1,0) {A}; \node at (axis cs:2,2) {B};");
 }
+
+#[test]
+fn nodes_that_cannot_be_placed() {
+    let reference = r"\addplot coordinates {(0,0) (2,2)};";
+    let ticks = texts(&axis("", reference).0).len();
+    // a plot without a bounded point has no last point: its node is not drawn
+    let (c, w) = axis("", &format!(r"{reference} \addplot coordinates {{(nan,nan)}} node {{A}};"));
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(texts(&c).len(), ticks);
+    // options that never close: the path reports it, the plot is drawn
+    let (c, w) = axis("", r"\addplot coordinates {(0,0) (2,2)} node[pos=0.5 {A};");
+    assert_eq!(w, ["\\path: figure: unmatched bracket: ']' missing; statement ignored"]);
+    assert_eq!(texts(&c).len(), ticks);
+}
+
+#[test]
+fn ties_of_no_bounded_row() {
+    // the rows of a tieline plot all unbounded: no curve and no tie
+    let (c, w) = axis("", "\\addplot[red, no marks] coordinates {(0,0) (1,1)}; \\addplot[blue, tieline] table[tie end x=c, tie end y=d] {a b c d\nnan nan nan nan\n};");
+    assert!(w.is_empty(), "{w:?}");
+    assert!(in_color(&c, BLUE).is_empty());
+    assert_eq!(in_color(&c, RED).len(), 1);
+}

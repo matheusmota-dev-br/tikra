@@ -270,6 +270,8 @@ fn flexed_tips_on_a_curve() {
 fn reading_specifications() {
     assert_eq!(tip_paths("{Latex}[length=3mm]"), tip_paths("Latex[length=3mm]"));
     assert_eq!(tip_paths("Latex[length=3mm] [red]"), tip_paths("Latex[length=3mm]"));
+    // a value of two groups keeps its braces until it is evaluated: `{60}:{3pt}` is `60:3pt`
+    assert_eq!(tip_paths("Latex[angle={60}:{3pt}]"), tip_paths("Latex[angle=60:3pt]"));
     // a dot at the end marks where the line ends: the same two tips are drawn
     let (p, w) = draw(r"\draw[line width=1pt, ->>.] (0,0) -- (3,0);");
     let (q, _) = draw(r"\draw[line width=1pt, ->>] (0,0) -- (3,0);");
@@ -281,6 +283,8 @@ fn reading_specifications() {
         (r"\tikzset{unclosed/.tip={Latex[length=3mm}}\draw[-unclosed] (0,0) -- (1,0);", "option '-unclosed' not supported"),
         (r"\tikzset{ping/.tip=pong, pong/.tip=ping}\draw[-ping] (0,0) -- (1,0);", "not supported"),
         (r"\draw[-{Nonsense}] (0,0) -- (1,0);", "not supported"),
+        // `spaced` before a tip that does not exist
+        (r"\draw[-{spaced Nonsense}] (0,0) -- (1,0);", "not supported"),
         (r"\draw[->, >=Nonsense] (0,0) -- (1,0);", "arrow tip '>' not supported"),
     ] {
         let (p, w) = draw(body);
