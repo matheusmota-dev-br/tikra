@@ -120,11 +120,8 @@ impl Engine {
                 None => Vec::new(),
             }
         };
-        // `[from=name]`
+        // `[from=name]`, right after the command (a control word: no space token follows it)
         let take_option = |rest: &mut std::collections::VecDeque<Token>| -> String {
-            while rest.front().is_some_and(|t| t.is_space()) {
-                rest.pop_front();
-            }
             if !rest.front().is_some_and(|t| t.is_char('[')) {
                 return String::new();
             }

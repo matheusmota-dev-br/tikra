@@ -866,14 +866,11 @@ fn setup(e: &mut Engine, axis: &Axis) -> Result<Setup, Error> {
                     }
                 }
                 let b = if separate && val < 0.0 { &mut stack_base_neg[a] } else { &mut stack_base[a] };
-                let prev = b.get(i).copied().unwrap_or(0.0);
+                // (both lists reach i: resized above)
+                let prev = b[i];
                 base[i] = prev;
                 c[a] = prev + if val.is_finite() { val } else { 0.0 };
-                if i < b.len() {
-                    b[i] = c[a];
-                } else {
-                    b.push(c[a]);
-                }
+                b[i] = c[a];
             }
         }
         for c in &v {
@@ -1767,25 +1764,20 @@ fn draw_all(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
                 let r = e.run_tokens(tokens.clone());
                 e.facts.mute = mute;
                 e.source = here;
-                if let Err(err) = r {
-                    if super::super::is_limit(&err) {
-                        return Err(err);
-                    }
-                    e.warn(format!("statement in axis: {err}"));
-                }
+                // (a statement reports its own errors and goes on: only limits come back)
+                r?;
                 e.mark_source(axis.source);
             }
         }
     }
     // `before end axis/.code`: the end of the axis' body
-    if e.key_exists("/pgfplots/before end axis") {
-        let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/before end axis"), None));
-        if let Err(err) = r {
-            if super::super::is_limit(&err) {
-                return Err(err);
-            }
-            e.warn(format!("before end axis: {err}"));
+    // (it, `extra description` and `after end axis` are always defined: empty code by default)
+    let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/before end axis"), None));
+    if let Err(err) = r {
+        if super::super::is_limit(&err) {
+            return Err(err);
         }
+        e.warn(format!("before end axis: {err}"));
     }
     e.end_scope();
     (e.st.x, e.st.y, e.st.z) = units;
@@ -1870,18 +1862,15 @@ fn other_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
 struct Meaning(Vec<Token>);
 
 fn style_code(e: &Engine, path: &str) -> Option<Meaning> {
-    match e.tex.meaning_of(&pk::macro_name(&format!("{path}/.@cmd"))) {
-        crate::tex::Meaning::Macro(m) => {
-            let body = tex::substitute(&m.body, &[vec![]]);
-            let text = tex::tokens_to_string(&body);
-            let inner = text.replace("\\pgfkeysalso", "").replace(['{', '}', ' '], "");
-            if inner.is_empty() {
-                None
-            } else {
-                Some(Meaning(body))
-            }
-        }
-        _ => None,
+    // (the styles asked for are pgfplots', always macros)
+    let crate::tex::Meaning::Macro(m) = e.tex.meaning_of(&pk::macro_name(&format!("{path}/.@cmd"))) else { return None };
+    let body = tex::substitute(&m.body, &[vec![]]);
+    let text = tex::tokens_to_string(&body);
+    let inner = text.replace("\\pgfkeysalso", "").replace(['{', '}', ' '], "");
+    if inner.is_empty() {
+        None
+    } else {
+        Some(Meaning(body))
     }
 }
 
@@ -2221,11 +2210,8 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
         }
         // `\pgfplotspointgetcoordinates{(point)}`: the point's axis coordinates as `/data point/x`…
         if tokens[i].is_cs("pgfplotspointgetcoordinates") {
-            let mut j = i + 1;
-            while j < tokens.len() && tokens[j].is_space() {
-                j += 1;
-            }
-            let (arg, end) = group_at(tokens, j);
+            // (no space after the command: TeX skips those when it reads it)
+            let (arg, end) = group_at(tokens, i + 1);
             i = end;
             let text = e.tex.expand_to_string(arg)?;
             let inner = text.trim().strip_prefix('(').and_then(|r| r.strip_suffix(')')).unwrap_or(text.trim()).to_string();
@@ -2237,11 +2223,9 @@ pub fn print_numbers(e: &mut Engine, tokens: &[Token]) -> Result<Vec<Token>, Err
             continue;
         }
         if tokens[i].is_cs("pgfmathprintnumber") {
+            // (no space after the command: TeX skips those when it reads it)
             let mut j = i + 1;
             let mut opts = Vec::new();
-            while j < tokens.len() && tokens[j].is_space() {
-                j += 1;
-            }
             if j < tokens.len() && tokens[j].is_char('[') {
                 let k = tokens[j..].iter().position(|t| t.is_char(']')).map_or(tokens.len(), |p| j + p);
                 opts = tokens[j + 1..k.min(tokens.len())].to_vec();
@@ -2295,20 +2279,20 @@ fn group_at(tokens: &[Token], j: usize) -> (Vec<Token>, usize) {
         return (Vec::new(), j);
     }
     if matches!(tokens[j], Token::Char(_, crate::tex::Cat::Begin)) {
+        // the group's end (token lists are balanced; one that is not ends with the list)
         let mut depth = 0;
-        for (k, t) in tokens.iter().enumerate().skip(j) {
-            match t {
-                Token::Char(_, crate::tex::Cat::Begin) => depth += 1,
-                Token::Char(_, crate::tex::Cat::End) => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return (tokens[j + 1..k].to_vec(), k + 1);
-                    }
+        let end = tokens[j..]
+            .iter()
+            .position(|t| {
+                match t {
+                    Token::Char(_, crate::tex::Cat::Begin) => depth += 1,
+                    Token::Char(_, crate::tex::Cat::End) => depth -= 1,
+                    _ => {}
                 }
-                _ => {}
-            }
-        }
-        return (tokens[j + 1..].to_vec(), tokens.len());
+                depth == 0
+            })
+            .map_or(tokens.len(), |k| j + k);
+        return (tokens[j + 1..end].to_vec(), (end + 1).min(tokens.len()));
     }
     (vec![tokens[j].clone()], j + 1)
 }
@@ -2656,22 +2640,18 @@ fn descriptions(e: &mut Engine, axis: &Axis, s: &Setup) -> Result<(), Error> {
     }
     super::legend::legend(e, axis, &f)?;
     // `extra description/.code`, in description coordinates too
-    if e.key_exists("/pgfplots/extra description") {
-        e.begin_group();
-        let r = e.process_keys(toks("/pgfplots/extra description"), None);
-        e.end_group();
-        r?;
-    }
+    e.begin_group();
+    let r = e.process_keys(toks("/pgfplots/extra description"), None);
+    e.end_group();
+    r?;
     // `after end axis/.code`: plain coordinates again, nothing clipped
-    if e.key_exists("/pgfplots/after end axis") {
-        let cs = f.cs.get();
-        f.cs.set(if keys::substitute_pgfpoint(e) { Cs::Axis } else { Cs::Plain });
-        e.begin_group();
-        let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/after end axis"), None));
-        e.end_group();
-        f.cs.set(cs);
-        r?;
-    }
+    let cs = f.cs.get();
+    f.cs.set(if keys::substitute_pgfpoint(e) { Cs::Axis } else { Cs::Plain });
+    e.begin_group();
+    let r = in_plain_units(e, &f, |e| e.process_keys(toks("/pgfplots/after end axis"), None));
+    e.end_group();
+    f.cs.set(cs);
+    r?;
     Ok(())
 }
 

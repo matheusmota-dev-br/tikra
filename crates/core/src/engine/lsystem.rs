@@ -208,31 +208,27 @@ impl Engine {
             }
             let symbol = format!("tikra@ls@{name}@symbol@{c}");
             let op = if self.tex.is_defined(&symbol) {
-                match self.tex.meaning_of(&symbol) {
-                    Meaning::Macro(m) => {
-                        let code = tex::substitute(&m.body, &[]);
-                        let code: Vec<&Token> = code.iter().filter(|t| !t.is_space()).collect();
-                        match code.as_slice() {
-                            [Token::Cs(n)] => match &**n {
-                                "pgflsystemdrawforward" => Some(Op::Forward),
-                                "pgflsystemmoveforward" => Some(Op::Move),
-                                "pgflsystemturnleft" => Some(Op::Left),
-                                "pgflsystemturnright" => Some(Op::Right),
-                                "pgflsystemsavestate" => Some(Op::Save),
-                                "pgflsystemrestorestate" => Some(Op::Restore),
-                                other => {
-                                    self.warn(format!("Lindenmayer symbol {c}: \\{other} not supported: ignored"));
-                                    None
-                                }
-                            },
-                            [] => None,
-                            _ => {
-                                self.warn(format!("Lindenmayer symbol {c}: only one of the \\pgflsystem… commands is supported: ignored"));
-                                None
-                            }
+                // (`\symbol` defines it as a macro)
+                let code = super::spy::macro_body(self, &symbol);
+                let code: Vec<&Token> = code.iter().filter(|t| !t.is_space()).collect();
+                match code.as_slice() {
+                    [Token::Cs(n)] => match &**n {
+                        "pgflsystemdrawforward" => Some(Op::Forward),
+                        "pgflsystemmoveforward" => Some(Op::Move),
+                        "pgflsystemturnleft" => Some(Op::Left),
+                        "pgflsystemturnright" => Some(Op::Right),
+                        "pgflsystemsavestate" => Some(Op::Save),
+                        "pgflsystemrestorestate" => Some(Op::Restore),
+                        other => {
+                            self.warn(format!("Lindenmayer symbol {c}: \\{other} not supported: ignored"));
+                            None
                         }
+                    },
+                    [] => None,
+                    _ => {
+                        self.warn(format!("Lindenmayer symbol {c}: only one of the \\pgflsystem… commands is supported: ignored"));
+                        None
                     }
-                    _ => None,
                 }
             } else {
                 default_op(c)

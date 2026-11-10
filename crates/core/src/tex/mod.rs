@@ -1132,10 +1132,8 @@ impl Tex {
 
     /// Reads one token from the text frame on top, applying TeX's rules for spaces, lines and comments.
     fn read_text_token(&mut self) -> Option<Token> {
-        let (chars, mut pos, mut skip) = match self.input.last() {
-            Some(Frame::Text { chars, pos, skip_blanks }) => (chars.clone(), *pos, *skip_blanks),
-            _ => return None,
-        };
+        let Some(Frame::Text { chars, pos, skip_blanks }) = self.input.last() else { return None };
+        let (chars, mut pos, mut skip) = (chars.clone(), *pos, *skip_blanks);
         let mut start;
         let result = loop {
             start = pos;
@@ -1943,10 +1941,7 @@ impl Tex {
         use Prim::*;
         Ok(match p {
             Iftrue => true,
-            Iffalse => false,
-            Ifvmode | Ifinner => false,
             Ifhmode => true,
-            Ifmmode => false,
             Ifnum => {
                 let a = self.scan_int()?;
                 let rel = self.scan_relation()?;
@@ -2002,6 +1997,8 @@ impl Tex {
                 }
                 self.is_defined(&name)
             }
+            // \iffalse, and the modes a figure's text is never in: \ifvmode, \ifmmode, \ifinner
+            // (\ifcase is read where it is met)
             _ => false,
         })
     }
@@ -2925,7 +2922,8 @@ impl Tex {
                 let body = self.read_general_text()?;
                 self.push_tokens(body);
             }
-            Wd | Ht | Dp => {
+            // \wd, \ht, \dp: the last ones (an expandable primitive is expanded before it gets here)
+            _ => {
                 let n = self.scan_int()?;
                 self.scan_optional_equals()?;
                 let v = self.scan_dimen()?;
@@ -2936,7 +2934,6 @@ impl Tex {
                 };
                 self.box_dims.entry(n).or_default()[k] = v;
             }
-            _ => return Ok(false),
         }
         let _ = t;
         Ok(true)
@@ -3502,32 +3499,23 @@ fn ifthen_eval(tex: &mut Tex, t: &[Token]) -> Result<bool, Error> {
     })
 }
 
-/// The tokens of a `{…}` group at the start of `t` (or the first token), and what follows.
+/// The tokens of a `{…}` group at the start of `t` (or the first token), and what follows; `t` is
+/// a test without its spaces.
 fn take_group(t: &[Token]) -> (Vec<Token>, &[Token]) {
-    let mut i = 0;
-    while i < t.len() && t[i].is_space() {
-        i += 1;
-    }
-    if i >= t.len() {
-        return (Vec::new(), &t[i..]);
-    }
-    if !matches!(t[i], Token::Char(_, Cat::Begin)) {
-        return (vec![t[i].clone()], &t[i + 1..]);
+    let Some(first) = t.first() else { return (Vec::new(), t) };
+    if !matches!(first, Token::Char(_, Cat::Begin)) {
+        return (vec![first.clone()], &t[1..]);
     }
     let mut depth = 0;
-    for k in i..t.len() {
-        match t[k] {
+    let end = t.iter().position(|x| {
+        match x {
             Token::Char(_, Cat::Begin) => depth += 1,
-            Token::Char(_, Cat::End) => {
-                depth -= 1;
-                if depth == 0 {
-                    return (t[i + 1..k].to_vec(), &t[k + 1..]);
-                }
-            }
+            Token::Char(_, Cat::End) => depth -= 1,
             _ => {}
         }
-    }
-    (t[i + 1..].to_vec(), &[])
+        depth == 0
+    });
+    end.map_or((t[1..].to_vec(), &[]), |k| (t[1..k].to_vec(), &t[k + 1..]))
 }
 
 #[cfg(test)]

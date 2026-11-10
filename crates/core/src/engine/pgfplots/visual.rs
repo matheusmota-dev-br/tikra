@@ -116,12 +116,10 @@ fn value_text(v: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// The values of the `i`th point, as given when the plot still has them all.
-fn values_of(p: &Plot, pts: &[[f64; 3]], i: usize) -> (String, String) {
-    match (p.coords.len() == pts.len()).then(|| &p.coords[i]) {
-        Some(c) => (value_text(c.x), value_text(c.y)),
-        None => (value_text(pts[i][0]), value_text(pts[i][1])),
-    }
+/// The values of the `i`th point, as given (a plot's points are its coordinates, one by one).
+fn values_of(p: &Plot, i: usize) -> (String, String) {
+    let c = &p.coords[i];
+    (value_text(c.x), value_text(c.y))
 }
 
 /// Where a point lands, as a key: marks are drawn later, and find their values by it.
@@ -133,7 +131,7 @@ fn point_key(p: Point) -> (i64, i64) {
 fn note_values(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) {
     for (i, at) in canvas_points(f, pts).into_iter().enumerate() {
         if let Some(at) = at {
-            e.point_values.insert(point_key(at), values_of(p, pts, i));
+            e.point_values.insert(point_key(at), values_of(p, i));
         }
     }
 }
@@ -329,7 +327,7 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
                 let c1 = to.plus(ua.scale(bar_shift + bar_width / 2.0));
                 rect(&mut segs, c0, c1);
                 if e.points {
-                    let (x, y) = values_of(p, pts, i);
+                    let (x, y) = values_of(p, i);
                     bars.push(DataPoint { x, y, at: to.plus(ua.scale(bar_shift)) });
                 }
             }
@@ -475,16 +473,18 @@ fn draw_plot_in_group(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], 
             let Some(inner) = after.strip_prefix('(').and_then(|a| a.find(')').map(|i| (a[..i].to_string(), a[i + 1..].to_string()))) else { break };
             let Ok(q) = e.coordinate(&inner.0) else { break };
             let q = q.p;
-            let cur = segs.iter().rev().find_map(|s| match s {
-                Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
-                Segment::Close => None,
-            });
-            if let Some(c) = cur {
-                match op {
-                    "|-" => segs.push(Segment::LineTo(Point::new(c.x, q.y))),
-                    "-|" => segs.push(Segment::LineTo(Point::new(q.x, c.y))),
-                    _ => {}
-                }
+            let c = segs
+                .iter()
+                .rev()
+                .find_map(|s| match s {
+                    Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
+                    Segment::Close => None,
+                })
+                .expect("the plot's path starts with a point");
+            match op {
+                "|-" => segs.push(Segment::LineTo(Point::new(c.x, q.y))),
+                "-|" => segs.push(Segment::LineTo(Point::new(q.x, c.y))),
+                _ => {}
             }
             segs.push(Segment::LineTo(q));
             text = inner.1;
@@ -659,15 +659,8 @@ fn with_options(item: &[Token], prefix: &[Token]) -> Vec<Token> {
             _ => return item.to_vec(),
         }
     };
-    let Some(open) = item.iter().position(|t| t.is_char('[')) else {
-        let mut out = item.to_vec();
-        let at = out.iter().position(|t| matches!(t, Token::Char(c, _) if !c.is_alphabetic() && !c.is_whitespace())).unwrap_or(out.len());
-        let mut group = vec![Token::other('[')];
-        group.extend(opts);
-        group.push(Token::other(']'));
-        out.splice(at..at, group);
-        return out;
-    };
+    // (only a node with options has a `pos`)
+    let open = item.iter().position(|t| t.is_char('[')).expect("a node placed by its pos has options");
     let mut out = item[..=open].to_vec();
     out.extend(opts);
     out.push(Token::other(','));
@@ -782,10 +775,8 @@ const ANCHORS: &[&str] =
 /// compat 1.9) put them in the middle of their bar.
 #[allow(clippy::too_many_arguments)]
 fn near_nodes(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], base: &[f64], f: &Frame, handler: &str, bar_shift: f64) -> Result<(Vec<Token>, Vec<NearNode>), Error> {
+    // (an empty text is none)
     let Some(text) = keys::value_tokens(e, "/pgfplots/@nodes near coords") else { return Ok((Vec::new(), Vec::new())) };
-    if crate::keys::trim(&text).is_empty() {
-        return Ok((Vec::new(), Vec::new()));
-    }
     let source = keys::value(e, "/pgfplots/point meta");
     let symbolic = source == "explicit symbolic";
     let align = keys::value(e, "/pgfplots/nodes near coords align");
@@ -1081,13 +1072,7 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         // the native keys keep these in the state
         let repeat = e.st.mark_repeat.max(1);
         let phase = e.st.mark_phase.max(1);
-        let indices: Vec<usize> = match keys::value_tokens(e, "/tikz/mark indices") {
-            Some(v) => {
-                let list = e.tex.expand_fully(v)?;
-                super::super::foreach_items(&list).into_iter().filter_map(|i| tex::tokens_to_string(&i).trim().parse().ok()).collect()
-            }
-            None => e.st.mark_indices.clone().unwrap_or_default(),
-        };
+        let indices: Vec<usize> = e.st.mark_indices.clone().unwrap_or_default();
         let chosen = m.points.iter().copied().enumerate().filter(|(i, _)| {
             let k = i + 1;
             if !indices.is_empty() {
@@ -1098,9 +1083,10 @@ pub fn draw_marks(e: &mut Engine, m: &Marks, f: &Frame) -> Result<(), Error> {
         let styled = m.styled.clone();
         // `scatter/@pre marker code` and `@post marker code` of the document: run around each mark,
         // with `\pgfplotspointmetatransformed` (the default code sets the mapped color)
-        let code = |e: &Engine, k: &str| match e.tex.meaning_of(&pk::macro_name(&format!("/pgfplots/scatter/{k} marker code/.@cmd"))) {
-            tex::Meaning::Macro(m) => tex::tokens_to_string(&tex::substitute(&m.body, &[])),
-            _ => String::new(),
+        let code = |e: &Engine, k: &str| {
+            // (pgfplots defines both, as code: they are macros)
+            let tex::Meaning::Macro(m) = e.tex.meaning_of(&pk::macro_name(&format!("/pgfplots/scatter/{k} marker code/.@cmd"))) else { return String::new() };
+            tex::tokens_to_string(&tex::substitute(&m.body, &[]))
         };
         let (pre, post) = (code(e, "@pre"), code(e, "@post"));
         let bare = |s: &str| s.replace([' ', '{', '}'], "").replace("\\pgfeov", "");

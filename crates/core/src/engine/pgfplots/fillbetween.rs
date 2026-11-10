@@ -248,17 +248,13 @@ pub fn draw(e: &mut Engine, p: &Plot, spec: &[Token]) -> Result<(), Error> {
         let la = polyline(&pa);
         let lb = if reverse { polyline(&pb) } else { polyline(&super::visual::reverse(&pb)) };
         let crossings = super::super::intersections::intersections(&path_of(&la), &path_of(&lb));
+        // each is cut at every crossing: both into as many pieces
         let (ca, cb) = (cut(&la, &crossings), cut(&lb, &crossings));
-        if ca.len() != cb.len() {
-            e.warn("fill between: the paths are cut into different numbers of pieces: filled as one");
-            pieces.push(area(&pa, &pb, reverse));
-        } else {
-            for (x, y) in ca.iter().zip(cb.iter()) {
-                if empty(x) && empty(y) {
-                    continue;
-                }
-                pieces.push(area(&path_of(x), &path_of(y), true));
+        for (x, y) in ca.iter().zip(cb.iter()) {
+            if empty(x) && empty(y) {
+                continue;
             }
+            pieces.push(area(&path_of(x), &path_of(y), true));
         }
     } else {
         pieces.push(area(&pa, &pb, reverse));
@@ -491,7 +487,8 @@ pub fn soft_command(e: &mut Engine, name: &str) -> Result<(), Error> {
             }
             e.pgf_add(Segment::Close);
         }
-        "pgfpathreplacefirstmoveto" => {
+        // `pgfpathreplacefirstmoveto`, the last command of the library
+        _ => {
             let t = macro_arg(e)?;
             let mut segs = softpath_of(e, &t).unwrap_or_default();
             if let Some(Segment::MoveTo(p)) = segs.first().copied() {
@@ -500,7 +497,6 @@ pub fn soft_command(e: &mut Engine, name: &str) -> Result<(), Error> {
             let m = softpath(e, segs);
             e.tex.set_meaning(&t, m, false);
         }
-        _ => {}
     }
     Ok(())
 }

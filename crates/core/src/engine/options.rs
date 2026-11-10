@@ -214,11 +214,8 @@ impl Engine {
 
     /// `/tikz/.unknown`: a color, an arrow specification or a shape name; otherwise a `/pgf/` key.
     fn tikz_unknown(&mut self, value: Option<Vec<Token>>) -> Result<(), Error> {
-        let name = keys::value(&self.tex, "pgfkeyscurrentname").or_else(|| match self.tex.meaning_of("pgfkeyscurrentname") {
-            Meaning::Macro(m) => Some(tex::substitute(&m.body, &[])),
-            _ => None,
-        });
-        let name = name.map(|v| tex::tokens_to_string(&v)).unwrap_or_default();
+        // `\pgfkeyscurrentname`, as `unknown` defines it before it runs the handler
+        let name = if let Meaning::Macro(m) = self.tex.meaning_of("pgfkeyscurrentname") { tex::tokens_to_string(&tex::substitute(&m.body, &[])) } else { String::new() };
         if name.starts_with('"') {
             return self.quotes(&name, value);
         }
@@ -2576,9 +2573,7 @@ pub fn define_keys(e: &mut Engine) {
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
     }
-    if let Err(err) = e.run_tokens(tokens) {
-        e.warn(format!("internal: TikZ definitions failed: {err}"));
-    }
+    e.run_tokens(tokens).expect("TikZ's own definitions run without errors");
     e.tex.warnings.clear();
     e.st.key_path = "/".into();
 }

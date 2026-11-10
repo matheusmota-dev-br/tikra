@@ -57,12 +57,14 @@ pub fn define(e: &mut Engine) {
 /// without a host, the first of January 2000.
 fn today() -> (i64, i64, i64, i64) {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Ok(t) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        let secs = t.as_secs() as i64;
+    {
+        // (a clock set before 1970 reads as 1970-01-01)
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
         // the Julian day of 1970-01-01 is 2440588
         let (y, m, d) = date(2440588 + secs / 86400);
-        return (y, m, d, secs % 86400 / 60);
+        (y, m, d, secs % 86400 / 60)
     }
+    #[cfg(target_arch = "wasm32")]
     (2000, 1, 1, 0)
 }
 
@@ -540,10 +542,7 @@ impl Engine {
             }
             None => Vec::new(),
         };
-        let mut ifs = match self.tex.meaning_of("tikra@cal@ifs") {
-            Meaning::Macro(m) => tex::substitute(&m.body, &[]),
-            _ => Vec::new(),
-        };
+        let mut ifs = super::spy::macro_body(self, "tikra@cal@ifs");
         ifs.push(Token::cs("ifdate"));
         for v in [tests, yes, no] {
             ifs.push(Token::Char('{', Cat::Begin));

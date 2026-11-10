@@ -412,12 +412,11 @@ impl Engine {
             (Object::Interval { .. }, m @ ("set min" | "set max" | "let min" | "let max")) => {
                 let s = self.tex.expand_to_string(arg(0))?;
                 let v = parse_value(self, &s);
-                if let Some(Object::Interval { min, max }) = self.object(id) {
-                    if m.ends_with("min") {
-                        *min = v;
-                    } else {
-                        *max = v;
-                    }
+                let Some(Object::Interval { min, max }) = self.object(id) else { unreachable!("object {id} is the interval just called") };
+                if m.ends_with("min") {
+                    *min = v;
+                } else {
+                    *max = v;
                 }
             }
             (Object::Count { max, .. }, "get max") => {
@@ -428,17 +427,15 @@ impl Engine {
             (Object::Count { .. }, m @ ("set filter" | "set value" | "set start value" | "set step")) => {
                 let code = arg(0);
                 let v = parse_value(self, &tex::tokens_to_string(&code)).unwrap_or(0.0);
-                if let Some(Object::Count { filter, val, start, step, max, attribute }) = self.object(id) {
-                    match m {
-                        "set filter" => *filter = code,
-                        "set value" => *val = v,
-                        "set start value" => {
-                            *start = v;
-                            *max = v;
-                        }
-                        _ => *step = v,
+                let Some(Object::Count { filter, val, start, step, max, .. }) = self.object(id) else { unreachable!("object {id} is the count just called") };
+                match m {
+                    "set filter" => *filter = code,
+                    "set value" => *val = v,
+                    "set start value" => {
+                        *start = v;
+                        *max = v;
                     }
-                    let _ = attribute;
+                    _ => *step = v,
                 }
             }
             (Object::Legend { .. }, "add entry") => {
@@ -454,12 +451,11 @@ impl Engine {
             }
             (Object::PlotVisualizer { .. }, m @ ("set filter" | "set projection code")) => {
                 let code = arg(0);
-                if let Some(Object::PlotVisualizer { filter, projection, .. }) = self.object(id) {
-                    if m == "set filter" {
-                        *filter = Some(code);
-                    } else {
-                        *projection = code;
-                    }
+                let Some(Object::PlotVisualizer { filter, projection, .. }) = self.object(id) else { unreachable!("object {id} is the visualizer just called") };
+                if m == "set filter" {
+                    *filter = Some(code);
+                } else {
+                    *projection = code;
                 }
             }
             (Object::LinearTransformer { .. }, "set origin") => {
@@ -483,38 +479,32 @@ impl Engine {
     // ---------------------------------------------------------------- scaling mappers
 
     fn mapper(&mut self, id: usize) -> Option<Mapper> {
-        match self.object(id)? {
-            Object::ScalingMapper(m) => Some((**m).clone()),
-            _ => None,
-        }
+        let Some(Object::ScalingMapper(m)) = self.object(id) else { return None };
+        Some((**m).clone())
     }
 
     /// The range an axis' survey found.
     pub fn range_of(&mut self, mapper: usize) -> (Option<f64>, Option<f64>) {
         let Some(m) = self.mapper(mapper) else { return (None, None) };
-        match self.object(m.range) {
-            Some(Object::Interval { min, max }) => (*min, *max),
-            _ => (None, None),
-        }
+        let Some(Object::Interval { min, max }) = self.object(m.range) else { unreachable!("a mapper's range is an interval") };
+        (*min, *max)
     }
 
     pub fn include_value(&mut self, mapper: usize, v: f64) {
         let Some(m) = self.mapper(mapper) else { return };
-        if let Some(Object::Interval { min, max }) = self.object(m.range) {
-            *min = Some(min.map_or(v, |x| x.min(v)));
-            *max = Some(max.map_or(v, |x| x.max(v)));
-        }
+        let Some(Object::Interval { min, max }) = self.object(m.range) else { unreachable!("a mapper's range is an interval") };
+        *min = Some(min.map_or(v, |x| x.min(v)));
+        *max = Some(max.map_or(v, |x| x.max(v)));
     }
 
     /// `min value=…`, `max value=…`: the end of the range, set.
     pub fn set_range(&mut self, mapper: usize, which: &str, v: f64) {
         let Some(m) = self.mapper(mapper) else { return };
-        if let Some(Object::Interval { min, max }) = self.object(m.range) {
-            if which == "min" {
-                *min = Some(v);
-            } else {
-                *max = Some(v);
-            }
+        let Some(Object::Interval { min, max }) = self.object(m.range) else { unreachable!("a mapper's range is an interval") };
+        if which == "min" {
+            *min = Some(v);
+        } else {
+            *max = Some(v);
         }
     }
 
@@ -644,24 +634,21 @@ impl Engine {
 
     /// The transform slot of a transformer: `p` shifted for the current data point.
     pub fn transform_point(&mut self, id: usize, p: Point) -> Point {
-        match self.object(id).cloned() {
-            Some(Object::LinearTransformer { attribute: a, origin, unit }) => {
-                let Some(v) = attribute(self, &a).and_then(|s| parse_value(self, &s)) else { return p };
-                let p = p.plus(origin);
-                // values below 10^-3 are not shifted by (pgf's TeX dimensions would overflow)
-                if v != 0.0 && v.abs() < 1e-3 {
-                    return p;
-                }
-                p.plus(unit.scale(v))
+        let o = self.object(id).cloned();
+        if let Some(Object::LinearTransformer { attribute: a, origin, unit }) = o {
+            let Some(v) = attribute(self, &a).and_then(|s| parse_value(self, &s)) else { return p };
+            let p = p.plus(origin);
+            // values below 10^-3 are not shifted by (pgf's TeX dimensions would overflow)
+            if v != 0.0 && v.abs() < 1e-3 {
+                return p;
             }
-            Some(Object::PolarTransformer { angle, radius, u0, u90, .. }) => {
-                let get = |e: &mut Engine, a: &str| attribute(e, &format!("{a}/const")).or_else(|| attribute(e, a)).and_then(|s| parse_value(e, &s));
-                let (Some(a), Some(r)) = (get(self, &angle), get(self, &radius)) else { return p };
-                let (s, c) = a.to_radians().sin_cos();
-                p.plus(u0.scale(c * r)).plus(u90.scale(s * r))
-            }
-            _ => p,
+            return p.plus(unit.scale(v));
         }
+        let Some(Object::PolarTransformer { angle, radius, u0, u90, .. }) = o else { unreachable!("only transformers are connected to the transform signal") };
+        let get = |e: &mut Engine, a: &str| attribute(e, &format!("{a}/const")).or_else(|| attribute(e, a)).and_then(|s| parse_value(e, &s));
+        let (Some(a), Some(r)) = (get(self, &angle), get(self, &radius)) else { return p };
+        let (s, c) = a.to_radians().sin_cos();
+        p.plus(u0.scale(c * r)).plus(u90.scale(s * r))
     }
 
     /// The path and direction slots of a polar transformer; Some when it handles the step.
@@ -669,10 +656,7 @@ impl Engine {
         let Some(Object::PolarTransformer { angle, radius, u0, u90, prev_angle, prev_radius }) = self.object(id).cloned() else { return Ok(None) };
         let a = attribute(self, &angle).and_then(|s| parse_value(self, &s));
         let r = attribute(self, &radius).and_then(|s| parse_value(self, &s));
-        let same = |x: Option<f64>, y: Option<f64>| match (x, y) {
-            (Some(x), Some(y)) => (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0),
-            _ => false,
-        };
+        let same = |x: Option<f64>, y: Option<f64>| x.zip(y).is_some_and(|(x, y)| (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0));
         let mut step = None;
         match token {
             PathToken::MoveTo | PathToken::LineTo => {
@@ -773,18 +757,12 @@ impl Engine {
                 if !a.is_empty() && self.filter_passes(&filter)? {
                     let x = attribute(self, "canvas x").map(|s| self.length(&s).unwrap_or(0.0) / PT).unwrap_or(0.0);
                     let y = attribute(self, "canvas y").map(|s| self.length(&s).unwrap_or(0.0) / PT).unwrap_or(0.0);
-                    let mut stop = false;
-                    if let Some(t) = threshold {
-                        if let Some(v) = attribute(self, &a).and_then(|s| parse_value(self, &s)) {
-                            stop = v >= t;
-                        }
-                    }
-                    if let Some(Object::LabelVisualizer { before, at: here, attribute, .. }) = self.object(id) {
-                        *before = at;
-                        *here = Some(Point::new(x, y));
-                        if stop {
-                            attribute.clear();
-                        }
+                    let stop = threshold.is_some_and(|t| attribute(self, &a).and_then(|s| parse_value(self, &s)).is_some_and(|v| v >= t));
+                    let Some(Object::LabelVisualizer { before, at: here, attribute, .. }) = self.object(id) else { unreachable!("object {id} is the label visualizer") };
+                    *before = at;
+                    *here = Some(Point::new(x, y));
+                    if stop {
+                        attribute.clear();
                     }
                 }
             }
@@ -830,12 +808,14 @@ impl Engine {
                     *sum = s;
                 }
             }
-            (Object::Accumulator { attribute: a, .. }, Slot::Phase) => {
+            // the last: an accumulator's phase (the transformers' slots are called directly, not
+            // by a signal, and no other object connects to a slot it does not have)
+            (o, _) => {
+                let Object::Accumulator { attribute: a, .. } = o else { unreachable!("object {id} has no slot {slot:?}") };
                 if matches!(phase, Some(Phase::BeginSurvey | Phase::BeginVisualization)) {
                     self.reset_accumulator(id, &a);
                 }
             }
-            _ => {}
         }
         Ok(())
     }

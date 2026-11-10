@@ -108,12 +108,9 @@ impl Decimal {
     }
 
     fn trim(&mut self) {
+        // (no leading zeros: the digits come from `{:e}` and rounding carries into a new 1)
         while self.digits.last() == Some(&0) {
             self.digits.pop();
-        }
-        while self.digits.first() == Some(&0) {
-            self.digits.remove(0);
-            self.exponent -= 1;
         }
         if self.digits.is_empty() {
             self.exponent = 0;
@@ -265,16 +262,12 @@ impl NumberFormat {
     }
 
     fn print_decimal(&self, d: Decimal) -> String {
-        match &self.style {
-            Style::Std { lower, upper } => {
-                let lower = lower.unwrap_or(-2);
-                if d.exponent > *upper || d.exponent < lower {
-                    self.sci(d)
-                } else {
-                    self.fixed(d)
-                }
-            }
-            _ => self.fixed(d),
+        let Style::Std { lower, upper } = &self.style else { unreachable!("`relative` prints with a std format") };
+        let lower = lower.unwrap_or(-2);
+        if d.exponent > *upper || d.exponent < lower {
+            self.sci(d)
+        } else {
+            self.fixed(d)
         }
     }
 

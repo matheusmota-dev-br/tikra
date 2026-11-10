@@ -644,14 +644,12 @@ fn tex_samples(a: f64, b: f64, n: usize) -> Option<Vec<f64>> {
     let up = h.value() > 0.0;
     let mut v = Vec::with_capacity(n + 1);
     let mut x = fa;
-    while (up && x.value() <= end) || (!up && x.value() >= end) {
+    // (a guard against a step much shorter than asked: never more than twice the samples)
+    while ((up && x.value() <= end) || (!up && x.value() >= end)) && v.len() <= 2 * n + 2 {
         v.push(x.value());
         x = x.plus(h);
-        if v.len() > 2 * n + 2 {
-            return None;
-        }
     }
-    Some(v)
+    (v.len() <= 2 * n + 2).then_some(v)
 }
 
 /// Where the points of one patch of a type lie in the unit interval or square (`sample in unit
@@ -872,9 +870,7 @@ fn coordinates(e: &mut Engine, list: Vec<Token>) -> Result<(Vec<Coord>, Vec<usiz
                     break;
                 }
             }
-            while j < list.len() && list[j].is_space() {
-                j += 1;
-            }
+            // (the loop above stopped at what is not a space)
             if j < list.len() && list[j].is_char('[') {
                 let mut k = j + 1;
                 let start = k;
@@ -1433,29 +1429,21 @@ fn replace_thisrow_as(tokens: &[Token], t: &Table, row: usize, raw: bool) -> Vec
         let tk = &tokens[i];
         let (is_row, is_no) = (tk.is_cs("thisrow"), tk.is_cs("thisrowno"));
         if is_row || is_no {
-            let mut j = i + 1;
-            while j < tokens.len() && tokens[j].is_space() {
-                j += 1;
-            }
+            // (no space after the command: TeX skips those when it reads it)
+            let j = i + 1;
             let (arg, end) = if j < tokens.len() && matches!(tokens[j], Token::Char(_, Cat::Begin)) {
+                // the group's closing brace (or the end of an unbalanced list)
                 let mut depth = 0;
-                let mut k = j;
-                loop {
-                    match &tokens[k] {
-                        Token::Char(_, Cat::Begin) => depth += 1,
-                        Token::Char(_, Cat::End) => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
+                let k = (j..tokens.len())
+                    .find(|&k| {
+                        match &tokens[k] {
+                            Token::Char(_, Cat::Begin) => depth += 1,
+                            Token::Char(_, Cat::End) => depth -= 1,
+                            _ => {}
                         }
-                        _ => {}
-                    }
-                    k += 1;
-                    if k >= tokens.len() {
-                        break;
-                    }
-                }
+                        depth == 0
+                    })
+                    .unwrap_or(tokens.len());
                 (tex::tokens_to_string(&tokens[j + 1..k.min(tokens.len())]), k + 1)
             } else {
                 (tokens.get(j).map(|t| tex::tokens_to_string(std::slice::from_ref(t))).unwrap_or_default(), j + 1)

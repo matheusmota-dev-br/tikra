@@ -371,9 +371,9 @@ mod tests {
     fn mixes_in_the_first_colors_model() {
         let d = HashMap::new();
         let model = |e: &str| parse(e, &d).unwrap().model;
-        let cmyk = |e: &str| match model(e) {
-            Model::Cmyk(v) => v.map(|x| (x * 1e4).round() / 1e4),
-            m => panic!("{e}: {m:?}"),
+        let cmyk = |e: &str| {
+            let Model::Cmyk(v) = model(e) else { panic!("{e}: not in cmyk") };
+            v.map(|x| (x * 1e4).round() / 1e4)
         };
         // as xcolor's \extractcolorspec gives them
         assert_eq!(model("red!50!cyan"), Model::Rgb);

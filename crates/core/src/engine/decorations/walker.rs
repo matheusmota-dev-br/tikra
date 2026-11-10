@@ -155,12 +155,9 @@ pub fn parse(segs: &[Segment], existing_last: Point) -> Parsed {
     let mut first: Option<Point> = None;
     let mut add = |p: &mut Parsed, queue: &mut Option<Obj>, obj: Obj| {
         for o in queue.take().into_iter().chain(std::iter::once(obj)) {
-            if first.is_none() {
-                first = Some(match o {
-                    Obj::MoveTo(q) => q,
-                    Obj::Line { a, .. } | Obj::Curve { a, .. } | Obj::Close { a, .. } => a,
-                    Obj::End => Point::default(),
-                });
+            // (the ends are pushed after the segments, never through here)
+            if let (None, Obj::MoveTo(q) | Obj::Line { a: q, .. } | Obj::Curve { a: q, .. } | Obj::Close { a: q, .. }) = (first, o) {
+                first = Some(q);
             }
             p.objs.push(o);
         }
@@ -204,7 +201,8 @@ pub fn parse(segs: &[Segment], existing_last: Point) -> Parsed {
 
 /// `\pgf@decorate@inputsegmentobjects@reverse` (`reverse path`).
 pub fn reverse(objs: &[Obj]) -> Vec<Obj> {
-    let body: Vec<Obj> = objs.iter().rev().filter(|o| !matches!(o, Obj::End)).copied().collect();
+    // (the ends come first backwards: nothing follows them, they add nothing)
+    let body: Vec<Obj> = objs.iter().rev().copied().collect();
     let mut out = Vec::new();
     let mut moveto_waiting = true;
     let mut close_waiting = false;
@@ -408,12 +406,8 @@ impl Walker {
         let mut dtm = d;
         self.completed += d;
         self.remaining -= d;
-        let mut guard = 0usize;
-        loop {
-            guard += 1;
-            if guard > 1_000_000 {
-                return;
-            }
+        // (at most so many input segments: a guard)
+        for _ in 0..1_000_000 {
             self.seg_completed += dtm;
             self.seg_remaining -= dtm;
             if self.seg_remaining > EPS {

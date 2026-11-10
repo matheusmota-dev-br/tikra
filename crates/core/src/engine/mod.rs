@@ -163,7 +163,6 @@ pub enum Cmd {
     SetBeamerTemplate,
     FontSize,
     FontSeries,
-    Unsupported,
     OnLayer,
     EndOnLayer,
     NamePrefix,
@@ -1724,12 +1723,6 @@ impl Engine {
                 let r = path::statement(self, "");
                 self.recover(r, t)
             }
-            Cmd::Unsupported => {
-                let name = tex::show_token(t);
-                let rest = if self.picture_depth > 0 { self.skip_statement()? } else { String::new() };
-                self.warn(format!("{name} not supported: '{}' ignored", rest.chars().take(40).collect::<String>().trim()));
-                Ok(())
-            }
             Cmd::Tikz => self.tikz_command(),
             Cmd::Arrow => self.arrow_command(false),
             Cmd::ArrowReversed => self.arrow_command(true),
@@ -2311,13 +2304,15 @@ impl Engine {
                 }
                 Ok(())
             }
-            Cmd::FontSeries => {
+            // the path commands are run above; the overlay commands are read by name, never defined:
+            // what is left is `\bfseries` and the other font series
+            other => {
+                assert!(other == Cmd::FontSeries, "a path or overlay command");
                 if let Token::Cs(n) = t {
                     self.st.font.push_str(&format!("\\{n}"));
                 }
                 Ok(())
             }
-            _ => Ok(()),
         }
     }
 
@@ -2419,40 +2414,25 @@ impl Engine {
                         }
                     }
                 }
-                // the list, and options after it
-                for _ in 0..2 {
-                    match self.tex.next_nonspace() {
-                        Some(b @ Token::Char(_, Cat::Begin)) => {
-                            out.push(b);
-                            out.extend(self.tex.read_group_body()?);
-                            out.push(Token::Char('}', Cat::End));
-                            // options after the list (`{1,2} [count=\i]`)
-                            match self.tex.next_nonspace() {
-                                Some(x) if x.is_char('[') => {
-                                    out.push(x);
-                                    out.extend(self.tex.read_until_char(']', false)?);
-                                    out.push(Token::other(']'));
-                                }
-                                Some(x) => self.tex.back(x),
-                                None => {}
-                            }
-                        }
-                        Some(x) if x.is_char('[') => {
-                            out.push(x);
-                            out.extend(self.tex.read_until_char(']', false)?);
-                            out.push(Token::other(']'));
-                            continue;
-                        }
-                        Some(x) => {
-                            if out.last().is_some_and(|t| matches!(t, Token::Char(_, Cat::End))) {
-                                self.tex.back(x);
-                            } else {
+                // the list (a `{…}` group or one token, a macro), and options after it
+                match self.tex.next_nonspace() {
+                    Some(b @ Token::Char(_, Cat::Begin)) => {
+                        out.push(b);
+                        out.extend(self.tex.read_group_body()?);
+                        out.push(Token::Char('}', Cat::End));
+                        // options after the list (`{1,2} [count=\i]`)
+                        match self.tex.next_nonspace() {
+                            Some(x) if x.is_char('[') => {
                                 out.push(x);
+                                out.extend(self.tex.read_until_char(']', false)?);
+                                out.push(Token::other(']'));
                             }
+                            Some(x) => self.tex.back(x),
+                            None => {}
                         }
-                        None => {}
                     }
-                    break;
+                    Some(x) => out.push(x),
+                    None => {}
                 }
                 out.push(Token::Char(' ', Cat::Space));
                 out.extend(self.next_statement_braced()?);
@@ -3770,8 +3750,8 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
             }
             Layout::Word(i) => Some((labels[*i].width(), labels[*i].height(), labels[*i].depth())),
             Layout::Skip(w) => Some((*w, 0.0, 0.0)),
-            Layout::Space => Some((SPACE, 0.0, 0.0)),
-            _ => None,
+            // the rest is a space: a cell holds pictures, words and glue only
+            _ => Some((SPACE, 0.0, 0.0)),
         }
     };
     let mut out = Vec::new();
@@ -3854,8 +3834,8 @@ fn tables(boxes: &[PictureBox], layout: &[Layout], labels: &[crate::scene::Label
                             cx += label.width();
                         }
                         Layout::Skip(s) => cx += s,
-                        Layout::Space => cx += SPACE,
-                        _ => {}
+                        // the rest is a space: a cell holds pictures, words and glue only
+                        _ => cx += SPACE,
                     }
                 }
                 x += w + 2.0 * TABCOLSEP;

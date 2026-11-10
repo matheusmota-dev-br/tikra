@@ -124,10 +124,8 @@ impl Engine {
     }
 
     fn mapper_output(&mut self, mapper: usize) -> String {
-        match self.datavis.last().and_then(|d| d.objects.get(mapper)) {
-            Some(super::Object::ScalingMapper(m)) => m.output.clone(),
-            _ => String::new(),
-        }
+        let Some(super::Object::ScalingMapper(m)) = self.datavis.last().and_then(|d| d.objects.get(mapper)) else { return String::new() };
+        m.output.clone()
     }
 
     /// `\tikzpointandanchordirection`: the direction of the axis (from its minimum to its maximum)
@@ -230,9 +228,7 @@ impl Engine {
         open.extend(tikra_tokens("]"));
         self.run_tokens(open)?;
         let r = (|| {
-            if let Some(mapper) = self.object_of(&format!("{axis}/scaling mapper")) {
-                self.direction(mapper)?;
-            }
+            self.object_of(&format!("{axis}/scaling mapper")).map(|mapper| self.direction(mapper)).transpose()?;
             let low = key_text(self, "/tikz/data visualization/low").unwrap_or_default();
             let high = key_text(self, "/tikz/data visualization/high").unwrap_or_default();
             let steps = self.axis_steps(axis, &low, &high)?;
@@ -517,20 +513,14 @@ impl Engine {
 
     /// The tick positions (`at=`), empty ones left out.
     fn at_list(&mut self) -> Vec<Vec<Token>> {
-        let v = match self.tex.meaning_of("tikra@dv@at") {
-            Meaning::Macro(m) => tex::substitute(&m.body, &[]),
-            _ => Vec::new(),
-        };
+        let v = if let Meaning::Macro(m) = self.tex.meaning_of("tikra@dv@at") { tex::substitute(&m.body, &[]) } else { Vec::new() };
         let v = self.tex.expand_fully(v).unwrap_or_default();
         split_items(&v).into_iter().filter(|i| !crate::keys::trim(i).is_empty()).collect()
     }
 
     /// `options at=value as [options]`: the values and their options.
     fn style_at_list(&mut self) -> Vec<(f64, Vec<Token>)> {
-        let v = match self.tex.meaning_of("tikra@dv@atoptions") {
-            Meaning::Macro(m) => tex::substitute(&m.body, &[]),
-            _ => Vec::new(),
-        };
+        let v = if let Meaning::Macro(m) = self.tex.meaning_of("tikra@dv@atoptions") { tex::substitute(&m.body, &[]) } else { Vec::new() };
         let mut out = Vec::new();
         for item in split_items(&v) {
             let (pos, opts, _) = parse_tick(&item);
@@ -552,18 +542,17 @@ impl Engine {
             Some(m) => self.direction(m)?,
             None => (Point::new(0.0, 1.0), "south", "north"),
         };
-        // the options of `options at` for this value
-        if let Some(x) = parse_value(self, &pos_text) {
-            let mut mine = Vec::new();
-            for (v, o) in styles {
-                if (v - x).abs() <= 1e-9 * v.abs().max(x.abs()).max(1e-300) || (*v == 0.0 && x.abs() < 1e-12) {
-                    mine.push(Token::other(','));
-                    mine.extend(o.clone());
-                }
+        // the options of `options at` for this value (none for a position that is no number)
+        let x = parse_value(self, &pos_text);
+        let mut mine = Vec::new();
+        for (v, o) in styles {
+            if x.is_some_and(|x| (v - x).abs() <= 1e-9 * v.abs().max(x.abs()).max(1e-300) || (*v == 0.0 && x.abs() < 1e-12)) {
+                mine.push(Token::other(','));
+                mine.extend(o.clone());
             }
-            if !mine.is_empty() {
-                self.dv_keys(mine)?;
-            }
+        }
+        if !mine.is_empty() {
+            self.dv_keys(mine)?;
         }
         let parity = if count % 2 == 1 { "odd" } else { "even" };
         let high = key_text(self, "/tikz/data visualization/high").unwrap_or_default();
@@ -621,10 +610,9 @@ impl Engine {
         let v = parse_value(self, pos).unwrap_or(0.0);
         let mut code = crate::keys::value(&self.tex, "/tikz/data visualization/tick prefix").unwrap_or_default();
         // the typesetter's code with the value, run here so that what it prints is kept
-        match self.tex.meaning_of(&macro_name("/tikz/data visualization/tick typesetter/.@cmd")) {
-            Meaning::Macro(m) => code.extend(tex::substitute(&m.body, &[tex::string_tokens(&num(v))])),
-            _ => code.extend(tikra_tokens(&format!("\\pgfmathprintnumber{{{}}}", num(v)))),
-        }
+        // (a key's code: the library gives it one, `\pgfmathprintnumber{#1}`)
+        let Meaning::Macro(m) = self.tex.meaning_of(&macro_name("/tikz/data visualization/tick typesetter/.@cmd")) else { unreachable!("the tick typesetter is a key's code") };
+        code.extend(tex::substitute(&m.body, &[tex::string_tokens(&num(v))]));
         code.extend(crate::keys::value(&self.tex, "/tikz/data visualization/tick suffix").unwrap_or_default());
         self.tex.define_string("tikra@dv@tickvalue", pos, false);
         // TeX prints the number inside the node: its style (a number format) applies

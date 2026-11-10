@@ -113,14 +113,8 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame) -> Result<(),
     // the labels, in `every contour label`
     e.begin_group();
     let r = (|| -> Result<(), Error> {
-        let exp = {
-            let m = f.meta[0].abs().max(f.meta[1].abs());
-            if m > 0.0 && m.is_finite() {
-                m.log10().floor()
-            } else {
-                0.0
-            }
-        };
+        // (the axis' meta range is never empty: an exponent of 0 for a range at 0 is a guard)
+        let exp = Some(f.meta[0].abs().max(f.meta[1].abs()).log10().floor()).filter(|x| x.is_finite()).unwrap_or(0.0);
         e.tex.set_meaning(&crate::tex::Token::cs("pgfplotspointmetarangeexponent"), super::super::macro_from(&super::super::pgf_number(exp)), false);
         e.st.key_path = "/tikz".into();
         e.process_keys(toks("/pgfplots/contour/every contour label"), Some("/tikz"))?;

@@ -83,10 +83,8 @@ impl Builder {
     fn tangent(&self) -> (Point, Point) {
         let last = self.point();
         let n = self.segs.len();
-        let end = |s: &Segment| match s {
-            Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) => Some(*p),
-            Segment::Close => None,
-        };
+        // (a line after a close starts with a move: the segment before a line has an end)
+        let end = |s: &Segment| if let Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p) = s { Some(*p) } else { None };
         let from = match self.segs.last() {
             Some(Segment::CurveTo(_, c2, _)) => Some(*c2),
             Some(Segment::LineTo(_)) if n >= 2 => end(&self.segs[n - 2]),
@@ -166,32 +164,26 @@ fn lindenmayer_operation(e: &mut Engine, b: &mut Builder, depth: Option<usize>, 
     }
     let segs = e.lindenmayer_path(b.point())?;
     for s in segs {
-        match s {
-            Segment::MoveTo(p) => {
-                b.segs.push(s);
-                b.subpath_start = Some(p);
-                b.current = Some(Coord { p, node: None });
-            }
-            Segment::LineTo(p) => {
-                let from = b.point();
-                b.segs.push(s);
-                b.last = Some(OnPath::Segment(from, None, p));
-                b.current = Some(Coord { p, node: None });
-            }
-            _ => b.segs.push(s),
+        let (Segment::MoveTo(p) | Segment::LineTo(p)) = s else { unreachable!("an L-system moves and draws lines only") };
+        if matches!(s, Segment::MoveTo(_)) {
+            b.subpath_start = Some(p);
+        } else {
+            b.last = Some(OnPath::Segment(b.point(), None, p));
         }
+        b.segs.push(s);
+        b.current = Some(Coord { p, node: None });
     }
     Ok(())
 }
 
 /// `insert path={…}` in options just read: the path operations go on from there.
 fn insert_path(e: &mut Engine) {
-    if let Meaning::Macro(m) = e.tex.meaning_of("tikra@insertpath") {
-        if !m.body.is_empty() {
-            let v = tex::substitute(&m.body, &[]);
-            e.tex.define_string("tikra@insertpath", "", false);
-            e.tex.push_tokens(v);
-        }
+    // (the key defines the macro, empty at first)
+    let Meaning::Macro(m) = e.tex.meaning_of("tikra@insertpath") else { return };
+    if !m.body.is_empty() {
+        let v = tex::substitute(&m.body, &[]);
+        e.tex.define_string("tikra@insertpath", "", false);
+        e.tex.push_tokens(v);
     }
 }
 
@@ -618,10 +610,10 @@ fn operations_in(e: &mut Engine, b: &mut Builder, depth: Option<usize>) -> Resul
                 // while the path goes on from where it ended
                 let local = e.st.current_point_local;
                 e.end_group();
-                if let Some(c) = b.groups.pop() {
-                    if local {
-                        b.current = c;
-                    }
+                // (a `}` of the path always closes one of its `{`: the reader stops at the end of the
+                // group the statement is in)
+                if let Some(c) = b.groups.pop().filter(|_| local) {
+                    b.current = c;
                 }
             }
             Token::Char(c, Cat::Letter) => {
@@ -960,10 +952,8 @@ fn apply_operation(e: &mut Engine, b: &mut Builder, op: Option<String>, to_opts:
                 _ => a,
             };
             line_to(e, b, r.clone());
-            let end = match b.last {
-                Some(OnPath::Segment(_, _, p)) => p,
-                _ => b.point(),
-            };
+            // (a line from a point makes a segment)
+            let Some(OnPath::Segment(_, _, end)) = b.last else { unreachable!("a line to the target after the corner") };
             // pos runs along both legs: 0.5, the default, is the corner
             b.last = Some(OnPath::Corner(start, corner, end));
             snake(e, b, first)?;
@@ -1735,7 +1725,7 @@ fn svg_data(e: &Engine, b: &mut Builder, text: &str) {
         let rel = cmd.is_ascii_lowercase();
         let base = if rel { last } else { Point::default() };
         let pt = |i: &mut usize| -> Option<Point> { Some(Point::new(num(i)?, num(i)?).plus(base)) };
-        let before = i;
+        // (each command reads its numbers, or ends the data)
         match cmd.to_ascii_uppercase() {
             'M' => {
                 let Some(p) = pt(&mut i) else { break };
@@ -1797,9 +1787,6 @@ fn svg_data(e: &Engine, b: &mut Builder, text: &str) {
         }
         if !matches!(cmd.to_ascii_uppercase(), 'Q' | 'T') {
             prev_quad = None;
-        }
-        if i == before {
-            break;
         }
         b.current = Some(Coord { p: to(last), node: None });
         b.last = Some(OnPath::Point(to(last)));

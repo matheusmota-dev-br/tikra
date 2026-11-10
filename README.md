@@ -2,6 +2,8 @@
 
 # tikra
 
+[![coverage: every line runs in the tests](https://github.com/matheusmota-dev-br/tikra/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/matheusmota-dev-br/tikra/actions/workflows/coverage.yml)
+
 tikra converts TikZ and pgfplots figures to SVG and PNG, with no TeX installation, no fonts on the system and no external processes. It reimplements TikZ, pgf and pgfplots in Rust, and labels are set by [mathra](https://github.com/matheusmota-dev-br/mathra) in Latin Modern, TeX's own Computer Modern. It runs in JavaScript, Python, Rust and the terminal, and every one gives the same SVG, byte for byte. **[Try it in the browser](https://matheusmota-dev-br.github.io/tikra/)** · **[See the gallery](https://matheusmota-dev-br.github.io/tikra/gallery.html)** · **[Watch the 60-second demo](https://youtu.be/_TRXke0q16s)** · **[See how it grew](https://matheusmota-dev-br.github.io/tikra/changelog.html)** ([CHANGELOG.md](https://github.com/matheusmota-dev-br/tikra/blob/main/CHANGELOG.md)).
 
 <p align="center"><a href="https://youtu.be/_TRXke0q16s"><img src="https://img.youtube.com/vi/_TRXke0q16s/maxresdefault.jpg" alt="tikra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
@@ -165,7 +167,7 @@ The corpus now holds large figures too (3D surfaces of a thousand cells, fractal
 
 ```console
 $ cargo test                                  # every test
-$ cargo llvm-cov --workspace --summary-only   # coverage (100% of lines)
+$ scripts/coverage.sh                          # coverage: every line runs in the tests
 $ cargo clippy --all-targets -- -D warnings
 $ npm/build.sh && npm/test/run.sh             # the npm package, packed and installed as users get it
 $ site/build.sh                               # the playground: then open site/index.html

@@ -32,10 +32,8 @@ impl Num {
         let neg = m.starts_with('-');
         let m = m.trim_start_matches('-');
         let (int, frac) = m.split_once('.').unwrap_or((m, ""));
+        // (at most 17 digits: the shortest form of an f64)
         let digits = format!("{int}{frac}");
-        if digits.len() > 30 {
-            return None;
-        }
         let n: i128 = digits.parse().ok()?;
         Some(Num { n: if neg { -n } else { n }, p: e - frac.len() as i32 }.trimmed())
     }
@@ -77,16 +75,13 @@ impl Num {
     /// The mantissa scaled to `10^shift` times [1, 10), read as a dimension (sp), and the power of
     /// ten that goes with it.
     fn scaled(self, shift: i32) -> (i128, i32) {
-        if self.n == 0 {
-            return (0, 0);
-        }
+        // (never of zero: `plus` and `over` answer that themselves)
         let e = self.exponent() - shift;
-        // the mantissa is n * 10^(p - e): a decimal with k = e - p digits after the point
+        // the mantissa is n * 10^(p - e): a decimal with k = e - p digits after the point (k is
+        // at most the number of digits, a handful)
         let k = e - self.p;
         let sp = if k <= 0 {
             self.n.abs() * 10i128.pow((-k) as u32) * UNITY
-        } else if k > 30 {
-            0
         } else {
             // TeX rounds the decimal digits to the nearest sp
             let d = 10i128.pow(k as u32);
@@ -158,10 +153,8 @@ fn dimen_sp(n: i128, p: i32) -> i128 {
     if p >= 0 {
         return n * 10i128.pow(p as u32) * UNITY;
     }
+    // (at most five decimals: the square root's digits)
     let k = (-p) as u32;
-    if k > 30 {
-        return 0;
-    }
     let d = 10i128.pow(k);
     let (whole, frac) = (n / d, n % d);
     let digits: Vec<i128> = (0..k).map(|i| frac / 10i128.pow(k - 1 - i) % 10).take(17).collect();
@@ -189,13 +182,8 @@ pub fn sqrt(v: f64) -> f64 {
     let x = Num::printed(dimen_sp(num.n, num.p - e), 0);
     // the digits of x in pairs from its whole part: floor(sqrt(x * 10^10)) / 10^5
     let big = x.n * 10i128.pow((x.p + 10).max(0) as u32);
-    let mut root = (big as f64).sqrt() as i128;
-    while root * root > big {
-        root -= 1;
-    }
-    while (root + 1) * (root + 1) <= big {
-        root += 1;
-    }
+    // big is below 2^53 (x below 10^4, five decimals): f64's square root floors exactly
+    let root = (big as f64).sqrt() as i128;
     let r = if e % 2 != 0 {
         let sp = dimen_sp(root, -5);
         let (whole, fraction) = if e > 0 { (3, 10635) } else { (0, 20724) };
@@ -225,13 +213,9 @@ fn scan_pt(text: &str) -> i64 {
 
 /// `\dimen=<decimal>\dimen`: TeX's product of a dimension by a decimal factor.
 fn times(factor: &str, sp: i64) -> i64 {
-    let (neg, t) = match factor.strip_prefix('-') {
-        Some(t) => (true, t),
-        None => (false, factor),
-    };
-    let (i, f) = t.split_once('.').unwrap_or((t, ""));
+    // (the factors here are never negative)
+    let (i, f) = factor.split_once('.').unwrap_or((factor, ""));
     let digits: Vec<u8> = f.bytes().filter(u8::is_ascii_digit).map(|b| b - b'0').collect();
-    let sp = if neg { -sp } else { sp };
     i.parse::<i64>().unwrap_or(0) * sp + xn_over_d(sp, round_decimals(&digits), 65536).0
 }
 
@@ -250,18 +234,15 @@ fn reciprocal(text: &str) -> i64 {
         // an integer: TeX's division
         return 65536 / int.max(1);
     }
-    let digits = if int > 100 { format!("{a}{}", &b[..3]) } else { format!("{a}{}", &b[..5]) };
+    // (the numbers here are below 10: pgf's branch for those above 100 is not needed)
+    let digits = format!("{a}{}", &b[..5]);
     let mut cb = 1_000_000_000 / digits.parse::<i64>().unwrap_or(1).max(1);
     let ca = cb / 10000;
     let x = ca * 65536;
     cb -= ca * 10000;
     let mut y = cb * 65536;
-    if int > 100 {
-        y /= 1_000_000;
-    } else {
-        for _ in 0..4 {
-            y = times(".1", y);
-        }
+    for _ in 0..4 {
+        y = times(".1", y);
     }
     x + y
 }
@@ -269,10 +250,8 @@ fn reciprocal(text: &str) -> i64 {
 /// pgf's fixed point `exp` (`\pgfmathexp@`): the series added in sp until a term adds nothing,
 /// and the reciprocal for a negative argument.
 fn basic_exp(text: &str) -> i64 {
+    // (from above -ln 10: `exp` takes the powers of ten out first)
     let arg = scan_pt(text);
-    if arg < -9 * 65536 {
-        return 1;
-    }
     let factor = number(arg.abs());
     let (mut x, mut term, mut last, mut n) = (65536i64, 65536i64, 65536i64, 1i64);
     loop {

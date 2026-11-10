@@ -851,6 +851,17 @@ mod tests {
         (p.x - x * PT).abs() < 1e-3 * PT && (p.y - y * PT).abs() < 1e-3 * PT
     }
 
+    /// Keys without an engine of their own draw arrow tips with plain values (the engine's keys,
+    /// the only ones that draw a shape with a tip, evaluate the tip's options).
+    #[test]
+    fn keys_draw_arrow_tips_with_plain_values() {
+        let mut k = TableKeys::default();
+        let (length, paths) = k.tip_shapes("stealth", 0.4 * PT).expect("a known tip");
+        assert!(length > 0.0, "{length}");
+        assert!(!paths.is_empty() && paths.iter().all(|(segments, filled, _)| *filled && !segments.is_empty()), "{paths:?}");
+        assert!(k.tip_shapes("no such tip", 0.4 * PT).is_none());
+    }
+
     #[test]
     fn rectangle_and_circle_anchors() {
         let mut k = TableKeys::default();
@@ -911,6 +922,20 @@ mod tests {
         }
         let c = shape("cylinder", 10.0, 7.0, 2.0, &mut k);
         assert!(c.anchor("top").unwrap().x > c.anchor("before top").unwrap().x);
+    }
+
+    /// Keys a shape reads that the table leaves at their defaults: no symbol text, no code, no
+    /// pointer, no text, no length written out (none of these defaults is reached from a document,
+    /// whose keys are the engine's).
+    #[test]
+    fn shapes_with_keys_at_their_defaults() {
+        let mut k = TableKeys::default();
+        for name in ["and gate IEC", "generic circle IEC", "rectangle callout", "arrow box", "rounded rectangle"] {
+            let g = shape(name, 10.0, 7.0, 2.0, &mut k);
+            assert!(!g.paths.is_empty(), "{name}");
+            let (n, s) = (g.anchor("north").unwrap(), g.anchor("south").unwrap());
+            assert!(n.y > s.y + 10.0 * PT, "{name}: {n:?} {s:?}");
+        }
     }
 
     #[test]

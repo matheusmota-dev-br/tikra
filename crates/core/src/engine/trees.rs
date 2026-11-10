@@ -102,8 +102,8 @@ impl Engine {
                         Some(t) if t.is_char('[') => opts.extend(self.tex.read_until_char(']', false)?),
                         Some(t) if t.is_char('i') => match self.tex.get_token() {
                             Some(n) if n.is_char('n') => break,
-                            Some(n) => self.tex.back(n),
-                            None => {}
+                            // not `in`: what follows is read again (the end of the input stops below)
+                            n => n.into_iter().for_each(|n| self.tex.back(n)),
                         },
                         Some(t @ Token::Cs(_)) => vars.push(t),
                         Some(_) => {}
@@ -375,9 +375,4 @@ fn split_first_word(v: &[Token]) -> (String, Vec<Token>) {
         i += 1;
     }
     (word, v[i..].to_vec())
-}
-
-#[allow(dead_code)]
-fn show(v: &[Token]) -> String {
-    tex::tokens_to_string(v)
 }

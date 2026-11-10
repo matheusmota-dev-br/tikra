@@ -153,10 +153,9 @@ impl Engine {
                 let place = t.compose(&Transform::scaling(BP, BP)).compose(&Transform::translation(-c.x, -c.y));
                 let cells = f.cells(&place);
                 if self.counts_for_size() {
-                    for item in &cells {
-                        if let Item::Path { segments, .. } = item {
-                            self.canvas.include_path(segments);
-                        }
+                    // the cells are all paths
+                    for segments in cells.iter().filter_map(|i| if let Item::Path { segments, .. } = i { Some(segments) } else { None }) {
+                        self.canvas.include_path(segments);
                     }
                 }
                 self.canvas.items.extend(cells);

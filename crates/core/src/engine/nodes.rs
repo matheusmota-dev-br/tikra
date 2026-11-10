@@ -590,20 +590,20 @@ impl Engine {
                 out.push(t);
                 if !picture {
                     let mut name = Vec::new();
-                    if let Some(open) = self.tex.get_token_until(depth) {
-                        if matches!(open, Token::Char(_, tex::Cat::Begin)) {
-                            while let Some(x) = self.tex.get_token_until(depth) {
-                                let end = matches!(x, Token::Char(_, tex::Cat::End));
-                                name.push(x);
-                                if end {
-                                    break;
-                                }
+                    // the \relax put after the text follows \begin at the latest
+                    let open = self.tex.get_token_until(depth).expect("a token after \\begin");
+                    if matches!(open, Token::Char(_, tex::Cat::Begin)) {
+                        while let Some(x) = self.tex.get_token_until(depth) {
+                            let end = matches!(x, Token::Char(_, tex::Cat::End));
+                            name.push(x);
+                            if end {
+                                break;
                             }
                         }
-                        picture = tex::tokens_to_string(&name) == "tikzpicture}";
-                        out.push(open);
-                        out.extend(name);
                     }
+                    picture = tex::tokens_to_string(&name) == "tikzpicture}";
+                    out.push(open);
+                    out.extend(name);
                 }
                 if picture {
                     while let Some(x) = self.tex.get_token_until(depth) {
@@ -1203,19 +1203,16 @@ impl Engine {
         let mut v = keys::trim(&spec).to_vec();
         let mut opts = Vec::new();
         if v.first().is_some_and(|t| t.is_char('[')) {
+            // the `]` that closes the first `[`
             let mut depth = 0usize;
-            let mut end = None;
-            for (i, t) in v.iter().enumerate() {
+            let end = v.iter().position(|t| {
                 if t.is_char('[') {
                     depth += 1;
                 } else if t.is_char(']') {
                     depth -= 1;
-                    if depth == 0 {
-                        end = Some(i);
-                        break;
-                    }
                 }
-            }
+                depth == 0
+            });
             let Some(end) = end else {
                 self.warn(format!("label '{}': options without ']': label ignored", tex::tokens_to_string(&v)));
                 return Ok(Vec::new());
@@ -1467,23 +1464,20 @@ fn whole_textcolor(t: &str) -> Option<(String, String)> {
         let mut depth = 1;
         // (`\{` and `\}` are characters, not braces)
         let mut escaped = false;
-        for (i, ch) in s2.char_indices() {
+        // (the text is made of TeX's tokens, whose braces pair up)
+        let (i, _) = s2.char_indices().find(|&(_, ch)| {
             if std::mem::take(&mut escaped) {
-                continue;
+                return false;
             }
             match ch {
                 '\\' => escaped = true,
                 '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some((s2[..i].to_string(), i + 2));
-                    }
-                }
+                '}' => depth -= 1,
                 _ => {}
             }
-        }
-        None
+            depth == 0
+        })?;
+        Some((s2[..i].to_string(), i + 2))
     };
     // `\color{…}` first: the rest of the text in that color
     if let Some(rest) = t.trim().strip_prefix("\\color").map(str::trim_start) {
@@ -1635,10 +1629,8 @@ impl Engine {
         while let Some(i) = rest.find("\\textcolor{") {
             out.push_str(&rest[..i]);
             let after = &rest[i + "\\textcolor{".len()..];
-            let Some(end) = after.find('}') else {
-                out.push_str(&rest[i..]);
-                return out;
-            };
+            // the text is made of TeX's tokens, whose braces pair up: the color's `{` is closed
+            let end = after.find('}').expect("the color of a \\textcolor is closed");
             let spec = &after[..end];
             let body_start = &after[end + 1..];
             // the braced text after the color; unbraced, its one character or command (`\textcolor{red}x`)

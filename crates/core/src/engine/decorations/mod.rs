@@ -205,10 +205,7 @@ fn boolean(e: &mut Engine, v: &Option<Vec<Token>>) -> Result<bool, Error> {
 }
 
 pub fn current_name(e: &Engine) -> String {
-    let name = keys::value(&e.tex, "pgfkeyscurrentname").or_else(|| match e.tex.meaning_of("pgfkeyscurrentname") {
-        Meaning::Macro(m) => Some(tex::substitute(&m.body, &[])),
-        _ => None,
-    });
+    let name = keys::value(&e.tex, "pgfkeyscurrentname").or_else(|| library::macro_body(e, "pgfkeyscurrentname"));
     name.map(|v| tex::tokens_to_string(&v)).unwrap_or_default()
 }
 
@@ -898,13 +895,13 @@ impl Engine {
             super::arrows::tip_items(self, &user, &spec, Point::default(), d, &stroke, &mut tips);
             let t = self.st.transform;
             for item in tips {
-                if let Item::Path { segments, fill, stroke } = item {
-                    let segments = transform_segments(&segments, &t);
-                    if self.counts_for_size() {
-                        self.canvas.include_path(&segments);
-                    }
-                    self.canvas.push(Item::Path { segments, fill, stroke });
+                // (tips are paths)
+                let Item::Path { segments, fill, stroke } = item else { continue };
+                let segments = transform_segments(&segments, &t);
+                if self.counts_for_size() {
+                    self.canvas.include_path(&segments);
                 }
+                self.canvas.push(Item::Path { segments, fill, stroke });
             }
             Ok(())
         })();

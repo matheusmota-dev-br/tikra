@@ -203,10 +203,9 @@ pub(super) fn draw_axis(e: &mut Engine, s: &Setup) -> Result<(), Error> {
         let c = axis_char(a);
         let styles = format!("/pgfplots/every tick label,/pgfplots/every {c} tick label");
         let off = tick_offset(e, a);
-        let sloped = match e.tex.meaning_of(&crate::keys::macro_name(&format!("/pgfplots/every {c} tick label/.@cmd"))) {
-            crate::tex::Meaning::Macro(m) => crate::tex::tokens_to_string(&crate::tex::substitute(&m.body, &[])).contains("sloped"),
-            _ => false,
-        };
+        // the style is always defined (pgfplots' defaults)
+        let sloped = matches!(e.tex.meaning_of(&crate::keys::macro_name(&format!("/pgfplots/every {c} tick label/.@cmd"))),
+            crate::tex::Meaning::Macro(m) if crate::tex::tokens_to_string(&crate::tex::substitute(&m.body, &[])).contains("sloped"));
         for (k, t) in list.iter().enumerate() {
             let (p, out) = if a == 0 {
                 let p = f.at([*t, ymax, 0.0]);

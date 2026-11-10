@@ -47,7 +47,6 @@ const COMMANDS: &[&str] = &[
     "tikra@dv@printnumber",
     "tikra@dv@colorseries",
     "tikra@dv@stylesignal",
-    "tikra@dv@adddata",
     "tikra@dv@about",
     "tikra@dv@pi",
     "tikra@dv@finish",
@@ -227,9 +226,7 @@ pub fn define(e: &mut Engine) {
     while let Some(t) = lexer.get_token() {
         tokens.push(t);
     }
-    if let Err(err) = e.run_tokens(tokens) {
-        e.warn(format!("internal: data visualization definitions failed: {err}"));
-    }
+    e.run_tokens(tokens).expect("the data visualization definitions run");
     e.st.key_path = old;
 }
 
@@ -256,13 +253,8 @@ pub fn group(v: Vec<Token>) -> Vec<Token> {
 
 /// A macro's expansion as text (empty when undefined).
 pub fn macro_text(e: &mut Engine, name: &str) -> String {
-    match e.tex.meaning_of(name) {
-        Meaning::Macro(m) => {
-            let v = tex::substitute(&m.body, &[]);
-            e.tex.expand_to_string(v).unwrap_or_default().trim().to_string()
-        }
-        _ => String::new(),
-    }
+    let Meaning::Macro(m) = e.tex.meaning_of(name) else { return String::new() };
+    e.tex.expand_to_string(tex::substitute(&m.body, &[])).unwrap_or_default().trim().to_string()
 }
 
 /// A key's value, expanded, as text; None when the key has no value.
@@ -366,10 +358,6 @@ impl Engine {
             "tikzdvdeclarestylesheetcolorseries" => self.declare_color_series(),
             "pgfmathapproxequalto" => self.approx_equal_command(),
             "tikra@dv@stylesignal" => self.emit(Signal::Style, None),
-            "tikra@dv@adddata" => {
-                let code = self.argument()?;
-                self.add_data_call(code)
-            }
             "pgfkeysaddvalue" => {
                 let key = self.argument_string()?;
                 let pre = self.argument()?;
@@ -395,12 +383,11 @@ impl Engine {
             "tikra@dv@addentry" => {
                 let legend = self.argument_string()?;
                 let options = self.argument()?;
-                if let Some(id) = self.object_of(&format!("{}/{legend}/obj", keys::DV)) {
-                    let mut entry = vec![Token::cs("tikra@dv@legendentry")];
-                    entry.extend(group(options));
-                    self.call(id, "add entry", vec![entry])?;
-                }
-                Ok(())
+                // (`new legend entry` made the legend before the survey)
+                let id = self.object_of(&format!("{}/{legend}/obj", keys::DV)).expect("the legend of an entry is made before the survey");
+                let mut entry = vec![Token::cs("tikra@dv@legendentry")];
+                entry.extend(group(options));
+                self.call(id, "add entry", vec![entry])
             }
             "tikra@dv@legendentry" => {
                 let options = self.argument()?;
@@ -408,12 +395,12 @@ impl Engine {
             }
             "tikra@dv@sample" => self.legend_sample(false),
             "tikra@dv@rectsample" => self.legend_sample(true),
-            "tikra@dv@labeldraw" => {
+            // the last of the commands: `\tikra@dv@labeldraw`
+            _ => {
                 let name = self.argument_string()?;
                 let options = self.argument()?;
                 self.draw_label_in_data(&name, options)
             }
-            _ => Ok(()),
         }
     }
 
@@ -490,12 +477,10 @@ impl Engine {
                 if made(self, &key) {
                     return Ok(());
                 }
-                let id = self.create("count", &[t(&format!("set/{name}/count"))])?;
-                store(self, &key, id);
-                if let Some(id) = id {
-                    let filter = tikra_tokens(&format!("\\pgfdvvisualizerfilter{{{name}}}"));
-                    self.call(id, "set filter", vec![filter])?;
-                }
+                let Some(id) = self.create("count", &[t(&format!("set/{name}/count"))])? else { unreachable!("a count is always made") };
+                store(self, &key, Some(id));
+                let filter = tikra_tokens(&format!("\\pgfdvvisualizerfilter{{{name}}}"));
+                self.call(id, "set filter", vec![filter])?;
             }
             "label" => {
                 let name = arg(self)?;
@@ -504,10 +489,8 @@ impl Engine {
             }
             "legend" => {
                 let name = arg(self)?;
+                // (made once: `new legend` asks for it once per data visualization)
                 let base = format!("{dv}/{name}");
-                if made(self, &format!("{base}/obj")) {
-                    return Ok(());
-                }
                 let args: Vec<Vec<Token>> = ["@columns or rows", "@ideal", "max entries", "@strategy"].iter().map(|k| t(&text(self, &format!("{base}/{k}")))).collect();
                 let id = self.create("legend", &args)?;
                 store(self, &format!("{base}/obj"), id);
@@ -566,13 +549,11 @@ impl Engine {
             self.facts.data_visualizations += 1;
         }
         let r = self.datavisualization_body();
-        let dv = self.datavis.pop();
-        if let Some(dv) = dv {
-            self.update_bounding_box(false);
-            let (lo, hi) = dv.outer_box;
-            for p in [lo, hi].into_iter().flatten() {
-                self.canvas.include(p);
-            }
+        let dv = self.datavis.pop().expect("the data visualization pushed above");
+        self.update_bounding_box(false);
+        let (lo, hi) = dv.outer_box;
+        for p in [lo, hi].into_iter().flatten() {
+            self.canvas.include(p);
         }
         self.end_group();
         r
@@ -718,11 +699,9 @@ impl Engine {
                         define = true;
                     }
                     Some(x) if x.is_char('+') => {
-                        if let Some(y) = self.tex.get_token() {
-                            if !y.is_char('=') {
-                                self.tex.back(y);
-                            }
-                        }
+                        // `+=`, or `+` alone: what follows it is read again
+                        let y = self.tex.get_token().filter(|y| !y.is_char('='));
+                        y.into_iter().for_each(|y| self.tex.back(y));
                         define = true;
                     }
                     Some(x) => self.tex.back(x),
@@ -834,7 +813,7 @@ impl Engine {
         self.add_data_call(call)
     }
 
-    /// `\tikra@dv@adddata{call}`: the call adding data is run, or kept in the group being defined.
+    /// The call adding data is run, or kept in the group being defined.
     pub fn add_data_call(&mut self, call: Vec<Token>) -> Result<(), Error> {
         match key_text(self, "/pgf/data/store in group").filter(|s| !s.is_empty()) {
             Some(name) => {
@@ -968,11 +947,10 @@ impl Engine {
     fn read_method(&mut self) -> Result<(String, Vec<Vec<Token>>), Error> {
         match self.tex.next_nonspace() {
             Some(t) if t.is_char('.') => {}
-            Some(t) => {
-                self.tex.back(t);
+            other => {
+                other.into_iter().for_each(|t| self.tex.back(t));
                 return Ok((String::new(), Vec::new()));
             }
-            None => return Ok((String::new(), Vec::new())),
         }
         let mut name = String::new();
         while let Some(t) = self.tex.get_token() {
@@ -1013,10 +991,8 @@ impl Engine {
 
     /// The object a macro holds.
     pub fn object_in(&mut self, name: &str) -> Option<usize> {
-        match self.tex.meaning_of(name) {
-            Meaning::Macro(m) => handle_id(&tex::substitute(&m.body, &[])),
-            _ => None,
-        }
+        let Meaning::Macro(m) = self.tex.meaning_of(name) else { return None };
+        handle_id(&tex::substitute(&m.body, &[]))
     }
 
     // ---------------------------------------------------------------- bounding boxes

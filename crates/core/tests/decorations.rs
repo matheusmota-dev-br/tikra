@@ -413,3 +413,18 @@ fn snakes_decorate_each_line_of_the_path() {
     let p = ends(&s[after + 1..]);
     assert!(near(p[0], 0.0, 0.0) && near(*p.last().unwrap(), 2.0, 1.0) && p.len() > 5, "{s:?}");
 }
+
+/// Other forms in a text's format: `\color.` (xcolor's current color) and `\color` with a
+/// one-character name, a `\colorbox` (another command, not a `\color`), and a color whose spec does
+/// not expand: the letters are drawn, black, and nothing of the format is set as text.
+#[test]
+fn text_along_path_other_color_forms() {
+    for format in [r"\color.", r"\color r", r"\colorbox{yellow}", r"\color{\csname}"] {
+        let (items, _) = picture(&format!(r"\path[decorate, decoration={{text along path, text={{|{format}|ab}}}}] (0,0) -- (3,0);"));
+        let texts: Vec<_> = items
+            .iter()
+            .filter_map(|i| if let Item::Text { label, .. } = i { Some((label.color.hex(), label.lines.iter().map(|b| b.items.len()).sum::<usize>())) } else { None })
+            .collect();
+        assert_eq!(texts, [("#000000".to_string(), 1), ("#000000".to_string(), 1)], "{format}");
+    }
+}
