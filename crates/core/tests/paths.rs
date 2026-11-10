@@ -141,6 +141,9 @@ fn let_gives_points_in_the_scopes_coordinates() {
     // a name in braces is expanded
     let q = point(r"\def\nm{a} \path let \p{\nm} = (1,2) in (\p{a}) coordinate (C);", "C");
     assert!(close_to((q.x, q.y), (1.0, 2.0)), "{q:?}");
+    // and a name that is one control word, as a macro's argument is (`\p\i` in a loop)
+    let q = point(r"\def\i{1} \path let \p\i = (1,2) in (\x\i,\y\i) coordinate (C);", "C");
+    assert!(close_to((q.x, q.y), (1.0, 2.0)), "{q:?}");
 }
 
 #[test]
