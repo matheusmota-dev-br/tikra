@@ -441,11 +441,13 @@ impl Engine {
         let r = self.node_in_group(spec, &outer);
         // `behind path`: drawn before the path the node is on
         let behind = matches!(self.tex.meaning_of("tikra@behindpath"), tex::Meaning::Macro(m) if tex::tokens_to_string(&tex::substitute(&m.body, &[])).trim() == "1");
+        // (`overlay` among the node's own options ends with its group)
+        let overlay = self.canvas.overlay;
         self.end_group();
         let (mut items, labels) = r?;
-        // animated shifts of the node: the picture makes room for it at each
+        // animated shifts of the node: the picture makes room for it at each, unless it is an overlay
         let shifts: Vec<Point> = self.anim_shifts.drain(shifts_before..).collect();
-        if let (false, Some(info)) = (shifts.is_empty(), self.last_node.clone()) {
+        if let (false, false, Some(info)) = (shifts.is_empty(), overlay, self.last_node.clone()) {
             let ends: Vec<Point> = ["north", "south", "east", "west"].iter().filter_map(|a| info.anchor(a)).collect();
             if self.counts_for_size() {
                 for d in shifts {
