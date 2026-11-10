@@ -93,8 +93,11 @@ fn locate(line: &[Point], p: Point) -> (usize, f64) {
     (best.0, best.1)
 }
 
-/// A polyline cut at points on it, in its own order.
+/// A polyline cut at points on it, in its own order: none for an empty path.
 fn cut(line: &[Point], points: &[Point]) -> Vec<Vec<Point>> {
+    if line.is_empty() {
+        return Vec::new();
+    }
     let mut at: Vec<(usize, f64, Point)> = points
         .iter()
         .map(|p| {
@@ -392,7 +395,8 @@ pub fn intersection_segments(e: &mut Engine, v: Option<Vec<Token>>) -> Result<()
         let line: Vec<Point> = if reverse { line.into_iter().rev().collect() } else { line };
         for (k, p) in line.iter().enumerate() {
             let at = format!("(tikra cs:{}pt,{}pt)", p.x / PT, p.y / PT);
-            if k == 0 && !joined {
+            // nothing to join to (an empty path before): the piece starts the path
+            if k == 0 && (!joined || out.is_empty()) {
                 out.extend(toks(&format!(" {at}")));
             } else {
                 out.extend(toks(&format!(" -- {at}")));
