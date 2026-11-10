@@ -1,4 +1,5 @@
-# Builds the playground in site/ with the wasm crate and publishes it on GitHub Pages.
+# Builds the playground in site/ with the wasm crate and publishes it on GitHub Pages, with the latest
+# coverage report (the coverage workflow's artifact) at /coverage/.
 # The repository needs Settings → Pages → Source: "GitHub Actions".
 name: pages
 
@@ -6,9 +7,14 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # a new coverage report
+  workflow_run:
+    workflows: [coverage]
+    types: [completed]
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -33,6 +39,15 @@ jobs:
         with:
           node-version: 22
       - run: site/build.sh
+      # the report of the latest coverage run that made one (it runs four times a day)
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh run list -R "$GITHUB_REPOSITORY" --workflow coverage.yml --branch main --limit 10 --json databaseId,conclusion \
+              --jq '.[] | select(.conclusion == "success" or .conclusion == "failure") | .databaseId'); do
+            gh run download "$id" -R "$GITHUB_REPOSITORY" -n coverage -D site/coverage && break
+          done
+          ls site/coverage/badge.json || echo "no coverage report yet"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

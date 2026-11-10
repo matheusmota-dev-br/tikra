@@ -70,9 +70,12 @@ Unit tests, inside the modules: `describe.rs` (numbers, text and math as spoken,
 ## Coverage
 
 Every line of the Rust crates runs in the tests: `scripts/coverage.sh` runs them all under
-`cargo llvm-cov` and fails if any line of `crates/` is left out (`--show-missing-lines`). CI runs it
-on every push to main, in its own workflow (`.github/workflows/coverage.yml`), whose result is the README's
-coverage badge. The Python module is out of it: pytest covers it, not llvm-cov.
+`cargo llvm-cov` and fails if any line of `crates/` is left out (`--show-missing-lines`). A full run
+takes about 6 minutes, so CI runs it on main four times a day, not on each merge
+(`.github/workflows/coverage.yml`, also started by hand from the Actions tab). That run also writes
+the HTML report and the README badge's `badge.json` (`scripts/coverage.sh --html <dir>`), which the
+pages workflow publishes at <https://matheusmota-dev-br.github.io/tikra/coverage/html/>: green
+"100% lines" when no line is missed, red with the count of missed lines otherwise. The Python module is out of it: pytest covers it, not llvm-cov.
 
 The script reads the per-line list, not the summary's percentage. The library is built twice, once
 with its own unit tests (`cfg(test)`), and the summary counts the closures of that build again, so it
