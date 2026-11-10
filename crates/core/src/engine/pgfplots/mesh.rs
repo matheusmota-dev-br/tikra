@@ -199,7 +199,7 @@ pub fn image_corners(pts: &[[f64; 3]], rows: usize, cols: usize) -> Vec<[f64; 3]
 }
 
 /// The patches of a plot: corner indices.
-fn patches(p: &Plot, n: usize, kind: &str) -> Vec<Vec<usize>> {
+fn patches(p: &Plot, n: usize, kind: &str, vertex_count: usize) -> Vec<Vec<usize>> {
     if let Some((rows, cols)) = p.lattice {
         let mut v = Vec::new();
         // `patch type=line`: the segments along the scanlines only
@@ -220,18 +220,15 @@ fn patches(p: &Plot, n: usize, kind: &str) -> Vec<Vec<usize>> {
         return v;
     }
     if p.patch {
-        let (size, corners): (usize, usize) = match kind {
-            "rectangle" | "bilinear" => (4, 4),
-            "biquadratic" => (9, 4),
-            "quadratic triangle" => (6, 3),
-            "triangle quadr" => (6, 3),
-            "cubic spline" => (4, 2),
-            "line" => (2, 2),
-            "bicubic" => (16, 4),
-            "polygon" => (4, 4),
-            _ => (3, 3),
+        // each patch's outline: its corners in turn (a bicubic's are 0, 3, 15, 12), a polygon's
+        // `vertex count` points
+        let kind = super::patch::Kind::from_name(kind, vertex_count);
+        let size = kind.size();
+        let corners: Vec<usize> = match kind {
+            super::patch::Kind::Polygon(n) => (0..n).collect(),
+            k => k.corners().to_vec(),
         };
-        return (0..n / size).map(|i| (0..corners).map(|k| i * size + k).collect()).collect();
+        return (0..n / size).map(|i| corners.iter().map(|k| i * size + k).collect()).collect();
     }
     // a line of points: segments
     (0..n.saturating_sub(1)).map(|i| vec![i, i + 1]).collect()
@@ -252,6 +249,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
     let width = st.line_width;
     let opacity = (st.draw_opacity, st.fill_opacity);
     let explicit = keys::value(e, "/pgfplots/mesh/color input").starts_with("explicit");
+    let vertex_count = keys::number(e, "/pgfplots/vertex count").unwrap_or(4.0).max(1.0) as usize;
     if p.patch && p.lattice.is_none() && !explicit {
         let look = Look { draw, fill, faceted, shader, stroke: st.clone(), surf };
         return draw_patches(e, p, pts, f, &kind, &look);
@@ -270,7 +268,7 @@ pub fn draw(e: &mut Engine, p: &Plot, pts: &[[f64; 3]], f: &Frame, style: &[Toke
             }
             (corners.iter().map(to_canvas).collect(), v)
         }
-        None => (pts.iter().map(to_canvas).collect(), patches(p, pts.len(), &kind).into_iter().map(|q| (q.clone(), q)).collect()),
+        None => (pts.iter().map(to_canvas).collect(), patches(p, pts.len(), &kind, vertex_count).into_iter().map(|q| (q.clone(), q)).collect()),
     };
     // `z buffer=auto` reverses the columns when the face at xmin is in front, the rows when the
     // one at ymin is: the lattice cells' corners turn with them
