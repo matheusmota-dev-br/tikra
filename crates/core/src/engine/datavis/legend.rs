@@ -489,7 +489,12 @@ impl Engine {
             "hsb" => hsb(part(0), part(1), part(2)),
             "rgb" => Color::rgb(part(0), part(1), part(2)),
             "gray" => Color::rgb(part(0), part(0), part(0)),
-            _ => Color::BLACK,
+            "cmy" => Color::rgb(1.0 - part(0), 1.0 - part(1), 1.0 - part(2)),
+            "cmyk" => Color::cmyk(part(0), part(1), part(2), part(3)),
+            _ => {
+                self.warn(format!("color series in the color model '{model}' not supported: black"));
+                Color::BLACK
+            }
         };
         self.colors.insert("tikra@dv@seriescolor".into(), c);
         Ok(())
