@@ -1,16 +1,19 @@
 # Every line of the Rust crates runs in the tests (docs/tests.md, "Coverage"): scripts/coverage.sh fails
-# if any line runs in no test. Its own workflow so the README's badge shows this check alone.
+# if any line runs in no test. A full run takes about 6 minutes, so it runs on main four times a day,
+# not on each merge. Its report and the README badge's badge.json are kept as the `coverage` artifact,
+# which the pages workflow, started when this one ends, publishes at /coverage/.
 name: coverage
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "0 0,6,12,18 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: coverage-${{ github.ref }}
+  group: coverage
   cancel-in-progress: true
 
 jobs:
@@ -25,4 +28,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      - run: scripts/coverage.sh
+      - run: scripts/coverage.sh --html coverage
+      # also when lines are missed: the report shows them, and the badge turns red
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+          retention-days: 7
