@@ -594,3 +594,25 @@ fn a_tieline_in_2d_needs_no_z_end() {
     let (_, w) = axis("", "\\addplot[tieline] table[tie end x=c] {\na b c\n0 0 1\n1 0 2\n};");
     assert!(w.iter().any(|w| w.contains("tie ends")), "{w:?}");
 }
+
+/// Patches with a color per point: a bicubic patch is outlined by its corners (points 0, 3, 15
+/// and 12, not the first row), a polygon by its `vertex count` points.
+#[test]
+fn explicit_color_patches_are_outlined_by_their_corners() {
+    let grid: String = (0..16).map(|k| format!("({},{}) [1,0,0] ", k % 4, k / 4)).collect();
+    let (c, w) = axis("", &format!("\\addplot[patch, patch type=bicubic, shader=flat, mesh/color input=explicit, point meta=explicit symbolic] coordinates {{{grid}}};"));
+    assert!(w.is_empty(), "{w:?}");
+    let f = filled(&c);
+    assert_eq!(f.len(), 1);
+    let (lo, hi) = bounds(f[0]);
+    assert!(hi.x - lo.x > 10.0 * PT && hi.y - lo.y > 10.0 * PT, "a flat patch: {:?}", f[0]);
+    let pentagon = "(0,0) [1,0,0] (2,0) [1,0,0] (3,1) [1,0,0] (1,2) [1,0,0] (-1,1) [1,0,0]";
+    let (c, w) = axis(
+        "",
+        &format!("\\addplot[patch, patch type=polygon, vertex count=5, shader=flat, mesh/color input=explicit, point meta=explicit symbolic] coordinates {{{pentagon}}};"),
+    );
+    assert!(w.is_empty(), "{w:?}");
+    let f = filled(&c);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].iter().filter(|s| matches!(s, Segment::LineTo(_))).count(), 4, "{:?}", f[0]);
+}
