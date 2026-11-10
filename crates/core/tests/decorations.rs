@@ -185,6 +185,18 @@ fn text_along_path() {
     assert!(places[0] < 0.05 && places[0] < places[1] && places[1] < places[2], "{places:?}");
 }
 
+/// A color given by its model and values in the text's format (`|\color[rgb]{…}|`) colors the
+/// characters after it, as a named one does.
+#[test]
+fn text_along_path_colored_by_model_and_values() {
+    for format in [r"\color[rgb]{1,0,0}", r"\color{red}"] {
+        let (items, w) = picture(&format!(r"\path[decorate, decoration={{text along path, text={{|{format}|ab}}}}] (0,0) -- (3,0);"));
+        assert!(w.is_empty(), "{format}: {w:?}");
+        let colors: Vec<String> = items.iter().filter_map(|i| if let Item::Text { label, .. } = i { Some(label.color.hex()) } else { None }).collect();
+        assert_eq!(colors, ["#ff0000", "#ff0000"], "{format}");
+    }
+}
+
 #[test]
 fn footprints_and_shapes() {
     let (items, w) = picture(r"\fill[decorate, decoration={footprints, foot length=20pt}] (0,0) -- (3,0);");
