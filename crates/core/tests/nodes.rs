@@ -281,7 +281,8 @@ fn node_rotation_and_scale() {
 
 #[test]
 fn node_syntax_errors() {
-    for bad in [r"\node[draw {x};", r"\node (a {x};", r"\node at {x};", r"\node {x;"] {
+    // (a label's options without their `]` too, in a node and in a graph)
+    for bad in [r"\node[draw {x};", r"\node (a {x};", r"\node at {x};", r"\node {x;", r"\node[label={[red}] {a};", r"\graph { a [label=[red]above:x] };"] {
         // an error or a warning, never a silent drawing
         if let Ok((_, w)) = tikra::engine::run_document(&format!("\\begin{{tikzpicture}}{bad}\\end{{tikzpicture}}")) {
             assert!(!w.is_empty(), "{bad}");
