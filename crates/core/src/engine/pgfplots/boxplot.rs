@@ -81,12 +81,10 @@ fn given(e: &mut Engine, name: &str) -> Option<f64> {
 }
 
 /// The percentile `p` of sorted `x` by `estimator`
-/// (`\pgfplotsplothandler@boxplot@percentile@estimator@…`).
+/// (`\pgfplotsplothandler@boxplot@percentile@estimator@…`). `x` is not empty: a box plot without
+/// values computes none.
 pub fn percentile(x: &[f64], p: f64, estimator: &str) -> f64 {
     let n = x.len();
-    if n == 0 {
-        return f64::NAN;
-    }
     // 1-based, clamped
     let get = |i: i64| x[(i - 1).clamp(0, n as i64 - 1) as usize];
     let lookup = |h: f64| {
