@@ -134,6 +134,13 @@ fn pgfmath_as_tex_reads_it() {
     }
 }
 
+/// `\pgfmathsign` and `\pgfmathMod` work under another name given by `\let`, an active character's too.
+#[test]
+fn pgfmath_sign_and_mod_under_let() {
+    assert!(close_to(start(r"\let\s\pgfmathsign \s{-3}\let\x\pgfmathresult \draw (\x,0) -- (1,1);"), (-1.0, 0.0)));
+    assert!(close_to(start(r"\catcode`\~=13 \let~\pgfmathMod ~{-7}{3}\let\x\pgfmathresult \draw (\x,0) -- (1,1);"), (2.0, 0.0)));
+}
+
 #[test]
 fn pgfmath_inner_commands_and_random_numbers() {
     // `\pgfmathadd@` and the other inner forms
