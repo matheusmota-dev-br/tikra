@@ -38,11 +38,9 @@ pub fn parse_arrows(spec: &str, user: &UserTips) -> Option<(Option<String>, Opti
         }
         sequence(s, start, user, 0).map(|_| Some(s.to_string()))
     };
+    // (with no start, the text starts with the `-`: an arrow specification either way)
     let start = side(&a, true)?;
     let end = side(&b, false)?;
-    if start.is_none() && end.is_none() && !spec.trim().starts_with('-') {
-        return None;
-    }
     Some((start, end))
 }
 
@@ -972,10 +970,8 @@ impl Pen {
         self.z()
     }
     fn current(&self) -> Point {
-        match self.0.last() {
-            Some(Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p)) => *p,
-            _ => Point::default(),
-        }
+        let Some(Segment::MoveTo(p) | Segment::LineTo(p) | Segment::CurveTo(_, _, p)) = self.0.last() else { return Point::default() };
+        *p
     }
     fn take(&mut self) -> Vec<Segment> {
         std::mem::take(&mut self.0)
@@ -1004,8 +1000,7 @@ fn ratio(a: f64, b: f64) -> f64 {
 /// The setup and drawing code of a tip, then its reversal (`\pgf@arrows@handle@reverse`).
 fn geometry(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
     let mut g = match kind {
-        Kind::Old(Old::DirectionEe) => direction_ee(k.length, lw),
-        Kind::Old(o) => old(o, lw, k.reversed),
+        Kind::Old(o) => old(o, k.length, lw, k.reversed),
         _ => meta(kind, k, lw),
     };
     if k.reversed {
@@ -1574,6 +1569,14 @@ fn meta(kind: Kind, k: &Keys, lw: Widths) -> Geometry {
     Geometry { tip, back, line, visual_tip: tip, visual_back: visual_back.unwrap_or(back), hull, shapes }
 }
 
+/// A tip declared with `\pgfarrowsdeclare`.
+fn declared_geometry(i: u16) -> Geometry {
+    let tip = DECLARED.with(|d| d.borrow().get(i as usize).cloned());
+    let Some(tip) = tip else { return Geometry { tip: 0.0, back: 0.0, line: 0.0, visual_tip: 0.0, visual_back: 0.0, hull: Vec::new(), shapes: Vec::new() } };
+    let shapes = tip.paths.into_iter().map(|(segs, fill, stroke, width)| Shape { segs, fill, stroke, width, cap: None, join: None }).collect();
+    Geometry { tip: tip.right, back: tip.left, line: 0.0, visual_tip: tip.right, visual_back: tip.left, hull: Vec::new(), shapes }
+}
+
 /// `direction ee` of `pgflibraryshapes.gates.ee`: a triangle `d` long, filled and stroked with
 /// round joins, from `-d/2` to `d/2`.
 fn direction_ee(d: f64, lw: Widths) -> Geometry {
@@ -1586,14 +1589,8 @@ fn direction_ee(d: f64, lw: Widths) -> Geometry {
 
 /// The tips declared with `\pgfarrowsdeclare`: their extents (left and right) and drawing; the line
 /// ends at 0 and they have no hull, so they leave the bounding box alone.
-fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
+fn old(o: Old, length: f64, lw: Widths, _reversed: bool) -> Geometry {
     use Old::*;
-    if let User(i) = o {
-        let tip = DECLARED.with(|d| d.borrow().get(i as usize).cloned());
-        let Some(tip) = tip else { return Geometry { tip: 0.0, back: 0.0, line: 0.0, visual_tip: 0.0, visual_back: 0.0, hull: Vec::new(), shapes: Vec::new() } };
-        let shapes = tip.paths.into_iter().map(|(segs, fill, stroke, width)| Shape { segs, fill, stroke, width, cap: None, join: None }).collect();
-        return Geometry { tip: tip.right, back: tip.left, line: 0.0, visual_tip: tip.right, visual_back: tip.left, hull: Vec::new(), shapes };
-    }
     let t = lw.line;
     let mut p = Pen::default();
     let mut shapes = Vec::new();
@@ -1846,8 +1843,9 @@ fn old(o: Old, lw: Widths, _reversed: bool) -> Geometry {
             push(p.take(), false, true, b, Some(Cap::Round), Some(Join::Round));
             (-1.36 * a - 0.5 * b, 2.06 * a + 0.5 * b)
         }
-        // drawn by `direction_ee`, with its length
-        DirectionEe | User(_) => (0.0, 0.0),
+        // `direction ee` has its length
+        DirectionEe => return direction_ee(length, lw),
+        User(i) => return declared_geometry(i),
     };
     Geometry { tip, back, line: 0.0, visual_tip: tip, visual_back: back, hull: Vec::new(), shapes }
 }
@@ -2091,10 +2089,8 @@ pub fn tip_shapes(spec: &str, line_width: f64) -> Option<(f64, Vec<TipPath>)> {
     e.draw(Point::default(), Point::new(-1.0, 0.0), &stroke, 1.0, &mut items);
     let paths = items
         .into_iter()
-        .filter_map(|i| match i {
-            Item::Path { segments, fill, stroke } => Some((segments, fill.is_some(), stroke.map(|s| (s.cap, s.join)))),
-            _ => None,
-        })
+        // (tips draw paths only)
+        .filter_map(|i| if let Item::Path { segments, fill, stroke } = i { Some((segments, fill.is_some(), stroke.map(|s| (s.cap, s.join)))) } else { None })
         .collect();
     Some((e.total * PT, paths))
 }

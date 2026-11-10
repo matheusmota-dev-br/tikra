@@ -908,6 +908,20 @@ mod tests {
         assert!(c.anchor("top").unwrap().x > c.anchor("before top").unwrap().x);
     }
 
+    /// Keys a shape reads that the table leaves at their defaults: no symbol text, no code, no
+    /// pointer, no text, no length written out (none of these defaults is reached from a document,
+    /// whose keys are the engine's).
+    #[test]
+    fn shapes_with_keys_at_their_defaults() {
+        let mut k = TableKeys::default();
+        for name in ["and gate IEC", "generic circle IEC", "rectangle callout", "arrow box", "rounded rectangle"] {
+            let g = shape(name, 10.0, 7.0, 2.0, &mut k);
+            assert!(!g.paths.is_empty(), "{name}");
+            let (n, s) = (g.anchor("north").unwrap(), g.anchor("south").unwrap());
+            assert!(n.y > s.y + 10.0 * PT, "{name}: {n:?} {s:?}");
+        }
+    }
+
     #[test]
     fn miter_offset_of_a_square() {
         let sq = [Point::new(0.0, 0.0), Point::new(1.0, 0.0), Point::new(1.0, 1.0), Point::new(0.0, 1.0)];

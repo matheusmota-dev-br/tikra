@@ -266,16 +266,15 @@ impl Run<'_> {
         }
         if c.sep {
             opts.push_str("/pgf/decoration/text effects/every word separator/.try,");
-        } else if c.word > 0 {
+        } else {
+            // (a character that is no separator is a letter of a word: both counts start at 1)
             opts.push_str(&format!("every word/.try,word {}/.try,", c.word));
-            if c.letter > 0 {
-                opts.push_str(&format!("every letter/.try,every {} letter/.try,", c.letter));
-                if c.letter == 1 {
-                    opts.push_str("every first letter/.try,");
-                }
-                if c.final_letter {
-                    opts.push_str("every final letter/.try,");
-                }
+            opts.push_str(&format!("every letter/.try,every {} letter/.try,", c.letter));
+            if c.letter == 1 {
+                opts.push_str("every first letter/.try,");
+            }
+            if c.final_letter {
+                opts.push_str("every final letter/.try,");
             }
         }
         let mut options = super::super::tikra_tokens(&opts);
