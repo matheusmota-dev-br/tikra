@@ -317,6 +317,14 @@ fn a_shift_animation_takes_braced_points() {
     assert!(close(c.max.unwrap().x - c.min.unwrap().x, xshift.0), "{c:?}");
 }
 
+/// Under a nonlinear transformation, `\pgftext` goes where its point goes, once.
+#[test]
+fn pgftext_under_a_nonlinear_transformation_moves_once() {
+    let (_, moved) = label(r"\makeatletter \pgftransformnonlinear{\advance\pgf@x by 1cm\relax} \pgftext[at={\pgfpoint{0cm}{0cm}}]{A}");
+    let (_, there) = label(r"\pgftext[at={\pgfpoint{1cm}{0cm}}]{A}");
+    assert!((moved.e - there.e).abs() < 1e-4 && (moved.f - there.f).abs() < 1e-4, "{moved:?} against {there:?}");
+}
+
 #[test]
 fn node_syntax_errors() {
     // (a label's options without their `]` too, in a node and in a graph)
