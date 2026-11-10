@@ -3070,12 +3070,50 @@ impl Engine {
     /// `?:`) choosing between two. `None` for a number.
     fn math_text_value(&mut self, text: &str) -> Result<Option<String>, Error> {
         let t = text.trim();
-        let t = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')).unwrap_or(t).trim();
+        let mut t = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')).unwrap_or(t).trim();
         if !t.contains('"') {
             return Ok(None);
         }
+        // `("a")`: the parentheses around the whole
+        while let Some(inner) = t.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+            let mut depth = 0i32;
+            if inner.chars().any(|c| {
+                depth += i32::from(c == '(') - i32::from(c == ')');
+                depth < 0
+            }) {
+                break;
+            }
+            t = inner.trim();
+        }
         if let Some(q) = t.strip_prefix('"').and_then(|x| x.strip_suffix('"')).filter(|q| !q.contains('"')) {
             return Ok(Some(q.to_string()));
+        }
+        // `condition ? a : b`: the first `?` outside quotes and parentheses, and its `:` (a `?:` in
+        // the second part nests)
+        let (mut depth, mut quoted, mut question, mut nested) = (0, false, None, 0);
+        for (i, c) in t.char_indices() {
+            match c {
+                '"' => quoted = !quoted,
+                '(' if !quoted => depth += 1,
+                ')' if !quoted => depth -= 1,
+                '?' if !quoted && depth == 0 => {
+                    if question.is_none() {
+                        question = Some(i);
+                    } else {
+                        nested += 1;
+                    }
+                }
+                ':' if !quoted && depth == 0 && question.is_some() => {
+                    if nested > 0 {
+                        nested -= 1;
+                        continue;
+                    }
+                    let q = question.unwrap_or_default();
+                    let pick = if self.number(&t[..q])? != 0.0 { &t[q + 1..i] } else { &t[i + 1..] };
+                    return Ok(Some(self.math_text_value(pick)?.unwrap_or_else(|| pick.trim().to_string())));
+                }
+                _ => {}
+            }
         }
         // `ifthenelse(condition, a, b)`: its arguments at the commas outside quotes and parentheses
         // (the closing parenthesis may be missing at the end, as pgfmath lets it)
