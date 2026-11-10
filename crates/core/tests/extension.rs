@@ -457,3 +457,16 @@ fn a_library_measures_code_without_drawing_it() {
     let after = convert(&format!(r"\path[probe={{{code}}}{{n.center}}]; \draw (n) -- (0,0);"), &[&PROBES]);
     assert!(!after.warnings.is_empty(), "the node is unknown after");
 }
+
+/// Past the room for native keys, the rest of a library's keys are left out with one warning that
+/// counts them, not one per key.
+#[test]
+fn keys_past_the_room_are_left_out_with_one_warning() {
+    let keys: Vec<(&'static str, tikra::extension::KeyFn)> =
+        (0..26_000).map(|k| (&*Box::leak(format!("/tikz/k{k}").into_boxed_str()), complain as tikra::extension::KeyFn)).collect();
+    let library: &'static Library = Box::leak(Box::new(Library { name: "many keys", definitions: String::new, keys: Box::leak(keys.into_boxed_slice()) }));
+    let r = convert(r"\draw (0,0) -- (1,0);", &[library]);
+    let said: Vec<_> = r.warnings.iter().filter(|w| w.contains("too many keys")).collect();
+    assert_eq!(said.len(), 1, "{:?}", &r.warnings[..r.warnings.len().min(3)]);
+    assert!(said[0].starts_with("library many keys: too many keys, ") && said[0].ends_with(" left out from /tikz/k25523 on"), "{}", said[0]);
+}
