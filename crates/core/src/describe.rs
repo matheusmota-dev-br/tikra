@@ -762,9 +762,10 @@ pub fn spoken(tex: &str, locale: Locale) -> String {
         i = start + rest[..end].chars().count() + close.chars().count();
     }
     out.push_str(&plain(&text));
-    // math spoken next to brackets and punctuation: `($^\circ$C)` is "(degrees C)", `$x$?` "x?"
+    // math spoken next to brackets and punctuation: `($^\circ$C)` is "(degrees C)", `$x$?` "x?",
+    // `$36$\%` "36%"
     let mut out = out.split_whitespace().collect::<Vec<_>>().join(" ").replace("( ", "(");
-    for p in [")", ",", ".", ";", ":", "?", "!"] {
+    for p in [")", ",", ".", ";", ":", "?", "!", "%"] {
         out = out.replace(&format!(" {p}"), p);
     }
     out
@@ -967,6 +968,8 @@ mod tests {
         assert_eq!(spoken(r"Line one\\Line two", Locale::En), "Line one Line two");
         assert_eq!(spoken(r"temperature ($^\circ$C)", Locale::En), "temperature (degrees C)");
         assert_eq!(spoken(r"50\% off", Locale::En), "50% off");
+        // a number printed by \pgfmathprintnumber is math: its percent sign still touches it
+        assert_eq!(spoken(r"$36$\% and $x$ \%", Locale::En), "36% and x%");
         assert_eq!(spoken(r"\textcolor{red}{hot}", Locale::En), "hot");
         assert_eq!(spoken(r"$x$", Locale::En), "x");
         assert_eq!(spoken(r"$\frac{3}{4}$", Locale::En), "3 over 4");
