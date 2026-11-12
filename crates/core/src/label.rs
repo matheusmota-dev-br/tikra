@@ -866,7 +866,8 @@ pub fn set_kerning(kerning: mathra::layout::kerning::TextKerning) {
 fn typeset(text: &str, bold: bool, sc: bool, face: mathra::font::MathFont, warnings: &mut Vec<String>) -> MathBox {
     // (Times is kerned by `times`, as TeX's `ptm`)
     let kerning = if face == FONT { KERNING.with(|k| k.get()) } else { mathra::layout::kerning::TextKerning::None };
-    let options = mathra::Options { display: false, text_kerning: kerning, ..Default::default() };
+    // no fallback fonts, whatever mathra's features: every glyph is the face's, which the figure's defs draw
+    let options = mathra::Options { display: false, text_kerning: kerning, fallback_fonts: Vec::new(), ..Default::default() };
     let text = if sc { format!("\\textsc{{{text}}}") } else { text.to_string() };
     let tex = if bold { format!("\\text{{\\textbf{{{text}}}}}") } else { format!("\\text{{{text}}}") };
     match mathra::typeset_in_font(&tex, &options, face) {
@@ -985,6 +986,12 @@ fn widen(mut b: MathBox, f: f32) -> MathBox {
             }
             // (moved with the box; what it holds is widened when drawn, as glyphs are)
             Item::Transformed { matrix, .. } => matrix[4] *= f,
+            // a group with HTML attributes is drawn where its items are: they are widened as the box's
+            Item::Group { items, bounds, .. } => {
+                *items = widen(MathBox { items: std::mem::take(items), ..MathBox::empty() }, f).items;
+                bounds[0] *= f;
+                bounds[2] *= f;
+            }
         }
     }
     b.width *= f;
@@ -1579,6 +1586,10 @@ fn scaled(mut b: MathBox, f: f32) -> MathBox {
             }
             // what it holds, mapped f times as large
             Item::Transformed { matrix, .. } => matrix.iter_mut().for_each(|m| *m *= f),
+            Item::Group { items, bounds, .. } => {
+                *items = scaled(MathBox { items: std::mem::take(items), ..MathBox::empty() }, f).items;
+                bounds.iter_mut().for_each(|v| *v *= f);
+            }
         }
     }
     b.width *= f;

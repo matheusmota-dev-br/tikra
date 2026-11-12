@@ -214,6 +214,7 @@ pub fn retarget(mut b: MathBox, bold: bool) -> MathBox {
         Item::Line { x1, .. } => *x1,
         Item::Ellipse { cx, .. } => *cx,
         Item::Transformed { matrix, .. } => matrix[4],
+        Item::Group { bounds, .. } => bounds[0],
     };
     order.sort_by(|&i, &j| x_of(&b.items[i]).total_cmp(&x_of(&b.items[j])));
     let mut shift = 0.0f32;
@@ -259,6 +260,8 @@ pub fn retarget(mut b: MathBox, bold: bool) -> MathBox {
             Item::Ellipse { cx, .. } => *cx += shift,
             // (a turned or scaled box keeps STIX Two's letters)
             Item::Transformed { matrix, .. } => matrix[4] += shift,
+            // (a group with HTML attributes, `\class`, too: moved as one, through a translation)
+            Item::Group { items, .. } => b.items[i] = Item::Transformed { matrix: [1.0, 0.0, 0.0, 1.0, shift, 0.0], items: std::mem::take(items) },
         }
     }
     b.width += shift;

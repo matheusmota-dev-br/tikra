@@ -351,7 +351,8 @@ fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64
     let inner = |x: f64, y: f64| -> (f64, f64) { ((origin.x + x * scale) * BP, -(origin.y + y * scale) * BP) };
     for item in &c.items {
         match item {
-            MathItem::Glyph { id, x, y, scale: gs, color, flip } => {
+            // (no glyph comes from a fallback font: `label::typeset` gives mathra none)
+            MathItem::Glyph { id, x, y, scale: gs, color, flip, .. } => {
                 glyphs.push((font, *id));
                 let (px, py) = inner(*x as f64, *y as f64);
                 let f = *gs as f64 * k;
@@ -407,6 +408,12 @@ fn math_box(c: &mathra::layout::MathBox, origin: Point, scale: f64, stretch: f64
                     n(-(origin.y + f * scale) * BP),
                     math_box(&inside, Point::new(0.0, 0.0), scale, stretch, font, glyphs)
                 );
+            }
+            // a group with HTML attributes (`\class`, `\htmlId`): its items, where they are; the
+            // attributes are for a web page's math, not a figure
+            MathItem::Group { items, .. } => {
+                let inside = mathra::layout::MathBox { items: items.clone(), ..mathra::layout::MathBox::empty() };
+                s.push_str(&math_box(&inside, origin, scale, stretch, font, glyphs));
             }
         }
     }
