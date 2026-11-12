@@ -4,6 +4,15 @@ What changed in each release of tikra: the crates `tikra` and `tikra-cli`, `@mat
 
 Each release has a headline (the line under its title), what changed, and the figures of [`corpus/`](corpus) that show it (`Figures:`), drawn by the site with today's tikra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.9.2 - 2026-11-11
+
+Labels set by mathra 1.12.0: typewriter text keeps its digits and signs in typewriter, and `\class` in a label is drawn.
+
+- Labels are set by mathra 1.12.0 (it was 1.9.2). `=-1` in `\texttt{xscale=-1}` is in typewriter, as TeX sets it, where it was roman, and a figure's description reads `⋮` as "and so on" ([#336](https://github.com/matheusmota-dev-br/tikra/pull/336)).
+- `\class` and `\htmlId` in a label draw their text where it is set; the HTML attributes are left out of the figure ([#336](https://github.com/matheusmota-dev-br/tikra/pull/336)).
+
+Figures: `reflection-rotation` `matrix-of-math`
+
 ## 1.9.1 - 2026-11-10
 
 Sixty-five fixes found by tests that now run every line of tikra: no more crashes on a few broken inputs, arrow tips in decorations as declared, and TeX's rules kept in more corners.
