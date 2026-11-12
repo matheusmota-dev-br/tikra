@@ -276,3 +276,18 @@ fn a_command_that_begins_like_implies_is_not_an_arrow() {
     let (_, w) = set(r"$a \impliesx b$", "", None, 'c');
     assert!(w.iter().any(|w| w.contains("impliesx")), "{w:?}");
 }
+
+#[test]
+fn a_class_sets_its_text_as_without_it() {
+    // mathra puts `\class`'s text in a group with HTML attributes: the figure draws it where it is
+    same_width(r"$a\class{c}{b}c$", r"$abc$");
+    // in Times it moves with the letters before it, and keeps STIX Two's, as a turned box does
+    let ptm = |t: &str| {
+        let (l, w) = set(t, r"\fontfamily{ptm}\selectfont", None, 'c');
+        assert!(w.is_empty(), "{t}: {w:?}");
+        l.width()
+    };
+    assert!(ptm(r"Wa $\class{c}{x}$") > ptm(r"Wa"));
+    // a line of its own size is scaled with what it holds
+    same_width(r"a\\{\large $\class{c}{b}$}", r"a\\{\large $b$}");
+}

@@ -462,3 +462,11 @@ mod motion {
         assert!(g.starts_with(b"GIF89a"));
     }
 }
+
+#[test]
+fn a_class_in_a_label_draws_its_glyphs() {
+    let with = no_warnings(r"\tikz \node {$a\class{c}{b}$};").svg;
+    let without = no_warnings(r"\tikz \node {$ab$};").svg;
+    assert_eq!(with.matches("<use ").count(), without.matches("<use ").count());
+    assert!(!with.contains(r#"class="c""#));
+}
